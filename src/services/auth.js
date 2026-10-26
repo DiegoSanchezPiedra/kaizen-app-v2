@@ -1,125 +1,181 @@
-// src/services/auth.js
-import { appPool } from '../config/database.js';
+import crypto from 'node:crypto';
+import { appPool, servicePool } from '../config/database.js';
 import { hashPassword, verifyPassword } from './password.js';
 import { signToken } from './jwt.js';
 import { verifyGoogleIdToken } from './google.js';
 
-// Crea profile + auth_credentials + user_roles en una transacción
-async function createUser({ email, passwordHash, googleSub, displayName, emailVerified = false }) {
+// ---------------------------------------------------------------------------
+// Helpers de error
+// ---------------------------------------------------------------------------
+function httpError(status, code, message) {
+  const err = new Error(message);
+  err.status = status;
+  err.code = code;
+  return err;
+}
+
+// ---------------------------------------------------------------------------
+// Lectura de credenciales SOLO para login (sin JWT todavía).
+// Única excepción documentada al uso de servicePool. Ver contexto §5.
+// ---------------------------------------------------------------------------
+export async function findCredentialsByEmail(email) {
+  const { rows } = await servicePool.query(
+    `SELECT profile_id, email, password_hash, google_sub, email_verified
+       FROM auth_credentials
+      WHERE email = $1`,
+    [email]
+  );
+  return rows[0] ?? null;
+}
+
+export async function findCredentialsByGoogleSub(googleSub) {
+  const { rows } = await servicePool.query(
+    `SELECT profile_id, email, password_hash, google_sub, email_verified
+       FROM auth_credentials
+      WHERE google_sub = $1`,
+    [googleSub]
+  );
+  return rows[0] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// createUser — camino único para registro local y alta nueva vía Google.
+// Genera profileId ANTES de la transacción y hace set_config dentro de
+// la misma transacción appPool para satisfacer RLS Fase 1.
+// ---------------------------------------------------------------------------
+async function createUser({ email, passwordHash, googleSub, displayName }) {
+  const profileId = crypto.randomUUID();
   const client = await appPool.connect();
   try {
     await client.query('BEGIN');
-
-    const profileId = crypto.randomUUID();
+    await client.query(
+      `SELECT set_config('app.current_user_id', $1, true)`,
+      [profileId]
+    );
+    await client.query(
+      `SELECT set_config('app.current_role', 'alumno', true)`
+    );
 
     await client.query(
       `INSERT INTO profiles (id, display_name) VALUES ($1, $2)`,
-      [profileId, displayName || email.split('@')[0]]
+      [profileId, displayName ?? null]
     );
-
     await client.query(
-      `INSERT INTO auth_credentials (profile_id, email, password_hash, google_sub, email_verified)
+      `INSERT INTO auth_credentials
+         (profile_id, email, password_hash, google_sub, email_verified)
        VALUES ($1, $2, $3, $4, $5)`,
-      [profileId, email.toLowerCase(), passwordHash, googleSub, emailVerified]
+      [profileId, email, passwordHash, googleSub, googleSub ? true : false]
     );
-
     await client.query(
       `INSERT INTO user_roles (user_id, role) VALUES ($1, 'alumno')`,
       [profileId]
     );
-
     await client.query('COMMIT');
-    return { id: profileId, email: email.toLowerCase(), role: 'alumno' };
+
+    const token = signToken({ sub: profileId, role: 'alumno' });
+    return {
+      token,
+      user: { id: profileId, email, role: 'alumno' },
+    };
   } catch (err) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
+    // email duplicado
+    if (err.code === '23505' && String(err.constraint || '').includes('email')) {
+      throw httpError(409, 'email_taken', 'email already registered');
+    }
     throw err;
   } finally {
     client.release();
   }
 }
 
-async function findCredentialsByEmail(email) {
-  const { rows } = await appPool.query(
-    `SELECT ac.profile_id, ac.email, ac.password_hash, ac.google_sub,
-            ur.role
-     FROM auth_credentials ac
-     JOIN user_roles ur ON ur.user_id = ac.profile_id
-     WHERE ac.email = $1`,
-    [email.toLowerCase()]
-  );
-  return rows[0] || null;
-}
-
-async function findCredentialsByGoogleSub(sub) {
-  const { rows } = await appPool.query(
-    `SELECT ac.profile_id, ac.email, ac.password_hash, ac.google_sub,
-            ur.role
-     FROM auth_credentials ac
-     JOIN user_roles ur ON ur.user_id = ac.profile_id
-     WHERE ac.google_sub = $1`,
-    [sub]
-  );
-  return rows[0] || null;
-}
-
+// ---------------------------------------------------------------------------
+// registerLocal
+// ---------------------------------------------------------------------------
 export async function registerLocal({ email, password, displayName }) {
   if (!email || !password) {
-    throw Object.assign(new Error('email y password obligatorios'), { status: 400 });
+    throw httpError(400, 'invalid_payload', 'email and password required');
   }
   if (password.length < 8) {
-    throw Object.assign(new Error('password mínimo 8 caracteres'), { status: 400, code: 'weak_password' });
+    throw httpError(400, 'weak_password', 'password too short');
   }
-
   const existing = await findCredentialsByEmail(email);
   if (existing) {
-    throw Object.assign(new Error('email ya registrado'), { status: 409, code: 'email_taken' });
+    throw httpError(409, 'email_taken', 'email already registered');
   }
-
   const passwordHash = await hashPassword(password);
-  const user = await createUser({ email, passwordHash, displayName });
-  const token = signToken({ sub: user.id, role: user.role });
-  return { token, user };
+  return createUser({ email, passwordHash, googleSub: null, displayName });
 }
 
+// ---------------------------------------------------------------------------
+// loginLocal
+// ---------------------------------------------------------------------------
 export async function loginLocal({ email, password }) {
-  const creds = await findCredentialsByEmail(email);
-  if (!creds || !creds.password_hash) {
-    throw Object.assign(new Error('credenciales inválidas'), { status: 401, code: 'invalid_credentials' });
+  if (!email || !password) {
+    throw httpError(400, 'invalid_payload', 'email and password required');
   }
-  const ok = await verifyPassword(creds.password_hash, password);
+  const cred = await findCredentialsByEmail(email);
+  if (!cred || !cred.password_hash) {
+    throw httpError(401, 'invalid_credentials', 'invalid credentials');
+  }
+  const ok = await verifyPassword(cred.password_hash, password);
   if (!ok) {
-    throw Object.assign(new Error('credenciales inválidas'), { status: 401, code: 'invalid_credentials' });
+    throw httpError(401, 'invalid_credentials', 'invalid credentials');
   }
-  const token = signToken({ sub: creds.profile_id, role: creds.role });
-  return { token, user: { id: creds.profile_id, email: creds.email, role: creds.role } };
+  const { rows } = await servicePool.query(
+    `SELECT role FROM user_roles WHERE user_id = $1 ORDER BY id LIMIT 1`,
+    [cred.profile_id]
+  );
+  const role = rows[0]?.role ?? 'alumno';
+  const token = signToken({ sub: cred.profile_id, role });
+  return {
+    token,
+    user: { id: cred.profile_id, email: cred.email, role },
+  };
 }
 
+// ---------------------------------------------------------------------------
+// loginGoogle
+// ---------------------------------------------------------------------------
 export async function loginGoogle({ idToken }) {
-  const g = await verifyGoogleIdToken(idToken);
-
-  // 1. Ya vinculado por google_sub → login
-  const bySub = await findCredentialsByGoogleSub(g.sub);
-  if (bySub) {
-    const token = signToken({ sub: bySub.profile_id, role: bySub.role });
-    return { token, user: { id: bySub.profile_id, email: bySub.email, role: bySub.role } };
+  if (!idToken) {
+    throw httpError(400, 'invalid_payload', 'idToken required');
+  }
+  const payload = await verifyGoogleIdToken(idToken);
+  const email = payload.email;
+  const googleSub = payload.sub;
+  if (!email || !googleSub) {
+    throw httpError(400, 'invalid_google_token', 'token missing email/sub');
   }
 
-  // 2. Email existe sin google_sub → NO vincular automáticamente
-  const byEmail = await findCredentialsByEmail(g.email);
+  const bySub = await findCredentialsByGoogleSub(googleSub);
+  if (bySub) {
+    const { rows } = await servicePool.query(
+      `SELECT role FROM user_roles WHERE user_id = $1 ORDER BY id LIMIT 1`,
+      [bySub.profile_id]
+    );
+    const role = rows[0]?.role ?? 'alumno';
+    const token = signToken({ sub: bySub.profile_id, role });
+    return {
+      token,
+      user: { id: bySub.profile_id, email: bySub.email, role },
+    };
+  }
+
+  const byEmail = await findCredentialsByEmail(email);
   if (byEmail) {
-    throw Object.assign(
-      new Error('Ya existe una cuenta con este email. Inicia sesión con tu contraseña y vincula Google desde tu perfil.'),
-      { status: 409, code: 'link_required' }
+    // El email existe con password local y sin google_sub → no vincular automáticamente
+    throw httpError(
+      409,
+      'link_required',
+      'email already registered with password; log in locally to link Google'
     );
   }
 
-  // 3. Usuario nuevo → crear con password_hash NULL
-  const user = await createUser({
-    email: g.email,
+  return createUser({
+    email,
     passwordHash: null,
-    googleSub: g.sub,
-    emailVerified: g.emailVerified,
+    googleSub,
+    displayName: payload.name ?? null,
   });
-  const token = signToken({ sub: user.id, role: user.role });
-  return { token, user };
 }
