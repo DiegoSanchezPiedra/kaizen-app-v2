@@ -8,11 +8,12 @@
     "dev": "node src/index.js",
     "start": "node src/index.js",
     "migrate": "dotenv -e .env -- node-pg-migrate up",
-    "migrate:down": "dotenv -e .env -- node-pg-migrate down",
+    "migrate:down": "dotenv- e .env -- node-pg-migrate down",
     "migrate:create": "dotenv -e .env -- node-pg-migrate create",
-    "lint": "eslint src/**/*.js",
-    "format": "prettier --write src/**/*.js",
-    "test:rls": "node scripts/test-rls.js"
+    "test:rls": "dotenv -e .env -- node scripts/test-rls.js",
+    "test:mfa": "dotenv -e .env -- node scripts/test-mfa.js",
+    "lint": "eslint \"src/**/*.js\"",
+    "format": "prettier --write \"src/**/*.js\""
   },
   "keywords": [],
   "author": "",

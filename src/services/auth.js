@@ -79,7 +79,6 @@ async function createUser({ email, passwordHash, googleSub, displayName }) {
     };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    // email duplicado
     if (err.code === '23505' && String(err.constraint || '').includes('email')) {
       throw httpError(409, 'email_taken', 'email already registered');
     }
@@ -90,7 +89,8 @@ async function createUser({ email, passwordHash, googleSub, displayName }) {
 }
 
 // ---------------------------------------------------------------------------
-// registerLocal
+// registerLocal — SIN CAMBIOS (sigue firmando token; un registro nuevo
+// no puede tener MFA).
 // ---------------------------------------------------------------------------
 export async function registerLocal({ email, password, displayName }) {
   if (!email || !password) {
@@ -108,7 +108,8 @@ export async function registerLocal({ email, password, displayName }) {
 }
 
 // ---------------------------------------------------------------------------
-// loginLocal
+// loginLocal — CAMBIO: no firma token. Devuelve { profileId, email, role }
+// para que la ruta decida (JWT normal vs mfa_token).
 // ---------------------------------------------------------------------------
 export async function loginLocal({ email, password }) {
   if (!email || !password) {
@@ -127,15 +128,11 @@ export async function loginLocal({ email, password }) {
     [cred.profile_id]
   );
   const role = rows[0]?.role ?? 'alumno';
-  const token = signToken({ sub: cred.profile_id, role });
-  return {
-    token,
-    user: { id: cred.profile_id, email: cred.email, role },
-  };
+  return { profileId: cred.profile_id, email: cred.email, role };
 }
 
 // ---------------------------------------------------------------------------
-// loginGoogle
+// loginGoogle — CAMBIO: no firma token. Devuelve { profileId, email, role }.
 // ---------------------------------------------------------------------------
 export async function loginGoogle({ idToken }) {
   if (!idToken) {
@@ -155,11 +152,7 @@ export async function loginGoogle({ idToken }) {
       [bySub.profile_id]
     );
     const role = rows[0]?.role ?? 'alumno';
-    const token = signToken({ sub: bySub.profile_id, role });
-    return {
-      token,
-      user: { id: bySub.profile_id, email: bySub.email, role },
-    };
+    return { profileId: bySub.profile_id, email: bySub.email, role };
   }
 
   const byEmail = await findCredentialsByEmail(email);
@@ -172,10 +165,18 @@ export async function loginGoogle({ idToken }) {
     );
   }
 
-  return createUser({
+  // Alta nueva vía Google: reusamos createUser (que sí devuelve token+user).
+  // La ruta descartará el token si MFA aplica (no aplica: usuario nuevo).
+  // Para mantener la simetría de loginLocal/loginGoogle, extraemos los campos.
+  const created = await createUser({
     email,
     passwordHash: null,
     googleSub,
     displayName: payload.name ?? null,
   });
+  return {
+    profileId: created.user.id,
+    email: created.user.email,
+    role: created.user.role,
+  };
 }
