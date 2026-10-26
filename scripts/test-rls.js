@@ -95,6 +95,23 @@ async function seed() {
          ($1,'alumno'),($2,'alumno'),($3,'alumno'),($4,'profesor'),($5,'admin')`,
       [a, b, pub, professor, admin]
     );
+    await c.query(
+      `INSERT INTO student_health_info
+         (profile_id, injuries, conditions, emergency_contact_name, emergency_contact_phone)
+       VALUES
+         ($1, 'lesion A', 'cond A', 'Ana', '+34600000000'),
+         ($2, 'lesion B', 'cond B', NULL, NULL)`,
+      [a, b]
+    );
+
+    // B4.5 — agreements: A firma los 3 en v1.0; B no firma ninguno.
+    await c.query(
+      `INSERT INTO user_agreements (id, profile_id, type, version) VALUES
+         ($1, $2, 'waiver', '1.0'),
+         ($3, $2, 'data_protection', '1.0'),
+         ($4, $2, 'rights_of_image', '1.0')`,
+      [crypto.randomUUID(), a, crypto.randomUUID(), crypto.randomUUID()]
+    );
   });
 
   return { a, b, pub, professor, admin };
@@ -106,6 +123,8 @@ async function seed() {
 async function cleanup(ids) {
   const arr = Object.values(ids);
   await withServiceCommit(async (c) => {
+    await c.query(`DELETE FROM user_agreements WHERE profile_id = ANY($1::uuid[])`, [arr]);
+    await c.query(`DELETE FROM student_health_info WHERE profile_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM audit_log WHERE actor_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM user_roles WHERE user_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM auth_credentials WHERE profile_id = ANY($1::uuid[])`, [arr]);
@@ -229,6 +248,81 @@ async function main() {
         c.query(`SELECT profile_id FROM auth_credentials WHERE profile_id = $1`, [ids.b])
       );
       assert.equal(rows.length, 1);
+    });
+    await run('B4.5 — alumno A NO ve el health de B', async () => {
+      const { rows } = await withCtx({ uid: ids.a, role: 'alumno' }, (c) =>
+        c.query(`SELECT profile_id FROM student_health_info WHERE profile_id = $1`, [ids.b])
+      );
+      assert.equal(rows.length, 0);
+    });
+
+    await run('B4.5 — alumno A SÍ ve su propio health', async () => {
+      const { rows } = await withCtx({ uid: ids.a, role: 'alumno' }, (c) =>
+        c.query(`SELECT profile_id FROM student_health_info WHERE profile_id = $1`, [ids.a])
+      );
+      assert.equal(rows.length, 1);
+    });
+
+    await run('B4.5 — admin SÍ ve el health de A', async () => {
+      const { rows } = await withCtx({ uid: ids.admin, role: 'admin' }, (c) =>
+        c.query(`SELECT profile_id FROM student_health_info WHERE profile_id = $1`, [ids.a])
+      );
+      assert.equal(rows.length, 1);
+    });
+
+    await run('B4.5 — profesor NO ve la tabla base student_health_info', async () => {
+      const { rows } = await withCtx({ uid: ids.professor, role: 'profesor' }, (c) =>
+        c.query(`SELECT profile_id FROM student_health_info WHERE profile_id = $1`, [ids.a])
+      );
+      assert.equal(rows.length, 0);
+    });
+
+    await run('B4.5 — profesor SÍ ve la vista student_health_professor_view (solo 3 columnas)', async () => {
+      const { rows } = await withCtx({ uid: ids.professor, role: 'profesor' }, (c) =>
+        c.query(`SELECT * FROM student_health_professor_view`)
+      );
+      // La vista expone filas de todos los alumnos con health (A y B en el seed).
+      assert.ok(rows.length >= 2, `se esperaban >=2 filas, hay ${rows.length}`);
+      // Y solo 3 columnas: profile_id, injuries, conditions.
+      const keys = Object.keys(rows[0]).sort();
+      assert.deepEqual(keys, ['conditions', 'injuries', 'profile_id']);
+      // Y NO expone columnas sensibles.
+      assert.equal(rows[0].medication, undefined);
+      assert.equal(rows[0].allergies, undefined);
+      assert.equal(rows[0].emergency_contact_name, undefined);
+      assert.equal(rows[0].emergency_contact_phone, undefined);
+    });
+
+    await run('B4.5 — alumno NO puede UPDATE en user_agreements (REVOKE)', async () => {
+      await expectDenied(
+        withCtx({ uid: ids.a, role: 'alumno' }, (c) =>
+          c.query(`UPDATE user_agreements SET version='9.9' WHERE profile_id=$1`, [ids.a])
+        )
+      );
+    });
+
+    await run('B4.5 — alumno NO puede DELETE en user_agreements (REVOKE)', async () => {
+      await expectDenied(
+        withCtx({ uid: ids.a, role: 'alumno' }, (c) =>
+          c.query(`DELETE FROM user_agreements WHERE profile_id=$1`, [ids.a])
+        )
+      );
+    });
+
+    await run('B4.5 — alumno NO ve los agreements de B', async () => {
+      // B no tiene agreements en el seed, así que insertamos uno con service_role
+      // para tener algo que A no debería ver.
+      await withServiceCommit((c) =>
+        c.query(
+          `INSERT INTO user_agreements (id, profile_id, type, version)
+           VALUES ($1, $2, 'waiver', '1.0')`,
+          [crypto.randomUUID(), ids.b]
+        )
+      );
+      const { rows } = await withCtx({ uid: ids.a, role: 'alumno' }, (c) =>
+        c.query(`SELECT id FROM user_agreements WHERE profile_id = $1`, [ids.b])
+      );
+      assert.equal(rows.length, 0);
     });
   } finally {
     await cleanup(ids);

@@ -55,7 +55,7 @@ export function withRlsContext(handler) {
       await client.query(`SELECT set_config('app.current_role', $1, true)`, [
         req.user.role,
       ]);
-      const result = await handler(req, client);
+      const result = await handler(req, res, client);
       await client.query('COMMIT');
       if (result !== undefined) res.json(result);
       return result;

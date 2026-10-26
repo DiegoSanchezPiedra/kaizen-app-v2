@@ -94,7 +94,7 @@ router.post('/google', async (req, res, next) => {
 router.get(
   '/me',
   requireAuth,
-  withRlsContext(async (req, client) => {
+  withRlsContext(async (req, res, client) => { 
     const { rows } = await client.query(
       `SELECT current_setting('app.current_user_id', true) AS uid,
               current_setting('app.current_role', true) AS role`

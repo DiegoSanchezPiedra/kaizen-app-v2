@@ -40,10 +40,11 @@
 | B2 | Auth base (local + Google OIDC) + JWT + `SET LOCAL` | B1 | CERRADO |
 | B3 | RLS Fase 1 + tests por rol | B2 | CERRADO |
 | B4 | MFA TOTP admin | B2 | CERRADO |
-| B4.5 | `student_health_info` + consentimientos + bloqueo backend | B2 | Pendiente |
-| B5 | CRUD disciplinas, planes, `plan_disciplinas` (admin) | B3 | Pendiente |
+| B4.5 | `student_health_info` + `user_agreements` + bloqueo backend | B2 | Pendiente |
+| B4.5.1 | Gestión documental admin (`agreement_documents`, storage, subida) | B4.5 | Pendiente |
+| B5 | CRUD disciplinas, planes, `plan_disciplinas` (admin) | B3, B4.5.1 | Pendiente |
 | B6 | CRUD `class_sessions` + calendario | B5 | Pendiente |
-| B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6 | Pendiente |
+| B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | Pendiente |
 | B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | Pendiente |
 | B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | Pendiente |
 | B10 | Stripe base (checkout, portal, webhook idempotente) | B4.5, B7 | Pendiente |
@@ -121,16 +122,60 @@
   - [x] `npm run test:mfa` → 13/13 `OK`, exit 0.
   - [x] Verificación HTTP end-to-end del flujo completo (1a–1i): login → `mfa_required` → `/auth/mfa/verify` con TOTP → token final → `/auth/me` con `mfa_enabled: true`; recovery code válido una vez y rechazado en el reintento; `mfa_token` rechazado por `requireAuth`.
 
-### B4.5 — `student_health_info` + consentimientos + bloqueo backend — Pendiente
-- **Objetivo**: onboarding de salud y consentimientos; bloquear reservas/checkout hasta que existan.
-- **Entregable**: migración `student_health_info` + `subscription_agreements` con RLS; endpoints `/me/health` y `/me/agreements`; helper de bloqueo.
-- **Fuera de alcance**: UI de onboarding (frontend), validación de menores (futuro).
+### B4.5 — `student_health_info` + `user_agreements` + bloqueo backend — Pendiente
+- **Objetivo**: onboarding de salud y consentimientos; bloquear reservas/checkout hasta que estén completos. Versiones vigentes hardcodeadas en config (B4.5.1 las moverá a BD).
+- **Entregable**:
+  - Migración `004_student_health_and_agreements.js`: `student_health_info` (1:1, RLS self+admin), `user_agreements` (append-only, RLS self+admin), vista `student_health_professor_view` (`SECURITY INVOKER`, solo `injuries`/`conditions`), triggers `set_updated_at`.
+  - `src/config/agreements.js`: `AGREEMENT_TYPES`, `CURRENT_*_VERSION`.
+  - `src/services/profile.js`: `requireCompleteProfile(studentId, role)` → `{ ok, missing }`.
+  - `src/middleware/requireCompleteProfile.js`.
+  - `src/routes/me.js`: `GET /me/profile-status`, `POST /me/health`, `POST /me/agreements`.
+  - `src/routes/agreements.js`: `GET /agreements/:type/current` (sirve PDF placeholder de config).
+  - Tests por rol en `scripts/test-rls.js`.
+- **Fuera de alcance**: subida admin de documentos (B4.5.1); UI de onboarding (frontend); consentimiento de menores; eIDAS; `public_profiles` (B13).
 - **Checklist de cierre**:
-  - [ ] Tabla `student_health_info` creada con RLS (self + admin).
-  - [ ] Tabla `subscription_agreements` con RLS (self + admin).
-  - [ ] `POST /me/health` y `POST /me/agreements` funcionan.
-  - [ ] Helper `requireCompleteProfile(studentId)` bloquea reservas (B7) y checkout (B10).
-  - [ ] Tests por rol añadidos a `scripts/test-rls.js`.
+  - [ ] `student_health_info` creada con `profile_id` PK, `ON DELETE CASCADE`, `emergency_contact_*` NOT NULL, trigger `set_updated_at`.
+  - [ ] `user_agreements` creada con `UNIQUE(profile_id, type, version)`, append-only (`REVOKE UPDATE, DELETE`).
+  - [ ] RLS `ENABLE` + `FORCE` en ambas; políticas coherentes con §5.
+  - [ ] Vista `student_health_professor_view` con solo `profile_id`, `injuries`, `conditions`; SELECT a `profesor`.
+  - [ ] `src/config/agreements.js` con los 3 tipos y sus versiones; falla al arrancar si falta.
+  - [ ] `requireCompleteProfile` devuelve `{ ok, missing }` con la definición de §5 (display_name + health con emergency_contact + 3 agreements en versión vigente).
+  - [ ] `POST /me/health` (upsert) y `POST /me/agreements` (`{ type, version }`) funcionan.
+  - [ ] `GET /me/profile-status` devuelve `{ ok, missing }` sin provocar 403.
+  - [ ] `GET /agreements/:type/current` sirve el PDF vigente (placeholder de config).
+  - [ ] Tests por rol añadidos a `scripts/test-rls.js`: alumno no lee health de otro; admin sí; profesor solo ve `injuries`/`conditions` vía vista; alumno no puede borrar `user_agreements`.
+  - [ ] Verificación HTTP manual: alumno sin health → `GET /me/profile-status` con `missing: ['health_info','emergency_contact','waiver','data_protection','rights_of_image']`; tras completar → `ok: true`.
+  - [ ] `migrate:down` → `migrate` → `migrate:down` sin error.
+  - [ ] Servidor reiniciado tras `migrate` (riesgo §9).
+  - [ ] Commit `feat(B4.5): student_health_info + user_agreements + requireCompleteProfile`.
+
+### B4.5.1 — Gestión documental admin (`agreement_documents`, storage, subida) — Pendiente
+- **Objetivo**: que el admin pueda subir, publicar y retirar los PDFs de los 3 tipos de agreement; `requireCompleteProfile` pasa a leer la versión vigente de BD.
+- **Dependencia dura**: va **inmediatamente después de B4.5, antes de B5**. Sin esto, B7/B10 no pueden usar versiones reales.
+- **Entregable**:
+  - Migración `005_agreement_documents.js`: tabla `agreement_documents` con ciclo `created → published → retired`, índice único parcial para "una versión vigente por tipo", RLS (alumnos ven publicados, admin todo).
+  - `src/config/storage.js`: `AGREEMENTS_STORAGE_PATH` (default `./storage/agreements`); crea directorio al arrancar.
+  - `src/services/storage.js`: `saveFile`, `readFile`, `deleteFile` (filesystem, sin S3).
+  - `src/services/agreements.js`: `getCurrentVersion(type)` (lee de BD), `publishDocument`, `retireDocument`.
+  - `src/routes/admin/agreements.js`: `POST /admin/agreements/documents` (multipart), `POST /admin/agreements/documents/:id/publish`, `GET /admin/agreements/documents`.
+  - `GET /agreements/:type/current` cambia de config a BD.
+  - `requireCompleteProfile` cambia de fuente (mismo contrato `{ ok, missing }`).
+  - `storage/` en `.gitignore` + `.gitkeep`.
+- **Fuera de alcance**: S3/MinIO (B20), backup de `storage/` (B20), firma electrónica avanzada (futuro), UI de admin (B19).
+- **Checklist de cierre**:
+  - [ ] `agreement_documents` creada con `UNIQUE(type, version)`, índice parcial de versión vigente, RLS.
+  - [ ] `AGREEMENTS_STORAGE_PATH` en `.env` / `.env.example`; directorio creado al arrancar; `storage/` en `.gitignore`.
+  - [ ] `storage.js` con `saveFile`/`readFile`/`deleteFile`; checksum SHA-256 al guardar.
+  - [ ] `POST /admin/agreements/documents` (multipart, admin): valida `type` ∈ `AGREEMENT_TYPES`, `version` semver-ish, `mime_type = application/pdf`, tamaño ≤ 10 MB; 409 `duplicate_document` / `version_exists_different_content` si aplica.
+  - [ ] `POST /admin/agreements/documents/:id/publish` (admin): retira la vigente anterior del mismo tipo, publica la nueva, audita en `audit_log`.
+  - [ ] `GET /admin/agreements/documents` (admin): lista con versiones y estado.
+  - [ ] `GET /agreements/:type/current` sirve el PDF publicado vigente desde `AGREEMENTS_STORAGE_PATH`.
+  - [ ] `requireCompleteProfile` lee versión vigente de `agreement_documents` (vía `getCurrentVersion`); contrato `{ ok, missing }` sin cambios.
+  - [ ] Tests por rol: admin sube/publica; alumno no puede subir; alumno ve el publicado; versión retirada no es "vigente".
+  - [ ] `migrate:down` → `migrate` → `migrate:down` sin error.
+  - [ ] Servidor reiniciado tras `migrate`.
+  - [ ] Verificación HTTP manual end-to-end: admin sube PDF → publica → alumno `GET /agreements/waiver/current` obtiene el PDF → `POST /me/agreements` con la versión nueva → `requireCompleteProfile` `ok: true`.
+  - [ ] Commit `feat(B4.5.1): agreement_documents + storage + subida admin + requireCompleteProfile desde BD`.
 
 ### B5 — CRUD disciplinas, planes, `plan_disciplinas` (admin) — Pendiente
 - **Objetivo**: catálogo de disciplinas y planes, con RLS.
@@ -153,13 +198,13 @@
 
 ### B7 — Reservas (`create_booking`, `FOR UPDATE`, lista de espera) — Pendiente
 - **Objetivo**: reservas con bloqueo de plaza (`FOR UPDATE`) y lista de espera.
-- **Entregable**: RLS en `bookings`; función `create_booking` con `FOR UPDATE`; endpoints de reserva/cancelación.
+- **Entregable**: RLS en `bookings`; función `create_booking` con `FOR UPDATE`; endpoints de reserva/cancelación; middleware `requireCompleteProfile` (B4.5) montado.
 - **Fuera de alcance**: pago (B10), asistencia (B8).
 - **Checklist de cierre**:
   - [ ] RLS en `bookings`.
   - [ ] `create_booking` transaccional con `FOR UPDATE` y control de aforo.
   - [ ] Lista de espera funciona.
-  - [ ] Bloqueo por `student_health_info` (B4.5) activo.
+  - [ ] `requireCompleteProfile` (B4.5) bloquea reservas con `403 profile_incomplete`.
   - [ ] Tests de concurrencia + rol.
 
 ### B8 — Asistencia manual (`register_attendance`, auditoría) — Pendiente
@@ -192,7 +237,7 @@
   - [ ] Checkout crea suscripción en Stripe + fila local.
   - [ ] Portal redirige.
   - [ ] Webhook idempotente vía `webhook_events`.
-  - [ ] Bloqueo por `student_health_info` + consentimientos (B4.5, B12).
+  - [ ] `requireCompleteProfile` (B4.5) y consentimientos (B12) bloquean checkout.
 
 ### B10.1 — Modelo Stripe en `invoices` + webhook `invoice.payment_failed` — Pendiente
 - **Objetivo**: ampliar `invoices` con datos Stripe; manejar `invoice.payment_failed`.
@@ -243,11 +288,12 @@
   - [ ] Tests.
 
 ### B12 — Validación final waiver/consentimientos en checkout — Pendiente
-- **Objetivo**: bloquear checkout si faltan consentimientos.
-- **Entregable**: validación en `/billing/checkout` contra `subscription_agreements`.
+- **Objetivo**: bloquear checkout si faltan consentimientos (versión vigente).
+- **Entregable**: validación en `/billing/checkout` contra `user_agreements` + `getCurrentVersion` (B4.5.1).
 - **Fuera de alcance**: firma electrónica avanzada (futuro).
 - **Checklist de cierre**:
-  - [ ] Checkout bloqueado sin consentimientos.
+  - [ ] Checkout bloqueado sin los 3 consentimientos en versión vigente.
+  - [ ] Re-firma tras publicar versión nueva bloquea checkout hasta firmar.
   - [ ] Tests.
 
 ### B13 — Perfiles públicos (flags, `public_profiles`, directorio) — Pendiente
@@ -256,6 +302,7 @@
 - **Fuera de alcance**: UI (B18).
 - **Checklist de cierre**:
   - [ ] `public_profiles` solo expone campos permitidos.
+  - [ ] **`student_health_info` NO se une a `public_profiles`** (riesgo §9 B4.5).
   - [ ] Directorio paginado.
   - [ ] Revisar política `profiles_select` para `profesor` (¿restringir a alumnos con reserva?).
   - [ ] Tests.
@@ -276,7 +323,7 @@
 - **Fuera de alcance**: push al admin (solo alumno).
 - **Checklist de cierre**:
   - [ ] Suscripción/desuscripción.
-  - [ ] Envío en eventos clave (pago fallido, reserva).
+  - [ ] Envío en eventos clave (pago fallido, reserva, **re-firma de agreement tras publicación de versión nueva** — B4.5.1).
   - [ ] Tests manuales.
 
 ### B16 — Agregaciones de informes + cron nocturno — Pendiente
@@ -304,6 +351,7 @@
 - **Checklist de cierre**:
   - [ ] Instalable.
   - [ ] Offline básico.
+  - [ ] **Aviso de re-firma pendiente al alumno** (B4.5.1) visible en la PWA.
   - [ ] Build reproducible (`npm run build:frontend` o equivalente, a decidir aquí).
 
 ### B19 — Panel admin (métricas, usuarios, auditoría, morosos) — Pendiente
@@ -315,15 +363,17 @@
   - [ ] Gestión de usuarios.
   - [ ] `audit_log` consultable.
   - [ ] Morosos (B10.2) visible.
+  - [ ] **Gestión de documentos legales (B4.5.1) visible**: subir, publicar, retirar.
   - [ ] Tests manuales.
 
 ### B20 — Hardening (rate limiting, RLS audit, backups, E2E) — Pendiente
 - **Objetivo**: endurecer el sistema.
-- **Entregable**: rate limiting, auditoría de RLS, backups, tests E2E, runner formal (Node test runner o Vitest), `npm run lint`, `npm run test`, `npm run build:prod` si hay frontend.
+- **Entregable**: rate limiting, auditoría de RLS, backups (incluido `storage/`), tests E2E, runner formal (Node test runner o Vitest), `npm run lint`, `npm run test`, `npm run build:prod` si hay frontend.
 - **Fuera de alcance**: nada.
 - **Checklist de cierre**:
-  - [ ] Rate limiting en `/auth/*`.
-  - [ ] Auditoría de RLS (revisar todas las políticas).
-  - [ ] Backups automáticos.
-  - [ ] E2E de flujos críticos (incluye flujo MFA completo de B4 con supertest).
+  - [ ] Rate limiting en `/auth/*` y `/admin/agreements/*`.
+  - [ ] Auditoría de RLS (revisar todas las políticas, incluidas B4.5 y B4.5.1).
+  - [ ] Backups automáticos de BD **y de `AGREEMENTS_STORAGE_PATH`**.
+  - [ ] Verificación de checksum al servir `GET /agreements/:type/current` (B4.5.1).
+  - [ ] E2E de flujos críticos (incluye flujo MFA completo de B4 con supertest, y flujo B4.5/B4.5.1: subir → publicar → firmar → `requireCompleteProfile`).
   - [ ] `scripts/test-rls.js` y `scripts/test-mfa.js` migrados a BD efímera por test run (no destructivo en local compartido).
