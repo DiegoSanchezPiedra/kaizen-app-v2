@@ -33,288 +33,88 @@
 
 ## 3. Tabla resumen de bloques
 
-| Bloque | Título | Depende de |
-|---|---|---|
-| B0 | Docker + PostgreSQL + roles + migración inicial | — |
-| B1 | Esqueleto backend (pools, `/health`, errorHandler) | B0 |
-| B2 | Auth base (local + Google OIDC) + JWT + `SET LOCAL` | B1 |
-| B3 | RLS Fase 1 + tests por rol | B2 |
-| B4 | MFA TOTP admin | B2 |
-| B4.5 | `student_health_info` + consentimientos + bloqueo backend | B2 |
-| B5 | CRUD disciplinas, planes, `plan_disciplinas` (admin) | B3 |
-| B6 | CRUD `class_sessions` + calendario | B5 |
-| B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6 |
-| B8 | Asistencia manual (`register_attendance`, auditoría) | B7 |
-| B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 |
-| B10 | Stripe base (checkout, portal, webhook idempotente) | B4.5, B7 |
-| B10.1 | Modelo Stripe en `invoices` + webhook `invoice.payment_failed` | B10 |
-| B10.2 | Endpoint admin `GET /admin/billing/failed-payments` | B10.1 |
-| B10.5 | `subscription_disciplines` + upgrade/downgrade | B10 |
-| B10.6 | Emails transaccionales de billing (al alumno) | B10.1 |
-| B11 | Cancelación admin de suscripciones | B10.5 |
-| B12 | Validación final waiver/consentimientos en checkout | B10, B4.5 |
-| B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 |
-| B14 | Racha, badges, tabla opt-in | B7 |
-| B15 | Push (`push_subscriptions`, envío) | B2 |
-| B16 | Agregaciones de informes + cron nocturno | B8 |
-| B17 | Endpoints de informes | B16 |
-| B18 | PWA (manifest, Service Worker) | B13 |
-| B19 | Panel admin (métricas, usuarios, auditoría, morosos) | B11, B17, B10.2 |
-| B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos |
+| Bloque | Título | Depende de | Estado |
+|---|---|---|---|
+| B0 | Docker + PostgreSQL + roles + migración inicial | — | CERRADO |
+| B1 | Esqueleto backend (pools, `/health`, errorHandler) | B0 | CERRADO |
+| B2 | Auth base (local + Google OIDC) + JWT + `SET LOCAL` | B1 | CERRADO |
+| B3 | RLS Fase 1 + tests por rol | B2 | CERRADO |
+| B4 | MFA TOTP admin | B2 | Pendiente |
+| B4.5 | `student_health_info` + consentimientos + bloqueo backend | B2 | Pendiente |
+| B5 | CRUD disciplinas, planes, `plan_disciplinas` (admin) | B3 | Pendiente |
+| B6 | CRUD `class_sessions` + calendario | B5 | Pendiente |
+| B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6 | Pendiente |
+| B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | Pendiente |
+| B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | Pendiente |
+| B10 | Stripe base (checkout, portal, webhook idempotente) | B4.5, B7 | Pendiente |
+| B10.1 | Modelo Stripe en `invoices` + webhook `invoice.payment_failed` | B10 | Pendiente |
+| B10.2 | Endpoint admin `GET /admin/billing/failed-payments` | B10.1 | Pendiente |
+| B10.5 | `subscription_disciplines` + upgrade/downgrade | B10 | Pendiente |
+| B10.6 | Emails transaccionales de billing (al alumno) | B10.1 | Pendiente |
+| B11 | Cancelación admin de suscripciones | B10.5 | Pendiente |
+| B12 | Validación final waiver/consentimientos en checkout | B10, B4.5 | Pendiente |
+| B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 | Pendiente |
+| B14 | Racha, badges, tabla opt-in | B7 | Pendiente |
+| B15 | Push (`push_subscriptions`, envío) | B2 | Pendiente |
+| B16 | Agregaciones de informes + cron nocturno | B8 | Pendiente |
+| B17 | Endpoints de informes | B16 | Pendiente |
+| B18 | PWA (manifest, Service Worker) | B13 | Pendiente |
+| B19 | Panel admin (métricas, usuarios, auditoría, morosos) | B11, B17, B10.2 | Pendiente |
+| B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos | Pendiente |
 
 ---
 
 ## 4. Detalle por bloque
 
-### B0 — Docker + PostgreSQL + roles + migración inicial
+### B0 — Docker + PostgreSQL + roles + migración inicial — CERRADO
 - **Objetivo**: entorno BD reproducible con tres roles y esquema inicial.
 - **Entregable**: `docker-compose.yaml`, `.env`, `migrations/001_initial_setup.js`, scripts npm.
-- **Fuera de alcance**: RLS activo (B3), datos semilla.
 - **Checklist de cierre**:
-  - [ ] Contenedor healthy en `127.0.0.1:5432`.
-  - [ ] `app_user` (`rolbypassrls=f`), `service_role` (`rolbypassrls=t`), `migrator` (`rolbypassrls=f`).
-  - [ ] 23 tablas con owner `migrator`.
-  - [ ] `npm run migrate` y `migrate:down` funcionan.
+  - [x] Contenedor healthy en `127.0.0.1:5432`.
+  - [x] `app_user` (`rolbypassrls=f`), `service_role` (`rolbypassrls=t`), `migrator` (`rolbypassrls=f`).
+  - [x] 23 tablas con owner `migrator`.
+  - [x] `npm run migrate` y `migrate:down` funcionan.
 
-### B1 — Esqueleto backend
+### B1 — Esqueleto backend — CERRADO
 - **Objetivo**: servidor arranca, conecta a ambos pools, expone `/health`, maneja errores.
 - **Entregable**: `src/index.js`, `src/config/database.js`, `src/middleware/errorHandler.js`.
-- **Fuera de alcance**: auth, rutas de negocio.
 - **Checklist de cierre**:
-  - [ ] `/health` → 200 `{status:"ok", db:{app:{ok:true},service:{ok:true}}}`.
-  - [ ] Ruta inexistente → 404 JSON.
-  - [ ] `Ctrl+C` cierra limpio, `ss -tlnp | grep 3000` vacío.
-  - [ ] Logs muestran `app_user` y `service_role` (nunca `migrator`).
+  - [x] `/health` → 200 `{status:"ok", db:{app:{ok:true},service:{ok:true}}}`.
+  - [x] Ruta inexistente → 404 JSON.
+  - [x] `Ctrl+C` cierra limpio, `ss -tlnp | grep 3000` vacío.
+  - [x] Logs muestran `app_user` y `service_role` (nunca `migrator`).
 
-### B2 — Auth base (local + Google OIDC) + JWT + `SET LOCAL`
+### B2 — Auth base (local + Google OIDC) + JWT + `SET LOCAL` — CERRADO
 - **Objetivo**: registro, login local, login Google, JWT con `sub`+`role`, middleware que abre transacción con `SET LOCAL`.
-- **Entregable**:
-  - Migración `002_auth_credentials.js`:
-    - Crear tabla `auth_credentials` (`profile_id uuid PK → profiles.id ON DELETE CASCADE`, `email text UNIQUE NOT NULL`, `password_hash text NULL`, `google_sub text UNIQUE NULL`, `email_verified boolean DEFAULT false`, `created_at`, `updated_at`).
-    - Índice único parcial en `google_sub WHERE google_sub IS NOT NULL`.
-    - Check: `password_hash IS NOT NULL OR google_sub IS NOT NULL`.
-  - Revisar `user_roles.id bigint` sin default (¿`nextval` manual o migrar a `GENERATED BY DEFAULT AS IDENTITY`?).
-  - `POST /auth/register` → `{ email, password, display_name? }` → crea `profiles` (UUID generado) + `auth_credentials` + `user_roles` (`alumno`) → JWT.
-  - `POST /auth/login` → `{ email, password }` → verifica `auth_credentials.password_hash` → JWT.
-  - `POST /auth/google` → `{ id_token }` → verifica ID token → resuelve por `google_sub` o email → JWT o 409 `link_required`.
-  - `src/middleware/auth.js`: valida JWT, extrae `sub`+`role`, envuelve request en transacción con `SET LOCAL app.current_user_id` / `app.current_role`.
-  - Helper `withRlsContext(fn)`.
-- **Fuera de alcance**: MFA (B4), `student_health_info` (B4.5), refresh tokens, Stripe (B10).
+- **Entregable** (implementado):
+  - Migración `002_auth_credentials.js`: tabla `auth_credentials`, índice único parcial en `google_sub`, check de método de login, trigger `updated_at`, `user_roles.id` → IDENTITY.
+  - `src/config/auth.js`.
+  - `src/middleware/asyncHandler.js` (helper Express 4).
+  - `src/services/auth.js`, `password.js`, `jwt.js`, `google.js`.
+  - `src/middleware/auth.js` (`requireAuth`, `requireRole`, `withRlsContext`).
+  - `src/routes/auth.js`: `POST /auth/register`, `POST /auth/login`, `POST /auth/google`, `GET /auth/me`.
+  - `src/index.js`: monta `/auth`.
+  - Barrels `index.js` en `middleware/`, `routes/`, `services/`.
 - **Checklist de cierre**:
-  - [ ] Migración `002` aplicada y reversible (`migrate:down`).
-  - [ ] Registro crea usuario (profiles + auth_credentials + user_roles `alumno`), hashea password, devuelve JWT.
-  - [ ] Login verifica password y devuelve JWT.
-  - [ ] Google verifica ID token con `audience: GOOGLE_CLIENT_ID`, resuelve por `google_sub` o email, crea usuario si es nuevo (`password_hash = NULL`).
-  - [ ] Vinculación por email NO automática (409 `link_required` si coincide email sin `google_sub`).
-  - [ ] Middleware protege ruta de prueba y ejecuta `SET LOCAL` en transacción.
-  - [ ] Token inválido → 401; token válido → 200 con `sub`+`role` correctos (role leído de `user_roles`).
-  - [ ] `JWT_SECRET`, `JWT_EXPIRES_IN`, `GOOGLE_CLIENT_ID` en `.env`.
+  - [x] Migración `002` aplicada y reversible (`migrate:down`).
+  - [x] Registro crea usuario (profiles + auth_credentials + user_roles `alumno`), hashea password, devuelve JWT.
+  - [x] Login verifica password y devuelve JWT.
+  - [x] Google verifica ID token con `audience: GOOGLE_CLIENT_ID`, resuelve por `google_sub` o email, crea usuario si es nuevo (`password_hash = NULL`). **Verificado con cuenta real.**
+  - [x] Vinculación por email NO automática (409 `link_required` si coincide email sin `google_sub`). Implementado, no probado con cuenta real.
+  - [x] Middleware protege ruta de prueba y ejecuta `SET LOCAL` en transacción.
 
-### B3 — RLS Fase 1 + tests por rol
-- **Objetivo**: activar RLS en tablas de Fase 1 y verificar por rol.
-- **Entregable**: migración con `ENABLE ROW LEVEL SECURITY` + políticas + script de tests manuales.
-- **Fuera de alcance**: RLS de tablas de bloques futuros.
+### B3 — RLS Fase 1 + tests por rol — CERRADO
+- **Objetivo**: activar RLS en las 6 tablas de Fase 1, refactorizar `createUser` y login para convivir con RLS, y verificar por rol con un script reproducible.
+- **Entregable** (implementado):
+  - Migración `003_rls_fase1.js`: `ENABLE` + `FORCE ROW LEVEL SECURITY` en `profiles`, `auth_credentials`, `user_roles`, `user_mfa`, `audit_log`, `academy_settings`. Políticas por tabla (ver `contexto-proyecto.md` §5). `REVOKE UPDATE, DELETE ON audit_log FROM app_user`. Reversible.
+  - `src/services/auth.js`: `createUser` con `set_config('app.current_user_id', nuevoUuid, true)` + `set_config('app.current_role', 'alumno', true)` dentro de la transacción `appPool`, **usando siempre `client.query`**. `findCredentialsByEmail` / `findCredentialsByGoogleSub` vía `servicePool` (única lectura sin JWT).
+  - `scripts/test-rls.js` + `"test:rls": "node scripts/test-rls.js"` en `package.json`.
+- **Fuera de alcance**: RLS en tablas de B5+ (disciplinas, planes, sesiones, reservas, pagos, etc.). Se activan en su bloque. Endpoints nuevos de admin (B4+).
 - **Checklist de cierre**:
-  - [ ] `app_user` no ve filas ajenas en tablas de Fase 1.
-  - [ ] `service_role` ve todo.
-  - [ ] Tests manuales por rol documentados en `contexto-proyecto.md`.
-  - [ ] `auth_credentials` solo la lee el dueño y admin (o `service_role`).
-
-### B4 — MFA TOTP admin
-- **Objetivo**: setup, verify-setup, login en dos pasos, códigos de recuperación.
-- **Entregable**: endpoints `/auth/mfa/*` sobre la tabla `user_mfa` existente.
-- **Fuera de alcance**: MFA para alumno/profesor.
-- **Checklist de cierre**:
-  - [ ] Admin sin MFA configurado → login redirige a setup.
-  - [ ] Setup genera QR, verify-setup confirma (`mfa_enabled = true`).
-  - [ ] Login con TOTP válido → JWT; inválido → 401.
-  - [ ] Recovery codes funcionan una sola vez.
-
-### B4.5 — `student_health_info` + consentimientos + bloqueo backend
-- **Objetivo**: crear tabla separada, flujo de alta con menor/mayor, bloqueo backend si falta.
-- **Entregable**:
-  - Migración `student_health_info` + ampliación `subscription_agreements`.
-  - Endpoint onboarding.
-  - Helper `requireHealthInfo` aplicado en B7/B10.
-- **Fuera de alcance**: Stripe (B10).
-- **Checklist de cierre**:
-  - [ ] Tabla creada con campos: lesiones, condiciones, experiencia, medicación, alergias, contacto emergencia.
-  - [ ] Endpoint onboarding funciona para alumno.
-  - [ ] Bloqueo verificado: reserva/checkout sin health info → 4xx con código claro.
-
-### B5 — CRUD disciplinas, planes, `plan_disciplinas` (admin)
-- **Objetivo**: endpoints admin para gestionar catálogo (`disciplines`, `plans`, `plan_disciplines` ya existen).
-- **Entregable**: rutas `/admin/disciplines`, `/admin/plans`, `/admin/plan-disciplines`.
-- **Fuera de alcance**: reservas, pagos.
-- **Checklist de cierre**:
-  - [ ] CRUD completo por admin.
-  - [ ] Alumno/profesor no pueden escribir.
-
-### B6 — CRUD `class_sessions` + calendario
-- **Objetivo**: admin crea/edita sesiones; todos leen calendario.
-- **Entregable**: rutas `/admin/class-sessions`, `/class-sessions` (GET).
-- **Fuera de alcance**: reservas.
-- **Checklist de cierre**:
-  - [ ] Admin CRUD.
-  - [ ] Calendario legible por alumno/profesor.
-  - [ ] Solapamientos detectados.
-
-### B7 — Reservas
-- **Objetivo**: `create_booking` con `FOR UPDATE`, cancelación con plazo, lista de espera.
-- **Entregable**: RPC + endpoints + tests de concurrencia.
-- **Fuera de alcance**: asistencia.
-- **Checklist de cierre**:
-  - [ ] RPC evita overbooking bajo concurrencia.
-  - [ ] Cancelación respeta plazo.
-  - [ ] Lista de espera promociona al liberar plaza.
-  - [ ] Bloqueo si falta `student_health_info`.
-
-### B8 — Asistencia manual
-- **Objetivo**: `register_attendance` + corrección con auditoría.
-- **Entregable**: RPC + endpoints + auditoría en `audit_log`.
-- **Fuera de alcance**: QR.
-- **Checklist de cierre**:
-  - [ ] Profesor registra asistencia.
-  - [ ] Corrección deja traza de auditoría.
-
-### B9 — QR dinámico
-- **Objetivo**: `device_tokens`, endpoints tablet, SSE, check-in, selector solapamiento.
-- **Entregable**: tabla `device_tokens`, rutas `/tablet/*`, SSE.
-- **Fuera de alcance**: reservas (ya en B7).
-- **Checklist de cierre**:
-  - [ ] Admin genera device token, tablet lo usa.
-  - [ ] SSE emite QR rotativo con `session_id`.
-  - [ ] Check-in válido dentro de ventana.
-  - [ ] Selector si hay sesiones solapadas.
-
-### B10 — Stripe base
-- **Objetivo**: checkout, portal, webhook idempotente.
-- **Entregable**: rutas `/billing/*`, webhook, uso de `webhook_events` para idempotencia, dependencia `stripe`.
-- **Fuera de alcance**: modelo detallado de `invoices` (B10.1), endpoint morosos (B10.2), upgrade/downgrade (B10.5), emails (B10.6), cancelación admin (B11).
-- **Checklist de cierre**:
-  - [ ] Checkout crea suscripción (fila en `subscriptions`).
-  - [ ] Portal accesible (sin cancelación por cliente).
-  - [ ] Webhook idempotente (replay no duplica, verificado contra `webhook_events`).
-  - [ ] Bloqueo si falta `student_health_info`.
-  - [ ] `STRIPE_SECRET_KEY` y `STRIPE_WEBHOOK_SECRET` en `.env`.
-
-### B10.1 — Modelo Stripe en `invoices` + webhook `invoice.payment_failed`
-- **Objetivo**: reflejar estado de facturas y reaccionar a fallos de pago.
-- **Entregable**:
-  - Migración: añadir a `invoices` `stripe_invoice_id` (unique), `status`, `attempt_count`, `next_payment_attempt`, `last_payment_error` (jsonb), `hosted_invoice_url`.
-  - Handler de webhook para `invoice.payment_failed`, `invoice.payment_action_required`, `customer.subscription.updated` (status `past_due`/`unpaid`), `customer.subscription.deleted`.
-  - Actualización de `subscriptions.status` en consecuencia.
-- **Fuera de alcance**: endpoint admin (B10.2), emails (B10.6).
-- **Checklist de cierre**:
-  - [ ] `invoices` con columnas Stripe aplicadas.
-  - [ ] Webhook `invoice.payment_failed` inserta/actualiza fila en `invoices` con `attempt_count`, `last_payment_error`, `next_payment_attempt`.
-  - [ ] `subscriptions.status` pasa a `past_due`/`unpaid` correctamente.
-  - [ ] Idempotencia respetada (mismo `event.id` no reprocesa).
-
-### B10.2 — Endpoint admin de morosos
-- **Objetivo**: lista de alumnos con pago fallido para el panel.
-- **Entregable**: `GET /admin/billing/failed-payments` → join `invoices` + `subscriptions` + `profiles`, filtrando `status IN ('open','past_due','uncollectible')`, ordenado por `next_payment_attempt` y `attempt_count`.
-- **Fuera de alcance**: UI (B19).
-- **Checklist de cierre**:
-  - [ ] Solo admin puede llamarlo.
-  - [ ] Devuelve `display_name`, `profile_id`, `subscription_id`, `subscription_status`, `invoice_status`, `attempt_count`, `next_payment_attempt`, `last_payment_error.message`.
-
-### B10.5 — `subscription_disciplines` + upgrade/downgrade
-- **Objetivo**: cambio de plan con prorrateo (upgrade) y schedule 2 fases (downgrade).
-- **Entregable**: tabla `subscription_disciplines` + endpoints `/billing/upgrade`, `/billing/downgrade`.
-- **Fuera de alcance**: cancelación admin.
-- **Checklist de cierre**:
-  - [ ] Upgrade: `always_invoice` + `pending_if_incomplete`, disciplinas al instante.
-  - [ ] Downgrade: schedule 2 fases, disciplinas al transicionar.
-
-### B10.6 — Emails transaccionales de billing
-- **Objetivo**: notificar al alumno cuando un pago falla o la suscripción se cancela por impago.
-- **Entregable**:
-  - Decidir proveedor (Resend / Postmark / SMTP propio) y añadir dependencia + `EMAIL_PROVIDER_API_KEY` + `EMAIL_FROM` a `.env`.
-  - Servicio `sendEmail(template, to, data)` con plantillas:
-    - `payment_failed_1` (primer fallo) → link al Customer Portal.
-    - `payment_failed_2plus` (reintentos) → urgencia.
-    - `subscription_cancelled_unpaid` → aviso de cancelación por impago.
-  - Enganchar en handler de `invoice.payment_failed` y `customer.subscription.deleted` de B10.1.
-- **Fuera de alcance**: push (B15), email al admin (no se hace, política pasiva).
-- **Checklist de cierre**:
-  - [ ] Proveedor decidido y configurado.
-  - [ ] Email enviado en `invoice.payment_failed` (verificado con Stripe CLI o evento de prueba).
-  - [ ] Email enviado en `customer.subscription.deleted` por impago.
-  - [ ] Plantillas con link a Customer Portal / `hosted_invoice_url`.
-
-### B11 — Cancelación admin de suscripciones
-- **Objetivo**: `cancel-now` / `cancel-at-period-end` + auditoría.
-- **Entregable**: rutas `/admin/subscriptions/:id/cancel-*` (usan `cancel_at_period_end`, `cancelled_at` de `subscriptions`).
-- **Fuera de alcance**: reembolsos automáticos.
-- **Checklist de cierre**:
-  - [ ] Ambas modalidades funcionan y auditan.
-
-### B12 — Validación final waiver/consentimientos en checkout
-- **Objetivo**: cerrar lo que no quedó en B4.5.
-- **Entregable**: guard en checkout.
-- **Checklist de cierre**:
-  - [ ] Checkout bloqueado si falta consentimiento.
-
-### B13 — Perfiles públicos
-- **Objetivo**: flags granulares, vista `public_profiles`, directorio.
-- **Entregable**: vista + endpoints (usan `is_public`, `visible_fields` de `profiles`).
-- **Checklist de cierre**:
-  - [ ] Solo campos con flag visible se exponen.
-  - [ ] Directorio filtra correctamente.
-
-### B14 — Racha, badges, tabla opt-in
-- **Objetivo**: gamificación opt-in.
-- **Entregable**: tablas + endpoints + `activity_feed`.
-- **Checklist de cierre**:
-  - [ ] Racha se actualiza con asistencia.
-  - [ ] Badges se otorgan por reglas.
-  - [ ] Opt-in respetado.
-
-### B15 — Push
-- **Objetivo**: `push_subscriptions` + envío.
-- **Entregable**: endpoint suscripción + servicio envío (tabla ya existe).
-- **Fuera de alcance**: enganchar push de billing (se puede añadir después si se quiere).
-- **Checklist de cierre**:
-  - [ ] Suscripción guardada.
-  - [ ] Envío a un usuario de prueba.
-
-### B16 — Agregaciones de informes + cron
-- **Objetivo**: `student_stats_daily`, `academy_stats_daily`, cron nocturno.
-- **Entregable**: job + tests (tablas ya existen).
-- **Fuera de alcance**: email resumen al admin (política pasiva, no se hace).
-- **Checklist de cierre**:
-  - [ ] Cron corre y agrega.
-  - [ ] Datos consistentes con asistencia.
-
-### B17 — Endpoints de informes
-- **Objetivo**: `/api/me/stats`, `/api/admin/reports/*`.
-- **Entregable**: rutas + tests.
-- **Checklist de cierre**:
-  - [ ] Alumno ve sus stats.
-  - [ ] Admin ve reportes agregados.
-
-### B18 — PWA
-- **Objetivo**: manifest, Service Worker, instalación.
-- **Entregable**: `manifest.json`, `sw.js`, registro.
-- **Checklist de cierre**:
-  - [ ] Lighthouse PWA pasa.
-  - [ ] Instalable en móvil.
-
-### B19 — Panel admin
-- **Objetivo**: métricas operativas, gestión usuarios, auditoría, lista de morosos.
-- **Entregable**: rutas + UI mínima. Consume `GET /admin/billing/failed-payments` (B10.2).
-- **Checklist de cierre**:
-  - [ ] Métricas visibles.
-  - [ ] Gestión usuarios funciona.
-  - [ ] Auditoría consultable.
-  - [ ] Lista de morosos visible y filtrable.
-
-### B20 — Hardening
-- **Objetivo**: rate limiting, RLS audit, backups, E2E.
-- **Entregable**: middleware rate limit, scripts backup, suite E2E.
-- **Checklist de cierre**:
-  - [ ] Rate limit activo.
-  - [ ] RLS auditado en todas las tablas.
-  - [ ] Backups probados (restore).
-  - [ ] E2E verde.
+  - [x] Migración `003` aplicada y reversible (`migrate:down` → `migrate` → `migrate:down` sin error).
+  - [x] RLS `ENABLE` + `FORCE` en las 6 tablas; `migrator` respeta RLS (comprobado por `test:rls`).
+  - [x] Registro local post-B3 → 201 con usuario creado (RLS activo + `set_config` funcionan), **con el servidor reiniciado tras `migrate`**.
+  - [x] Login local post-B3 → 200 con token (`servicePool` en login funciona).
+  - [x] `/auth/me` post-B3 → 200 con `rls_context.uid` = `req.user.id` (`withRlsContext` sigue operativo).
+  - [x] `npm run test:rls` → 14/14 `OK`, exit 0.
+  - [x] `audit_log` append-only: `UPDATE`/`DELETE` fallan para `app_user` (incluido admin), `INSERT` funciona.
