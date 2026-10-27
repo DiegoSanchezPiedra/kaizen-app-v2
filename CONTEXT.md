@@ -10,7 +10,7 @@ Solo términos de dominio. Sin detalles de implementación.
 - **Profesor**: perfil que imparte clases.
 - **Admin**: perfil que gestiona la academia.
 - **Tutor**: perfil vinculado a uno o varios menores mediante una relación tutor→menor. La capacidad de ser tutor la da la relación y la puede tener cualquier perfil. El rol **tutor** existe solo para quien no entrena (padre o madre que gestiona al menor). Un padre que entrena es alumno y además tutor por la relación.
-- **Menor**: perfil alumno con menos de 18 años. Requiere fecha de nacimiento. Tiene login propio, pero no firma acuerdos ni edita su ficha de salud: lo hace un tutor vinculado.
+- **Menor**: perfil alumno con menos de 18 años. Requiere fecha de nacimiento. Tiene login propio, pero no firma acuerdos: lo hace un tutor vinculado. La edición de su ficha de salud por el tutor se define en B8.
 - *Usuario* no es término de dominio.
 
 ## Acuerdos
@@ -36,4 +36,6 @@ Estado del alumno, calculado siempre a partir de los datos (un alumno recién re
 
 Es el requisito para reservar (B7) y pagar (B10). Solo aplica al rol alumno; profesor, admin y tutor siempre están completos. `missing` es la lista de lo que falta: `display_name`, `health_info`, `emergency_contact`, `waiver`, `data_protection`, `rights_of_image`.
 
-Para un **menor**, los datos de salud y los acuerdos los aporta un tutor vinculado. Al cumplir 18 años las firmas del tutor dejan de contar y el perfil queda incompleto hasta que el propio alumno firme los 3 acuerdos y confirme su ficha. El estado se calcula con la fecha de nacimiento, sin ningún proceso que cambie datos.
+Para un **menor**, los acuerdos los firma un tutor vinculado. Al cumplir 18 años las firmas del tutor dejan de contar y el perfil queda incompleto hasta que el propio alumno firme los 3 acuerdos y confirme su ficha. El estado se calcula con la fecha de nacimiento, sin ningún proceso que cambie datos.
+
+**Fecha de nacimiento y Google**: el registro local la exige. El alta con Google no la trae: `birth_date` queda NULL y el perfil se trata como adulto hasta que el frontend lleve al usuario a «Completar Perfil» (onboarding) para pedirla.

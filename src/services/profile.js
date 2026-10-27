@@ -56,6 +56,9 @@ export async function getProfileStatus(client, profileId, role) {
             ARRAY(
               SELECT ua.type FROM user_agreements ua
                WHERE ua.profile_id = p.id
+                 -- Adulto: solo firma propia. Menor: firma de un tutor (CONTEXT.md, firma por representación).
+                 AND (ua.signed_by = p.id)
+                     = (p.birth_date IS NULL OR p.birth_date <= CURRENT_DATE - interval '18 years')
                  AND (ua.type, ua.version) = ANY (
                    SELECT * FROM unnest($2::text[], $3::text[])
                  )

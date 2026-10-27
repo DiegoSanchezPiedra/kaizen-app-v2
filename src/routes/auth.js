@@ -31,8 +31,8 @@ const router = Router();
 
 router.post('/register', async (req, res, next) => {
   try {
-    const { email, password, displayName } = req.body || {};
-    const result = await registerLocal({ email, password, displayName });
+    const { email, password, displayName, birthDate } = req.body || {};
+    const result = await registerLocal({ email, password, displayName, birthDate });
     res.status(201).json(result);
   } catch (err) {
     next(err);

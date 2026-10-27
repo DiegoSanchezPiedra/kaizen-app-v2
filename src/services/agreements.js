@@ -113,7 +113,10 @@ export async function publishDocument(client, { id, actorId }) {
  * Firma un agreement en la versión vigente. 400 si tipo/versión inválidos,
  * 409 si ya estaba firmado.
  */
-export async function signAgreement(client, { profileId, type, version, ip, userAgent }) {
+export async function signAgreement(
+  client,
+  { profileId, signedBy = profileId, type, version, ip, userAgent }
+) {
   const versions = await getCurrentVersions(client);
 
   if (!AGREEMENT_TYPES.includes(type)) {
@@ -132,11 +135,11 @@ export async function signAgreement(client, { profileId, type, version, ip, user
 
   const result = await client.query(
     `INSERT INTO user_agreements
-       (id, profile_id, type, version, ip, user_agent)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (profile_id, type, version) DO NOTHING
-     RETURNING id, type, version, signed_at`,
-    [crypto.randomUUID(), profileId, type, version, ip, userAgent]
+       (id, profile_id, signed_by, type, version, ip, user_agent)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (profile_id, signed_by, type, version) DO NOTHING
+     RETURNING id, profile_id, signed_by, type, version, signed_at`,
+    [crypto.randomUUID(), profileId, signedBy, type, version, ip, userAgent]
   );
 
   if (result.rows.length === 0) {

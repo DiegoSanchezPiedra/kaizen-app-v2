@@ -66,23 +66,45 @@ router.post(
 // ------------------------------------------------------------
 // POST /me/agreements
 // Firma (registra) un agreement para el alumno autenticado.
-// Body: { type, version }
+// Body: { type, version, profile_id? }
+// profile_id (opcional): menor por el que firma un tutor vinculado; la RLS
+// de user_agreements decide si procede. signed_by es siempre el autenticado.
 // Valida (en el servicio): type conocido, version === versión vigente.
 // Registra ip y user_agent.
 // 409 si ya existe (profile_id, type, version) firmado.
 // ------------------------------------------------------------
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function validateAgreementSubject(req, res, next) {
+  const id = req.body?.profile_id;
+  if (id !== undefined && !UUID_RE.test(id)) {
+    return next(httpError(400, 'invalid_profile_id', 'profile_id debe ser un uuid'));
+  }
+  return next();
+}
+
 router.post(
   '/agreements',
   requireAuth,
-  withRlsContext(async (req, client) => ({
-    agreement: await signAgreement(client, {
-      profileId: req.user.id,
-      type: req.body?.type,
-      version: req.body?.version,
-      ip: req.ip ?? null,
-      userAgent: req.get('user-agent') ?? null,
-    }),
-  }))
+  validateAgreementSubject,
+  withRlsContext(async (req, client) => {
+    try {
+      return {
+        agreement: await signAgreement(client, {
+          profileId: req.body?.profile_id ?? req.user.id,
+          signedBy: req.user.id,
+          type: req.body?.type,
+          version: req.body?.version,
+          ip: req.ip ?? null,
+          userAgent: req.get('user-agent') ?? null,
+        }),
+      };
+    } catch (err) {
+      // 42501 = violación de política RLS (no es tutor vinculado, o el sujeto no es menor).
+      if (err.code === '42501') throw httpError(403, 'not_allowed_to_sign', 'No puedes firmar por este perfil');
+      throw err;
+    }
+  })
 );
 
 export default router;

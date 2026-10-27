@@ -86,10 +86,10 @@ async function seed() {
 
     // B4.5 — agreements: A firma los 3 en v1.0; B no firma ninguno.
     await c.query(
-      `INSERT INTO user_agreements (id, profile_id, type, version) VALUES
-         ($1, $2, 'waiver', '1.0'),
-         ($3, $2, 'data_protection', '1.0'),
-         ($4, $2, 'rights_of_image', '1.0')`,
+      `INSERT INTO user_agreements (id, profile_id, signed_by, type, version) VALUES
+         ($1, $2, $2, 'waiver', '1.0'),
+         ($3, $2, $2, 'data_protection', '1.0'),
+         ($4, $2, $2, 'rights_of_image', '1.0')`,
       [crypto.randomUUID(), a, crypto.randomUUID(), crypto.randomUUID()]
     );
   });
@@ -294,8 +294,8 @@ async function main() {
       // para tener algo que A no debería ver.
       await withServiceCommit((c) =>
         c.query(
-          `INSERT INTO user_agreements (id, profile_id, type, version)
-           VALUES ($1, $2, 'waiver', '1.0')`,
+          `INSERT INTO user_agreements (id, profile_id, signed_by, type, version)
+           VALUES ($1, $2, $2, 'waiver', '1.0')`,
           [crypto.randomUUID(), ids.b]
         )
       );

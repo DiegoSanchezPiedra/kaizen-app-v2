@@ -35,13 +35,13 @@ export async function findCredentialsByGoogleSub(googleSub) {
 // Genera profileId ANTES de la transacción y hace set_config dentro de
 // la misma transacción appPool para satisfacer RLS Fase 1.
 // ---------------------------------------------------------------------------
-async function createUser({ email, passwordHash, googleSub, displayName }) {
+async function createUser({ email, passwordHash, googleSub, displayName, birthDate = null }) {
   const profileId = crypto.randomUUID();
   try {
     await withRls({ uid: profileId, role: 'alumno' }, async (client) => {
       await client.query(
-        `INSERT INTO profiles (id, display_name) VALUES ($1, $2)`,
-        [profileId, displayName ?? null]
+        `INSERT INTO profiles (id, display_name, birth_date) VALUES ($1, $2, $3)`,
+        [profileId, displayName ?? null, birthDate]
       );
       await client.query(
         `INSERT INTO auth_credentials
@@ -72,9 +72,14 @@ async function createUser({ email, passwordHash, googleSub, displayName }) {
 // registerLocal — SIN CAMBIOS (sigue firmando token; un registro nuevo
 // no puede tener MFA).
 // ---------------------------------------------------------------------------
-export async function registerLocal({ email, password, displayName }) {
+export async function registerLocal({ email, password, displayName, birthDate }) {
   if (!email || !password) {
     throw httpError(400, 'invalid_payload', 'email and password required');
+  }
+  // Fecha real y pasada; el menor lo determina getProfileStatus.
+  const born = /^\d{4}-\d{2}-\d{2}$/.test(birthDate ?? '') ? new Date(birthDate) : null;
+  if (!born || Number.isNaN(born.getTime()) || born.toISOString().slice(0, 10) !== birthDate || born > new Date()) {
+    throw httpError(400, 'invalid_birth_date', 'birthDate (YYYY-MM-DD, pasada) requerido');
   }
   if (password.length < 8) {
     throw httpError(400, 'weak_password', 'password too short');
@@ -84,7 +89,7 @@ export async function registerLocal({ email, password, displayName }) {
     throw httpError(409, 'email_taken', 'email already registered');
   }
   const passwordHash = await hashPassword(password);
-  return createUser({ email, passwordHash, googleSub: null, displayName });
+  return createUser({ email, passwordHash, googleSub: null, displayName, birthDate });
 }
 
 // ---------------------------------------------------------------------------
