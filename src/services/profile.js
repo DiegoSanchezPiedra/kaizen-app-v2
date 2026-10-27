@@ -1,9 +1,6 @@
 // src/services/profile.js
 import { httpError } from '../lib/errors.js';
-import {
-  AGREEMENT_TYPES,
-  CURRENT_AGREEMENT_VERSIONS,
-} from '../config/agreements.js';
+import { getCurrentVersions } from './agreements.js';
 
 /**
  * Devuelve el estado de completitud del perfil de un alumno.
@@ -48,56 +45,63 @@ export async function getProfileStatus(client, profileId, role) {
     return { ok: true };
   }
 
+  const versions = await getCurrentVersions(client);
+  const types = Object.keys(versions);
+
+  const { rows } = await client.query(
+    `SELECT p.display_name,
+            h.profile_id IS NOT NULL AS has_health,
+            h.emergency_contact_name,
+            h.emergency_contact_phone,
+            ARRAY(
+              SELECT ua.type FROM user_agreements ua
+               WHERE ua.profile_id = p.id
+                 AND (ua.type, ua.version) = ANY (
+                   SELECT * FROM unnest($2::text[], $3::text[])
+                 )
+            ) AS signed
+       FROM profiles p
+       LEFT JOIN student_health_info h ON h.profile_id = p.id
+      WHERE p.id = $1`,
+    [profileId, types, types.map((t) => versions[t])]
+  );
+  const r = rows[0];
+
   const missing = [];
-
-  // 1. display_name
-  const displayRes = await client.query(
-    `SELECT display_name
-       FROM profiles
-      WHERE id = $1`,
-    [profileId]
-  );
-  const displayName = displayRes.rows[0]?.display_name;
-  if (!displayName || displayName.trim() === '') {
-    missing.push('display_name');
-  }
-
-  // 2. health_info + emergency_contact
-  const healthRes = await client.query(
-    `SELECT emergency_contact_name, emergency_contact_phone
-       FROM student_health_info
-      WHERE profile_id = $1`,
-    [profileId]
-  );
-  if (healthRes.rows.length === 0) {
-    missing.push('health_info');
-  } else {
-    const h = healthRes.rows[0];
-    if (!h.emergency_contact_name || !h.emergency_contact_phone) {
-      missing.push('emergency_contact');
-    }
-  }
-
-  // 3. agreements en versión vigente (una query, 3 tipos)
-  const agreementRes = await client.query(
-    `SELECT type
-       FROM user_agreements
-      WHERE profile_id = $1
-        AND (type, version) = ANY (
-          SELECT * FROM unnest($2::text[], $3::text[])
-        )`,
-    [
-      profileId,
-      AGREEMENT_TYPES,
-      AGREEMENT_TYPES.map((t) => CURRENT_AGREEMENT_VERSIONS[t]),
-    ]
-  );
-  const signedTypes = new Set(agreementRes.rows.map((r) => r.type));
-  for (const type of AGREEMENT_TYPES) {
-    if (!signedTypes.has(type)) {
-      missing.push(type);
-    }
+  if (!r?.display_name || r.display_name.trim() === '') missing.push('display_name');
+  if (!r?.has_health) missing.push('health_info');
+  else if (!r.emergency_contact_name || !r.emergency_contact_phone) missing.push('emergency_contact');
+  for (const type of types) {
+    if (!r?.signed.includes(type)) missing.push(type);
   }
 
   return missing.length === 0 ? { ok: true } : { ok: false, missing };
+}
+
+export const HEALTH_FIELDS = [
+  'injuries',
+  'conditions',
+  'previous_experience',
+  'previous_discipline',
+  'medication',
+  'allergies',
+  'emergency_contact_name',
+  'emergency_contact_phone',
+];
+
+/**
+ * Upsert de student_health_info: solo toca los campos presentes en `input`
+ * (los nombres salen de HEALTH_FIELDS, nunca del input). Validar antes.
+ */
+export async function upsertHealthInfo(client, profileId, input) {
+  const provided = HEALTH_FIELDS.filter((k) => Object.hasOwn(input, k));
+  const columns = ['profile_id', ...provided];
+  const result = await client.query(
+    `INSERT INTO student_health_info (${columns.join(', ')})
+     VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')})
+     ON CONFLICT (profile_id) DO UPDATE SET ${provided.map((k) => `${k} = EXCLUDED.${k}`).join(', ')}
+     RETURNING profile_id, ${HEALTH_FIELDS.join(', ')}, updated_at`,
+    [profileId, ...provided.map((k) => input[k])]
+  );
+  return result.rows[0];
 }

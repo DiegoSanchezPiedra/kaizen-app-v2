@@ -1,10 +1,8 @@
 // src/routes/agreements.js
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import {
-  AGREEMENT_TYPES,
-  CURRENT_AGREEMENT_VERSIONS,
-} from '../config/agreements.js';
+import { withRls } from '../db/rls.js';
+import { getCurrentVersions } from '../services/agreements.js';
 
 const router = Router();
 
@@ -21,28 +19,36 @@ const router = Router();
 router.get(
   '/:type/current',
   requireAuth,
-  (req, res) => {
-    const { type } = req.params;
+  async (req, res, next) => {
+    try {
+      const { type } = req.params;
+      const versions = await withRls(
+        { uid: req.user.id, role: req.user.role },
+        (client) => getCurrentVersions(client)
+      );
 
-    if (!AGREEMENT_TYPES.includes(type)) {
-      return res.status(404).json({
-        error: 'not_found',
-        code: 'unknown_agreement_type',
-        allowed: AGREEMENT_TYPES,
-      });
+      if (!Object.hasOwn(versions, type)) {
+        return res.status(404).json({
+          error: 'not_found',
+          code: 'unknown_agreement_type',
+          allowed: Object.keys(versions),
+        });
+      }
+
+      const version = versions[type];
+
+      // Placeholder B4.5 — B4.5.1 sirve el PDF real.
+      res.type('text/plain; charset=utf-8');
+      res.set('X-Agreement-Type', type);
+      res.set('X-Agreement-Version', version);
+      res.send(
+        `Kaizen App — ${type} v${version}\n\n` +
+        `Placeholder de B4.5. El documento real se sirve desde B4.5.1, ` +
+        `cuando el admin pueda subirlo desde el panel.\n`
+      );
+    } catch (err) {
+      next(err);
     }
-
-    const version = CURRENT_AGREEMENT_VERSIONS[type];
-
-    // Placeholder B4.5 — B4.5.1 sirve el PDF real.
-    res.type('text/plain; charset=utf-8');
-    res.set('X-Agreement-Type', type);
-    res.set('X-Agreement-Version', version);
-    res.send(
-      `Kaizen App — ${type} v${version}\n\n` +
-      `Placeholder de B4.5. El documento real se sirve desde B4.5.1, ` +
-      `cuando el admin pueda subirlo desde el panel.\n`
-    );
   }
 );
 
