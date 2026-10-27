@@ -13,11 +13,11 @@ import { servicePool, appPool } from '../src/config/database.js';
 import { withRls } from '../src/db/rls.js';
 import { hashPassword, verifyPassword } from '../src/services/password.js';
 import {
+  prepareMfaSetup,
   setupMfa,
   verifyAndEnableMfa,
   verifyMfaCode,
   getMfaStatus,
-  getMfaStatusWithClient,
 } from '../src/services/mfa.js';
 import { encrypt, decrypt } from '../src/services/crypto.js';
 import * as OTPAuth from 'otpauth';
@@ -130,6 +130,13 @@ async function cleanup() {
 // (usa servicePool porque necesitamos el secreto descifrado)
 // ---------------------------------------------------------------------------
 
+const asAdmin = (fn) => withRls({ uid: adminProfileId, role: 'admin' }, fn);
+
+const setupAdmin = async () => {
+  const prepared = await prepareMfaSetup(adminProfileId, ADMIN_EMAIL);
+  return asAdmin((c) => setupMfa(c, adminProfileId, prepared));
+};
+
 async function currentTotpFor(profileId) {
   const { rows } = await servicePool.query(
     `SELECT totp_secret_encrypted FROM user_mfa WHERE user_id = $1`,
@@ -173,7 +180,7 @@ async function main() {
 
   // 1) setupMfa genera fila con mfa_enabled = false
   await run('setupMfa: crea fila con mfa_enabled=false y devuelve codes', async () => {
-    const res = await setupMfa(adminProfileId, 'admin', ADMIN_EMAIL);
+    const res = await setupAdmin();
     assert(typeof res.otpauth_uri === 'string' && res.otpauth_uri.startsWith('otpauth://'), 'otpauth_uri inválido');
     assert(Array.isArray(res.recovery_codes) && res.recovery_codes.length > 0, 'recovery_codes vacío');
     for (const c of res.recovery_codes) {
@@ -193,7 +200,7 @@ async function main() {
       `SELECT totp_secret_encrypted FROM user_mfa WHERE user_id = $1`,
       [adminProfileId]
     );
-    const res = await setupMfa(adminProfileId, 'admin', ADMIN_EMAIL);
+    const res = await setupAdmin();
     assert(res.recovery_codes.length > 0, 'sin recovery codes');
     const second = await servicePool.query(
       `SELECT totp_secret_encrypted FROM user_mfa WHERE user_id = $1`,
@@ -208,7 +215,7 @@ async function main() {
   // 3) verifyAndEnableMfa con TOTP incorrecto → 400 invalid_totp
   await run('verifyAndEnableMfa: TOTP incorrecto → invalid_totp', async () => {
     await assertRejects(
-      () => verifyAndEnableMfa(adminProfileId, 'admin', '000000'),
+      () => asAdmin((c) => verifyAndEnableMfa(c, adminProfileId, '000000')),
       (e) => e.code === 'invalid_totp',
       'debía rechazar con invalid_totp'
     );
@@ -222,7 +229,7 @@ async function main() {
   // 4) verifyAndEnableMfa con TOTP correcto → mfa_enabled = true
   await run('verifyAndEnableMfa: TOTP correcto activa mfa_enabled', async () => {
     const code = await currentTotpFor(adminProfileId);
-    const res = await verifyAndEnableMfa(adminProfileId, 'admin', code);
+    const res = await asAdmin((c) => verifyAndEnableMfa(c, adminProfileId, code));
     assert(res.enabled === true, 'enabled != true');
     const { rows } = await servicePool.query(
       `SELECT mfa_enabled FROM user_mfa WHERE user_id = $1`,
@@ -234,32 +241,28 @@ async function main() {
   // 5) setupMfa con mfa_enabled=true → 409 mfa_already_enabled
   await run('setupMfa: con mfa_enabled=true → 409 mfa_already_enabled', async () => {
     await assertRejects(
-      () => setupMfa(adminProfileId, 'admin', ADMIN_EMAIL),
+      () => setupAdmin(),
       (e) => e.status === 409 && e.code === 'mfa_already_enabled',
       'debía rechazar con 409 mfa_already_enabled'
     );
   });
 
-  // 6) getMfaStatus / getMfaStatusWithClient devuelven enabled=true
-  await run('getMfaStatus + getMfaStatusWithClient → enabled=true', async () => {
-    const a = await getMfaStatus(adminProfileId, 'admin');
+  // 6) getMfaStatus devuelve enabled=true
+  await run('getMfaStatus → enabled=true', async () => {
+    const a = await asAdmin((c) => getMfaStatus(c, adminProfileId));
     assert(a.enabled === true, 'getMfaStatus.enabled != true');
-    const b = await withRls({ uid: adminProfileId, role: 'admin' }, (client) =>
-      getMfaStatusWithClient(client, adminProfileId),
-    );
-    assert(b.enabled === true, 'getMfaStatusWithClient.enabled != true');
   });
 
   // 7) verifyMfaCode con TOTP correcto → true
   await run('verifyMfaCode: TOTP correcto → true', async () => {
     const code = await currentTotpFor(adminProfileId);
-    const ok = await verifyMfaCode(adminProfileId, 'admin', code);
+    const ok = await asAdmin((c) => verifyMfaCode(c, adminProfileId, code));
     assert(ok === true, 'verifyMfaCode TOTP devolvió false');
   });
 
   // 8) verifyMfaCode con TOTP incorrecto → false
   await run('verifyMfaCode: TOTP incorrecto → false', async () => {
-    const ok = await verifyMfaCode(adminProfileId, 'admin', '000000');
+    const ok = await asAdmin((c) => verifyMfaCode(c, adminProfileId, '000000'));
     assert(ok === false, 'verifyMfaCode TOTP inválido devolvió true');
   });
 
@@ -282,15 +285,15 @@ async function main() {
       client.release();
     }
 
-    const fresh = await setupMfa(adminProfileId, 'admin', ADMIN_EMAIL);
+    const fresh = await setupAdmin();
     const code = await currentTotpFor(adminProfileId);
-    await verifyAndEnableMfa(adminProfileId, 'admin', code);
+    await asAdmin((c) => verifyAndEnableMfa(c, adminProfileId, code));
 
     const recovery = fresh.recovery_codes[0];
-    const first = await verifyMfaCode(adminProfileId, 'admin', recovery);
+    const first = await asAdmin((c) => verifyMfaCode(c, adminProfileId, recovery));
     assert(first === true, 'primer uso del recovery code debería ser true');
 
-    const second = await verifyMfaCode(adminProfileId, 'admin', recovery);
+    const second = await asAdmin((c) => verifyMfaCode(c, adminProfileId, recovery));
     assert(second === false, 'segundo uso del recovery code debería ser false');
 
     // Quedan N-1 codes: verificamos que el array persistido bajó en 1

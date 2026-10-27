@@ -2,14 +2,16 @@
 import { Router } from 'express';
 
 import { httpError } from '../lib/errors.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
+import { withRls } from '../db/rls.js';
 import { registerLocal, loginLocal, loginGoogle } from '../services/auth.js';
 import { signToken } from '../services/jwt.js';
 import {
+  prepareMfaSetup,
   setupMfa,
   verifyAndEnableMfa,
   verifyMfaCode,
   getMfaStatus,
-  getMfaStatusWithClient,
 } from '../services/mfa.js';
 import {
   requireAuth,
@@ -45,7 +47,9 @@ router.post('/login', async (req, res, next) => {
       password,
     });
 
-    const { enabled: mfaEnabled } = await getMfaStatus(profileId, role);
+    const { enabled: mfaEnabled } = await withRls({ uid: profileId, role }, (client) =>
+      getMfaStatus(client, profileId),
+    );
     if (mfaEnabled) {
       const mfaToken = signMfaToken({ sub: profileId, role });
       return res.status(200).json({ mfa_required: true, mfa_token: mfaToken });
@@ -70,7 +74,9 @@ router.post('/google', async (req, res, next) => {
       idToken: id_token,
     });
 
-    const { enabled: mfaEnabled } = await getMfaStatus(profileId, role);
+    const { enabled: mfaEnabled } = await withRls({ uid: profileId, role }, (client) =>
+      getMfaStatus(client, profileId),
+    );
     if (mfaEnabled) {
       const mfaToken = signMfaToken({ sub: profileId, role });
       return res.status(200).json({ mfa_required: true, mfa_token: mfaToken });
@@ -92,12 +98,12 @@ router.post('/google', async (req, res, next) => {
 router.get(
   '/me',
   requireAuth,
-  withRlsContext(async (req, res, client) => { 
+  withRlsContext(async (req, client) => {
     const { rows } = await client.query(
       `SELECT current_setting('app.current_user_id', true) AS uid,
               current_setting('app.current_role', true) AS role`
     );
-    const { enabled } = await getMfaStatusWithClient(client, req.user.id);
+    const { enabled } = await getMfaStatus(client, req.user.id);
     return {
       user: req.user,
       mfa_enabled: enabled,
@@ -114,36 +120,25 @@ router.post(
   '/mfa/setup',
   requireAuth,
   requireRole('admin'),
-  async (req, res, next) => {
-    try {
-      // label: identificador legible para el QR. Con el email si lo tuvieras
-      // a mano; si no, el propio id. El frontend puede pedir email aparte.
-      const label = req.user.id;
-      const result = await setupMfa(req.user.id, req.user.role, label);
-      return res.status(201).json(result);
-    } catch (err) {
-      return next(err);
-    }
-  }
+  // argon2 antes de abrir la transacción: no retener la conexión durante el hashing.
+  // label: identificador legible para el QR; el frontend puede pedir el email aparte.
+  asyncHandler(async (req, res, next) => {
+    req.mfaSetup = await prepareMfaSetup(req.user.id, req.user.id);
+    next();
+  }),
+  withRlsContext(async (req, client) => ({
+    status: 201,
+    body: await setupMfa(client, req.user.id, req.mfaSetup),
+  }))
 );
 
 router.post(
   '/mfa/activate',
   requireAuth,
   requireRole('admin'),
-  async (req, res, next) => {
-    try {
-      const { code } = req.body || {};
-      const result = await verifyAndEnableMfa(
-        req.user.id,
-        req.user.role,
-        code
-      );
-      return res.status(200).json(result);
-    } catch (err) {
-      return next(err);
-    }
-  }
+  withRlsContext((req, client) =>
+    verifyAndEnableMfa(client, req.user.id, req.body?.code)
+  )
 );
 
 router.post(
@@ -152,7 +147,9 @@ router.post(
   async (req, res, next) => {
     try {
       const { code } = req.body || {};
-      const ok = await verifyMfaCode(req.mfa.userId, req.mfa.role, code);
+      const ok = await withRls({ uid: req.mfa.userId, role: req.mfa.role }, (client) =>
+        verifyMfaCode(client, req.mfa.userId, code),
+      );
       if (!ok) {
         throw httpError(401, 'invalid_mfa_code', 'invalid mfa code');
       }

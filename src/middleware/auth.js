@@ -32,14 +32,18 @@ export function requireRole(...roles) {
   };
 }
 
-export function withRlsContext(handler) {
+// Handler `(req, client)`: devuelve `body` (200) o `{ status, body }`; los errores se lanzan.
+// Responde siempre tras el COMMIT. `guards` (req, client) corren dentro de la misma transacción.
+export function withRlsContext(handler, { guards = [] } = {}) {
   return async (req, res, next) => {
     try {
-      const result = await withRls(
-        { uid: req.user.id, role: req.user.role },
-        (client) => handler(req, res, client),
-      );
-      if (result !== undefined) res.json(result);
+      const result = await withRls({ uid: req.user.id, role: req.user.role }, async (client) => {
+        for (const guard of guards) await guard(req, client);
+        return handler(req, client);
+      });
+      const { status = 200, body } =
+        typeof result?.status === 'number' && 'body' in result ? result : { body: result };
+      res.status(status).json(body);
     } catch (err) {
       next(err);
     }

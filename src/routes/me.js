@@ -1,8 +1,8 @@
 // src/routes/me.js
 import { Router } from 'express';
-import { asyncHandler } from '../middleware/asyncHandler.js';
+import { httpError } from '../lib/errors.js';
 import { requireAuth, withRlsContext } from '../middleware/auth.js';
-import { requireCompleteProfile as checkProfileComplete } from '../services/profile.js';
+import { getProfileStatus } from '../services/profile.js';
 import {
   AGREEMENT_TYPES,
   CURRENT_AGREEMENT_VERSIONS,
@@ -19,10 +19,9 @@ const router = Router();
 router.get(
   '/profile-status',
   requireAuth,
-  asyncHandler(async (req, res) => {
-    const result = await checkProfileComplete(req.user.id, req.user.role);
-    res.json(result);
-  })
+  withRlsContext((req, client) =>
+    getProfileStatus(client, req.user.id, req.user.role)
+  )
 );
 
 // ------------------------------------------------------------
@@ -33,46 +32,51 @@ router.get(
 //         emergency_contact_name?, emergency_contact_phone? }
 // Todos opcionales. requireCompleteProfile exige emergency_contact_*.
 // ------------------------------------------------------------
+const HEALTH_FIELDS = [
+  'injuries',
+  'conditions',
+  'previous_experience',
+  'previous_discipline',
+  'medication',
+  'allergies',
+  'emergency_contact_name',
+  'emergency_contact_phone',
+];
+
+// Validación fuera de la transacción (antes de pedir conexión).
+function validateHealth(req, res, next) {
+  const body = req.body ?? {};
+  const provided = HEALTH_FIELDS.filter((k) =>
+    Object.prototype.hasOwnProperty.call(body, k)
+  );
+
+  if (provided.length === 0) {
+    return next(
+      httpError(400, 'no_fields', 'Ningún campo válido en el body.', {
+        allowed: HEALTH_FIELDS,
+      })
+    );
+  }
+
+  // Validación básica: strings o null. Nada de arrays/objetos.
+  const bad = provided.find((k) => body[k] !== null && typeof body[k] !== 'string');
+  if (bad) {
+    return next(
+      httpError(400, 'invalid_field_type', `Campo inválido: ${bad}`, { field: bad })
+    );
+  }
+  return next();
+}
+
 router.post(
   '/health',
   requireAuth,
-  withRlsContext(async (req, res, client) => {
-    const allowed = [
-      'injuries',
-      'conditions',
-      'previous_experience',
-      'previous_discipline',
-      'medication',
-      'allergies',
-      'emergency_contact_name',
-      'emergency_contact_phone',
-    ];
-
-    const body = req.body ?? {};
-    const provided = allowed.filter((k) =>
+  validateHealth,
+  withRlsContext(async (req, client) => {
+    const body = req.body;
+    const provided = HEALTH_FIELDS.filter((k) =>
       Object.prototype.hasOwnProperty.call(body, k)
     );
-
-    if (provided.length === 0) {
-      return res.status(400).json({
-        error: 'invalid_request',
-        code: 'no_fields',
-        message: 'Ningún campo válido en el body.',
-        allowed,
-      });
-    }
-
-    // Validación básica: strings o null. Nada de arrays/objetos.
-    for (const key of provided) {
-      const v = body[key];
-      if (v !== null && typeof v !== 'string') {
-        return res.status(400).json({
-          error: 'invalid_request',
-          code: 'invalid_field_type',
-          field: key,
-        });
-      }
-    }
 
     // Upsert: si existe fila, UPDATE solo de los campos proporcionados;
     // si no existe, INSERT con los proporcionados (el resto NULL).
@@ -105,27 +109,33 @@ router.post(
 // Registra ip y user_agent.
 // 409 si ya existe (profile_id, type, version) firmado.
 // ------------------------------------------------------------
+function validateAgreement(req, res, next) {
+  const { type, version } = req.body ?? {};
+
+  if (!type || !AGREEMENT_TYPES.includes(type)) {
+    return next(
+      httpError(400, 'invalid_type', 'Tipo de agreement inválido', {
+        allowed: AGREEMENT_TYPES,
+      })
+    );
+  }
+
+  if (!version || version !== CURRENT_AGREEMENT_VERSIONS[type]) {
+    return next(
+      httpError(400, 'invalid_version', 'Versión de agreement no vigente', {
+        expected: CURRENT_AGREEMENT_VERSIONS[type],
+      })
+    );
+  }
+  return next();
+}
+
 router.post(
   '/agreements',
   requireAuth,
-  withRlsContext(async (req, res, client) => {
-    const { type, version } = req.body ?? {};
-
-    if (!type || !AGREEMENT_TYPES.includes(type)) {
-      return res.status(400).json({
-        error: 'invalid_request',
-        code: 'invalid_type',
-        allowed: AGREEMENT_TYPES,
-      });
-    }
-
-    if (!version || version !== CURRENT_AGREEMENT_VERSIONS[type]) {
-      return res.status(400).json({
-        error: 'invalid_request',
-        code: 'invalid_version',
-        expected: CURRENT_AGREEMENT_VERSIONS[type],
-      });
-    }
+  validateAgreement,
+  withRlsContext(async (req, client) => {
+    const { type, version } = req.body;
 
     const ip = req.ip ?? null;
     const userAgent = req.get('user-agent') ?? null;
@@ -148,9 +158,7 @@ router.post(
     );
 
     if (result.rows.length === 0) {
-      return res.status(409).json({
-        error: 'conflict',
-        code: 'agreement_already_signed',
+      throw httpError(409, 'agreement_already_signed', 'Agreement ya firmado', {
         type,
         version,
       });

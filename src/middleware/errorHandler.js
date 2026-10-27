@@ -12,7 +12,8 @@ const CATEGORIES = {
 };
 
 // Firma obligatoria de 4 args para que Express lo reconozca como error handler
-export function errorHandler(err, req, res, _next) {
+export function errorHandler(err, req, res, next) {
+  if (res.headersSent) return next(err);
   const status = err.status || err.statusCode || 500;
   const isProd = process.env.NODE_ENV === 'production';
 

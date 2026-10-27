@@ -3,7 +3,6 @@ import * as OTPAuth from 'otpauth';
 import argon2 from 'argon2';
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { withRls } from '../db/rls.js';
 import { httpError } from '../lib/errors.js';
 import {
   MFA_TOTP_ISSUER,
@@ -62,17 +61,12 @@ async function findMfaRow(client, profileId) {
   return rows[0] || null;
 }
 
-/**
- * Transacción appPool con RLS self + rol real.
- * `role` debe venir del JWT (req.user.role) o del mfa_token en login.
- */
-const withRlsSelf = (profileId, role, fn) => withRls({ uid: profileId, role }, fn);
-
 // ---------------------------------------------------------------------------
 // API pública
 // ---------------------------------------------------------------------------
 
-export async function setupMfa(profileId, role, label) {
+// Cálculo pesado (argon2) sin BD: llamar ANTES de abrir la transacción RLS.
+export async function prepareMfaSetup(profileId, label) {
   if (!profileId) {
     throw httpError(400, 'profile_id_required', 'profileId required');
   }
@@ -93,132 +87,118 @@ export async function setupMfa(profileId, role, label) {
   const totpSecretEncrypted = encrypt(secretBase32);
   const recoveryCodesEncrypted = encrypt(JSON.stringify(recoveryHashes));
 
-  await withRlsSelf(profileId, role, async (client) => {
-    const existing = await findMfaRow(client, profileId);
-
-    if (existing && existing.mfa_enabled === true) {
-      throw httpError(409, 'mfa_already_enabled', 'MFA already enabled');
-    }
-
-    if (existing) {
-      await client.query(
-        `UPDATE user_mfa
-            SET totp_secret_encrypted    = $1,
-                recovery_codes_encrypted = $2,
-                mfa_enabled              = false,
-                updated_at               = CURRENT_TIMESTAMP
-          WHERE user_id = $3`,
-        [totpSecretEncrypted, recoveryCodesEncrypted, profileId],
-      );
-    } else {
-      await client.query(
-        `INSERT INTO user_mfa
-           (id, user_id, totp_secret_encrypted, recovery_codes_encrypted, mfa_enabled)
-         VALUES ($1, $2, $3, $4, false)`,
-        [randomUUID(), profileId, totpSecretEncrypted, recoveryCodesEncrypted],
-      );
-    }
-  });
-
   return {
     otpauth_uri: otpauthUri,
     recovery_codes: recoveryCodes,
+    totpSecretEncrypted,
+    recoveryCodesEncrypted,
   };
 }
 
-export async function verifyAndEnableMfa(profileId, role, code) {
+export async function setupMfa(client, profileId, prepared) {
+  const { otpauth_uri, recovery_codes, totpSecretEncrypted, recoveryCodesEncrypted } = prepared;
+  const existing = await findMfaRow(client, profileId);
+
+  if (existing && existing.mfa_enabled === true) {
+    throw httpError(409, 'mfa_already_enabled', 'MFA already enabled');
+  }
+
+  if (existing) {
+    await client.query(
+      `UPDATE user_mfa
+          SET totp_secret_encrypted    = $1,
+              recovery_codes_encrypted = $2,
+              mfa_enabled              = false,
+              updated_at               = CURRENT_TIMESTAMP
+        WHERE user_id = $3`,
+      [totpSecretEncrypted, recoveryCodesEncrypted, profileId],
+    );
+  } else {
+    await client.query(
+      `INSERT INTO user_mfa
+         (id, user_id, totp_secret_encrypted, recovery_codes_encrypted, mfa_enabled)
+       VALUES ($1, $2, $3, $4, false)`,
+      [randomUUID(), profileId, totpSecretEncrypted, recoveryCodesEncrypted],
+    );
+  }
+
+  return { otpauth_uri, recovery_codes };
+}
+
+export async function verifyAndEnableMfa(client, profileId, code) {
   if (!profileId || !code) {
     throw httpError(400, 'invalid_request', 'profileId and code required');
   }
 
-  return withRlsSelf(profileId, role, async (client) => {
-    const row = await findMfaRow(client, profileId);
-    if (!row) {
-      throw httpError(400, 'mfa_not_setup', 'MFA not set up');
-    }
+  const row = await findMfaRow(client, profileId);
+  if (!row) {
+    throw httpError(400, 'mfa_not_setup', 'MFA not set up');
+  }
 
+  const secretBase32 = decrypt(row.totp_secret_encrypted);
+  const totp = buildTotp(secretBase32, profileId);
+  const delta = totp.validate({ token: String(code), window: 1 });
+  if (delta === null) {
+    throw httpError(400, 'invalid_totp', 'Invalid TOTP code');
+  }
+
+  await client.query(
+    `UPDATE user_mfa
+        SET mfa_enabled = true,
+            updated_at  = CURRENT_TIMESTAMP
+      WHERE user_id = $1`,
+    [profileId],
+  );
+
+  return { enabled: true };
+}
+
+export async function verifyMfaCode(client, profileId, code) {
+  if (!profileId || !code) return false;
+
+  const row = await findMfaRow(client, profileId);
+  if (!row || row.mfa_enabled !== true) return false;
+
+  // 1) TOTP
+  try {
     const secretBase32 = decrypt(row.totp_secret_encrypted);
     const totp = buildTotp(secretBase32, profileId);
     const delta = totp.validate({ token: String(code), window: 1 });
-    if (delta === null) {
-      throw httpError(400, 'invalid_totp', 'Invalid TOTP code');
+    if (delta !== null) return true;
+  } catch {
+    // secret corrupto: caemos a recovery
+  }
+
+  // 2) Recovery codes
+  let hashes = [];
+  try {
+    hashes = JSON.parse(decrypt(row.recovery_codes_encrypted));
+    if (!Array.isArray(hashes)) hashes = [];
+  } catch {
+    hashes = [];
+  }
+
+  for (let i = 0; i < hashes.length; i++) {
+    const ok = await verifyRecoveryCodeHash(String(code), hashes[i]);
+    if (ok) {
+      const remaining = hashes.slice(0, i).concat(hashes.slice(i + 1));
+      const encrypted = encrypt(JSON.stringify(remaining));
+      await client.query(
+        `UPDATE user_mfa
+            SET recovery_codes_encrypted = $1,
+                updated_at               = CURRENT_TIMESTAMP
+          WHERE user_id = $2`,
+        [encrypted, profileId],
+      );
+      return true;
     }
+  }
 
-    await client.query(
-      `UPDATE user_mfa
-          SET mfa_enabled = true,
-              updated_at  = CURRENT_TIMESTAMP
-        WHERE user_id = $1`,
-      [profileId],
-    );
-
-    return { enabled: true };
-  });
+  return false;
 }
 
-export async function verifyMfaCode(profileId, role, code) {
-  if (!profileId || !code) return false;
-
-  return withRlsSelf(profileId, role, async (client) => {
-    const row = await findMfaRow(client, profileId);
-    if (!row || row.mfa_enabled !== true) return false;
-
-    // 1) TOTP
-    try {
-      const secretBase32 = decrypt(row.totp_secret_encrypted);
-      const totp = buildTotp(secretBase32, profileId);
-      const delta = totp.validate({ token: String(code), window: 1 });
-      if (delta !== null) return true;
-    } catch {
-      // secret corrupto: caemos a recovery
-    }
-
-    // 2) Recovery codes
-    let hashes = [];
-    try {
-      hashes = JSON.parse(decrypt(row.recovery_codes_encrypted));
-      if (!Array.isArray(hashes)) hashes = [];
-    } catch {
-      hashes = [];
-    }
-
-    for (let i = 0; i < hashes.length; i++) {
-      const ok = await verifyRecoveryCodeHash(String(code), hashes[i]);
-      if (ok) {
-        const remaining = hashes.slice(0, i).concat(hashes.slice(i + 1));
-        const encrypted = encrypt(JSON.stringify(remaining));
-        await client.query(
-          `UPDATE user_mfa
-              SET recovery_codes_encrypted = $1,
-                  updated_at               = CURRENT_TIMESTAMP
-            WHERE user_id = $2`,
-          [encrypted, profileId],
-        );
-        return true;
-      }
-    }
-
-    return false;
-  });
-}
-
-/**
- * Para /auth/me: usa el client que ya abrió withRlsContext.
- * No abre transacción nueva.
- */
-export async function getMfaStatusWithClient(client, profileId) {
+export async function getMfaStatus(client, profileId) {
   if (!profileId) return { enabled: false };
   const row = await findMfaRow(client, profileId);
   return { enabled: row ? row.mfa_enabled === true : false };
-}
-
-/**
- * Para login: abre transacción propia (no hay withRlsContext aquí).
- */
-export async function getMfaStatus(profileId, role) {
-  if (!profileId) return { enabled: false };
-  return withRlsSelf(profileId, role, async (client) => {
-    const row = await findMfaRow(client, profileId);
-    return { enabled: row ? row.mfa_enabled === true : false };
-  });
 }
