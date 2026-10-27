@@ -42,7 +42,7 @@
 | B4 | MFA TOTP admin | B2 | CERRADO |
 | B4.5 | `student_health_info` + `user_agreements` + bloqueo backend | B2 | Pendiente |
 | B4.5.1 | Gestión documental admin (`agreement_documents`, storage, subida) | B4.5 | Pendiente |
-| B4.6 | Menores y tutores (fecha de nacimiento, `guardianships`, rol `tutor`, firma por representación) | B4.5.1 | Pendiente |
+| B4.6 | Cuenta familiar: el tutor crea y gestiona hijos sin credenciales (`PLAN_FAMILIA.md`) | B4.5.1 | IMPLEMENTADO (pendiente commit) |
 | B5 | CRUD disciplinas, planes, `plan_disciplinas` (admin) | B3, B4.5.1 | Pendiente |
 | B6 | CRUD `class_sessions` + calendario | B5 | Pendiente |
 | B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | Pendiente |
@@ -178,17 +178,20 @@
   - [ ] Verificación HTTP manual end-to-end: admin sube PDF → publica → alumno `GET /agreements/waiver/current` obtiene el PDF → `POST /me/agreements` con la versión nueva → `requireCompleteProfile` `ok: true`.
   - [ ] Commit `feat(B4.5.1): agreement_documents + storage + subida admin + requireCompleteProfile desde BD`.
 
-### B4.6 — Menores y tutores — Pendiente
-- **Objetivo**: admitir alumnos menores de 18 años cuyos acuerdos firma un tutor vinculado. Vocabulario en `CONTEXT.md`.
-- **Dependencia dura**: después de B4.5.1 y antes de B5/B7 (reservas y pagos nacen con este modelo).
+### B4.6 — Cuenta familiar — IMPLEMENTADO (pendiente commit)
+- **Objetivo**: el tutor se registra, crea a sus hijos (perfiles **sin credenciales**) y gestiona todo por ellos. Plan, decisiones D1–D16 y tabla de refactor en `PLAN_FAMILIA.md`; vocabulario en `CONTEXT.md`; ADR 0002.
+- **Primera versión** (commit `bc4685d`): menor con login propio y tutor que solo firmaba. Se sustituye.
+- **Dependencia dura**: después de B4.5.1 y **antes de B5** (reservas y pagos nacen con este modelo).
 - **Entregable**:
-  - `profiles.birth_date`: obligatoria en el registro local (`POST /auth/register`); en Google signup puede quedar NULL y el frontend manda al onboarding «Completar Perfil»; menor = menos de 18 años.
-  - Valor `tutor` en `app_role` y tabla `guardianships` (tutor→menor, muchos a muchos). Solo admin crea o borra vínculos.
-  - Blindaje de firmas en `user_agreements`: `signed_by` (firmante real) además de `profile_id` (sujeto); unicidad `(profile_id, signed_by, type, version)` para que a los 18 el alumno firme la versión que ya firmó su tutor; RLS: el menor no firma, un tutor solo firma por menores vinculados y menores de 18.
-  - `POST /me/agreements` con `profile_id` opcional (firma por representación; 403 `not_allowed_to_sign`).
-  - `getProfileStatus`: para un menor cuentan las firmas de un tutor; al cumplir 18 solo cuentan las propias (se calcula con `birth_date`, sin job). Perfil `tutor` siempre completo.
-- **Fuera de alcance**: UI, reservas/pagos en nombre del menor (B7/B10). Ficha de salud del menor editable por tutor → B8. Test RLS de la vista de profesor (`student_health_professor_view`) → B20 (hardening).
-- **Checklist de cierre**: tests por rol (tutor firma solo por sus menores; el menor no firma; al cumplir 18 vuelve a incompleto); `migrate:down` → `migrate` sin error.
+  - Reescribir `006_minors_guardians.js` en el sitio. Se mantienen `birth_date`, el rol `tutor`, `guardianships`, `signed_by` y la unicidad con el firmante. Se añaden `create_child` (`SECURITY DEFINER`), el helper RLS `is_guardian_of`, políticas de tutor en `student_health_info` y `profiles`.
+  - Registro propio solo ≥ 18 (`registerLocal`). Onboarding de Google: aplazado al frontend (aún no hay endpoint que fije `birth_date`).
+  - `subscriptions.payer_id NOT NULL` (la regla D14 llega en B10).
+  - `GET/POST /me/children`, `PATCH /me/children/:id`; `profile_id` opcional en `/me/health`, `/me/profile-status` y `/me/agreements`.
+  - `getProfileStatus`: rol `tutor` = `display_name` + `data_protection`. Hijo: firmas del tutor hasta los 18.
+  - `requireCompleteProfile`: comprueba sujeto + actor.
+- **Fuera de alcance**: UI; invitación para reclamar el perfil a los 18; invitación de un 2º tutor; reservas y pagos (B7/B10, que ya nacen con sujeto/actor). 
+- **Permisos de BD** (aplicados a mano como superusuario el 2026-10-27; repetir en cada instalación nueva): `GRANT service_role TO migrator` y `GRANT CREATE ON SCHEMA public TO service_role`. Son necesarios para que la vista de profesor (004) y `is_guardian_of`/`create_child` (006) tengan owner `service_role` (BYPASSRLS).
+- **Checklist de cierre** (verde el 2026-10-27; el HTTP de firmas queda pendiente de documentos publicados): `test-minors.js` reescrito (el tutor crea un hijo y no se vincula a perfiles existentes; un adulto no puede ser hijo; el tutor edita la salud y firma; otro tutor no; a los 18 pierde poderes pero ve la lista; tutor sin `data_protection` incompleto); `test:rls` verde; `migrate:down` → `migrate` sin error; verificación HTTP del flujo del tutor.
 
 ### B5 — CRUD disciplinas, planes, `plan_disciplinas` (admin) — Pendiente
 - **Objetivo**: catálogo de disciplinas y planes, con RLS.
@@ -211,6 +214,7 @@
 
 ### B7 — Reservas (`create_booking`, `FOR UPDATE`, lista de espera) — Pendiente
 - **Objetivo**: reservas con bloqueo de plaza (`FOR UPDATE`) y lista de espera.
+- **Cuenta familiar**: `student_id` = sujeto + `booked_by` = actor; RLS con `is_guardian_of`; `profile_id` opcional; bloqueo si el hijo o el tutor está incompleto. `event_registrations`: mismo patrón. Ver `PLAN_FAMILIA.md` §5.
 - **Entregable**: RLS en `bookings`; función `create_booking` con `FOR UPDATE`; endpoints de reserva/cancelación; middleware `requireCompleteProfile` (B4.5) montado.
 - **Fuera de alcance**: pago (B10), asistencia (B8).
 - **Checklist de cierre**:
@@ -222,6 +226,7 @@
 
 ### B8 — Asistencia manual (`register_attendance`, auditoría) — Pendiente
 - **Objetivo**: profesor pasa lista manualmente; se audita.
+- **Cuenta familiar**: la edición de la ficha de salud del hijo por el tutor ya está en B4.6 (sale de aquí).
 - **Entregable**: RLS en `attendance`; endpoint `POST /professor/attendance`; inserción en `audit_log`.
 - **Fuera de alcance**: QR (B9).
 - **Checklist de cierre**:
@@ -232,6 +237,7 @@
 
 ### B9 — QR dinámico (`device_tokens`, SSE, check-in) — Pendiente
 - **Objetivo**: tablet fija con `device_token`, QR rotativo, check-in por SSE.
+- **Cuenta familiar (por decidir aquí)**: el hijo no tiene login ni móvil. El check-in lo hace el tutor con su JWT + `profile_id`, o el profesor a mano (B8).
 - **Entregable**: tabla `device_tokens` (hash), endpoints `/tablet/*`, SSE `/tablet/active-sessions`, rotación de QR.
 - **Fuera de alcance**: MFA de tablet (futuro).
 - **Checklist de cierre**:
@@ -243,6 +249,7 @@
 
 ### B10 — Stripe base (checkout, portal, webhook idempotente) — Pendiente
 - **Objetivo**: checkout, portal de cliente y webhook idempotente.
+- **Cuenta familiar**: una suscripción por hijo + `subscriptions.payer_id` (el propio alumno adulto o un tutor vinculado); cliente Stripe **por pagador** (decidir `profiles.stripe_customer_id` vs `billing_customers`); checkout con `profile_id`; RLS = alumno, tutor vinculado o pagador. Morosos (B10.2) agrupados por pagador.
 - **Entregable**: RLS en `subscriptions`; endpoints `/billing/checkout`, `/billing/portal`; webhook con `webhook_events`.
 - **Fuera de alcance**: `invoices` ampliadas (B10.1), upgrade/downgrade (B10.5), cancelación (B11).
 - **Checklist de cierre**:
@@ -283,6 +290,7 @@
 
 ### B10.6 — Emails transaccionales de billing (al alumno) — Pendiente
 - **Objetivo**: email al alumno en `invoice.payment_failed`.
+- **Cuenta familiar**: el destinatario es el **pagador**, no el alumno (un hijo no tiene email).
 - **Entregable**: proveedor elegido (Resend/Postmark/SMTP), `services/email.js`, plantilla.
 - **Fuera de alcance**: push (B15).
 - **Checklist de cierre**:
@@ -311,6 +319,7 @@
 
 ### B13 — Perfiles públicos (flags, `public_profiles`, directorio) — Pendiente
 - **Objetivo**: perfiles públicos con flags granulares y directorio.
+- **Cuenta familiar**: un hijo nunca es público (`is_public` forzado a false). Añadir al checklist.
 - **Entregable**: vista/función `public_profiles` respetando `visible_fields`; endpoint `/public/profiles`.
 - **Fuera de alcance**: UI (B18).
 - **Checklist de cierre**:
@@ -322,6 +331,7 @@
 
 ### B14 — Racha, badges, tabla opt-in — Pendiente
 - **Objetivo**: gamificación básica (racha, badges, tabla opt-in).
+- **Cuenta familiar**: los hijos no aparecen en el feed ni en las tablas públicas.
 - **Entregable**: tablas/vistas necesarias; endpoints.
 - **Fuera de alcance**: push de logros (B15).
 - **Checklist de cierre**:
@@ -332,6 +342,7 @@
 
 ### B15 — Push (`push_subscriptions`, envío) — Pendiente
 - **Objetivo**: notificaciones push.
+- **Cuenta familiar**: los avisos de un hijo van a todos sus tutores (incluido "cumple 18, debe reclamar su perfil"); los de facturación, al pagador.
 - **Entregable**: RLS en `push_subscriptions`; endpoints de suscripción; envío con web-push.
 - **Fuera de alcance**: push al admin (solo alumno).
 - **Checklist de cierre**:

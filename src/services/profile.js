@@ -1,4 +1,5 @@
 // src/services/profile.js
+import crypto from 'node:crypto';
 import { httpError } from '../lib/errors.js';
 import { getCurrentVersions } from './agreements.js';
 import { AGREEMENT_TYPES as types } from '../config/agreements.js';
@@ -41,8 +42,8 @@ export async function getProfileStatus(client, profileId, role) {
     throw httpError(500, 'internal_error', 'getProfileStatus: role requerido');
   }
 
-  // El helper solo aplica a alumnos. Admin/profesor operan sin health info.
-  if (role !== 'alumno') {
+  // Solo aplica a alumnos y tutores. Admin/profesor operan sin health info.
+  if (role !== 'alumno' && role !== 'tutor') {
     return { ok: true };
   }
 
@@ -79,7 +80,67 @@ export async function getProfileStatus(client, profileId, role) {
     if (!r?.signed.includes(type)) missing.push(type);
   }
 
-  return missing.length === 0 ? { ok: true } : { ok: false, missing };
+  // D11: el tutor solo necesita display_name + su propio data_protection.
+  const required = role === 'tutor' ? missing.filter((m) => TUTOR_REQUIRED.includes(m)) : missing;
+  return required.length === 0 ? { ok: true } : { ok: false, missing: required };
+}
+
+const TUTOR_REQUIRED = ['display_name', 'data_protection'];
+
+/** 403 si el usuario del contexto RLS no es tutor vigente (sujeto menor) de `profileId`. */
+export async function assertGuardianOf(client, profileId) {
+  const { rows } = await client.query(`SELECT is_guardian_of($1) AS ok`, [profileId]);
+  if (!rows[0].ok) throw httpError(403, 'not_guardian', 'No eres tutor de este perfil');
+}
+
+// birth_date::text: pg convierte `date` a Date local y en JSON sale el día anterior en UTC.
+const CHILD_COLUMNS = `id, display_name, birth_date::text AS birth_date, NOT is_guardian_of(id) AS pending_claim`;
+
+/** Hijos del tutor, incluidos los que cumplieron 18 sin reclamar su perfil (pending_claim, D16). */
+export async function listChildren(client, tutorId) {
+  const { rows } = await client.query(
+    `SELECT ${CHILD_COLUMNS}
+       FROM guardianships g JOIN profiles p ON p.id = g.minor_id
+      WHERE g.tutor_id = $1
+      ORDER BY p.birth_date, p.id`,
+    [tutorId]
+  );
+  return rows;
+}
+
+/** Alta de un hijo vinculado al usuario del contexto RLS (función SQL create_child). */
+export async function createChild(client, { displayName, birthDate }) {
+  const id = crypto.randomUUID();
+  try {
+    await client.query(`SELECT create_child($1, $2, $3)`, [id, displayName, birthDate]);
+  } catch (err) {
+    if (err.code === '22023') throw httpError(400, 'child_must_be_minor', 'El hijo debe ser menor de 18');
+    if (err.code === '42501') throw httpError(403, 'minor_cannot_create_child', 'Solo un adulto puede dar de alta hijos');
+    throw err;
+  }
+  const { rows } = await client.query(`SELECT ${CHILD_COLUMNS} FROM profiles WHERE id = $1`, [id]);
+  return rows[0];
+}
+
+export const CHILD_FIELDS = ['display_name', 'birth_date'];
+
+/** Edita display_name / birth_date de un hijo menor. Validar `fields` antes. */
+export async function updateChild(client, id, fields) {
+  const provided = CHILD_FIELDS.filter((k) => Object.hasOwn(fields, k));
+  try {
+    const { rows } = await client.query(
+      `UPDATE profiles SET ${provided.map((k, i) => `${k} = $${i + 2}`).join(', ')}
+        WHERE id = $1 AND is_guardian_of(id)
+        RETURNING ${CHILD_COLUMNS}`,
+      [id, ...provided.map((k) => fields[k])]
+    );
+    if (!rows[0]) throw httpError(404, 'child_not_found', 'Hijo no encontrado');
+    return rows[0];
+  } catch (err) {
+    // 42501 = el WITH CHECK de profiles_update_guardian: la nueva fecha lo haría adulto.
+    if (err.code === '42501') throw httpError(400, 'child_must_be_minor', 'El hijo debe ser menor de 18');
+    throw err;
+  }
 }
 
 export const HEALTH_FIELDS = [

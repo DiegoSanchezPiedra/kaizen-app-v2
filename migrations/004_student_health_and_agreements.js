@@ -90,7 +90,8 @@ export const up = (pgm) => {
   // ============================================================
   // 2. Vista profesor (SECURITY DEFINER, solo injuries + conditions)
   // ============================================================
-  // SECURITY DEFINER: owner = migrator → bypassa RLS de la tabla base.
+  // SECURITY DEFINER con owner service_role (BYPASSRLS): migrator es NOBYPASSRLS y, con
+  // FORCE RLS en la tabla base, la vista devolvía 0 filas.
   // Filtra explícitamente por current_setting('app.current_role') = 'profesor'
   // (mismo patrón que las políticas RLS: confía en el contexto seteado
   // por withRlsContext desde el JWT verificado).
@@ -106,7 +107,7 @@ export const up = (pgm) => {
     WHERE current_setting('app.current_role', true) = 'profesor';
   `);
 
-  pgm.sql(`ALTER VIEW student_health_professor_view OWNER TO migrator;`);
+  pgm.sql(`ALTER VIEW student_health_professor_view OWNER TO service_role;`);
   pgm.sql(`GRANT SELECT ON student_health_professor_view TO app_user;`);
 
   // ============================================================

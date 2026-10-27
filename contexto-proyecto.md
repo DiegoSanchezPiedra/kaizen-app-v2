@@ -3,7 +3,7 @@
 > Documento vivo. Refleja **dónde estamos**. Se actualiza al cerrar cada bloque.
 > La hoja de ruta completa está en `plan-de-bloques.md`.
 
-Última actualización: **B4.5 EN CURSO — 1 fix pendiente**. Implementado y verificado: migración `004` (`student_health_info`, `user_agreements`, vista `student_health_professor_view`), `src/config/agreements.js`, `src/services/profile.js`, `src/middleware/requireCompleteProfile.js`, `src/routes/me.js`, `src/routes/agreements.js`, montaje en `src/index.js`. Cambio de firma de `withRlsContext` a `(req, res, client)` y fix de `/auth/me`. `npm run test:rls` da **21 OK, 1 FAIL**. El FAIL es de la vista del profesor: se creó con `OWNER TO migrator` (`NOBYPASSRLS`) y `student_health_info` tiene `FORCE ROW LEVEL SECURITY` → la vista devuelve 0 filas. **Fix pendiente**: `migrate:down` → cambiar a `ALTER VIEW student_health_professor_view OWNER TO service_role;` en `migrations/004_student_health_and_agreements.js` → `migrate` → reiniciar servidor → `npm run test:rls` (esperado 22 OK, 0 FAIL; 24 OK si se añaden los 2 tests opcionales de alumno/admin sobre la vista). Al pasar el test, B4.5 se cierra formalmente con commit `feat(B4.5): student_health_info + user_agreements + requireCompleteProfile`.
+Última actualización: **2026-10-27 — B4.6 REABIERTO (rediseño Cuenta Familiar)**. B4.5 y B4.5.1 cerrados (commits `65bd98b`, `672d870`). B4.6 se implementó con el modelo "menor con login propio" (commit `bc4685d`) y se **reabre** antes de B5: el hijo pasa a ser un perfil sin credenciales gestionado por su tutor. Plan completo en **`PLAN_FAMILIA.md`**; vocabulario en `CONTEXT.md`; razón en `docs/adr/0002-hijo-sin-credenciales.md`. Sin código escrito todavía para el rediseño. (Las secciones §4 B4.5/B4.5.1 y §8 conservan el detalle histórico de su cierre.)
 
 ---
 
@@ -366,8 +366,10 @@ MFA TOTP admin: setup + activate + verify (login en dos pasos con `mfa_token`), 
 ### B4.5.1 — IMPLEMENTADO (pendiente verificación HTTP manual y commit)
 Migración `005_agreement_documents.js`: tabla `agreement_documents` (ciclo borrador → publicado → retirado, índice único parcial de una vigente por tipo, RLS, sin DELETE) y `UNIQUE(user_id)` en `user_roles` (ADR `docs/adr/0001-rol-unico-por-perfil.md`). `getCurrentVersions` lee de BD; `src/config/agreements.js` solo exporta `AGREEMENT_TYPES` y `VERSION_RE`. Endpoints admin en `src/routes/admin/agreements.js`: `GET /admin/agreements/documents`, `POST /admin/agreements/documents?type=&version=` (**cuerpo crudo `application/pdf`, ≤ 10 MB, sin multipart ni dependencia nueva**), `POST /admin/agreements/documents/:id/publish` (retira la vigente anterior y audita). `GET /agreements/:type/current` sirve el PDF. Sin `retireDocument`: se retira solo al publicar otro. Un tipo sin documento vigente cuenta como no firmado, así que **ningún alumno tiene el perfil completo hasta que un admin publique los 3 tipos**. Test: `npm run test:agreements`.
 
-### B4.6 — PENDIENTE (vocabulario cerrado en `CONTEXT.md`)
-Menores y tutores. **Va después de B4.5.1 y antes de B5/B7.** Decisiones: menor = perfil alumno con < 18 años (requiere `profiles.birth_date`); el menor tiene login propio pero firma y edita su ficha un **tutor** vinculado; el tutor es un perfil con relación tutor→menor (capacidad que da la relación; el rol `tutor` solo existe para quien no entrena); basta la firma de **un** tutor y desvincularlo no la invalida; al cumplir 18 años las firmas del tutor dejan de contar y se exige re-firma propia (se calcula con `birth_date`, sin job). Un rol por perfil. Alcance y checklist en `plan-de-bloques.md` (B4.6). Fuera de alcance: UI y reservas/pagos en nombre del menor (B7/B10).
+### B4.6 — REABIERTO: rediseño Cuenta Familiar (plan en `PLAN_FAMILIA.md`)
+**Primera versión (commit `bc4685d`, sustituida):** migración `006_minors_guardians.js` (`profiles.birth_date`, rol `tutor`, `guardianships` creada solo por admin, `user_agreements.signed_by` + RLS de firma por representación), `birthDate` obligatoria en `POST /auth/register`, `profile_id` opcional en `POST /me/agreements`, `getProfileStatus` menor/adulto, `scripts/test-minors.js`. Modelaba al menor **con login propio**.
+
+**Nuevo modelo (decidido el 2026-10-27, sin implementar):** el tutor se registra, crea a sus hijos (perfiles **sin credenciales**) y gestiona todo por ellos: perfil, ficha de salud, acuerdos, cuota, reservas, eventos y avisos. Se reescribe `006` en el sitio (no hay nada desplegado). Se conserva casi todo el esquema (`birth_date`, `guardianships`, `signed_by`) y se añaden `create_child` (SQL `SECURITY DEFINER`), el helper RLS `is_guardian_of`, políticas de tutor en `student_health_info` y `profiles`, y `GET/POST /me/children` + `PATCH /me/children/:id`. El registro propio exige ≥ 18. El rol `tutor` firma su propio `data_protection`. Decisiones D1–D16 en §5 "Cuenta familiar"; tabla mantener/refactorizar/borrar en `PLAN_FAMILIA.md` §4. **Va antes de B5.**
 
 ### B5–B20 — PENDIENTES
 Ver `plan-de-bloques.md`.
@@ -449,6 +451,28 @@ Ver `plan-de-bloques.md`.
 | `GET /agreements/:type/current` | Sirve el PDF vigente desde `AGREEMENTS_STORAGE_PATH`. En B4.5 sirve placeholder `text/plain`; en B4.5.1 sirve el PDF real. Auth: **`requireAuth`** (no público; el alumno debe estar logueado para firmar). |
 | Subida sin librería multipart | Decidido: `express.raw({ type: 'application/pdf', limit: '10mb' })` y validación manual (tipo, versión, firma `%PDF-`). Archivo en disco `<uuid>.pdf` con SHA-256 calculado al guardar. |
 | Backup de `storage/` | **Fuera de alcance de B4.5.1.** B20 añadirá backup automático (rsync a VPS secundario o similar). Riesgo en §9. |
+
+### Cuenta familiar (rediseño de B4.6, decisiones cerradas 2026-10-27)
+Detalle e impacto por bloque en `PLAN_FAMILIA.md`.
+
+| # | Decisión | Valor |
+|---|---|---|
+| D1 | Hijo | `profile` + `user_roles('alumno')` + `guardianships`, **sin `auth_credentials`**: sin email ni login. El tutor actúa con su JWT. |
+| D2 | Registro propio | Solo ≥ 18 (local y onboarding de Google). Un menor solo existe como hijo de un tutor. |
+| D3 | Tutor | Capacidad que da la relación (ADR 0001 intacto). Cualquier adulto crea hijos; el rol `tutor` = adulto que no entrena. |
+| D4 | Vínculos | Quien crea al hijo queda vinculado; el admin añade o quita más tutores. Mismos poderes. La invitación de un 2º tutor queda aplazada. |
+| D5 | Pagos | Una suscripción por hijo (`student_id` = hijo) + `subscriptions.payer_id`. Un cliente Stripe por pagador. Sin descuentos familiares. |
+| D6 | Avisos | Los del hijo → todos sus tutores; facturación → pagador. Nunca al hijo. |
+| D7 | Migración | Reescribir `006` en el sitio. |
+| D8 | Familia | Término de UI; sin tabla `families`. |
+| D9 | 18 años | Caen los poderes del tutor (se calcula con `birth_date`). El adulto **reclama** su perfil por invitación y conserva su historial. El tutor puede seguir siendo el pagador. |
+| D10 | Límites | Ninguno. Al crear: `birth_date` obligatoria y < 18. Sin rangos de edad por disciplina. |
+| D11 | Perfil completo del tutor | `display_name` + su propio `data_protection`. |
+| D12 | Baja | El tutor no borra hijos; lo hace el admin. No se puede quitar el último tutor de un menor. |
+| D13 | API | `profile_id` opcional (sujeto) en `/me/*`, reservas, inscripciones y checkout. `GET/POST /me/children`, `PATCH /me/children/:id`. |
+| D14 | Pagador válido | El propio alumno adulto o un perfil vinculado en `guardianships`. |
+| D15 | Bloqueo | Para reservar o pagar por un hijo: hijo **y** tutor completos. |
+| D16 | Hijo con 18 sin reclamar | El tutor lo ve en la lista y paga sus suscripciones; no edita, firma, reserva ni ve su salud. |
 
 ### RLS (Fase 1, cerrada en B3)
 
@@ -685,6 +709,7 @@ cancel_at_period_end boolean DEFAULT false
 cancelled_at timestamptz
 stripe_subscription_id text
 created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
+-- PREVISTO B10 (Cuenta familiar, D5/D14): payer_id uuid NOT NULL FK profiles(id)
 
 text
 
@@ -812,7 +837,11 @@ text
 - **`student_health_info` nunca debe unirse a `public_profiles`**: cuando B13 cree la vista pública, verificar explícitamente que no incluye campos de salud. Añadir a checklist de B13.
 - **`requireCompleteProfile` puede quedar desactualizado** si cambia la definición de "completo". Mitigación: constantes en `src/config/agreements.js`; tests en `scripts/test-rls.js` que cubren los 3 tipos.
 - **Consentimiento sin firma electrónica avanzada (eIDAS)**: el `POST /me/agreements` con `{ type, version }` + `ip`/`user_agent`/`signed_at` es consentimiento simple. Si se necesita eIDAS (B12/B20), migrar. Documentado en §5.
-- **Menores sin tutor modelado**: el modelo actual asume tutor legal = `profile_id`. Cuando se aborde, añadir `guardian_profile_id` o tabla `guardianships`. Fuera de alcance de B4.5.
+- ~~**Menores sin tutor modelado**~~ → `guardianships` en B4.6; modelo redefinido como Cuenta familiar (`PLAN_FAMILIA.md`).
+- **NUEVO Cuenta familiar — `create_child` es `SECURITY DEFINER`**: si se rompe la comprobación del llamante, cualquiera podría crear perfiles vinculados. Cubrir con un test en `test-minors.js`.
+- **NUEVO Cuenta familiar — hijo con 18 sin reclamar su perfil**: queda bloqueado en silencio. Avisar a los tutores (B15). El flujo de invitación no tiene bloque asignado.
+- **NUEVO Cuenta familiar — último tutor**: quitarlo dejaría el perfil del menor inaccesible. Lo impide la app (D12); valorar un trigger.
+- **NUEVO Cuenta familiar — B9 asume "un alumno, un móvil"**: el hijo no tiene login. El check-in lo hace el tutor + `profile_id` o el profesor a mano. Decidir en B9.
 - **NUEVO B4.5 — `withRlsContext` cambia la firma a `(req, res, client)`**: handlers que declaraban `(req, client)` o accedían al client por `res` se rompen con `client.query is not a function`. Detectado en `/auth/me` (`src/routes/auth.js:98`) durante la verificación de B4.5; corregido. Regla: `res` es siempre Response, `client` es siempre el client.
 - **NUEVO B4.5 — `student_health_professor_view` es `SECURITY DEFINER` con owner `service_role`**: la vista bypassa RLS porque su owner tiene `BYPASSRLS`. El filtro es `current_setting('app.current_role') = 'profesor'`. Si el `WHERE` se rompe o se elimina en una migración futura, cualquier rol con `app.current_role = 'profesor'` vería `injuries`/`conditions` de todos los alumnos. Mitigación: la vista solo expone 3 columnas (no medicación, alergias ni contacto de emergencia), y `scripts/test-rls.js` cubre los 4 roles (profesor ve, alumno/admin no ven). **Verificar en B20** que la vista sigue teniendo el `WHERE` y que su owner sigue siendo `service_role`. **Primer intento (owner `migrator`) falló**: `migrator` es `NOBYPASSRLS` y `student_health_info` tiene `FORCE ROW LEVEL SECURITY` → la vista devolvía 0 filas. Detectado en el test de B4.5. **Fix pendiente** (ver §8).
 - **NUEVO B4.5.1 — storage local sin backup**: `AGREEMENTS_STORAGE_PATH` es un directorio local. Si se borra o el VPS muere, se pierden los PDFs. B20 añadirá backup.

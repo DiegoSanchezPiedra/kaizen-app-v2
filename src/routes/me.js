@@ -2,29 +2,57 @@
 import { Router } from 'express';
 import { httpError } from '../lib/errors.js';
 import { requireAuth, withRlsContext } from '../middleware/auth.js';
-import { getProfileStatus, upsertHealthInfo, HEALTH_FIELDS } from '../services/profile.js';
+import {
+  getProfileStatus,
+  upsertHealthInfo,
+  HEALTH_FIELDS,
+  assertGuardianOf,
+  listChildren,
+  createChild,
+  updateChild,
+  CHILD_FIELDS,
+} from '../services/profile.js';
 import { signAgreement } from '../services/agreements.js';
+import { isValidPastDate } from '../services/auth.js';
 
 const router = Router();
 
+// profile_id (opcional, body o query): hijo por el que actúa un tutor vinculado.
+// Sin él, el sujeto es el propio usuario. La RLS decide si el tutor puede.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function validateSubject(req, res, next) {
+  const id = req.body?.profile_id ?? req.query?.profile_id;
+  if (id !== undefined && !UUID_RE.test(id)) {
+    return next(httpError(400, 'invalid_profile_id', 'profile_id debe ser un uuid'));
+  }
+  return next();
+}
+
 // ------------------------------------------------------------
-// GET /me/profile-status
-// Devuelve el estado de completitud del perfil del alumno.
+// GET /me/profile-status?profile_id=
+// Devuelve el estado de completitud del perfil del alumno (o de su hijo).
 // Útil para que el frontend pinte el onboarding sin provocar 403.
 // Respuesta: { ok: true } | { ok: false, missing: [...] }
 // ------------------------------------------------------------
 router.get(
   '/profile-status',
   requireAuth,
-  withRlsContext((req, client) =>
-    getProfileStatus(client, req.user.id, req.user.role)
-  )
+  validateSubject,
+  withRlsContext(async (req, client) => {
+    const subject = req.query.profile_id;
+    if (!subject || subject === req.user.id) {
+      return getProfileStatus(client, req.user.id, req.user.role);
+    }
+    await assertGuardianOf(client, subject);
+    return getProfileStatus(client, subject, 'alumno');
+  })
 );
 
 // ------------------------------------------------------------
 // POST /me/health
-// Upsert de student_health_info para el alumno autenticado.
-// Body: { injuries?, conditions?, previous_experience?,
+// Upsert de student_health_info para el alumno autenticado o su hijo.
+// Body: { profile_id?, injuries?, conditions?, previous_experience?,
 //         previous_discipline?, medication?, allergies?,
 //         emergency_contact_name?, emergency_contact_phone? }
 // Todos opcionales. requireCompleteProfile exige emergency_contact_*.
@@ -57,10 +85,17 @@ function validateHealth(req, res, next) {
 router.post(
   '/health',
   requireAuth,
+  validateSubject,
   validateHealth,
-  withRlsContext(async (req, client) => ({
-    health: await upsertHealthInfo(client, req.user.id, req.body),
-  }))
+  withRlsContext(async (req, client) => {
+    try {
+      return { health: await upsertHealthInfo(client, req.body.profile_id ?? req.user.id, req.body) };
+    } catch (err) {
+      // 42501 = violación de política RLS (no es tutor vigente del sujeto).
+      if (err.code === '42501') throw httpError(403, 'not_guardian', 'No eres tutor de este perfil');
+      throw err;
+    }
+  })
 );
 
 // ------------------------------------------------------------
@@ -73,20 +108,11 @@ router.post(
 // Registra ip y user_agent.
 // 409 si ya existe (profile_id, type, version) firmado.
 // ------------------------------------------------------------
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function validateAgreementSubject(req, res, next) {
-  const id = req.body?.profile_id;
-  if (id !== undefined && !UUID_RE.test(id)) {
-    return next(httpError(400, 'invalid_profile_id', 'profile_id debe ser un uuid'));
-  }
-  return next();
-}
 
 router.post(
   '/agreements',
   requireAuth,
-  validateAgreementSubject,
+  validateSubject,
   withRlsContext(async (req, client) => {
     try {
       return {
@@ -105,6 +131,64 @@ router.post(
       throw err;
     }
   })
+);
+
+// ------------------------------------------------------------
+// Cuenta familiar (ADR 0002): el tutor da de alta y gestiona a sus hijos.
+// GET   /me/children      → [{ id, display_name, birth_date, pending_claim }]
+// POST  /me/children      Body: { display_name, birth_date }  (menor de 18)
+// PATCH /me/children/:id  Body: { display_name?, birth_date? }
+// pending_claim = cumplió 18 sin reclamar su perfil: solo lectura (D16).
+// ------------------------------------------------------------
+function validateChild(req, res, next) {
+  const body = req.body ?? {};
+  const provided = CHILD_FIELDS.filter((k) => Object.hasOwn(body, k));
+  if (req.method === 'POST' && provided.length !== CHILD_FIELDS.length) {
+    return next(httpError(400, 'invalid_payload', 'display_name y birth_date requeridos'));
+  }
+  if (provided.length === 0) {
+    return next(httpError(400, 'no_fields', 'Ningún campo válido en el body.', { allowed: CHILD_FIELDS }));
+  }
+  if (provided.includes('display_name') && (typeof body.display_name !== 'string' || !body.display_name.trim())) {
+    return next(httpError(400, 'invalid_field_type', 'Campo inválido: display_name', { field: 'display_name' }));
+  }
+  if (provided.includes('birth_date') && !isValidPastDate(body.birth_date)) {
+    return next(httpError(400, 'invalid_birth_date', 'birth_date (YYYY-MM-DD, pasada) requerido'));
+  }
+  if (req.params.id !== undefined && !UUID_RE.test(req.params.id)) {
+    return next(httpError(400, 'invalid_profile_id', 'id debe ser un uuid'));
+  }
+  return next();
+}
+
+router.get(
+  '/children',
+  requireAuth,
+  withRlsContext(async (req, client) => ({ children: await listChildren(client, req.user.id) }))
+);
+
+router.post(
+  '/children',
+  requireAuth,
+  validateChild,
+  withRlsContext(async (req, client) => ({
+    status: 201,
+    body: {
+      child: await createChild(client, {
+        displayName: req.body.display_name.trim(),
+        birthDate: req.body.birth_date,
+      }),
+    },
+  }))
+);
+
+router.patch(
+  '/children/:id',
+  requireAuth,
+  validateChild,
+  withRlsContext(async (req, client) => ({
+    child: await updateChild(client, req.params.id, req.body),
+  }))
 );
 
 export default router;

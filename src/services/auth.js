@@ -68,18 +68,32 @@ async function createUser({ email, passwordHash, googleSub, displayName, birthDa
   };
 }
 
+// Fecha real (YYYY-MM-DD) y no futura.
+export function isValidPastDate(value) {
+  const born = /^\d{4}-\d{2}-\d{2}$/.test(value ?? '') ? new Date(value) : null;
+  return !!born && !Number.isNaN(born.getTime()) && born.toISOString().slice(0, 10) === value && born <= new Date();
+}
+
+// Mismo criterio que el SQL (birth_date <= CURRENT_DATE - 18 años). Las fechas ISO se comparan como texto.
+export function isAdultBirthDate(value) {
+  const cutoff = new Date();
+  cutoff.setUTCFullYear(cutoff.getUTCFullYear() - 18);
+  return value <= cutoff.toISOString().slice(0, 10);
+}
+
 // ---------------------------------------------------------------------------
-// registerLocal — SIN CAMBIOS (sigue firmando token; un registro nuevo
-// no puede tener MFA).
+// registerLocal — sigue firmando token; un registro nuevo no puede tener MFA.
+// Solo adultos: a los hijos los da de alta su tutor (ADR 0002).
 // ---------------------------------------------------------------------------
 export async function registerLocal({ email, password, displayName, birthDate }) {
   if (!email || !password) {
     throw httpError(400, 'invalid_payload', 'email and password required');
   }
-  // Fecha real y pasada; el menor lo determina getProfileStatus.
-  const born = /^\d{4}-\d{2}-\d{2}$/.test(birthDate ?? '') ? new Date(birthDate) : null;
-  if (!born || Number.isNaN(born.getTime()) || born.toISOString().slice(0, 10) !== birthDate || born > new Date()) {
+  if (!isValidPastDate(birthDate)) {
     throw httpError(400, 'invalid_birth_date', 'birthDate (YYYY-MM-DD, pasada) requerido');
+  }
+  if (!isAdultBirthDate(birthDate)) {
+    throw httpError(400, 'minor_cannot_register', 'solo pueden registrarse mayores de 18');
   }
   if (password.length < 8) {
     throw httpError(400, 'weak_password', 'password too short');
