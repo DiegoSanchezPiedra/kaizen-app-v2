@@ -1,6 +1,7 @@
 // src/services/profile.js
 import { httpError } from '../lib/errors.js';
 import { getCurrentVersions } from './agreements.js';
+import { AGREEMENT_TYPES as types } from '../config/agreements.js';
 
 /**
  * Devuelve el estado de completitud del perfil de un alumno.
@@ -46,7 +47,6 @@ export async function getProfileStatus(client, profileId, role) {
   }
 
   const versions = await getCurrentVersions(client);
-  const types = Object.keys(versions);
 
   const { rows } = await client.query(
     `SELECT p.display_name,
@@ -63,7 +63,8 @@ export async function getProfileStatus(client, profileId, role) {
        FROM profiles p
        LEFT JOIN student_health_info h ON h.profile_id = p.id
       WHERE p.id = $1`,
-    [profileId, types, types.map((t) => versions[t])]
+    // Tipo sin vigente → versión NULL → nunca firmado: queda en `missing` (falla cerrado).
+    [profileId, types, types.map((t) => versions[t] ?? null)]
   );
   const r = rows[0];
 

@@ -12,6 +12,7 @@
     "migrate:create": "dotenv -e .env -- node-pg-migrate create",
     "test:rls": "dotenv -e .env -- node scripts/test-rls.js",
     "test:mfa": "dotenv -e .env -- node scripts/test-mfa.js",
+    "test:agreements": "dotenv -e .env -- node scripts/test-agreements.js",
     "lint": "eslint \"src/**/*.js\"",
     "format": "prettier --write \"src/**/*.js\""
   },

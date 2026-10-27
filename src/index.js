@@ -6,6 +6,7 @@ import { notFound, errorHandler } from './middleware/errorHandler.js';
 import authRouter from './routes/auth.js';
 import meRouter from './routes/me.js';
 import agreementsRouter from './routes/agreements.js';
+import adminAgreementsRouter from './routes/admin/agreements.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -28,6 +29,7 @@ app.get('/health', async (_req, res) => {
 app.use('/auth', authRouter);
 app.use('/me', meRouter);
 app.use('/agreements', agreementsRouter);
+app.use('/admin/agreements', adminAgreementsRouter);
 app.use(notFound);
 app.use(errorHandler);
 

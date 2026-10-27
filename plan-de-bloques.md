@@ -42,6 +42,7 @@
 | B4 | MFA TOTP admin | B2 | CERRADO |
 | B4.5 | `student_health_info` + `user_agreements` + bloqueo backend | B2 | Pendiente |
 | B4.5.1 | Gestión documental admin (`agreement_documents`, storage, subida) | B4.5 | Pendiente |
+| B4.6 | Menores y tutores (fecha de nacimiento, relación tutor→menor, rol `tutor`, firma por representación) | B4.5.1 | Pendiente |
 | B5 | CRUD disciplinas, planes, `plan_disciplinas` (admin) | B3, B4.5.1 | Pendiente |
 | B6 | CRUD `class_sessions` + calendario | B5 | Pendiente |
 | B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | Pendiente |
@@ -176,6 +177,18 @@
   - [ ] Servidor reiniciado tras `migrate`.
   - [ ] Verificación HTTP manual end-to-end: admin sube PDF → publica → alumno `GET /agreements/waiver/current` obtiene el PDF → `POST /me/agreements` con la versión nueva → `requireCompleteProfile` `ok: true`.
   - [ ] Commit `feat(B4.5.1): agreement_documents + storage + subida admin + requireCompleteProfile desde BD`.
+
+### B4.6 — Menores y tutores — Pendiente
+- **Objetivo**: admitir alumnos menores de 18 años cuyos acuerdos y ficha de salud aporta un tutor vinculado. Vocabulario en `CONTEXT.md`.
+- **Dependencia dura**: después de B4.5.1 y antes de B5/B7 (reservas y pagos nacen con este modelo).
+- **Entregable**:
+  - `profiles.birth_date` (obligatoria en el registro de alumnos); menor = menos de 18 años.
+  - Valor `tutor` en `app_role` y relación tutor→menor entre perfiles (un tutor puede tener varios menores y viceversa).
+  - `user_agreements`: registrar firmante (tutor) y sujeto (menor) en la firma por representación.
+  - `getProfileStatus`: para un menor cuentan las firmas de un tutor vinculado; al cumplir 18 solo cuentan las propias (se calcula con `birth_date`, sin job). Perfil `tutor` siempre completo.
+  - Ficha de salud del menor editable por un tutor vinculado.
+- **Fuera de alcance**: UI, reservas/pagos en nombre del menor (B7/B10).
+- **Checklist de cierre**: tests por rol (tutor firma/edita solo a sus menores; el menor no firma; al cumplir 18 vuelve a incompleto); `migrate:down` → `migrate` sin error.
 
 ### B5 — CRUD disciplinas, planes, `plan_disciplinas` (admin) — Pendiente
 - **Objetivo**: catálogo de disciplinas y planes, con RLS.
