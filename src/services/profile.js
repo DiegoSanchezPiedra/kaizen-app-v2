@@ -1,5 +1,6 @@
 // src/services/profile.js
-import { appPool } from '../config/database.js';
+import { withRls } from '../db/rls.js';
+import { httpError } from '../lib/errors.js';
 import {
   AGREEMENT_TYPES,
   CURRENT_AGREEMENT_VERSIONS,
@@ -26,10 +27,9 @@ import {
  *      puede estar vacío.
  *   3. user_agreements para CADA uno de los 3 tipos en su versión vigente.
  *
- * Usa `appPool` + `withRlsContext`-style manual: abre transacción,
- * setea app.current_user_id y app.current_role, y todas las queries
- * van por el mismo `client`. Si el rol no es 'alumno', el helper no
- * aplica (los admins/profesores no necesitan health info para operar);
+ * Usa `withRls`: abre transacción con app.current_user_id y
+ * app.current_role, y todas las queries van por el mismo `client`.
+ * Si el rol no es 'alumno', el helper no aplica (los admins/profesores no necesitan health info para operar);
  * devuelve { ok: true } sin tocar BD.
  *
  * @param {string} profileId  UUID del perfil (req.user.id)
@@ -38,16 +38,10 @@ import {
  */
 export async function requireCompleteProfile(profileId, role) {
   if (!profileId) {
-    const err = new Error('requireCompleteProfile: profileId requerido');
-    err.status = 500;
-    err.code = 'internal_error';
-    throw err;
+    throw httpError(500, 'internal_error', 'requireCompleteProfile: profileId requerido');
   }
   if (!role) {
-    const err = new Error('requireCompleteProfile: role requerido');
-    err.status = 500;
-    err.code = 'internal_error';
-    throw err;
+    throw httpError(500, 'internal_error', 'requireCompleteProfile: role requerido');
   }
 
   // El helper solo aplica a alumnos. Admin/profesor operan sin health info.
@@ -55,19 +49,7 @@ export async function requireCompleteProfile(profileId, role) {
     return { ok: true };
   }
 
-  const client = await appPool.connect();
-  try {
-    await client.query('BEGIN');
-    // SET LOCAL (con `true` = local a la transacción).
-    await client.query(
-      `SELECT set_config('app.current_user_id', $1, true)`,
-      [profileId]
-    );
-    await client.query(
-      `SELECT set_config('app.current_role', $1, true)`,
-      [role]
-    );
-
+  return withRls({ uid: profileId, role }, async (client) => {
     const missing = [];
 
     // 1. display_name
@@ -119,12 +101,6 @@ export async function requireCompleteProfile(profileId, role) {
       }
     }
 
-    await client.query('COMMIT');
     return missing.length === 0 ? { ok: true } : { ok: false, missing };
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    client.release();
-  }
+  });
 }

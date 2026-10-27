@@ -1,6 +1,7 @@
 // src/routes/auth.js
 import { Router } from 'express';
 
+import { httpError } from '../lib/errors.js';
 import { registerLocal, loginLocal, loginGoogle } from '../services/auth.js';
 import { signToken } from '../services/jwt.js';
 import {
@@ -63,10 +64,7 @@ router.post('/google', async (req, res, next) => {
   try {
     const { id_token } = req.body || {};
     if (!id_token) {
-      throw Object.assign(new Error('id_token obligatorio'), {
-        status: 400,
-        code: 'invalid_payload',
-      });
+      throw httpError(400, 'invalid_payload', 'id_token obligatorio');
     }
     const { profileId, email: userEmail, role } = await loginGoogle({
       idToken: id_token,
@@ -156,9 +154,7 @@ router.post(
       const { code } = req.body || {};
       const ok = await verifyMfaCode(req.mfa.userId, req.mfa.role, code);
       if (!ok) {
-        return res
-          .status(401)
-          .json({ error: 'unauthorized', code: 'invalid_mfa_code' });
+        throw httpError(401, 'invalid_mfa_code', 'invalid mfa code');
       }
       const token = signToken({ sub: req.mfa.userId, role: req.mfa.role });
       return res

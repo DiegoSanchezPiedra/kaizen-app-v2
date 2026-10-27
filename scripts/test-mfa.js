@@ -10,6 +10,7 @@
 import crypto from 'node:crypto';
 
 import { servicePool, appPool } from '../src/config/database.js';
+import { withRls } from '../src/db/rls.js';
 import { hashPassword, verifyPassword } from '../src/services/password.js';
 import {
   setupMfa,
@@ -243,20 +244,10 @@ async function main() {
   await run('getMfaStatus + getMfaStatusWithClient → enabled=true', async () => {
     const a = await getMfaStatus(adminProfileId, 'admin');
     assert(a.enabled === true, 'getMfaStatus.enabled != true');
-    const client = await appPool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query(`SELECT set_config('app.current_user_id', $1, true)`, [adminProfileId]);
-      await client.query(`SELECT set_config('app.current_role', $1, true)`, ['admin']);
-      const b = await getMfaStatusWithClient(client, adminProfileId);
-      await client.query('COMMIT');
-      assert(b.enabled === true, 'getMfaStatusWithClient.enabled != true');
-    } catch (err) {
-      await client.query('ROLLBACK').catch(() => {});
-      throw err;
-    } finally {
-      client.release();
-    }
+    const b = await withRls({ uid: adminProfileId, role: 'admin' }, (client) =>
+      getMfaStatusWithClient(client, adminProfileId),
+    );
+    assert(b.enabled === true, 'getMfaStatusWithClient.enabled != true');
   });
 
   // 7) verifyMfaCode con TOTP correcto → true
@@ -332,23 +323,10 @@ async function main() {
       await sc.query(`INSERT INTO user_roles (user_id, role) VALUES ($1, 'alumno')`, [otherId]);
       await sc.query('COMMIT');
 
-      const client = await appPool.connect();
-      try {
-        await client.query('BEGIN');
-        await client.query(`SELECT set_config('app.current_user_id', $1, true)`, [otherId]);
-        await client.query(`SELECT set_config('app.current_role', $1, true)`, ['alumno']);
-        const { rows } = await client.query(
-          `SELECT * FROM user_mfa WHERE user_id = $1`,
-          [adminProfileId]
-        );
-        await client.query('COMMIT');
-        assert(rows.length === 0, `alumno ve ${rows.length} filas de user_mfa del admin`);
-      } catch (err) {
-        await client.query('ROLLBACK').catch(() => {});
-        throw err;
-      } finally {
-        client.release();
-      }
+      const { rows } = await withRls({ uid: otherId, role: 'alumno' }, (client) =>
+        client.query(`SELECT * FROM user_mfa WHERE user_id = $1`, [adminProfileId]),
+      );
+      assert(rows.length === 0, `alumno ve ${rows.length} filas de user_mfa del admin`);
 
       // cleanup other
       const sc2 = await servicePool.connect();

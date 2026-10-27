@@ -1,5 +1,6 @@
 // src/middleware/requireCompleteProfile.js
 import { requireCompleteProfile as checkProfileComplete } from '../services/profile.js';
+import { httpError } from '../lib/errors.js';
 
 /**
  * Middleware que bloquea la petición si el alumno no tiene el perfil
@@ -20,18 +21,13 @@ import { requireCompleteProfile as checkProfileComplete } from '../services/prof
 export async function requireCompleteProfile(req, res, next) {
   try {
     if (!req.user || !req.user.id || !req.user.role) {
-      return res.status(500).json({
-        error: 'internal_error',
-        code: 'rls_context_missing',
-      });
+      throw httpError(500, 'rls_context_missing', 'user context missing');
     }
 
     const result = await checkProfileComplete(req.user.id, req.user.role);
 
     if (!result.ok) {
-      return res.status(403).json({
-        error: 'forbidden',
-        code: 'profile_incomplete',
+      throw httpError(403, 'profile_incomplete', 'profile incomplete', {
         missing: result.missing,
       });
     }

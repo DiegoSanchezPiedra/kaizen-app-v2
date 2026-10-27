@@ -1,18 +1,10 @@
 import crypto from 'node:crypto';
-import { appPool, servicePool } from '../config/database.js';
+import { servicePool } from '../config/database.js';
+import { withRls } from '../db/rls.js';
+import { httpError } from '../lib/errors.js';
 import { hashPassword, verifyPassword } from './password.js';
 import { signToken } from './jwt.js';
 import { verifyGoogleIdToken } from './google.js';
-
-// ---------------------------------------------------------------------------
-// Helpers de error
-// ---------------------------------------------------------------------------
-function httpError(status, code, message) {
-  const err = new Error(message);
-  err.status = status;
-  err.code = code;
-  return err;
-}
 
 // ---------------------------------------------------------------------------
 // Lectura de credenciales SOLO para login (sin JWT todavía).
@@ -45,47 +37,35 @@ export async function findCredentialsByGoogleSub(googleSub) {
 // ---------------------------------------------------------------------------
 async function createUser({ email, passwordHash, googleSub, displayName }) {
   const profileId = crypto.randomUUID();
-  const client = await appPool.connect();
   try {
-    await client.query('BEGIN');
-    await client.query(
-      `SELECT set_config('app.current_user_id', $1, true)`,
-      [profileId]
-    );
-    await client.query(
-      `SELECT set_config('app.current_role', 'alumno', true)`
-    );
-
-    await client.query(
-      `INSERT INTO profiles (id, display_name) VALUES ($1, $2)`,
-      [profileId, displayName ?? null]
-    );
-    await client.query(
-      `INSERT INTO auth_credentials
-         (profile_id, email, password_hash, google_sub, email_verified)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [profileId, email, passwordHash, googleSub, googleSub ? true : false]
-    );
-    await client.query(
-      `INSERT INTO user_roles (user_id, role) VALUES ($1, 'alumno')`,
-      [profileId]
-    );
-    await client.query('COMMIT');
-
-    const token = signToken({ sub: profileId, role: 'alumno' });
-    return {
-      token,
-      user: { id: profileId, email, role: 'alumno' },
-    };
+    await withRls({ uid: profileId, role: 'alumno' }, async (client) => {
+      await client.query(
+        `INSERT INTO profiles (id, display_name) VALUES ($1, $2)`,
+        [profileId, displayName ?? null]
+      );
+      await client.query(
+        `INSERT INTO auth_credentials
+           (profile_id, email, password_hash, google_sub, email_verified)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [profileId, email, passwordHash, googleSub, googleSub ? true : false]
+      );
+      await client.query(
+        `INSERT INTO user_roles (user_id, role) VALUES ($1, 'alumno')`,
+        [profileId]
+      );
+    });
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
     if (err.code === '23505' && String(err.constraint || '').includes('email')) {
       throw httpError(409, 'email_taken', 'email already registered');
     }
     throw err;
-  } finally {
-    client.release();
   }
+
+  const token = signToken({ sub: profileId, role: 'alumno' });
+  return {
+    token,
+    user: { id: profileId, email, role: 'alumno' },
+  };
 }
 
 // ---------------------------------------------------------------------------

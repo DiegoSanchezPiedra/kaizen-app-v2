@@ -1,31 +1,11 @@
 import 'dotenv/config';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { appPool, servicePool, closePools } from '../src/config/database.js';
+import { servicePool, closePools } from '../src/config/database.js';
+import { withRls } from '../src/db/rls.js';
 
-// ---------------------------------------------------------------------------
-// withCtx: transacción appPool con set_config, SIEMPRE rollback (no persiste).
-// ---------------------------------------------------------------------------
-async function withCtx({ uid, role }, fn) {
-  const client = await appPool.connect();
-  try {
-    await client.query('BEGIN');
-    if (uid) {
-      await client.query(`SELECT set_config('app.current_user_id', $1, true)`, [uid]);
-    }
-    if (role) {
-      await client.query(`SELECT set_config('app.current_role', $1, true)`, [role]);
-    }
-    const result = await fn(client);
-    await client.query('ROLLBACK');
-    return result;
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    client.release();
-  }
-}
+// withCtx: transacción appPool con RLS, SIEMPRE rollback (no persiste).
+const withCtx = (ctx, fn) => withRls(ctx, fn, { commit: false });
 
 // ---------------------------------------------------------------------------
 // withServiceCommit: transacción servicePool que SÍ persiste (seed/cleanup).

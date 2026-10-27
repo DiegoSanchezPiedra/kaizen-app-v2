@@ -2,6 +2,7 @@
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../config/auth.js';
 import { MFA_TOKEN_EXPIRES_IN } from '../config/mfa.js';
+import { httpError } from '../lib/errors.js';
 
 /**
  * Firma un mfa_token de corta vida.
@@ -14,55 +15,37 @@ export function signMfaToken({ sub, role }) {
 }
 
 /**
- * Middleware: exige Authorization: Bearer <mfa_token> con claim mfa: 'pending'.
- * Deja req.mfa = { userId, role }.
+ * Verifica un mfa_token y deja req.mfa = { userId, role }.
  * Rechaza JWT normales (sin mfa: 'pending') con 401.
  */
+function checkMfaToken(token, req, next) {
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (payload.mfa !== 'pending' || !payload.sub) {
+      return next(httpError(401, 'invalid_mfa_token', 'invalid mfa token'));
+    }
+    req.mfa = { userId: payload.sub, role: payload.role };
+    return next();
+  } catch {
+    return next(httpError(401, 'invalid_mfa_token', 'invalid mfa token'));
+  }
+}
+
+/** Middleware: exige Authorization: Bearer <mfa_token> con claim mfa: 'pending'. */
 export function requireMfaToken(req, res, next) {
   const header = req.headers.authorization || '';
   const [scheme, token] = header.split(' ');
   if (scheme !== 'Bearer' || !token) {
-    return res.status(401).json({ error: 'unauthorized', code: 'missing_token' });
+    return next(httpError(401, 'missing_token', 'missing token'));
   }
-  try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    if (payload.mfa !== 'pending' || !payload.sub) {
-      return res
-        .status(401)
-        .json({ error: 'unauthorized', code: 'invalid_mfa_token' });
-    }
-    req.mfa = { userId: payload.sub, role: payload.role };
-    return next();
-  } catch {
-    return res
-      .status(401)
-      .json({ error: 'unauthorized', code: 'invalid_mfa_token' });
-  }
+  return checkMfaToken(token, req, next);
 }
 
-/**
- * Variante para aceptar el mfa_token en body (POST /auth/mfa/verify).
- * Lee req.body.mfa_token, valida y deja req.mfa = { userId, role }.
- */
+/** Variante para aceptar el mfa_token en body (POST /auth/mfa/verify). */
 export function requireMfaTokenFromBody(req, res, next) {
   const token = req.body && req.body.mfa_token;
   if (!token || typeof token !== 'string') {
-    return res
-      .status(400)
-      .json({ error: 'bad_request', code: 'missing_mfa_token' });
+    return next(httpError(400, 'missing_mfa_token', 'mfa_token required'));
   }
-  try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    if (payload.mfa !== 'pending' || !payload.sub) {
-      return res
-        .status(401)
-        .json({ error: 'unauthorized', code: 'invalid_mfa_token' });
-    }
-    req.mfa = { userId: payload.sub, role: payload.role };
-    return next();
-  } catch {
-    return res
-      .status(401)
-      .json({ error: 'unauthorized', code: 'invalid_mfa_token' });
-  }
+  return checkMfaToken(token, req, next);
 }

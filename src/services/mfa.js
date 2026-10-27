@@ -3,7 +3,8 @@ import * as OTPAuth from 'otpauth';
 import argon2 from 'argon2';
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { appPool } from '../config/database.js';
+import { withRls } from '../db/rls.js';
+import { httpError } from '../lib/errors.js';
 import {
   MFA_TOTP_ISSUER,
   MFA_RECOVERY_CODE_COUNT,
@@ -62,39 +63,10 @@ async function findMfaRow(client, profileId) {
 }
 
 /**
- * Abre transacción appPool con RLS self + rol real.
+ * Transacción appPool con RLS self + rol real.
  * `role` debe venir del JWT (req.user.role) o del mfa_token en login.
  */
-async function withRlsSelf(profileId, role, fn) {
-  if (!profileId || !role) {
-    const e = new Error('profileId and role required for RLS context');
-    e.status = 500;
-    e.code = 'rls_context_missing';
-    throw e;
-  }
-  const client = await appPool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(`SELECT set_config('app.current_user_id', $1, true)`, [
-      profileId,
-    ]);
-    await client.query(`SELECT set_config('app.current_role', $1, true)`, [
-      role,
-    ]);
-    const result = await fn(client);
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    try {
-      await client.query('ROLLBACK');
-    } catch {
-      // ignora
-    }
-    throw err;
-  } finally {
-    client.release();
-  }
-}
+const withRlsSelf = (profileId, role, fn) => withRls({ uid: profileId, role }, fn);
 
 // ---------------------------------------------------------------------------
 // API pública
@@ -102,10 +74,7 @@ async function withRlsSelf(profileId, role, fn) {
 
 export async function setupMfa(profileId, role, label) {
   if (!profileId) {
-    const e = new Error('profileId required');
-    e.status = 400;
-    e.code = 'profile_id_required';
-    throw e;
+    throw httpError(400, 'profile_id_required', 'profileId required');
   }
 
   const secret = new OTPAuth.Secret({ size: 20 });
@@ -128,10 +97,7 @@ export async function setupMfa(profileId, role, label) {
     const existing = await findMfaRow(client, profileId);
 
     if (existing && existing.mfa_enabled === true) {
-      const e = new Error('MFA already enabled');
-      e.status = 409;
-      e.code = 'mfa_already_enabled';
-      throw e;
+      throw httpError(409, 'mfa_already_enabled', 'MFA already enabled');
     }
 
     if (existing) {
@@ -162,29 +128,20 @@ export async function setupMfa(profileId, role, label) {
 
 export async function verifyAndEnableMfa(profileId, role, code) {
   if (!profileId || !code) {
-    const e = new Error('profileId and code required');
-    e.status = 400;
-    e.code = 'invalid_request';
-    throw e;
+    throw httpError(400, 'invalid_request', 'profileId and code required');
   }
 
   return withRlsSelf(profileId, role, async (client) => {
     const row = await findMfaRow(client, profileId);
     if (!row) {
-      const e = new Error('MFA not set up');
-      e.status = 400;
-      e.code = 'mfa_not_setup';
-      throw e;
+      throw httpError(400, 'mfa_not_setup', 'MFA not set up');
     }
 
     const secretBase32 = decrypt(row.totp_secret_encrypted);
     const totp = buildTotp(secretBase32, profileId);
     const delta = totp.validate({ token: String(code), window: 1 });
     if (delta === null) {
-      const e = new Error('Invalid TOTP code');
-      e.status = 400;
-      e.code = 'invalid_totp';
-      throw e;
+      throw httpError(400, 'invalid_totp', 'Invalid TOTP code');
     }
 
     await client.query(
