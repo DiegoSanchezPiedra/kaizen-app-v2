@@ -22,6 +22,7 @@
     "test:billing": "dotenv -e .env -- node scripts/test-billing.js",
     "extend-horizon": "dotenv -e .env -- node scripts/extend-horizon.js",
     "sync-stripe-plans": "dotenv -e .env -- node scripts/sync-stripe-plans.js",
+    "stripe-portal-config": "dotenv -e .env -- node scripts/stripe-portal-config.js",
     "lint": "eslint \"src/**/*.js\"",
     "format": "prettier --write \"src/**/*.js\""
   },

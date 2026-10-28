@@ -16,6 +16,7 @@ import attendanceRouter from './routes/attendance.js';
 import adminCheckinRouter from './routes/admin/checkin.js';
 import tabletRouter from './routes/tablet.js';
 import checkinRouter from './routes/checkin.js';
+import billingRouter from './routes/billing.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -46,6 +47,7 @@ app.use('/tablet', tabletRouter);
 app.use('/checkin', checkinRouter);
 app.use('/professor', professorRouter);
 app.use('/bookings', bookingsRouter);
+app.use('/billing', billingRouter);
 app.use('/sessions', attendanceRouter);
 app.use('/', catalogRouter);
 app.use(notFound);

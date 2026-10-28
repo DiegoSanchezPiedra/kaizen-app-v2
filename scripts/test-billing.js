@@ -5,6 +5,7 @@ import { servicePool, closePools } from '../src/config/database.js';
 import { withRls } from '../src/db/rls.js';
 import { stripe } from '../src/config/stripe.js';
 import { createPlan, updatePlan } from '../src/services/catalog.js';
+import { createCheckout, createPortalSession } from '../src/services/billing.js';
 
 const sp = async (c, fn) => { // savepoint: un error SQL no aborta el resto de la transacción
   await c.query('SAVEPOINT t');
@@ -18,14 +19,14 @@ async function run(name, fn) {
   try { await fn(); console.log(`OK   ${name}`); } catch (e) { failed++; console.error(`FAIL ${name}\n`, e); }
 }
 
-const people = { admin: 'admin', prof: 'profesor', alu: 'alumno', other: 'alumno', tutor: 'tutor', child: 'alumno' };
+const people = { admin: 'admin', prof: 'profesor', alu: 'alumno', other: 'alumno', tutor: 'tutor', child: 'alumno', child2: 'alumno' };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 for (const [k, role] of Object.entries(people)) {
   await servicePool.query(`INSERT INTO profiles (id, display_name, birth_date) VALUES ($1, $2, $3)`,
-    [U[k], `${k}-bill`, k === 'child' ? '2016-05-05' : null]);
+    [U[k], `${k}-bill`, k.startsWith('child') ? '2016-05-05' : null]);
   await servicePool.query(`INSERT INTO user_roles (user_id, role) VALUES ($1, $2)`, [U[k], role]);
 }
-await servicePool.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [U.tutor, U.child]);
+await servicePool.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2), ($1, $3)`, [U.tutor, U.child, U.child2]);
 
 const disc = (await servicePool.query(
   `INSERT INTO disciplines (name) VALUES ('T-Bill-A') RETURNING id`)).rows[0].id;
@@ -51,6 +52,23 @@ const { rows: [bk] } = await servicePool.query(
 
 const setStatus = (id, status) => servicePool.query(`UPDATE subscriptions SET status = $2 WHERE id = $1`, [id, status]);
 let synced, stripeSub, syncedSub;
+
+// Checkout: K solo menores; B no elegible en el plan de 1.
+const mkDisc = async (name, minors) => (await servicePool.query(
+  `INSERT INTO disciplines (name, minors_only) VALUES ($1, $2) RETURNING id`, [name, minors])).rows[0].id;
+const discK = await mkDisc('T-Bill-K', true);
+const discB = await mkDisc('T-Bill-B', false);
+const mkPlan = (body) => withRls({ uid: U.admin, role: 'admin' }, (c) =>
+  createPlan(c, { name: `T-Bill-${body.tag}-${Date.now()}`, max_disciplines: null, price_cents: 1500, ...body, tag: undefined }));
+const co = [
+  await mkPlan({ tag: 'one', max_disciplines: 1 }), await mkPlan({ tag: 'kids', minors_only: true }),
+  await mkPlan({ tag: 'free', price_cents: 0 }), await mkPlan({ tag: 'retired', is_active: false }),
+];
+const [coOne, coKids, coFree, coRetired] = co;
+await servicePool.query(`INSERT INTO plan_disciplines (plan_id, discipline_id) VALUES ($1, $2), ($1, $3)`,
+  [coOne.id, disc, discK]);
+const customerOf = async (id) =>
+  (await servicePool.query(`SELECT stripe_customer_id FROM profiles WHERE id = $1`, [id])).rows[0].stripe_customer_id;
 const covers = async () => (await servicePool.query(`SELECT covers($1, $2) c`, [U.alu, disc])).rows[0].c;
 
 try {
@@ -110,6 +128,48 @@ try {
     assert.equal(rowCount, 1);
   });
 
+  await run('checkout: retirado, 0 €, solo menores, nº y elegibles, suscripción viva', async () => {
+    await withRls({ uid: U.other, role: 'alumno' }, async (c) => {
+      const no = (body, status, code) => sp(c, () => assert.rejects(
+        createCheckout(c, { payerId: U.other, studentId: U.other, ...body }), (e) => e.status === status && e.code === code));
+      await no({ planId: coRetired.id }, 404, 'plan_not_found');
+      await no({ planId: coFree.id }, 409, 'plan_not_purchasable');
+      await no({ planId: coKids.id }, 409, 'plan_minors_only');
+      await no({ planId: coOne.id, disciplineIds: [] }, 400, 'invalid_field');
+      await no({ planId: coOne.id, disciplineIds: [disc, discB] }, 400, 'invalid_field');
+      await no({ planId: coOne.id, disciplineIds: [discB] }, 409, 'discipline_not_eligible');
+      await no({ planId: coOne.id, disciplineIds: [discK] }, 409, 'discipline_not_eligible'); // adulto, solo menores
+    }, { commit: false });
+    await withRls({ uid: U.alu, role: 'alumno' }, (c) => assert.rejects(
+      createCheckout(c, { payerId: U.alu, studentId: U.alu, planId: coOne.id, disciplineIds: [disc] }),
+      (e) => e.code === 'subscription_exists'), { commit: false });
+  });
+  await run('checkout: adulto se paga; cliente en el pagador reutilizado; metadatos del pedido', async () => {
+    const go = () => withRls({ uid: U.other, role: 'alumno' }, (c) =>
+      createCheckout(c, { payerId: U.other, studentId: U.other, planId: coOne.id, disciplineIds: [disc] }), { commit: false });
+    assert.match((await go()).url, /^https:\/\/checkout\.stripe\.com\//);
+    const cus = await customerOf(U.other);
+    assert.match(cus, /^cus_/);
+    await go();
+    assert.equal(await customerOf(U.other), cus);
+    const { data: [s] } = await stripe.checkout.sessions.list({ customer: cus, limit: 1 });
+    assert.deepEqual([s.mode, s.client_reference_id, s.metadata],
+      ['subscription', U.other, { student_id: U.other, payer_id: U.other, plan_id: coOne.id, discipline_ids: String(disc) }]);
+  });
+  await run('checkout: tutor paga el plan solo menores del hijo; el cliente es del tutor', async () => {
+    await withRls({ uid: U.tutor, role: 'tutor' }, (c) =>
+      createCheckout(c, { payerId: U.tutor, studentId: U.child2, planId: coKids.id }), { commit: false });
+    assert.equal(await customerOf(U.child2), null);
+    const { data: [s] } = await stripe.checkout.sessions.list({ customer: await customerOf(U.tutor), limit: 1 });
+    assert.deepEqual([s.metadata.student_id, s.metadata.payer_id, s.metadata.discipline_ids], [U.child2, U.tutor, '']);
+  });
+  await run('portal: sin cliente → 404; con cliente → url de Stripe', async () => {
+    await withRls({ uid: U.admin, role: 'admin' }, (c) => assert.rejects(
+      createPortalSession(c, U.admin), (e) => e.code === 'no_billing_account'), { commit: false });
+    const { url } = await withRls({ uid: U.other, role: 'alumno' }, (c) => createPortalSession(c, U.other), { commit: false });
+    assert.match(url, /^https:\/\/billing\.stripe\.com\//);
+  });
+
   // Plan ↔ Stripe contra el sandbox (llamadas reales).
   await run('sync plan: crea Product + Price mensual EUR IVA incluido', async () => {
     synced = await withRls({ uid: U.admin, role: 'admin' }, (c) =>
@@ -158,8 +218,10 @@ try {
   await servicePool.query(`DELETE FROM invoices WHERE id = $1`, [inv]);
   await servicePool.query(`DELETE FROM subscriptions WHERE id = ANY($1::uuid[])`, [Object.values(sub)]);
   await servicePool.query(`DELETE FROM plans WHERE id = $1`, [plan]);
-  await servicePool.query(`DELETE FROM disciplines WHERE id = $1`, [disc]);
-  await servicePool.query(`DELETE FROM guardianships WHERE minor_id = $1`, [U.child]);
+  for (const p of co) await servicePool.query(`DELETE FROM plan_disciplines WHERE plan_id = $1`, [p.id]);
+  await servicePool.query(`DELETE FROM plans WHERE id = ANY($1::bigint[])`, [co.map((p) => p.id)]);
+  await servicePool.query(`DELETE FROM disciplines WHERE id = ANY($1::bigint[])`, [[disc, discK, discB]]);
+  await servicePool.query(`DELETE FROM guardianships WHERE tutor_id = $1`, [U.tutor]);
   await servicePool.query(`DELETE FROM profiles WHERE id = ANY($1::uuid[])`, [Object.values(U)]);
   await closePools();
 }
