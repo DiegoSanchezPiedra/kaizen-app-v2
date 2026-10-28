@@ -7,6 +7,8 @@ import authRouter from './routes/auth.js';
 import meRouter from './routes/me.js';
 import agreementsRouter from './routes/agreements.js';
 import adminAgreementsRouter from './routes/admin/agreements.js';
+import adminCatalogRouter from './routes/admin/catalog.js';
+import catalogRouter from './routes/catalog.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -30,6 +32,8 @@ app.use('/auth', authRouter);
 app.use('/me', meRouter);
 app.use('/agreements', agreementsRouter);
 app.use('/admin/agreements', adminAgreementsRouter);
+app.use('/admin', adminCatalogRouter);
+app.use('/', catalogRouter);
 app.use(notFound);
 app.use(errorHandler);
 

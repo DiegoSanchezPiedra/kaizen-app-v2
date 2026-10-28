@@ -14,6 +14,7 @@
     "test:mfa": "dotenv -e .env -- node scripts/test-mfa.js",
     "test:agreements": "dotenv -e .env -- node scripts/test-agreements.js",
     "test:minors": "dotenv -e .env -- node scripts/test-minors.js",
+    "test:catalog": "dotenv -e .env -- node scripts/test-catalog.js",
     "lint": "eslint \"src/**/*.js\"",
     "format": "prettier --write \"src/**/*.js\""
   },

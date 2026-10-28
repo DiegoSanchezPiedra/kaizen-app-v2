@@ -43,7 +43,7 @@
 | B4.5 | `student_health_info` + `user_agreements` + bloqueo backend | B2 | Pendiente |
 | B4.5.1 | Gestión documental admin (`agreement_documents`, storage, subida) | B4.5 | Pendiente |
 | B4.6 | Cuenta familiar: el tutor crea y gestiona hijos sin credenciales (`PLAN_FAMILIA.md`) | B4.5.1 | IMPLEMENTADO (pendiente commit) |
-| B5 | CRUD disciplinas, planes y disciplinas elegibles (`plan_disciplines`) (admin) | B3, B4.6 | Pendiente |
+| B5 | CRUD disciplinas, planes y disciplinas elegibles (`plan_disciplines`) (admin) | B3, B4.6 | IMPLEMENTADO (pendiente commit) |
 | B6 | CRUD `class_sessions` + calendario | B5 | Pendiente |
 | B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | Pendiente |
 | B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | Pendiente |
@@ -193,21 +193,24 @@
 - **Permisos de BD** (aplicados a mano como superusuario el 2026-10-27; repetir en cada instalación nueva): `GRANT service_role TO migrator` y `GRANT CREATE ON SCHEMA public TO service_role`. Son necesarios para que la vista de profesor (004) y `is_guardian_of`/`create_child` (006) tengan owner `service_role` (BYPASSRLS).
 - **Checklist de cierre** (verde el 2026-10-27; el HTTP de firmas queda pendiente de documentos publicados): `test-minors.js` reescrito (el tutor crea un hijo y no se vincula a perfiles existentes; un adulto no puede ser hijo; el tutor edita la salud y firma; otro tutor no; a los 18 pierde poderes pero ve la lista; tutor sin `data_protection` incompleto); `test:rls` verde; `migrate:down` → `migrate` sin error; verificación HTTP del flujo del tutor.
 
-### B5 — CRUD disciplinas, planes y disciplinas elegibles (admin) — Pendiente
+### B5 — CRUD disciplinas, planes y disciplinas elegibles (admin) — IMPLEMENTADO
 - **Objetivo**: catálogo de disciplinas y planes, con RLS. Vocabulario en `CONTEXT.md` ("Planes y disciplinas"); modelo en ADR 0003: **el plan fija cuántas disciplinas, la suscripción fija cuáles**.
 - **Entregable**: migración `007` con esquema + RLS en `disciplines`, `plans`, `plan_disciplines`; endpoints admin CRUD.
   - `disciplines`: `minors_only boolean NOT NULL DEFAULT false`; `is_active NOT NULL DEFAULT true`.
   - `plans`: número de disciplinas a elegir (1, 2… o NULL = todas); `minors_only boolean NOT NULL DEFAULT false`; `billing_period` restringido a un conjunto cerrado (hoy solo `monthly`); `price_cents NOT NULL ≥ 0`; `is_active NOT NULL DEFAULT true`.
   - `plan_disciplines` = **disciplinas elegibles** (opcional; sin filas = cualquier disciplina activa permitida por edad). **No** son las disciplinas cubiertas.
-  - Revisar que `disciplines.id` / `plans.id` (hoy `bigint` sin default) generen id.
+  - `disciplines.id` / `plans.id`: `GENERATED ALWAYS AS IDENTITY` (ids como string en JSON). `plans.stripe_price_id` nullable único, lo rellena B10. `plans.name` único.
+  - Endpoints: admin `/admin/disciplines`, `/admin/plans`, `/admin/plans/:id/disciplines` (PUT reemplaza la lista; sin `DELETE` HTTP) y lectura autenticada `GET /disciplines`, `GET /plans`. Cambio de precio y retirada se auditan en `audit_log`.
+  - Reglas añadidas: `max_disciplines`/`minors_only` no se editan con suscripciones (409); elegibles ≥ `max_disciplines`; un plan solo menores puede listar disciplinas de adultos (adolescentes en Muay Thai adultos). Que un adulto no contrate planes solo menores se valida en B10 con `plans.minors_only`.
+  - **Pendiente B10**: política para que el alumno con suscripción en un plan/disciplina retirado lo siga viendo (necesita RLS de `subscriptions`).
 - **Reglas**: nunca se borra una disciplina o plan con historial: se desactiva (retirar). Precio editable (se aplica desde la siguiente facturación de cada suscriptor; la propagación a Stripe es B10).
 - **Fuera de alcance**: suscripciones y disciplinas elegidas (B10), precios Stripe (B10), cambio de disciplina / upgrade / downgrade (B10.5), lectura anónima del catálogo (decidido: no).
 - **Checklist de cierre**:
-  - [ ] Esquema y RLS en las 3 tablas: lectura para autenticados (activos; retirados solo admin), escritura solo admin.
-  - [ ] CRUD admin `/admin/disciplines`, `/admin/plans`, `/admin/plans/:id/disciplines` (elegibles).
-  - [ ] Validación: número de disciplinas ≥ 1 o "todas"; `billing_period` del conjunto cerrado; sin `DELETE` de filas con historial.
-  - [ ] Tests por rol.
-  - [ ] `migrate:down` → `migrate` → `migrate:down` sin error.
+  - [x] Esquema y RLS en las 3 tablas: lectura para autenticados (activos; retirados solo admin), escritura solo admin.
+  - [x] CRUD admin `/admin/disciplines`, `/admin/plans`, `/admin/plans/:id/disciplines` (elegibles).
+  - [x] Validación: número de disciplinas ≥ 1 o "todas"; `billing_period` del conjunto cerrado; sin `DELETE` de filas con historial.
+  - [x] Tests por rol: `npm run test:catalog` → 10/10 OK; `test:rls`, `test:agreements`, `test:minors` verdes.
+  - [x] `migrate:down` → `migrate` → `migrate:down` sin error.
 
 ### B6 — CRUD `class_sessions` + calendario — Pendiente
 - **Objetivo**: sesiones de clase con calendario.
@@ -256,7 +259,7 @@
 ### B10 — Stripe base (checkout, portal, webhook idempotente) — Pendiente
 - **Objetivo**: checkout, portal de cliente y webhook idempotente.
 - **Cuenta familiar**: una suscripción por hijo + `subscriptions.payer_id` (el propio alumno adulto o un tutor vinculado); cliente Stripe **por pagador** (decidir `profiles.stripe_customer_id` vs `billing_customers`); checkout con `profile_id`; RLS = alumno, tutor vinculado o pagador. Morosos (B10.2) agrupados por pagador.
-- **Planes (B5, ADR 0003)**: el checkout recibe plan + **disciplinas elegidas** (tantas como el plan, entre las elegibles, respetando "solo menores" de plan y disciplina). Por eso `subscription_disciplines` nace aquí (sale de B10.5). Máximo **una** suscripción activa por alumno. Cambio de precio de un plan → actualizar las suscripciones en Stripe desde su siguiente facturación. Cambio de pagador entre tutores: siguiente facturación; al reclamar el perfil, pagador = el propio alumno.
+- **Planes (B5, ADR 0003)**: el checkout recibe plan + **disciplinas elegidas** (tantas como el plan, entre las elegibles, respetando "solo menores" de plan y disciplina). **Comprobación de edad obligatoria en el checkout** (el alumno ya es conocido): un adulto no puede contratar un plan `minors_only` ni elegir una disciplina `minors_only`; un menor puede elegir cualquier disciplina, incluidas las de adultos. B5 solo guarda los flags, no valida edad. Por eso `subscription_disciplines` nace aquí (sale de B10.5). Máximo **una** suscripción activa por alumno. Cambio de precio de un plan → actualizar las suscripciones en Stripe desde su siguiente facturación. Cambio de pagador entre tutores: siguiente facturación; al reclamar el perfil, pagador = el propio alumno.
 - **Entregable**: RLS en `subscriptions` y `subscription_disciplines`; endpoints `/billing/checkout`, `/billing/portal`; webhook con `webhook_events`.
 - **Fuera de alcance**: `invoices` ampliadas (B10.1), upgrade/downgrade y cambio de disciplina (B10.5), cancelación (B11).
 - **Checklist de cierre**:
