@@ -19,6 +19,7 @@
     "test:bookings": "dotenv -e .env -- node scripts/test-bookings.js",
     "test:attendance": "dotenv -e .env -- node scripts/test-attendance.js",
     "test:checkin": "dotenv -e .env -- node scripts/test-checkin.js",
+    "test:billing": "dotenv -e .env -- node scripts/test-billing.js",
     "extend-horizon": "dotenv -e .env -- node scripts/extend-horizon.js",
     "lint": "eslint \"src/**/*.js\"",
     "format": "prettier --write \"src/**/*.js\""
@@ -34,7 +35,7 @@
     "jsonwebtoken": "^9.0.3",
     "otpauth": "^9.3.0",
     "pg": "^8.11.0",
-    "stripe": "^14.10.0"
+    "stripe": "^23.0.1"
   },
   "devDependencies": {
     "dotenv-cli": "^11.0.0",

@@ -50,8 +50,9 @@ const sub = {};
 for (const k of ['alu1', 'alu2', 'alu3', 'child', 'alu4']) {
   sub[k] = crypto.randomUUID();
   await servicePool.query(
-    `INSERT INTO subscriptions (id, student_id, payer_id, plan_id, status) VALUES ($1, $2, $3, $4, 'active')`,
-    [sub[k], U[k], k === 'child' ? U.tutor1 : U[k], k === 'alu4' ? planOne : planAll]);
+    `INSERT INTO subscriptions (id, student_id, payer_id, plan_id, status, stripe_subscription_id)
+     VALUES ($1, $2, $3, $4, 'active', $5)`,
+    [sub[k], U[k], k === 'child' ? U.tutor1 : U[k], k === 'alu4' ? planOne : planAll, `sub_test_${sub[k]}`]);
 }
 await servicePool.query(`INSERT INTO subscription_disciplines VALUES ($1, $2)`, [sub.alu4, disc.B]);
 
@@ -124,13 +125,14 @@ try {
       assert.deepEqual(n.changes.recipients, [U.alu3]);
     });
     await run('promoción sin cobertura: sale de la lista con no_coverage', async () => {
-      await c.query(`UPDATE subscriptions SET status = 'cancelled' WHERE id = $1`, [sub.alu2]);
+      // Solo el webhook escribe suscripciones (012).
+      await servicePool.query(`UPDATE subscriptions SET status = 'cancelled' WHERE id = $1`, [sub.alu2]);
       await as(c, U.alu2, 'alumno');
       await cancelBooking(c, o2.id); // quita el solape para que no se le salte
       await as(c, U.alu3, 'alumno');
       await cancelBooking(c, w3.id);
       assert.deepEqual(await statusOf(c, w2.id).then((r) => [r.status, r.cancel_reason]), ['cancelled', 'no_coverage']);
-      await c.query(`UPDATE subscriptions SET status = 'active' WHERE id = $1`, [sub.alu2]);
+      await servicePool.query(`UPDATE subscriptions SET status = 'active' WHERE id = $1`, [sub.alu2]);
     });
     await run('se puede volver a reservar tras cancelar', async () => {
       await as(c, U.alu1, 'alumno');

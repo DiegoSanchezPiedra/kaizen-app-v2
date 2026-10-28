@@ -22,6 +22,13 @@ async function run(name, fn) {
 const admin = crypto.randomUUID();
 const alumno = crypto.randomUUID();
 await servicePool.query(`INSERT INTO profiles (id, display_name) VALUES ($1,'admin-t'),($2,'alumno-t')`, [admin, alumno]);
+// Solo el webhook escribe suscripciones (012): el plan con suscriptor se crea fuera de la transacción RLS.
+const subPlan = (await servicePool.query(
+  `INSERT INTO plans (name, price_cents, max_disciplines) VALUES ('T-Subscribed', 3000, 2) RETURNING id`)).rows[0].id;
+const subId = crypto.randomUUID();
+await servicePool.query(
+  `INSERT INTO subscriptions (id, student_id, plan_id, status, payer_id, stripe_subscription_id)
+   VALUES ($1,$2,$3,'active',$2,$4)`, [subId, alumno, subPlan, `sub_test_${subId}`]);
 const as = (c, uid, role) =>
   c.query(`SELECT set_config('app.current_user_id',$1,true), set_config('app.current_role',$2,true)`, [uid, role]);
 
@@ -76,11 +83,10 @@ try {
       await sp(c, () => assert.rejects(c.query(`DELETE FROM disciplines WHERE id=$1`, [bjj.id]), /permission denied/));
     });
     await run('plan con suscripciones: max_disciplines/minors_only inmutables', async () => {
-      await c.query(
-        `INSERT INTO subscriptions (id, student_id, plan_id, status, payer_id)
-         VALUES ($1,$2,$3,'active',$2)`, [crypto.randomUUID(), alumno, kidsPlan.id]);
-      await rejects(updatePlan(c, { id: kidsPlan.id, body: { max_disciplines: 1 }, actorId: admin }), 409, 'plan_has_subscriptions');
-      await updatePlan(c, { id: kidsPlan.id, body: { price_cents: 3500 }, actorId: admin }); // precio sí
+      const id = String(subPlan);
+      await rejects(updatePlan(c, { id, body: { max_disciplines: 1 }, actorId: admin }), 409, 'plan_has_subscriptions');
+      await rejects(updatePlan(c, { id, body: { minors_only: true }, actorId: admin }), 409, 'plan_has_subscriptions');
+      await updatePlan(c, { id, body: { price_cents: 3500 }, actorId: admin }); // precio sí
     });
 
     await as(c, alumno, 'alumno');
@@ -107,6 +113,8 @@ try {
     });
   }, { commit: false });
 } finally {
+  await servicePool.query(`DELETE FROM subscriptions WHERE id = $1`, [subId]);
+  await servicePool.query(`DELETE FROM plans WHERE id = $1`, [subPlan]);
   await servicePool.query(`DELETE FROM profiles WHERE id = ANY($1::uuid[])`, [[admin, alumno]]);
   await closePools();
 }
