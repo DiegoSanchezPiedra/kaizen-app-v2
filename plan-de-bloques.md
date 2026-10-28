@@ -46,7 +46,7 @@
 | B5 | CRUD disciplinas, planes y disciplinas elegibles (`plan_disciplines`) (admin) | B3, B4.6 | IMPLEMENTADO (pendiente commit) |
 | B6 | Clases + sesiones (CRUD admin, generación a 1 año, vista profesor) | B5 | Hecho (calendario alumno pendiente) |
 | B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | IMPLEMENTADO (pendiente commit) |
-| B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | Pendiente |
+| B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | IMPLEMENTADO (pendiente commit) |
 | B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | Pendiente |
 | B10 | Stripe base (checkout, portal, webhook idempotente) | B4.5, B7 | Pendiente |
 | B10.1 | Modelo Stripe en `invoices` + webhook `invoice.payment_failed` | B10 | Pendiente |
@@ -241,16 +241,18 @@
 ### B8 — Asistencia manual (`register_attendance`, auditoría) — Pendiente
 - **Objetivo**: profesor pasa lista manualmente; se audita.
 - **Cuenta familiar**: la edición de la ficha de salud del hijo por el tutor ya está en B4.6 (sale de aquí).
-- **Entregable**: RLS en `attendance`; endpoint `POST /professor/attendance`; inserción en `audit_log`.
+- **Entregable**: RLS en `attendance`; endpoints de lista; inserción en `audit_log`.
+- **Implementación** (migración `010`): funciones `SECURITY DEFINER` (owner `service_role`) `mark_attendance`, `close_attendance`, `correct_attendance`, `professor_session_health` (públicas) y `attendance_session` (interna); `app_user` solo lee `attendance`. `attendance.booking_id` (reserva asociada) y `corrected_by`; `class_sessions.attendance_closed_at/_by` (NULL = sin registrar). `academy_settings.attendance_correction_hours` = 48. La vista `student_health_professor_view` se **elimina**: la sustituye `professor_session_health(session)`, que exige profesor de la sesión, sesión programada y de hoy (Madrid), solo reservas `confirmed`, sin experiencia ni disciplina previa, y audita cada consulta (`health.view`). `cancel_session_bookings` borra la lista y sus asistencias. Auditoría: `attendance.close`, `attendance.correct` (from/to/motivo), `health.view`. Endpoints: `GET /sessions/:id/attendance`, `PUT /sessions/:id/attendance/:studentId`, `POST /sessions/:id/attendance/close`, `POST /sessions/:id/attendance/:studentId/correct`, `GET /professor/sessions/:id/health`.
+- **Pendiente**: `audit_log_insert_authenticated` (003) permite a cualquier autenticado insertar filas en `audit_log` (→ B20).
 - **Fuera de alcance**: QR (B9).
 - **Checklist de cierre**:
-  - [ ] RLS en `attendance`.
-  - [ ] Profesor solo pasa lista de sus sesiones.
-  - [ ] Asistencia solo con reserva activa; cierre de lista genera las faltas (CONTEXT.md §Asistencia).
-  - [ ] Correcciones con motivo; parámetro `attendance_correction_hours` en `academy_settings`.
-  - [ ] Vista de salud del profesor restringida a campos y alcance de CONTEXT.md §Asistencia.
-  - [ ] `audit_log` registra cierres de lista, correcciones y consultas de salud del profesor.
-  - [ ] Tests por rol.
+  - [x] RLS en `attendance`.
+  - [x] Profesor solo pasa lista de sus sesiones.
+  - [x] Asistencia solo con reserva activa; cierre de lista genera las faltas (CONTEXT.md §Asistencia).
+  - [x] Correcciones con motivo; parámetro `attendance_correction_hours` en `academy_settings`.
+  - [x] Vista de salud del profesor restringida a campos y alcance de CONTEXT.md §Asistencia.
+  - [x] `audit_log` registra cierres de lista, correcciones y consultas de salud del profesor.
+  - [x] Tests por rol (`npm run test:attendance`).
 
 ### B9 — QR dinámico (`device_tokens`, SSE, check-in) — Pendiente
 - **Objetivo**: tablet fija con `device_token`, QR rotativo, check-in por SSE.
@@ -420,3 +422,6 @@
   - [ ] Verificación de checksum al servir `GET /agreements/:type/current` (B4.5.1).
   - [ ] E2E de flujos críticos (incluye flujo MFA completo de B4 con supertest, y flujo B4.5/B4.5.1: subir → publicar → firmar → `requireCompleteProfile`).
   - [ ] `scripts/test-rls.js` y `scripts/test-mfa.js` migrados a BD efímera por test run (no destructivo en local compartido).
+  - [ ] **[Alta] `audit_log` insertable por cualquier autenticado** (detectado en B8): la política `audit_log_insert_authenticated` (003) deja a cualquier usuario con `app_user` insertar filas arbitrarias, con lo que la auditoría es inalterable pero no auténtica. Arreglo: quitar la política y el `INSERT` a `app_user`, y mover los `INSERT` directos de `services/catalog.js` y `services/agreements.js` a funciones `SECURITY DEFINER` (las de 009/010 ya no la necesitan).
+  - [ ] **[Media] Smoke tests HTTP que matan procesos ajenos** (detectado en B8): en B8 se usó `pkill -f "node src/index.js"` para parar el servidor de prueba y probablemente paró otro servidor que ya escuchaba en el 3999. Arreglo: los E2E arrancan el servidor en un puerto libre (`PORT=0`/supertest) y lo paran por su PID, nunca con `pkill -f`.
+  - [ ] **[Baja] `scripts/test-attendance.js` falla entre las 00:00 y las 00:05 de Madrid** (detectado en B8): la sesión «de hoy» empieza 5 min antes de `now()` y cae en el día anterior. Arreglo: fijar la hora de la sesión dentro del día de Madrid o inyectar el reloj al migrar a la BD efímera.

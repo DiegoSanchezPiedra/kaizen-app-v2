@@ -257,20 +257,12 @@ async function main() {
       assert.equal(rows.length, 0);
     });
 
-    await run('B4.5 — profesor SÍ ve la vista student_health_professor_view (solo 3 columnas)', async () => {
-      const { rows } = await withCtx({ uid: ids.professor, role: 'profesor' }, (c) =>
-        c.query(`SELECT * FROM student_health_professor_view`)
+    // B8: la vista se sustituyó por professor_session_health (scripts/test-attendance.js).
+    await run('B8 — la vista student_health_professor_view ya no existe', async () => {
+      await assert.rejects(
+        withCtx({ uid: ids.professor, role: 'profesor' }, (c) => c.query(`SELECT * FROM student_health_professor_view`)),
+        /does not exist/
       );
-      // La vista expone filas de todos los alumnos con health (A y B en el seed).
-      assert.ok(rows.length >= 2, `se esperaban >=2 filas, hay ${rows.length}`);
-      // Y solo 3 columnas: profile_id, injuries, conditions.
-      const keys = Object.keys(rows[0]).sort();
-      assert.deepEqual(keys, ['conditions', 'injuries', 'profile_id']);
-      // Y NO expone columnas sensibles.
-      assert.equal(rows[0].medication, undefined);
-      assert.equal(rows[0].allergies, undefined);
-      assert.equal(rows[0].emergency_contact_name, undefined);
-      assert.equal(rows[0].emergency_contact_phone, undefined);
     });
 
     await run('B4.5 — alumno NO puede UPDATE en user_agreements (REVOKE)', async () => {

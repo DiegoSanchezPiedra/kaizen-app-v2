@@ -12,6 +12,7 @@ import catalogRouter from './routes/catalog.js';
 import adminClassesRouter from './routes/admin/classes.js';
 import professorRouter from './routes/professor.js';
 import bookingsRouter from './routes/bookings.js';
+import attendanceRouter from './routes/attendance.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -39,6 +40,7 @@ app.use('/admin', adminCatalogRouter);
 app.use('/admin', adminClassesRouter);
 app.use('/professor', professorRouter);
 app.use('/bookings', bookingsRouter);
+app.use('/sessions', attendanceRouter);
 app.use('/', catalogRouter);
 app.use(notFound);
 app.use(errorHandler);
