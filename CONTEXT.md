@@ -94,7 +94,7 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 - **Profesor de la sesión**: quien la imparte: el profesor habitual de su clase o, si hay un ajuste, el **sustituto**. Las **sesiones de un profesor** son las que imparte, sustituciones incluidas. El profesor solo ve en el calendario sus sesiones y no crea ni ajusta clases ni sesiones: eso es del admin.
 - **Baja de un profesor**: no se permite mientras sea profesor habitual de alguna clase no retirada o profesor de alguna sesión futura; antes hay que reasignarlas (cambio de clase, ajuste de sesión) o retirarlas.
 - **Ajuste de sesión**: cambio hecho a mano en una sesión concreta (cancelarla, profesor sustituto, otra hora, otro aforo). Gana sobre los cambios de su clase, campo a campo.
-- **Cambio de clase**: modificar una clase a partir de una fecha elegida (por defecto, hoy). Se aplica a sus sesiones futuras desde esa fecha, salvo en los campos que tengan un ajuste de sesión; el pasado nunca cambia. Las reservas siguen a su sesión: el alumno recibe un aviso y puede cancelar sin penalización. No se permite si deja alguna sesión afectada con menos aforo que reservas; hay que elegir una fecha a partir de la cual quepan.
+- **Cambio de clase**: modificar una clase a partir de una fecha elegida (por defecto, hoy). Se aplica a sus sesiones futuras desde esa fecha, salvo en los campos que tengan un ajuste de sesión; el pasado nunca cambia. Las reservas siguen a su sesión: el alumno recibe un aviso y puede cancelar sin que cuente como cancelación tardía. No se permite si deja alguna sesión afectada con menos aforo que reservas; hay que elegir una fecha a partir de la cual quepan.
 - **Estado de una sesión**: **programada** o **cancelada**. No hay más estados guardados.
 - **Sesión celebrada**: sesión no cancelada cuya hora de fin ya pasó. Se calcula, nunca se marca. Que se pase lista o no, no cambia que se haya celebrado.
   _Evitar_: completada, finalizada.
@@ -103,3 +103,28 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 - **Calendario**: las sesiones de la academia. Alumnos, tutores y admin ven el calendario completo, incluidas las disciplinas solo menores, aunque no tengan suscripción; el profesor solo ve sus sesiones. Junto a cada sesión se indica si su suscripción la cubre para el sujeto (para un tutor, por cada hijo); ver no da derecho a reservar.
 - **Evento**: actividad extraordinaria fuera del horario regular (seminario, torneo, examen de grado, quedada). No depende de cubrir: es gratis o se paga aparte, y admite a alumnos aunque su suscripción no cubra nada. Puede no tener disciplina ni profesor de la academia. A un evento uno se **inscribe**, no lo reserva. Un evento no es una sesión.
   _Evitar_: sesión especial.
+
+## Reservas
+
+- **Reserva**: plaza de un alumno (sujeto) en una sesión. Ocupa aforo. Se puede volver a reservar la misma sesión tras cancelar.
+  _Evitar_: inscripción (es de eventos), anular, baja.
+- **Requisitos para reservar**: perfil completo (sujeto y actor) y **suscripción en vigor** que cubra la disciplina de la sesión. No hay clase suelta ni prueba: el **pase** queda aplazado.
+- **Suscripción en vigor**: la que permite reservar. Hoy: activa, pendiente de pago en efectivo o en periodo de gracia. El mapeo definitivo con los estados de pago se fija en B10.
+- **Quién reserva**: el alumno adulto para sí; cualquier tutor vinculado por sus hijos (y puede cancelar lo que reservó otro tutor); el admin por cualquier alumno, con los mismos requisitos. El profesor no reserva ni cancela.
+- **Ventana de reserva**: solo se reservan sesiones que empiezan dentro de los próximos N días (parámetro de la academia, por defecto 14). Las más lejanas se ven pero no se reservan. El admin no tiene ventana. Reservar y entrar en espera se cierran al inicio de la sesión; una sesión cancelada o empezada nunca se reserva.
+- **Aforo** (en reservas): inviolable para todos, admin incluido. Para hacer sitio el admin sube el aforo con un ajuste de sesión, lo que promociona la lista de espera.
+- **Solape de reservas**: un alumno no puede tener dos reservas que se solapen en el tiempo.
+- **En espera** (lista de espera): si la sesión está llena, el alumno queda en espera. No ocupa aforo. Puede estar en espera de una sesión que se solapa con otra que tiene reservada.
+- **Promoción**: al liberarse una plaza (cancelación o subida de aforo), el primero en espera por orden de llegada pasa automáticamente a reserva y se le avisa. Ocurre hasta el inicio de la sesión. Antes se re-comprueban los requisitos: si no los cumple, sale de la lista con motivo «sin cobertura»; si tiene una reserva que se solapa, se le salta y sigue en la lista. Quien es promocionado ya dentro del plazo de cancelación puede cancelar sin que sea tardía.
+- **Plazo de cancelación**: hasta N antes del inicio (parámetro de la academia, por defecto 1 hora) se cancela sin consecuencias. Siempre se puede cancelar hasta el inicio.
+- **Cancelación tardía**: cancelación del alumno o tutor fuera de plazo. Solo queda registrada; no hay sanción automática, el admin decide a mano.
+  _Evitar_: penalización.
+- **Falta**: no presentarse a una sesión reservada. Es término de asistencia (B8), no de reservas.
+- **Pérdida de cobertura**: si la suscripción deja de estar en vigor o deja de cubrir una disciplina (p. ej. al bajar de plan), se cancelan sus reservas y esperas futuras no cubiertas con motivo «sin cobertura», con aviso (a sus tutores si es un hijo). No vuelven al recuperar la cobertura. Un perfil incompleto impide reservar pero no cancela lo ya reservado.
+- **Motivo de cancelación**: toda reserva cancelada o espera retirada tiene exactamente uno:
+  - **cancelada por el alumno** (alumno o tutor, en plazo; también tras un cambio de clase que afecta a la sesión, aunque sea fuera de plazo);
+  - **cancelación tardía** (alumno o tutor, fuera de plazo);
+  - **cancelada por el admin** (nunca es tardía);
+  - **sesión cancelada**;
+  - **sin cobertura**;
+  - **cambio de disciplina**.

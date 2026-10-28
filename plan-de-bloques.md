@@ -227,6 +227,8 @@
 - **Objetivo**: reservas con bloqueo de plaza (`FOR UPDATE`) y lista de espera.
 - **Cuenta familiar**: `student_id` = sujeto + `booked_by` = actor; RLS con `is_guardian_of`; `profile_id` opcional; bloqueo si el hijo o el tutor está incompleto. `event_registrations`: mismo patrón. Ver `PLAN_FAMILIA.md` §5.
 - **Entregable**: RLS en `bookings`; función `create_booking` con `FOR UPDATE`; endpoints de reserva/cancelación; middleware `requireCompleteProfile` (B4.5) montado.
+- **Reglas de dominio**: fijadas en `CONTEXT.md` § Reservas (grill-with-docs, sin ADR).
+- **Pendiente para la sesión de implementación**: enum de motivo de cancelación en `bookings`, parámetros de academia (plazo de cancelación 1 h, ventana de reserva 14 días) y mecanismo de avisos previo a B15.
 - **Fuera de alcance**: pago (B10), asistencia (B8).
 - **Checklist de cierre**:
   - [ ] RLS en `bookings`.
