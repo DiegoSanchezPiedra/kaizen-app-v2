@@ -3,7 +3,7 @@ import { httpError } from '../lib/errors.js';
 
 const TZ = 'Europe/Madrid';
 const DEFAULT_HORIZON_DAYS = 365;
-const MAX_RANGE_DAYS = 92;
+export const MAX_RANGE_DAYS = 92;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function getHorizonDays(client) {
@@ -52,7 +52,7 @@ export async function extendHorizon(client) {
   return result;
 }
 
-function dateParam(v, field) {
+export function dateParam(v, field) {
   if (!DATE_RE.test(v) || Number.isNaN(Date.parse(v))) {
     throw httpError(400, 'invalid_field', `${field} debe ser YYYY-MM-DD`, { field });
   }

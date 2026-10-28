@@ -82,7 +82,6 @@ export async function updateClass(client, { id, body, actorId }) {
 }
 
 // Retirar: la clase acaba el día anterior a `date` (por defecto hoy) y se cancelan sus sesiones desde esa fecha.
-// shortcut: sin reservas aún (B7); entonces habrá que anularlas y avisar aquí.
 export async function retireClass(client, { id, date, actorId }) {
   if (date !== undefined && !isDate(date)) throw invalid('date', 'date debe ser YYYY-MM-DD');
   const { rows: [c] } = await client.query(
@@ -96,12 +95,15 @@ export async function retireClass(client, { id, date, actorId }) {
   if (c.already) throw httpError(409, 'already_retired', 'La clase ya termina antes de esa fecha');
   if (c.before_start) throw invalid('date', 'date anterior al inicio de la clase');
   await client.query(`UPDATE classes SET ends_on = $2::date - 1 WHERE id = $1`, [id, c.d]);
-  const { rowCount } = await client.query(
+  const { rowCount, rows } = await client.query(
     `UPDATE class_sessions SET status = 'cancelled'
       WHERE class_id = $1 AND status = 'scheduled'
-        AND starts_at >= $2::date::timestamp AT TIME ZONE 'Europe/Madrid'`,
+        AND starts_at >= $2::date::timestamp AT TIME ZONE 'Europe/Madrid'
+      RETURNING id`,
     [id, c.d]
   );
+  // Cancelar una sesión anula sus reservas y esperas con aviso (CONTEXT).
+  await client.query(`SELECT cancel_session_bookings(id) FROM unnest($1::uuid[]) id`, [rows.map((r) => r.id)]);
   await audit(client, actorId, 'class.retire', id, { from: c.d, cancelled_sessions: rowCount });
   return { ...(await getClass(client, id)), cancelled_sessions: rowCount };
 }

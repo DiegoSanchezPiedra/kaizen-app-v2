@@ -45,7 +45,7 @@
 | B4.6 | Cuenta familiar: el tutor crea y gestiona hijos sin credenciales (`PLAN_FAMILIA.md`) | B4.5.1 | IMPLEMENTADO (pendiente commit) |
 | B5 | CRUD disciplinas, planes y disciplinas elegibles (`plan_disciplines`) (admin) | B3, B4.6 | IMPLEMENTADO (pendiente commit) |
 | B6 | Clases + sesiones (CRUD admin, generación a 1 año, vista profesor) | B5 | Hecho (calendario alumno pendiente) |
-| B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | Pendiente |
+| B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | IMPLEMENTADO (pendiente commit) |
 | B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | Pendiente |
 | B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | Pendiente |
 | B10 | Stripe base (checkout, portal, webhook idempotente) | B4.5, B7 | Pendiente |
@@ -223,19 +223,20 @@
   - [ ] CRUD admin + listado por disciplina/fecha.
   - [ ] Tests por rol.
 
-### B7 — Reservas (`create_booking`, `FOR UPDATE`, lista de espera) — Pendiente
+### B7 — Reservas (`create_booking`, `FOR UPDATE`, lista de espera) — IMPLEMENTADO
 - **Objetivo**: reservas con bloqueo de plaza (`FOR UPDATE`) y lista de espera.
 - **Cuenta familiar**: `student_id` = sujeto + `booked_by` = actor; RLS con `is_guardian_of`; `profile_id` opcional; bloqueo si el hijo o el tutor está incompleto. `event_registrations`: mismo patrón. Ver `PLAN_FAMILIA.md` §5.
 - **Entregable**: RLS en `bookings`; función `create_booking` con `FOR UPDATE`; endpoints de reserva/cancelación; middleware `requireCompleteProfile` (B4.5) montado.
 - **Reglas de dominio**: fijadas en `CONTEXT.md` § Reservas (grill-with-docs, sin ADR).
-- **Pendiente para la sesión de implementación**: enum de motivo de cancelación en `bookings`, parámetros de academia (plazo de cancelación 1 h, ventana de reserva 14 días) y mecanismo de avisos previo a B15.
+- **Implementación** (migración `009`): la lógica vive en funciones `SECURITY DEFINER` (owner `service_role`): `book_session`, `cancel_booking`, `cancel_session_bookings` (públicas) y `covers`, `promote_waitlist` (internas). `app_user` solo lee `bookings`. Aforo: `FOR UPDATE` de la sesión; solape: `pg_advisory_xact_lock` por alumno. Enum `booking_cancel_reason`; `academy_settings`: `booking_window_days` = 14, `cancellation_notice_minutes` = 60. Se crea `subscription_disciplines` (solo tabla; flujos en B10.5). Avisos: filas `notice.*` en `audit_log` con `changes.recipients` (B15 los envía). Se corrige el `UNIQUE` de 001, que era total y no parcial. Endpoints: `GET /bookings`, `POST /bookings`, `POST /bookings/:id/cancel`.
+- **Pendiente**: la subida de aforo (ajuste de sesión) y el cambio de clase deben llamar a `promote_waitlist` y eximir de cancelación tardía; la pérdida de cobertura masiva y el cambio de disciplina quedan para B10.5; la promoción no vuelve a comprobar el perfil completo.
 - **Fuera de alcance**: pago (B10), asistencia (B8).
 - **Checklist de cierre**:
-  - [ ] RLS en `bookings`.
-  - [ ] `create_booking` transaccional con `FOR UPDATE` y control de aforo.
-  - [ ] Lista de espera funciona.
-  - [ ] `requireCompleteProfile` (B4.5) bloquea reservas con `403 profile_incomplete`.
-  - [ ] Tests de concurrencia + rol.
+  - [x] RLS en `bookings`.
+  - [x] `create_booking` transaccional con `FOR UPDATE` y control de aforo (`book_session`).
+  - [x] Lista de espera funciona (promoción, salto por solape, `no_coverage`).
+  - [x] `requireCompleteProfile` (B4.5) bloquea reservas con `403 profile_incomplete`.
+  - [x] Tests de concurrencia + rol (`npm run test:bookings`).
 
 ### B8 — Asistencia manual (`register_attendance`, auditoría) — Pendiente
 - **Objetivo**: profesor pasa lista manualmente; se audita.

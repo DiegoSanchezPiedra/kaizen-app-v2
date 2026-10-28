@@ -19,7 +19,8 @@ import { httpError } from '../lib/errors.js';
 export async function requireCompleteProfile(req, client) {
   const subject = req.body?.profile_id ?? req.user.id;
   if (subject !== req.user.id) {
-    await assertGuardianOf(client, subject);
+    // El admin actúa por cualquier alumno con los mismos requisitos (CONTEXT § Reservas).
+    if (req.user.role !== 'admin') await assertGuardianOf(client, subject);
     assertComplete(await getProfileStatus(client, subject, 'alumno'));
   }
   assertComplete(await getProfileStatus(client, req.user.id, req.user.role));
