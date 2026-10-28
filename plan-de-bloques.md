@@ -215,7 +215,9 @@
 ### B6 — CRUD `class_sessions` + calendario — Pendiente
 - **Objetivo**: sesiones de clase con calendario.
 - **Entregable**: RLS en `class_sessions`; endpoints admin + lectura para alumnos.
-- **Fuera de alcance**: reservas (B7), QR (B9).
+- **Fuera de alcance**: reservas (B7), QR (B9), eventos (`events`/`event_registrations`, sin bloque asignado).
+- **Nota**: un evento no es una sesión (ver `CONTEXT.md`). La FK `events.id → class_sessions(id)` de `001` es un error; se elimina cuando se aborden los eventos.
+- **Nota**: `session_status.completed` sobra: «celebrada» se calcula por la hora (ver `CONTEXT.md`). El enum queda en `scheduled | cancelled`.
 - **Checklist de cierre**:
   - [ ] RLS en `class_sessions`.
   - [ ] CRUD admin + listado por disciplina/fecha.

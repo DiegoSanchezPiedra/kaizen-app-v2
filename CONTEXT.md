@@ -74,3 +74,32 @@ Cuando un tutor actúa por un hijo, deben estar completos **los dos**: el hijo (
 Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculado. Al cumplir 18 años los poderes del tutor caen y las firmas del tutor dejan de contar: el perfil queda incompleto hasta que el ahora adulto reclame su perfil, firme los 3 acuerdos y confirme su ficha. El estado se calcula con la fecha de nacimiento, sin ningún proceso que cambie datos.
 
 **Fecha de nacimiento y Google**: el registro local la exige y debe ser de un adulto. El alta con Google no la trae: queda vacía y el perfil se trata como adulto hasta que el onboarding («Completar Perfil») la pide; si declara ser menor, se rechaza y debe darlo de alta un tutor.
+
+## Clases y sesiones
+
+- **Clase**: entrada del horario semanal de la academia: disciplina, profesor habitual, día de la semana, hora, duración y aforo (p. ej. «BJJ Fundamentos, lunes 19:00, Carlos, 20 plazas»). La clase no se reserva: se reservan sus sesiones.
+  Su hora es la hora local de la academia (Europa/Madrid) todo el año, con cambio de horario incluido.
+  Tiene fecha de inicio (por defecto, hoy) y, opcionalmente, fecha de fin (p. ej. un horario de verano); sin fecha de fin dura hasta que se retira.
+  _Evitar_: plantilla, horario (para una sola entrada).
+- **Horizonte**: cuánto tiempo por delante de hoy hay siempre sesiones generadas a partir de las clases. Es deslizante: avanza solo cada día. Es un parámetro de la academia, por defecto 1 año; reducirlo no borra sesiones ya generadas.
+- **Sesión suelta**: sesión que no sale de ninguna clase (p. ej. un open mat puntual).
+- **Sesión**: una ocurrencia concreta de entrenamiento en una fecha y hora, de una disciplina e impartida por un profesor. Se accede a ella porque la suscripción del alumno **cubre** su disciplina, y se **reserva**.
+  Sale de una clase o es una sesión suelta. Se puede ajustar por separado (cancelarla, poner un profesor sustituto, cambiar su aforo).
+  _Evitar_: clase (para una ocurrencia concreta), evento.
+- **Retirar una clase**: darla de baja a partir de una fecha (por defecto, hoy). Sus sesiones desde esa fecha se cancelan (ver «Cancelar una sesión»); las anteriores se conservan. Una clase con sesiones celebradas nunca se borra. Desactivar una disciplina retira todas sus clases y cancela sus sesiones sueltas futuras.
+- **Aforo**: número de plazas de una sesión. Siempre existe y es mayor que 0; no hay sesiones ilimitadas. Nunca puede quedar por debajo de las reservas de la sesión.
+- **Duración**: obligatoria en toda clase y sesión; fija la hora de fin.
+- **Lugar**: texto libre opcional de una sesión (p. ej. «tatami 2»). No hay salas definidas.
+- **Solape**: un profesor no puede impartir dos sesiones que se solapen en el tiempo. No se controlan solapes de lugar.
+- **Profesor de la sesión**: quien la imparte: el profesor habitual de su clase o, si hay un ajuste, el **sustituto**. Las **sesiones de un profesor** son las que imparte, sustituciones incluidas. El profesor solo ve en el calendario sus sesiones y no crea ni ajusta clases ni sesiones: eso es del admin.
+- **Baja de un profesor**: no se permite mientras sea profesor habitual de alguna clase no retirada o profesor de alguna sesión futura; antes hay que reasignarlas (cambio de clase, ajuste de sesión) o retirarlas.
+- **Ajuste de sesión**: cambio hecho a mano en una sesión concreta (cancelarla, profesor sustituto, otra hora, otro aforo). Gana sobre los cambios de su clase, campo a campo.
+- **Cambio de clase**: modificar una clase a partir de una fecha elegida (por defecto, hoy). Se aplica a sus sesiones futuras desde esa fecha, salvo en los campos que tengan un ajuste de sesión; el pasado nunca cambia. Las reservas siguen a su sesión: el alumno recibe un aviso y puede cancelar sin penalización. No se permite si deja alguna sesión afectada con menos aforo que reservas; hay que elegir una fecha a partir de la cual quepan.
+- **Estado de una sesión**: **programada** o **cancelada**. No hay más estados guardados.
+- **Sesión celebrada**: sesión no cancelada cuya hora de fin ya pasó. Se calcula, nunca se marca. Que se pase lista o no, no cambia que se haya celebrado.
+  _Evitar_: completada, finalizada.
+- **Cancelar una sesión**: anula todas sus reservas y su lista de espera con el motivo «sesión cancelada», que no cuenta como cancelación del alumno ni como falta. Se avisa a cada afectado (a sus tutores si es un hijo). Se puede deshacer mientras la sesión no haya pasado, pero las reservas no vuelven: cada alumno vuelve a reservar.
+- **Cancelación retroactiva**: el admin cancela una sesión ya pasada que no llegó a darse, indicando un motivo. Deja de contar como celebrada.
+- **Calendario**: las sesiones de la academia. Alumnos, tutores y admin ven el calendario completo, incluidas las disciplinas solo menores, aunque no tengan suscripción; el profesor solo ve sus sesiones. Junto a cada sesión se indica si su suscripción la cubre para el sujeto (para un tutor, por cada hijo); ver no da derecho a reservar.
+- **Evento**: actividad extraordinaria fuera del horario regular (seminario, torneo, examen de grado, quedada). No depende de cubrir: es gratis o se paga aparte, y admite a alumnos aunque su suscripción no cubra nada. Puede no tener disciplina ni profesor de la academia. A un evento uno se **inscribe**, no lo reserva. Un evento no es una sesión.
+  _Evitar_: sesión especial.
