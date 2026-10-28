@@ -14,13 +14,16 @@ import professorRouter from './routes/professor.js';
 import bookingsRouter from './routes/bookings.js';
 import attendanceRouter from './routes/attendance.js';
 import adminCheckinRouter from './routes/admin/checkin.js';
+import adminBillingRouter from './routes/admin/billing.js';
 import tabletRouter from './routes/tablet.js';
 import checkinRouter from './routes/checkin.js';
 import billingRouter from './routes/billing.js';
+import webhooksRouter from './routes/webhooks.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
+app.use('/webhooks', webhooksRouter); // antes de express.json: necesita el cuerpo crudo
 app.use(express.json({ limit: '1mb' }));
 app.set('trust proxy', 1); // detrás de Nginx en el VPS
 
@@ -43,6 +46,7 @@ app.use('/admin/agreements', adminAgreementsRouter);
 app.use('/admin', adminCatalogRouter);
 app.use('/admin', adminClassesRouter);
 app.use('/admin', adminCheckinRouter);
+app.use('/admin', adminBillingRouter);
 app.use('/tablet', tabletRouter);
 app.use('/checkin', checkinRouter);
 app.use('/professor', professorRouter);

@@ -3,7 +3,7 @@
 import { servicePool } from '../config/database.js';
 import { stripe, STRIPE_PORTAL_CONFIGURATION_ID, APP_URL } from '../config/stripe.js';
 import { httpError } from '../lib/errors.js';
-import { parseId, invalid } from './catalog.js';
+import { parseId, invalid, audit } from './catalog.js';
 
 const LIVE = `('active', 'past_due', 'unpaid')`;
 const CHECKOUT_TTL_S = 30 * 60;
@@ -101,4 +101,25 @@ export async function createPortalSession(client, payerId) {
     customer: p.stripe_customer_id, configuration: STRIPE_PORTAL_CONFIGURATION_ID, return_url: `${APP_URL}/billing`,
   });
   return { url: session.url };
+}
+
+/**
+ * Baja de una suscripción (CONTEXT § Baja: solo el admin). Se pide a Stripe; el estado local
+ * lo actualiza el webhook (customer.subscription.updated / deleted), como todo lo de billing.
+ * No toca el seguro (B10.3).
+ */
+export async function cancelSubscription(client, { id, atPeriodEnd, actorId }) {
+  const { rows: [s] } = await client.query(
+    `SELECT stripe_subscription_id, status FROM subscriptions WHERE id = $1`, [id]);
+  if (!s) throw httpError(404, 'subscription_not_found', 'Suscripción no encontrada');
+  // Stripe manda: entre la baja y su webhook la fila local aún no dice cancelled.
+  const current = s.status === 'cancelled' ? null : await stripe.subscriptions.retrieve(s.stripe_subscription_id);
+  if (!current || current.status === 'canceled') {
+    throw httpError(409, 'subscription_cancelled', 'La suscripción ya está cancelada');
+  }
+  await audit(client, actorId, atPeriodEnd ? 'subscription.cancel_at_period_end' : 'subscription.cancel_now', id, {});
+  const sub = atPeriodEnd
+    ? await stripe.subscriptions.update(s.stripe_subscription_id, { cancel_at_period_end: true })
+    : await stripe.subscriptions.cancel(s.stripe_subscription_id);
+  return { id, stripe_status: sub.status, cancel_at_period_end: sub.cancel_at_period_end };
 }
