@@ -66,7 +66,7 @@ Orden de ejecución al reabrir B4.6: `migrate:down` (006) → reescribir 006 →
 ## 5. Impacto en bloques futuros
 
 ### B5 — Catálogo
-Sin cambios de esquema. Sin rangos de edad por disciplina (D10); si negocio los pide, se añaden aquí con validación en B7.
+Sin cambios de esquema. Sin rangos de edad por disciplina (D10); **revisado en B5**: existen disciplinas y planes "solo menores" (ver `CONTEXT.md`), validados al elegir disciplinas y al suscribirse.
 
 ### B7 — Reservas
 - `bookings.student_id` = sujeto; nueva columna `booked_by` = actor.

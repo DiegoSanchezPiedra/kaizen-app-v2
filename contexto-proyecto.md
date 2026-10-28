@@ -466,7 +466,7 @@ Detalle e impacto por bloque en `PLAN_FAMILIA.md`.
 | D7 | Migración | Reescribir `006` en el sitio. |
 | D8 | Familia | Término de UI; sin tabla `families`. |
 | D9 | 18 años | Caen los poderes del tutor (se calcula con `birth_date`). El adulto **reclama** su perfil por invitación y conserva su historial. El tutor puede seguir siendo el pagador. |
-| D10 | Límites | Ninguno. Al crear: `birth_date` obligatoria y < 18. Sin rangos de edad por disciplina. |
+| D10 | Límites | Ninguno. Al crear: `birth_date` obligatoria y < 18. Sin rangos de edad por disciplina (**revisado en B5**: existen disciplinas y planes "solo menores"; ver `CONTEXT.md`). |
 | D11 | Perfil completo del tutor | `display_name` + su propio `data_protection`. |
 | D12 | Baja | El tutor no borra hijos; lo hace el admin. No se puede quitar el último tutor de un menor. |
 | D13 | API | `profile_id` opcional (sujeto) en `/me/*`, reservas, inscripciones y checkout. `GET/POST /me/children`, `PATCH /me/children/:id`. |

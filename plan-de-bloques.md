@@ -43,7 +43,7 @@
 | B4.5 | `student_health_info` + `user_agreements` + bloqueo backend | B2 | Pendiente |
 | B4.5.1 | Gestión documental admin (`agreement_documents`, storage, subida) | B4.5 | Pendiente |
 | B4.6 | Cuenta familiar: el tutor crea y gestiona hijos sin credenciales (`PLAN_FAMILIA.md`) | B4.5.1 | IMPLEMENTADO (pendiente commit) |
-| B5 | CRUD disciplinas, planes, `plan_disciplinas` (admin) | B3, B4.5.1 | Pendiente |
+| B5 | CRUD disciplinas, planes y disciplinas elegibles (`plan_disciplines`) (admin) | B3, B4.6 | Pendiente |
 | B6 | CRUD `class_sessions` + calendario | B5 | Pendiente |
 | B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | Pendiente |
 | B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | Pendiente |
@@ -193,15 +193,21 @@
 - **Permisos de BD** (aplicados a mano como superusuario el 2026-10-27; repetir en cada instalación nueva): `GRANT service_role TO migrator` y `GRANT CREATE ON SCHEMA public TO service_role`. Son necesarios para que la vista de profesor (004) y `is_guardian_of`/`create_child` (006) tengan owner `service_role` (BYPASSRLS).
 - **Checklist de cierre** (verde el 2026-10-27; el HTTP de firmas queda pendiente de documentos publicados): `test-minors.js` reescrito (el tutor crea un hijo y no se vincula a perfiles existentes; un adulto no puede ser hijo; el tutor edita la salud y firma; otro tutor no; a los 18 pierde poderes pero ve la lista; tutor sin `data_protection` incompleto); `test:rls` verde; `migrate:down` → `migrate` sin error; verificación HTTP del flujo del tutor.
 
-### B5 — CRUD disciplinas, planes, `plan_disciplinas` (admin) — Pendiente
-- **Objetivo**: catálogo de disciplinas y planes, con RLS.
-- **Entregable**: migración RLS en `disciplines`, `plans`, `plan_disciplines`; endpoints admin CRUD.
-- **Fuera de alcance**: asignación de planes a alumnos (B10), precios Stripe (B10).
+### B5 — CRUD disciplinas, planes y disciplinas elegibles (admin) — Pendiente
+- **Objetivo**: catálogo de disciplinas y planes, con RLS. Vocabulario en `CONTEXT.md` ("Planes y disciplinas"); modelo en ADR 0003: **el plan fija cuántas disciplinas, la suscripción fija cuáles**.
+- **Entregable**: migración `007` con esquema + RLS en `disciplines`, `plans`, `plan_disciplines`; endpoints admin CRUD.
+  - `disciplines`: `minors_only boolean NOT NULL DEFAULT false`; `is_active NOT NULL DEFAULT true`.
+  - `plans`: número de disciplinas a elegir (1, 2… o NULL = todas); `minors_only boolean NOT NULL DEFAULT false`; `billing_period` restringido a un conjunto cerrado (hoy solo `monthly`); `price_cents NOT NULL ≥ 0`; `is_active NOT NULL DEFAULT true`.
+  - `plan_disciplines` = **disciplinas elegibles** (opcional; sin filas = cualquier disciplina activa permitida por edad). **No** son las disciplinas cubiertas.
+  - Revisar que `disciplines.id` / `plans.id` (hoy `bigint` sin default) generen id.
+- **Reglas**: nunca se borra una disciplina o plan con historial: se desactiva (retirar). Precio editable (se aplica desde la siguiente facturación de cada suscriptor; la propagación a Stripe es B10).
+- **Fuera de alcance**: suscripciones y disciplinas elegidas (B10), precios Stripe (B10), cambio de disciplina / upgrade / downgrade (B10.5), lectura anónima del catálogo (decidido: no).
 - **Checklist de cierre**:
-  - [ ] RLS en las 3 tablas (lectura pública, escritura admin).
-  - [ ] CRUD admin `/admin/disciplines`, `/admin/plans`, `/admin/plans/:id/disciplines`.
+  - [ ] Esquema y RLS en las 3 tablas: lectura para autenticados (activos; retirados solo admin), escritura solo admin.
+  - [ ] CRUD admin `/admin/disciplines`, `/admin/plans`, `/admin/plans/:id/disciplines` (elegibles).
+  - [ ] Validación: número de disciplinas ≥ 1 o "todas"; `billing_period` del conjunto cerrado; sin `DELETE` de filas con historial.
   - [ ] Tests por rol.
-  - [ ] `academy_settings` revisada: si hace falta lectura anónima, añadir `is_public`.
+  - [ ] `migrate:down` → `migrate` → `migrate:down` sin error.
 
 ### B6 — CRUD `class_sessions` + calendario — Pendiente
 - **Objetivo**: sesiones de clase con calendario.
@@ -250,10 +256,12 @@
 ### B10 — Stripe base (checkout, portal, webhook idempotente) — Pendiente
 - **Objetivo**: checkout, portal de cliente y webhook idempotente.
 - **Cuenta familiar**: una suscripción por hijo + `subscriptions.payer_id` (el propio alumno adulto o un tutor vinculado); cliente Stripe **por pagador** (decidir `profiles.stripe_customer_id` vs `billing_customers`); checkout con `profile_id`; RLS = alumno, tutor vinculado o pagador. Morosos (B10.2) agrupados por pagador.
-- **Entregable**: RLS en `subscriptions`; endpoints `/billing/checkout`, `/billing/portal`; webhook con `webhook_events`.
-- **Fuera de alcance**: `invoices` ampliadas (B10.1), upgrade/downgrade (B10.5), cancelación (B11).
+- **Planes (B5, ADR 0003)**: el checkout recibe plan + **disciplinas elegidas** (tantas como el plan, entre las elegibles, respetando "solo menores" de plan y disciplina). Por eso `subscription_disciplines` nace aquí (sale de B10.5). Máximo **una** suscripción activa por alumno. Cambio de precio de un plan → actualizar las suscripciones en Stripe desde su siguiente facturación. Cambio de pagador entre tutores: siguiente facturación; al reclamar el perfil, pagador = el propio alumno.
+- **Entregable**: RLS en `subscriptions` y `subscription_disciplines`; endpoints `/billing/checkout`, `/billing/portal`; webhook con `webhook_events`.
+- **Fuera de alcance**: `invoices` ampliadas (B10.1), upgrade/downgrade y cambio de disciplina (B10.5), cancelación (B11).
 - **Checklist de cierre**:
-  - [ ] RLS en `subscriptions`.
+  - [ ] RLS en `subscriptions` y `subscription_disciplines`.
+  - [ ] Una sola suscripción activa por alumno (restricción en BD).
   - [ ] Checkout crea suscripción en Stripe + fila local.
   - [ ] Portal redirige.
   - [ ] Webhook idempotente vía `webhook_events`.
@@ -278,14 +286,14 @@
   - [ ] Solo admin.
   - [ ] Tests.
 
-### B10.5 — `subscription_disciplines` + upgrade/downgrade — Pendiente
-- **Objetivo**: disciplinas por suscripción, upgrade inmediato, downgrade al final del periodo.
-- **Entregable**: tabla `subscription_disciplines` con RLS; endpoints de upgrade/downgrade con Subscription Schedule.
+### B10.5 — Upgrade/downgrade + cambio de disciplina — Pendiente
+- **Objetivo**: subir de plan (más caro) inmediato con prorrateo; bajar (igual o más barato) en la siguiente facturación; cambio de disciplina. Términos en `CONTEXT.md`.
+- **Entregable**: endpoints de upgrade/downgrade con Subscription Schedule; endpoint de cambio de disciplina; parámetro de academia "cambios de disciplina por periodo" (hoy 1); sustitución gratis por baja de disciplina y al reclamar el perfil a los 18 (con plan solo menores: cambio inmediato con prorrateo). `subscription_disciplines` ya existe (B10).
 - **Fuera de alcance**: cancelación (B11).
 - **Checklist de cierre**:
-  - [ ] Tabla + RLS.
   - [ ] Upgrade: prorrateo + disciplinas al instante.
   - [ ] Downgrade: sin reembolso + disciplinas al transicionar.
+  - [ ] Cambio de disciplina: inmediato, límite por periodo, cancela reservas futuras de la disciplina abandonada.
   - [ ] Tests manuales con Stripe.
 
 ### B10.6 — Emails transaccionales de billing (al alumno) — Pendiente
