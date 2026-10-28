@@ -117,7 +117,7 @@ Una sola sesión inicial (antes de cerrar B4.5) debería fijar el vocabulario tr
 - **B10.5** [USAR] — *Upgrade / downgrade*, prorrateo, "disciplinas al instante / al transicionar" y la relación `subscription_disciplines` ↔ `plan_disciplines` (dos fuentes de verdad potenciales de "qué disciplinas tiene el alumno").
 - **B10.6** [OMITIR] — Integración con un proveedor de email; el disparador (`invoice.payment_failed`) es inequívoco.
 - **B11** [OMITIR] — Dos operaciones (`cancel-now`, `cancel-at-period-end`) ya definidas; el mapeo de estados queda fijado en B10.
-- **B12** [OMITIR] — Lo cubre en gran parte `requireCompleteProfile`; el vocabulario de consentimientos se fija en B4.5.
+- **B12** [ELIMINADO] — Absorbido por B4.5 (perfil completo) y B10.3 (seguro o `waiver`, ADR 0005).
 - **B13** [USAR] — Privacidad: semántica de `is_public` + `visible_fields`, quién ve el directorio, qué ve el profesor (`profiles_select`) y la exclusión explícita de salud.
 - **B14** [USAR] — *Racha* y *badge* sin definir (`student_stats_daily.streak_weeks` ya asume rachas semanales); *tabla opt-in* ambigua (¿ranking?, ¿feed? existe `activity_feed` sin bloque).
 - **B15** [OMITIR] — Técnico (web-push); los eventos disparadores ya están listados en el plan.
@@ -126,5 +126,16 @@ Una sola sesión inicial (antes de cerrar B4.5) debería fijar el vocabulario tr
 - **B18** [OMITIR] — Frontend/PWA, sin lógica de dominio nueva.
 - **B19** [OMITIR] — Agrega endpoints y vocabulario ya definidos en bloques anteriores; mayoritariamente UI.
 - **B20** [OMITIR] — Hardening técnico (rate limiting, backups, E2E), sin términos de dominio.
+
+## Sección 3: Pendientes que salieron del diseño de B10
+
+### 3.1 Domiciliación SEPA — **Impacto: Medio (mejora futura)**
+- **Contexto**: B10 cobra solo con tarjeta (+ Apple Pay / Google Pay). La domiciliación reduce fallos por tarjeta caducada y comisiones.
+- **Por resolver antes de activarla**: el primer cobro es asíncrono (días), así que haría falta un estado "pendiente de confirmación" (¿se puede reservar mientras tanto?); y las devoluciones de adeudo hasta 8 semanas después convierten un recibo pagado en impagado (otro camino a moroso).
+
+### 3.2 Revisión legal con la gestoría — **Impacto: Alto (decisión, no código)**
+- **`waiver` como alternativa al seguro** (ADR 0005): un `waiver` no exime de la negligencia propia ni sustituye a un seguro que exijan la póliza de RC o la federación.
+- **Baja solo por el admin**: la normativa de consumo tiende a exigir que darse de baja sea tan fácil como darse de alta (online). Si aplica, B11 debe abrir la baja a final de periodo al pagador (portal de Stripe o desde la app).
+- **Factura legal (VeriFactu)**: los recibos de Stripe no son facturas. Elegir un servicio externo homologado; requisito: la factura se descarga desde la app.
 
 ---8<--- FIN MEJORAS.md ---8<---

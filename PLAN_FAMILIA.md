@@ -22,7 +22,7 @@
 | D2 | Registro propio solo para ≥ 18. Si en el onboarding de Google se declara una edad < 18, se rechaza. |
 | D3 | Tutor = capacidad que da la relación (el ADR 0001 sigue en pie). Cualquier adulto (`alumno` o `tutor`) puede crear hijos. |
 | D4 | Quien crea al hijo queda vinculado automáticamente. El admin añade o quita más tutores. Todos tienen los mismos poderes. La invitación de un 2º tutor queda aplazada. |
-| D5 | **Una suscripción por hijo** (`subscriptions.student_id` = hijo) + `payer_id`. Un cliente Stripe por pagador. Sin descuentos familiares. |
+| D5 | **Una suscripción por hijo** (`subscriptions.student_id` = hijo) + `payer_id`. Un cliente Stripe por pagador (`profiles.stripe_customer_id`, B10). Sin descuentos familiares. El pagador es quien contrata; cambiarlo lo hace solo el admin (B11). |
 | D6 | Avisos del hijo → todos sus tutores. Facturación → solo el pagador. Nunca al hijo. |
 | D7 | Se reescribe `006_minors_guardians.js` en el sitio (no hay nada desplegado). |
 | D8 | "Cuenta familiar" es un término de UI; no hay tabla `families`. |
@@ -43,7 +43,7 @@
 - **`is_guardian_of(profile_id)`**: helper SQL para RLS. Es cierto si existe `guardianships(tutor_id = uid, minor_id = profile_id)` y el sujeto es menor de 18. Sustituye a los `EXISTS` repetidos. Para D16 hace falta una variante "vínculo histórico" (sin la condición de edad), usada solo para listar al hijo y para la facturación.
 - **`user_agreements.signed_by`**: se mantiene, junto con la unicidad `(profile_id, signed_by, type, version)`.
 - **`subscriptions.payer_id uuid NOT NULL → profiles`** (B10). La regla D14 se aplica en la RLS o en el servicio.
-- **Cliente Stripe por pagador** (B10): `profiles.stripe_customer_id` o una tabla `billing_customers`. Se decide en B10.
+- **Cliente Stripe por pagador** (B10): `profiles.stripe_customer_id` (decidido en el diseño de B10; un perfil nunca tiene más de un cliente).
 - **Actor en las tablas operativas**: `bookings.booked_by` (B7) y `event_registrations.registered_by`, con el mismo sentido que `signed_by`.
 
 ## 4. Código de B4.6: mantener / refactorizar / borrar
@@ -90,8 +90,8 @@ El hijo no tiene móvil ni login. Opciones: el check-in lo hace el tutor con su 
 ### B10.6 / B15 — Emails y push
 Destinatario = pagador (facturación) o todos los tutores (avisos del hijo, re-firma, cumplir 18). Nunca el hijo.
 
-### B12 — Consentimientos en checkout
-Se validan sobre el sujeto (y D15 sobre el actor).
+### B12 — Eliminado
+Los consentimientos se validan con el perfil completo del sujeto (y D15 sobre el actor); el `waiver` pasa a la elección seguro / `waiver` de B10.3.
 
 ### B13 / B14 — Perfil público y social
 Un hijo nunca es público ni aparece en el feed, la racha pública o los rankings (`is_public` forzado a false). Añadir a sus checklists.

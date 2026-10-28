@@ -13,7 +13,7 @@ Solo términos de dominio. Sin detalles de implementación.
 - **Hijo** (o **menor**): perfil alumno con menos de 18 años, creado por un tutor. Requiere fecha de nacimiento. **No tiene acceso propio**: ni email ni login. Nunca se registra por sí mismo; solo existe dentro de una cuenta familiar. Siempre tiene al menos un tutor. El tutor lo edita pero no lo borra: la baja la hace el admin.
 - **Cuenta familiar**: término de UI. Es lo que ve un tutor: él mismo y sus hijos. No es una entidad del dominio.
 - **Sujeto** y **actor**: el sujeto es el perfil sobre el que recae una acción (quien entrena, quien queda inscrito, a quien se le firma). El actor es quien la hace. Coinciden salvo cuando un tutor actúa por un hijo.
-- **Pagador**: perfil adulto que paga la suscripción de un alumno: el propio alumno adulto o uno de sus tutores. Cada alumno tiene su propia suscripción; no hay suscripción familiar. Cualquier tutor vinculado puede hacerse pagador de su hijo; el cambio se aplica en la siguiente facturación y se avisa al pagador anterior. Al reclamar su perfil, el pagador pasa a ser el propio alumno. Un adulto siempre se paga a sí mismo: no existe el pagador externo de un adulto.
+- **Pagador**: perfil adulto que paga la suscripción de un alumno: el propio alumno adulto o uno de sus tutores. Cada alumno tiene su propia suscripción; no hay suscripción familiar. El pagador es quien contrata la suscripción. **Cambiar de pagador** solo lo hace el admin, a petición: elige al nuevo pagador (un tutor vinculado o el propio alumno adulto), que debe completar el pago por su cuenta antes de que acabe el periodo en curso; entonces la suscripción antigua termina y empieza una nueva igual pagada por él. Si no lo completa a tiempo, no hay cambio. Al reclamar su perfil, el pagador debe pasar a ser el propio alumno, por la misma vía. Un adulto siempre se paga a sí mismo: no existe el pagador externo de un adulto. Todo lo que paga un mismo pagador se agrupa en su cuenta de la pasarela de pago.
 - **Reclamar perfil**: al cumplir 18 años, el hijo deja de estar gestionado. Para seguir entrenando, el ahora adulto recibe una invitación (de un tutor o del admin), obtiene acceso propio y conserva su historial. Hasta que lo reclama, su perfil está incompleto y su tutor solo lo ve en la lista y paga lo que ya pagaba.
 - **Registro**: solo un adulto puede registrarse por sí mismo.
 - *Usuario* no es término de dominio.
@@ -30,7 +30,7 @@ Solo términos de dominio. Sin detalles de implementación.
 - **Firma por representación**: firma de un tutor sobre un acuerdo de un hijo. Registra firmante (el tutor, actor) y sujeto (el hijo). Basta **un** tutor vinculado. Desvincular a un tutor no invalida lo que ya firmó.
 - **Re-firma**: volver a firmar tras publicarse una versión nueva. **Toda** publicación nueva obliga a re-firmar, sin importar el salto de X.Y, y bloquea de inmediato (sin periodo de gracia).
 - *Consentimiento*: no es término de dominio. Solo etiqueta de UI para `data_protection` y `rights_of_image`.
-- *Seguro*: fuera de B4.5. La tabla heredada `subscription_agreements` (con `insurance_type`) está huérfana; se decide su destino en B10/B12.
+- El `waiver` no es un acuerdo obligatorio para todos: es una de las dos formas de tener **cobertura de riesgo** (ver «Seguro y cobertura de riesgo»).
 
 ## Planes y disciplinas
 
@@ -42,15 +42,30 @@ Solo términos de dominio. Sin detalles de implementación.
 - **Disciplinas elegibles**: lista opcional de un plan que limita entre qué disciplinas se elige. Sin lista, es elegible cualquier disciplina activa que permita la edad del alumno. No es lo mismo que "cubrir".
 - **Plan solo menores**: plan que solo puede contratarse para un menor. Es opcional: por defecto un plan está abierto a todos.
 - **Periodo de cobro**: cada cuánto se factura un plan. Es un valor de un conjunto cerrado (hoy solo **mensual**). Un plan tiene un único periodo y un único precio; la misma oferta en otro periodo es otro plan.
-- **Cambio de precio**: el precio de un plan es editable; el nuevo precio se aplica a todos sus suscriptores desde su siguiente facturación. Lo pagado de verdad queda en las facturas.
+- **Precio**: precio final que paga el pagador, impuestos incluidos. Un plan de 0 € no se contrata por la pasarela.
+- **Cambio de precio**: el precio de un plan es editable; el nuevo precio se aplica a todos sus suscriptores desde su siguiente facturación. Lo pagado de verdad queda en los recibos.
 - **Retirar un plan**: impide contratarlo y cambiar a él. Las suscripciones vigentes siguen igual. Un plan con historial nunca se borra.
 - **Catálogo**: las disciplinas y los planes activos. Lo ve cualquier perfil con sesión iniciada; solo el admin lo modifica. Los retirados solo los ve el admin (y el alumno cuya suscripción vigente está en ese plan). "Solo menores" no limita qué se ve, sino qué se contrata.
 - *Stripe Price*: no es término de dominio. Es el reflejo técnico de un plan en la pasarela.
 
 ### Suscripción
 
-- **Suscripción**: vínculo de un alumno (sujeto) con un plan, pagado por un pagador. Tiene estado. Un alumno tiene como máximo **una** suscripción activa; para tener más disciplinas sube de plan. Las anteriores quedan como historial.
+- **Suscripción**: vínculo de un alumno (sujeto) con un plan, pagado por un pagador. Tiene estado. Un alumno tiene como máximo **una** suscripción viva; para tener más disciplinas sube de plan. Las anteriores quedan como historial.
 - *Cuota*: no es término de dominio. Solo etiqueta de UI para la suscripción.
+- **Contratar**: el pagador elige plan y disciplinas en Kaizen, que valida los requisitos, y paga en la página de la pasarela. La suscripción existe solo cuando la pasarela confirma el pago; volver de la página de pago no da acceso por sí solo. Solo se paga con tarjeta (incluidos los monederos del móvil).
+- **Periodo de facturación**: cada suscripción empieza el día en que se contrata y se renueva ese mismo día cada mes (aniversario). No hay un día de cobro común ni prorrateo inicial. «Fin de periodo» es siempre el de cada suscripción.
+- **Estados de la suscripción**: son los de la pasarela de pago, sin traducción.
+  - **Activa**: al corriente de pago.
+  - **En periodo de gracia**: ha fallado un cobro y la pasarela sigue reintentándolo. Dura lo que dura la ventana de reintentos (2 semanas). El alumno no pierde nada mientras tanto.
+  - **Impagada**: se agotaron los reintentos sin cobrar. La suscripción no se cancela: se recupera pagando el recibo pendiente.
+  - **Cancelada**: terminada. Queda como historial.
+  - **Pendiente de pago en efectivo**: reservado para el pago en efectivo, que no está activo.
+  _Evitar_: moroso (para el estado; es del pagador), vencida.
+- **Suscripción en vigor**: la que da acceso: activa o en periodo de gracia.
+- **Suscripción viva**: la que impide contratar otra para el mismo alumno: activa, en periodo de gracia o impagada. Quien tiene una impagada paga su recibo; no empieza de cero.
+- **Moroso**: pagador con alguna suscripción impagada. Una en periodo de gracia no lo convierte en moroso.
+- **Baja**: terminar una suscripción. Solo la hace el admin. El pagador puede, por su cuenta, cambiar su tarjeta y ver sus recibos.
+- **Pago en efectivo**: reservado. No está activo; cuando se active tendrá su propio bloque.
 - **Disciplinas elegidas**: las disciplinas concretas que el alumno escoge al suscribirse, tantas como permite su plan y entre las elegibles. Pertenecen a la suscripción, no al plan.
 - **Cubrir**: una suscripción cubre una disciplina si está entre sus disciplinas elegidas o si el plan es de todas y la disciplina es elegible para ese alumno (para un adulto, nunca una solo menores). Cubrir da acceso ilimitado: todas las clases de esa disciplina, todos los días; solo limita el aforo de cada sesión.
 - **"Todas" es dinámico**: cubre las disciplinas elegibles en cada momento; una disciplina nueva queda cubierta al darse de alta si es elegible.
@@ -60,18 +75,34 @@ Solo términos de dominio. Sin detalles de implementación.
 - **Bajar de plan** (*downgrade*): pasar a un plan del mismo precio o más barato. Se aplica en la siguiente facturación, sin reembolso. Al bajar, el alumno elige las nuevas disciplinas: puede quedarse con alguna de las que ya hacía o escoger otras nuevas.
 - **Al cumplir 18**: la suscripción no cambia hasta que el ahora adulto reclama su perfil. Al reclamar, sus disciplinas solo menores se sustituyen gratis y al instante (como una baja de disciplina) y, si su plan es solo menores, debe elegir un plan abierto antes de reservar. Ese cambio es inmediato y con prorrateo, suba o baje.
 
+### Cobros
+
+- **Recibo**: justificante de un cobro, o intento de cobro, de un periodo de una suscripción o de un seguro, emitido al pagador. Guarda lo pagado de verdad. Lo ven el pagador, el alumno, sus tutores vinculados (también los históricos) y el admin; el profesor, no. No es una factura legal.
+- **Factura**: documento fiscal legal. La emitirá en el futuro un servicio externo homologado, y se podrá descargar desde Kaizen. Hoy no existe.
+  _Evitar_: factura (para un recibo).
+
+### Seguro y cobertura de riesgo
+
+- **Cobertura de riesgo**: lo que todo alumno necesita para entrenar. Se tiene de una de dos formas: con el **seguro de la academia** en vigor o con el **`waiver`** firmado en la versión vigente.
+- **Seguro**: seguro de la academia para un alumno (sujeto), pagado por su pagador. Es independiente de la suscripción. Tiene un precio anual por tramo de edad (adulto o menor), editable por el admin; un cambio de precio se aplica desde la siguiente renovación.
+- **Año del seguro**: 12 meses desde el día en que se paga. Se renueva solo, con el tramo que corresponda a la edad en ese momento. Los fallos de cobro siguen las reglas de la suscripción: en periodo de gracia sigue en vigor; al agotarse los reintentos, deja de estarlo. Se avisa al pagador 30 días antes de renovar.
+- **Elegir la cobertura**: al contratar una suscripción, el pagador elige obligatoriamente entre contratar el seguro o firmar el `waiver`, salvo que el alumno ya tenga cobertura de riesgo. Se puede pasar del `waiver` al seguro en cualquier momento. Darse de baja del seguro (pasar al `waiver`) lo hace solo el admin. La baja de la suscripción no toca el seguro, que sigue hasta el final de su año, sin reembolso.
+- **Pérdida de cobertura de riesgo**: si el seguro deja de estar en vigor y no hay `waiver` vigente, el alumno no puede reservar, pero no se cancela lo ya reservado (como un perfil incompleto).
+
 ## Perfil completo
 
 Estado del alumno, calculado siempre a partir de los datos (un alumno recién registrado ya está incompleto):
 - tiene `display_name`;
 - tiene ficha de salud con contacto de emergencia;
-- tiene los 3 acuerdos firmados en la versión vigente.
+- tiene `data_protection` y `rights_of_image` firmados en la versión vigente.
 
-Es el requisito para reservar (B7) y pagar (B10). Profesor y admin siempre están completos. Un **tutor** (rol) está completo con `display_name` y su propio `data_protection` (no entrena: no necesita ficha, `waiver` ni `rights_of_image`). `missing` es la lista de lo que falta: `display_name`, `health_info`, `emergency_contact`, `waiver`, `data_protection`, `rights_of_image`.
+El `waiver` no forma parte del perfil completo: cuenta para la cobertura de riesgo.
+
+Es el requisito para reservar (B7) y pagar (B10). Profesor y admin siempre están completos. Un **tutor** (rol) está completo con `display_name` y su propio `data_protection` (no entrena: no necesita ficha ni `rights_of_image`). `missing` es la lista de lo que falta: `display_name`, `health_info`, `emergency_contact`, `data_protection`, `rights_of_image`.
 
 Cuando un tutor actúa por un hijo, deben estar completos **los dos**: el hijo (sujeto) y el tutor (actor).
 
-Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculado. Al cumplir 18 años los poderes del tutor caen y las firmas del tutor dejan de contar: el perfil queda incompleto hasta que el ahora adulto reclame su perfil, firme los 3 acuerdos y confirme su ficha. El estado se calcula con la fecha de nacimiento, sin ningún proceso que cambie datos.
+Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculado. Al cumplir 18 años los poderes del tutor caen y las firmas del tutor dejan de contar: el perfil queda incompleto hasta que el ahora adulto reclame su perfil, firme los acuerdos y confirme su ficha. El estado se calcula con la fecha de nacimiento, sin ningún proceso que cambie datos.
 
 **Fecha de nacimiento y Google**: el registro local la exige y debe ser de un adulto. El alta con Google no la trae: queda vacía y el perfil se trata como adulto hasta que el onboarding («Completar Perfil») la pide; si declara ser menor, se rechaza y debe darlo de alta un tutor.
 
@@ -108,8 +139,7 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 
 - **Reserva**: plaza de un alumno (sujeto) en una sesión. Ocupa aforo. Se puede volver a reservar la misma sesión tras cancelar.
   _Evitar_: inscripción (es de eventos), anular, baja.
-- **Requisitos para reservar**: perfil completo (sujeto y actor) y **suscripción en vigor** que cubra la disciplina de la sesión. No hay clase suelta ni prueba: el **pase** queda aplazado.
-- **Suscripción en vigor**: la que permite reservar. Hoy: activa, pendiente de pago en efectivo o en periodo de gracia. El mapeo definitivo con los estados de pago se fija en B10.
+- **Requisitos para reservar**: perfil completo (sujeto y actor), **cobertura de riesgo** del sujeto y **suscripción en vigor** que cubra la disciplina de la sesión. No hay clase suelta ni prueba: el **pase** queda aplazado.
 - **Quién reserva**: el alumno adulto para sí; cualquier tutor vinculado por sus hijos (y puede cancelar lo que reservó otro tutor); el admin por cualquier alumno, con los mismos requisitos. El profesor no reserva ni cancela.
 - **Ventana de reserva**: solo se reservan sesiones que empiezan dentro de los próximos N días (parámetro de la academia, por defecto 14). Las más lejanas se ven pero no se reservan. El admin no tiene ventana. Reservar y entrar en espera se cierran al inicio de la sesión; una sesión cancelada o empezada nunca se reserva.
 - **Aforo** (en reservas): inviolable para todos, admin incluido. Para hacer sitio el admin sube el aforo con un ajuste de sesión, lo que promociona la lista de espera.
@@ -120,7 +150,8 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 - **Cancelación tardía**: cancelación del alumno o tutor fuera de plazo. Solo queda registrada; no hay sanción automática, el admin decide a mano.
   _Evitar_: penalización.
 - **Falta**: ver «Asistencia».
-- **Pérdida de cobertura**: si la suscripción deja de estar en vigor o deja de cubrir una disciplina (p. ej. al bajar de plan), se cancelan sus reservas y esperas futuras no cubiertas con motivo «sin cobertura», con aviso (a sus tutores si es un hijo). No vuelven al recuperar la cobertura. Un perfil incompleto impide reservar pero no cancela lo ya reservado.
+- **Pérdida de cobertura**: si la suscripción deja de estar en vigor (pasa a impagada o cancelada) o deja de cubrir una disciplina (p. ej. al bajar de plan), se cancelan sus reservas y esperas futuras no cubiertas con motivo «sin cobertura», con aviso al pagador y a sus tutores si es un hijo. No vuelven al recuperar la cobertura. Un perfil incompleto o la pérdida de cobertura de riesgo impiden reservar pero no cancelan lo ya reservado.
+- **Aviso de cobro fallido**: cuando falla un cobro se avisa solo al pagador, nunca al hijo. Los avisos de facturación siempre van al pagador.
 - **Motivo de cancelación**: toda reserva cancelada o espera retirada tiene exactamente uno:
   - **cancelada por el alumno** (alumno o tutor, en plazo; también tras un cambio de clase que afecta a la sesión, aunque sea fuera de plazo);
   - **cancelación tardía** (alumno o tutor, fuera de plazo);

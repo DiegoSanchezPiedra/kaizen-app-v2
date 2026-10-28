@@ -1,0 +1,7 @@
+# Cobertura de riesgo: seguro de la academia o waiver
+
+B4.5 hizo del `waiver` uno de los tres acuerdos obligatorios del perfil completo: todo alumno lo firmaba antes de pagar. Pero la academia ofrece un **seguro anual** y quiere que el `waiver` sea su alternativa: quien contrata el seguro no lo firma; quien no tiene seguro o no quiere contratarlo, sí. Por eso el `waiver` sale del perfil completo y nace la **cobertura de riesgo** (seguro en vigor o `waiver` vigente), que pasa a ser un requisito propio para reservar. La elección se hace al contratar, porque ahí se decide si se paga el seguro.
+
+Se descartó mantener el `waiver` obligatorio para todos con el seguro como extra: es lo que mejor protege a la academia, pero no es lo que la academia quiere ofrecer. También se descartó una tabla genérica de "acuerdos de suscripción" (la heredada `subscription_agreements`), que se borra: el `waiver` ya vive en las firmas de B4.5 y el seguro tiene su propio modelo.
+
+El precio es reabrir B4.5: `missing` pierde `waiver` y gana `risk_cover` como requisito aparte, y la cobertura de riesgo puede caducar (al vencer el seguro) sin que el perfil cambie. Perder la cobertura de riesgo impide reservar pero no cancela reservas, igual que un perfil incompleto. Riesgo legal pendiente de revisar con la gestoría: un `waiver` no exime de la negligencia propia ni sustituye a un seguro que la póliza o la federación exijan.

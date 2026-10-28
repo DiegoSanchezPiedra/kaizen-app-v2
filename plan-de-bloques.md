@@ -50,11 +50,12 @@
 | B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | IMPLEMENTADO (pendiente commit) |
 | B10 | Stripe base (checkout, portal, webhook idempotente) | B4.5, B7 | Pendiente |
 | B10.1 | Modelo Stripe en `invoices` + webhook `invoice.payment_failed` | B10 | Pendiente |
-| B10.2 | Endpoint admin `GET /admin/billing/failed-payments` | B10.1 | Pendiente |
+| B10.2 | Endpoint admin morosos y "en gracia" por pagador | B10.1 | Pendiente |
+| B10.3 | Seguro y cobertura de riesgo (seguro anual o `waiver`) | B10.1 | Pendiente |
 | B10.5 | `subscription_disciplines` + upgrade/downgrade | B10 | Pendiente |
-| B10.6 | Emails transaccionales de billing (al alumno) | B10.1 | Pendiente |
-| B11 | Cancelación admin de suscripciones | B10.5 | Pendiente |
-| B12 | Validación final waiver/consentimientos en checkout | B10, B4.5 | Pendiente |
+| B10.6 | Emails transaccionales de billing (al pagador) | B10.1 | Pendiente |
+| B11 | Baja admin de suscripciones y seguro + cambio de pagador | B10.5, B10.3 | Pendiente |
+| B12 | ~~Validación final waiver/consentimientos en checkout~~ | — | ELIMINADO (absorbido por B4.5 y B10.3) |
 | B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 | Pendiente |
 | B14 | Racha, badges, tabla opt-in | B7 | Pendiente |
 | B15 | Push (`push_subscriptions`, envío) | B2 | Pendiente |
@@ -273,37 +274,61 @@
   - [x] Tests (`npm run test:checkin`) y smoke del SSE con `curl -N`.
 
 ### B10 — Stripe base (checkout, portal, webhook idempotente) — Pendiente
-- **Objetivo**: checkout, portal de cliente y webhook idempotente.
-- **Cuenta familiar**: una suscripción por hijo + `subscriptions.payer_id` (el propio alumno adulto o un tutor vinculado); cliente Stripe **por pagador** (decidir `profiles.stripe_customer_id` vs `billing_customers`); checkout con `profile_id`; RLS = alumno, tutor vinculado o pagador. Morosos (B10.2) agrupados por pagador.
-- **Planes (B5, ADR 0003)**: el checkout recibe plan + **disciplinas elegidas** (tantas como el plan, entre las elegibles, respetando "solo menores" de plan y disciplina). **Comprobación de edad obligatoria en el checkout** (el alumno ya es conocido): un adulto no puede contratar un plan `minors_only` ni elegir una disciplina `minors_only`; un menor puede elegir cualquier disciplina, incluidas las de adultos. B5 solo guarda los flags, no valida edad. Por eso `subscription_disciplines` nace aquí (sale de B10.5). Máximo **una** suscripción activa por alumno. Cambio de precio de un plan → actualizar las suscripciones en Stripe desde su siguiente facturación. Cambio de pagador entre tutores: siguiente facturación; al reclamar el perfil, pagador = el propio alumno.
-- **Entregable**: RLS en `subscriptions` y `subscription_disciplines`; endpoints `/billing/checkout`, `/billing/portal`; webhook con `webhook_events`.
-- **Fuera de alcance**: `invoices` ampliadas (B10.1), upgrade/downgrade y cambio de disciplina (B10.5), cancelación (B11).
+- **Objetivo**: checkout, portal de cliente y webhook idempotente. Vocabulario en `CONTEXT.md` («Suscripción», «Cobros»).
+- **Estados**: `sub_status` = estados de Stripe tal cual; se añade `unpaid`. `canceled` / `incomplete_expired` → `cancelled`. **En vigor** = `active` + `past_due` (periodo de gracia = reintentos de Stripe, 2 semanas en el Dashboard; al agotarse Stripe marca `unpaid`, no cancela). **Viva** = `active` + `past_due` + `unpaid`. `grace_period` y `academy_settings.grace_period_days` quedan sin uso (documentados). `pending_cash` / `cash` / `cash_payments`: efectivo reservado e inactivo (no antes de 2028); sale de `covers`.
+- **Cuenta familiar**: una suscripción por hijo + `subscriptions.payer_id` = quien hace el checkout (el propio alumno adulto o un tutor vinculado); cliente Stripe por pagador en **`profiles.stripe_customer_id`** (único, nullable, solo backend); checkout con `profile_id`; RLS = alumno, tutor vinculado o pagador. Cambio de pagador: B11.
+- **Planes (B5, ADR 0003)**: el checkout recibe plan + **disciplinas elegidas** (tantas como el plan, entre las elegibles, respetando "solo menores" de plan y disciplina). **Comprobación de edad obligatoria en el checkout**: un adulto no puede contratar un plan `minors_only` ni elegir una disciplina `minors_only`; un menor puede elegir cualquier disciplina. Por eso `subscription_disciplines` nace aquí. Plan a 0 € no contratable.
+- **Sincronización plan ↔ Stripe** (el plan es la fuente de verdad): crear plan → Product + Price mensual EUR; cambio de precio → Price nuevo, archivar el viejo y pasar las suscripciones vivas al nuevo sin prorrateo (aplica desde su siguiente renovación); renombrar → Product; retirar/reactivar → archivar/desarchivar Price. Script único para los planes existentes sin `stripe_price_id`. `price_cents` = precio final IVA incluido; sin Stripe Tax.
+- **Checkout**: Stripe Checkout alojado (modo suscripción), solo tarjeta (+ Apple Pay / Google Pay), caducidad 30 min, ciclo de facturación por aniversario. 409 si el alumno tiene suscripción viva. Plan y disciplinas en `metadata`. La fila local **nace en el webhook** `checkout.session.completed`; si choca con el índice único parcial (otra ganó la carrera) → cancelar la nueva en Stripe, reembolsar su primer cobro y avisar a pagador y admin. `success_url` no concede acceso.
+- **Portal**: Customer Portal configurado solo para método de pago y ver recibos; sin cambio de plan ni cancelación.
+- **Pérdida de cobertura**: al pasar a `unpaid` o `cancelled` → cancelar reservas/esperas futuras con motivo «sin cobertura», aviso (`notice.*` en `audit_log`) al pagador y a los tutores del hijo.
+- **Entregable**: migración (enum `unpaid`, `profiles.stripe_customer_id`, índice único parcial de suscripción viva, RLS en `subscriptions` y `subscription_disciplines`, `covers` = `active` + `past_due`); endpoints `/billing/checkout`, `/billing/portal`; webhook con `webhook_events`; hooks de catálogo → Stripe.
+- **Fuera de alcance**: recibos (B10.1), seguro y cobertura de riesgo (B10.3; hasta entonces el `waiver` sigue en el perfil completo), upgrade/downgrade y cambio de disciplina (B10.5), baja y cambio de pagador (B11), SEPA (`MEJORAS.md`).
 - **Checklist de cierre**:
   - [ ] RLS en `subscriptions` y `subscription_disciplines`.
-  - [ ] Una sola suscripción activa por alumno (restricción en BD).
-  - [ ] Checkout crea suscripción en Stripe + fila local.
-  - [ ] Portal redirige.
+  - [ ] Una sola suscripción viva por alumno (índice único parcial) y carrera de checkouts resuelta (cancelación + reembolso).
+  - [ ] Checkout crea la suscripción en Stripe; la fila local nace en el webhook.
+  - [ ] Validación de edad / solo menores / disciplinas elegibles / plan a 0 €.
+  - [ ] Sincronización plan ↔ Price (crear, precio, nombre, retirar).
+  - [ ] Portal redirige con la configuración limitada.
   - [ ] Webhook idempotente vía `webhook_events`.
-  - [ ] `requireCompleteProfile` (B4.5) y consentimientos (B12) bloquean checkout.
+  - [ ] `covers` sin `pending_cash`; pérdida de cobertura al pasar a `unpaid` / `cancelled`.
+  - [ ] `requireCompleteProfile` (sujeto y actor) bloquea el checkout.
+  - [ ] Tests manuales con Stripe CLI.
 
-### B10.1 — Modelo Stripe en `invoices` + webhook `invoice.payment_failed` — Pendiente
-- **Objetivo**: ampliar `invoices` con datos Stripe; manejar `invoice.payment_failed`.
-- **Entregable**: migración de columnas (`stripe_invoice_id`, `status`, `attempt_count`, `next_payment_attempt`, `last_payment_error`, `hosted_invoice_url`); webhook handler.
-- **Fuera de alcance**: emails (B10.6), endpoint admin (B10.2).
+### B10.1 — Recibos (`invoices`) + webhook `invoice.payment_failed` — Pendiente
+- **Objetivo**: guardar los **recibos** (término en `CONTEXT.md`; no son facturas legales) y manejar el cobro fallido.
+- **Entregable**: migración de `invoices`: `stripe_invoice_id` UNIQUE, `subscription_id`, `student_id`, **`payer_id`**, `period_start` / `period_end`, `amount_due_cents`, `amount_paid_cents`, `currency`, `status` (Stripe tal cual: draft/open/paid/uncollectible/void), `paid_at`, `attempt_count`, `next_payment_attempt`, `last_payment_error`, `hosted_invoice_url`, `invoice_pdf` (sustituye `external_pdf_url`). Sin líneas ni impuestos. Handlers de `invoice.*`.
+- **Reglas**: `invoice.payment_failed` no quita acceso (la suscripción pasa a `past_due`); guarda intento / siguiente reintento / motivo y deja `notice.*` solo al pagador (enlace al portal). Al pagar después, vuelve a `active`; las reservas canceladas no vuelven.
+- **RLS lectura**: pagador del recibo, alumno sujeto, tutores vinculados (incluido el vínculo histórico D16), admin. Profesor no.
+- **Fuera de alcance**: emails (B10.6), endpoint admin (B10.2), factura legal VeriFactu (bloque futuro; descargable desde la app).
 - **Checklist de cierre**:
   - [ ] Columnas añadidas y RLS.
-  - [ ] `invoice.payment_failed` guarda `last_payment_error`.
+  - [ ] `invoice.payment_failed` guarda `last_payment_error` y crea el aviso al pagador.
   - [ ] Idempotencia vía `webhook_events`.
   - [ ] Tests manuales con Stripe CLI.
 
-### B10.2 — Endpoint admin `GET /admin/billing/failed-payments` — Pendiente
-- **Objetivo**: lista de morosos para el panel admin.
-- **Entregable**: endpoint con RLS admin, filtro `status IN ('open','past_due','uncollectible')`.
+### B10.2 — Endpoint admin morosos y "en gracia" — Pendiente
+- **Objetivo**: lista para el panel admin, agrupada por pagador.
+- **Entregable**: endpoint solo admin con dos listas: **morosos** (pagadores con alguna suscripción `unpaid`) y **en gracia** (`past_due`, no morosos).
 - **Fuera de alcance**: UI (B19).
 - **Checklist de cierre**:
-  - [ ] Endpoint devuelve lista paginada.
+  - [ ] Endpoint devuelve las dos listas paginadas, agrupadas por pagador.
   - [ ] Solo admin.
   - [ ] Tests.
+
+### B10.3 — Seguro y cobertura de riesgo — Pendiente
+- **Objetivo**: seguro anual de la academia como alternativa al `waiver` (ADR 0005). Términos en `CONTEXT.md` («Seguro y cobertura de riesgo»).
+- **Reglas**: cobertura de riesgo = seguro en vigor o `waiver` vigente. Seguro por alumno, pagado por su pagador, independiente de la suscripción; precio anual por tramo (adulto / menor) editable por el admin; año por aniversario con renovación automática (2ª suscripción Stripe anual del mismo cliente); fallos de cobro como la suscripción. Al dejar de estar en vigor sin `waiver`: no puede reservar, sin cancelar reservas. Aviso al pagador 30 días antes de renovar y al dejar de estar en vigor. Contratable solo al contratar la suscripción o como paso `waiver` → seguro.
+- **Entregable**: `waiver` fuera de `getProfileStatus` / `missing` (B4.5); `risk_cover` como requisito aparte en `book_session` (B7) y en la respuesta de estado; modelo del seguro y sus precios; elección obligatoria seguro / `waiver` en el checkout (salvo cobertura en vigor); webhooks del seguro; borrar `subscription_agreements`. Datos existentes: `waiver` firmado ⇒ con cobertura.
+- **Fuera de alcance**: baja del seguro (B11), seguro sin suscripción (eventos, en su bloque).
+- **Checklist de cierre**:
+  - [ ] `missing` sin `waiver`; reservar exige `risk_cover`.
+  - [ ] Checkout obliga a elegir seguro o `waiver` si no hay cobertura.
+  - [ ] Renovación anual con el tramo de edad vigente.
+  - [ ] Vencimiento sin `waiver` bloquea reservar y no cancela reservas.
+  - [ ] `subscription_agreements` eliminada.
+  - [ ] Tests (incluida la regresión de B7/B9 con la nueva regla).
 
 ### B10.5 — Upgrade/downgrade + cambio de disciplina — Pendiente
 - **Objetivo**: subir de plan (más caro) inmediato con prorrateo; bajar (igual o más barato) en la siguiente facturación; cambio de disciplina. Términos en `CONTEXT.md`.
@@ -315,7 +340,7 @@
   - [ ] Cambio de disciplina: inmediato, límite por periodo, cancela reservas futuras de la disciplina abandonada.
   - [ ] Tests manuales con Stripe.
 
-### B10.6 — Emails transaccionales de billing (al alumno) — Pendiente
+### B10.6 — Emails transaccionales de billing (al pagador) — Pendiente
 - **Objetivo**: email al alumno en `invoice.payment_failed`.
 - **Cuenta familiar**: el destinatario es el **pagador**, no el alumno (un hijo no tiene email).
 - **Entregable**: proveedor elegido (Resend/Postmark/SMTP), `services/email.js`, plantilla.
@@ -326,23 +351,19 @@
   - [ ] Idempotencia (no duplicar en replay).
   - [ ] Test manual.
 
-### B11 — Cancelación admin de suscripciones — Pendiente
-- **Objetivo**: admin cancela (`cancel-now` / `cancel-at-period-end`).
-- **Entregable**: endpoints `/admin/subscriptions/:id/cancel-now` y `/cancel-at-period-end`.
-- **Fuera de alcance**: cancelación por alumno (no permitida).
+### B11 — Baja admin de suscripciones y seguro + cambio de pagador — Pendiente
+- **Objetivo**: la baja la hace solo el admin (`cancel-now` / `cancel-at-period-end`), también la del seguro (paso a `waiver`); y el **cambio de pagador**.
+- **Cambio de pagador**: el admin elige al nuevo pagador (tutor vinculado o el propio alumno adulto) → enlace de Checkout para él (mismo plan y disciplinas, empieza al fin del periodo) → al completarlo, la suscripción antigua se cancela a fin de periodo. Si no lo completa a tiempo, no hay cambio y se avisa al admin. Al reclamar el perfil a los 18 se crea un aviso al admin para pasar el pago al propio alumno. Son dos suscripciones consecutivas (Stripe no cambia el cliente de una suscripción).
+- **Entregable**: endpoints `/admin/subscriptions/:id/cancel-now` y `/cancel-at-period-end`; baja del seguro; endpoint de cambio de pagador.
+- **Fuera de alcance**: baja por el alumno o el pagador (no permitida; revisión legal en `MEJORAS.md`).
 - **Checklist de cierre**:
-  - [ ] Ambos endpoints funcionan.
+  - [ ] Ambos endpoints de baja funcionan; la baja de la suscripción no toca el seguro.
+  - [ ] Cambio de pagador con traspaso a fin de periodo y caso "no completado".
   - [ ] `audit_log` registra.
   - [ ] Tests.
 
-### B12 — Validación final waiver/consentimientos en checkout — Pendiente
-- **Objetivo**: bloquear checkout si faltan consentimientos (versión vigente).
-- **Entregable**: validación en `/billing/checkout` contra `user_agreements` + `getCurrentVersion` (B4.5.1).
-- **Fuera de alcance**: firma electrónica avanzada (futuro).
-- **Checklist de cierre**:
-  - [ ] Checkout bloqueado sin los 3 consentimientos en versión vigente.
-  - [ ] Re-firma tras publicar versión nueva bloquea checkout hasta firmar.
-  - [ ] Tests.
+### B12 — ELIMINADO
+- Absorbido: los consentimientos (`data_protection`, `rights_of_image`) ya los exige el perfil completo (B4.5) en el checkout, y el `waiver` pasa a la elección seguro / `waiver` del checkout (B10.3, ADR 0005).
 
 ### B13 — Perfiles públicos (flags, `public_profiles`, directorio) — Pendiente
 - **Objetivo**: perfiles públicos con flags granulares y directorio.
