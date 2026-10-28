@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { servicePool, closePools } from '../src/config/database.js';
 import { withRls } from '../src/db/rls.js';
+import { stripe } from '../src/config/stripe.js';
+import { createPlan, updatePlan } from '../src/services/catalog.js';
 
 const sp = async (c, fn) => { // savepoint: un error SQL no aborta el resto de la transacción
   await c.query('SAVEPOINT t');
@@ -48,6 +50,7 @@ const { rows: [bk] } = await servicePool.query(
    VALUES (gen_random_uuid(), $1, $2, $2, 'confirmed') RETURNING id`, [sess.id, U.alu]);
 
 const setStatus = (id, status) => servicePool.query(`UPDATE subscriptions SET status = $2 WHERE id = $1`, [id, status]);
+let synced, stripeSub, syncedSub;
 const covers = async () => (await servicePool.query(`SELECT covers($1, $2) c`, [U.alu, disc])).rows[0].c;
 
 try {
@@ -106,7 +109,49 @@ try {
       `SELECT 1 FROM audit_log WHERE action = 'notice.no_coverage' AND resource_id = $1`, [bk.id]);
     assert.equal(rowCount, 1);
   });
+
+  // Plan ↔ Stripe contra el sandbox (llamadas reales).
+  await run('sync plan: crea Product + Price mensual EUR IVA incluido', async () => {
+    synced = await withRls({ uid: U.admin, role: 'admin' }, (c) =>
+      createPlan(c, { name: `T-Bill-sync-${Date.now()}`, price_cents: 2500, max_disciplines: null }));
+    const { rows: [{ stripe_price_id }] } = await servicePool.query(`SELECT stripe_price_id FROM plans WHERE id = $1`, [synced.id]);
+    const price = await stripe.prices.retrieve(stripe_price_id, { expand: ['product'] });
+    assert.deepEqual(
+      [price.unit_amount, price.currency, price.recurring.interval, price.tax_behavior, price.active, price.product.name],
+      [2500, 'eur', 'month', 'inclusive', true, synced.name]);
+    // Suscriptor real en Stripe con tarjeta de prueba.
+    const customer = await stripe.customers.create({
+      payment_method: 'pm_card_visa', invoice_settings: { default_payment_method: 'pm_card_visa' } });
+    stripeSub = await stripe.subscriptions.create({ customer: customer.id, items: [{ price: stripe_price_id }] });
+    syncedSub = crypto.randomUUID();
+    await servicePool.query(
+      `INSERT INTO subscriptions (id, student_id, payer_id, plan_id, status, stripe_subscription_id)
+       VALUES ($1, $2, $2, $3, 'active', $4)`, [syncedSub, U.other, synced.id, stripeSub.id]);
+  });
+  await run('sync plan: precio nuevo, suscriptores al nuevo sin prorrateo, viejo archivado; nombre; 0 € con suscriptores → 409', async () => {
+    await withRls({ uid: U.admin, role: 'admin' }, async (c) => {
+      const priceOf = async () => (await c.query(`SELECT stripe_price_id p FROM plans WHERE id = $1`, [synced.id])).rows[0].p;
+      const old = await priceOf();
+      await updatePlan(c, { id: synced.id, body: { price_cents: 3000, name: `${synced.name}-r` }, actorId: U.admin });
+      const now = await priceOf();
+      assert.notEqual(now, old);
+      assert.equal((await stripe.prices.retrieve(old)).active, false);
+      const p = await stripe.prices.retrieve(now, { expand: ['product'] });
+      assert.deepEqual([p.unit_amount, p.product.name], [3000, `${synced.name}-r`]);
+      assert.equal((await stripe.subscriptions.retrieve(stripeSub.id)).items.data[0].price.id, now);
+      await sp(c, () => assert.rejects(
+        updatePlan(c, { id: synced.id, body: { price_cents: 0 }, actorId: U.admin }), (e) => e.status === 409));
+      await updatePlan(c, { id: synced.id, body: { is_active: false }, actorId: U.admin });
+      assert.equal((await stripe.prices.retrieve(now)).active, false);
+    }, { commit: false });
+  });
 } finally {
+  if (stripeSub) await stripe.subscriptions.cancel(stripeSub.id);
+  if (syncedSub) await servicePool.query(`DELETE FROM subscriptions WHERE id = $1`, [syncedSub]);
+  if (synced) {
+    await servicePool.query(`DELETE FROM audit_log WHERE resource_id = $1`, [synced.id]);
+    await servicePool.query(`DELETE FROM plans WHERE id = $1`, [synced.id]);
+  }
   await servicePool.query(`DELETE FROM audit_log WHERE resource_id = $1`, [bk.id]);
   await servicePool.query(`DELETE FROM bookings WHERE id = $1`, [bk.id]);
   await servicePool.query(`DELETE FROM class_sessions WHERE id = $1`, [sess.id]);

@@ -1,5 +1,6 @@
 // src/services/catalog.js
 import crypto from 'node:crypto';
+import { stripe } from '../config/stripe.js';
 import { httpError } from '../lib/errors.js';
 
 const ID_RE = /^\d{1,18}$/;
@@ -127,7 +128,9 @@ export async function createPlan(client, body) {
   const data = validate(body, PLAN_SPEC, false);
   const [sql, params] = insertSql('plans', data);
   const { rows: [{ id }] } = await guardUnique(() => client.query(sql, params));
-  return getPlan(client, id);
+  const plan = await getPlan(client, id);
+  await syncPlanToStripe(client, plan, null);
+  return plan;
 }
 
 export async function updatePlan(client, { id, body, actorId }) {
@@ -153,7 +156,60 @@ export async function updatePlan(client, { id, body, actorId }) {
   if ('is_active' in data && data.is_active !== before.is_active) {
     await audit(client, actorId, data.is_active ? 'plan.activate' : 'plan.retire', id, {});
   }
-  return getPlan(client, id);
+  const plan = await getPlan(client, id);
+  await syncPlanToStripe(client, plan, before);
+  return plan;
+}
+
+// --- Plan → Stripe (B10). El plan es la fuente de verdad; Stripe va dentro de la transacción:
+// si falla, el cambio local se deshace. Un Product por plan y un Price por cada precio que ha tenido.
+// Sin default_price: Stripe no deja archivar el Price por defecto de un Product.
+
+const LIVE = ['active', 'past_due', 'unpaid'];
+
+function createPrice(product, plan) {
+  return stripe.prices.create({
+    product, currency: 'eur', unit_amount: plan.price_cents, recurring: { interval: 'month' },
+    tax_behavior: 'inclusive', active: plan.is_active, // precio final, IVA incluido; sin Stripe Tax
+  });
+}
+
+// before = null al crear. Plan a 0 €: sin Price (no se contrata por la pasarela).
+export async function syncPlanToStripe(client, plan, before) {
+  const { rows: [{ stripe_price_id: oldPrice }] } = await client.query(
+    `SELECT stripe_price_id FROM plans WHERE id = $1`, [plan.id]);
+  let newPrice = oldPrice;
+
+  if (!oldPrice) {
+    if (plan.price_cents === 0) return;
+    const product = await stripe.products.create({ name: plan.name, metadata: { plan_id: plan.id } });
+    newPrice = (await createPrice(product.id, plan)).id;
+  } else {
+    const { product } = await stripe.prices.retrieve(oldPrice);
+    if (plan.name !== before.name) await stripe.products.update(product, { name: plan.name });
+    if (plan.price_cents !== before.price_cents) {
+      const { rows: subs } = await client.query(
+        `SELECT stripe_subscription_id FROM subscriptions WHERE plan_id = $1 AND status = ANY($2)`, [plan.id, LIVE]);
+      if (plan.price_cents === 0 && subs.length) {
+        throw httpError(409, 'plan_has_subscriptions', 'Un plan con suscriptores no puede pasar a 0 €');
+      }
+      newPrice = plan.price_cents === 0 ? null : (await createPrice(product, plan)).id;
+      // Cambio de precio: desde la siguiente renovación de cada suscriptor, sin prorrateo.
+      // shortcut: secuencial dentro de la petición; con cientos de suscriptores, pasarlo a un job.
+      for (const { stripe_subscription_id: subId } of subs) {
+        const sub = await stripe.subscriptions.retrieve(subId);
+        await stripe.subscriptions.update(subId, {
+          items: [{ id: sub.items.data[0].id, price: newPrice }], proration_behavior: 'none',
+        });
+      }
+      await stripe.prices.update(oldPrice, { active: false });
+    } else if (plan.is_active !== before.is_active) {
+      await stripe.prices.update(oldPrice, { active: plan.is_active });
+    }
+  }
+  if (newPrice !== oldPrice) {
+    await client.query(`UPDATE plans SET stripe_price_id = $2 WHERE id = $1`, [plan.id, newPrice]);
+  }
 }
 
 // Reglas de la lista elegible (vacía = cualquier disciplina permitida por edad: siempre válida).
