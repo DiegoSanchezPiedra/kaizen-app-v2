@@ -9,6 +9,8 @@ import agreementsRouter from './routes/agreements.js';
 import adminAgreementsRouter from './routes/admin/agreements.js';
 import adminCatalogRouter from './routes/admin/catalog.js';
 import catalogRouter from './routes/catalog.js';
+import adminClassesRouter from './routes/admin/classes.js';
+import professorRouter from './routes/professor.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -33,6 +35,8 @@ app.use('/me', meRouter);
 app.use('/agreements', agreementsRouter);
 app.use('/admin/agreements', adminAgreementsRouter);
 app.use('/admin', adminCatalogRouter);
+app.use('/admin', adminClassesRouter);
+app.use('/professor', professorRouter);
 app.use('/', catalogRouter);
 app.use(notFound);
 app.use(errorHandler);

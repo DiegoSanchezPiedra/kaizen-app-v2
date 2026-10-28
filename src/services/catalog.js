@@ -18,12 +18,12 @@ export function parseId(raw) {
   return String(raw);
 }
 
-function invalid(field, message) {
+export function invalid(field, message) {
   return httpError(400, 'invalid_field', message, { field });
 }
 
 // Valida solo los campos presentes; `partial` = PATCH.
-function validate(body, spec, partial) {
+export function validate(body, spec, partial) {
   const out = {};
   for (const [field, [check, message, required]] of Object.entries(spec)) {
     if (body[field] === undefined) {
@@ -61,7 +61,7 @@ async function guardUnique(fn) {
   }
 }
 
-function insertSql(table, data) {
+export function insertSql(table, data) {
   const cols = Object.keys(data);
   return [
     `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id`,
@@ -69,7 +69,7 @@ function insertSql(table, data) {
   ];
 }
 
-function updateSql(table, id, data) {
+export function updateSql(table, id, data) {
   const cols = Object.keys(data);
   return [
     `UPDATE ${table} SET ${cols.map((c, i) => `${c} = $${i + 2}`).join(', ')} WHERE id = $1 RETURNING id`,
@@ -193,7 +193,7 @@ export async function getEligibleDisciplines(client, planId) {
   return (await getPlan(client, planId)).eligible_discipline_ids;
 }
 
-function audit(client, actorId, action, resourceId, changes) {
+export function audit(client, actorId, action, resourceId, changes) {
   const type = action.split('.')[0];
   return client.query(
     `INSERT INTO audit_log (id, actor_id, action, resource_type, resource_id, changes)

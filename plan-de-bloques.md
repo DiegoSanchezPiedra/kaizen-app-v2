@@ -44,7 +44,7 @@
 | B4.5.1 | Gestión documental admin (`agreement_documents`, storage, subida) | B4.5 | Pendiente |
 | B4.6 | Cuenta familiar: el tutor crea y gestiona hijos sin credenciales (`PLAN_FAMILIA.md`) | B4.5.1 | IMPLEMENTADO (pendiente commit) |
 | B5 | CRUD disciplinas, planes y disciplinas elegibles (`plan_disciplines`) (admin) | B3, B4.6 | IMPLEMENTADO (pendiente commit) |
-| B6 | CRUD `class_sessions` + calendario | B5 | Pendiente |
+| B6 | Clases + sesiones (CRUD admin, generación a 1 año, vista profesor) | B5 | Hecho (calendario alumno pendiente) |
 | B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | Pendiente |
 | B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | Pendiente |
 | B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | Pendiente |
