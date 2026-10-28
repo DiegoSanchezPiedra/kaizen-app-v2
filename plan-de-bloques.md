@@ -246,12 +246,15 @@
 - **Checklist de cierre**:
   - [ ] RLS en `attendance`.
   - [ ] Profesor solo pasa lista de sus sesiones.
-  - [ ] `audit_log` registra cada asistencia.
+  - [ ] Asistencia solo con reserva activa; cierre de lista genera las faltas (CONTEXT.md §Asistencia).
+  - [ ] Correcciones con motivo; parámetro `attendance_correction_hours` en `academy_settings`.
+  - [ ] Vista de salud del profesor restringida a campos y alcance de CONTEXT.md §Asistencia.
+  - [ ] `audit_log` registra cierres de lista, correcciones y consultas de salud del profesor.
   - [ ] Tests por rol.
 
 ### B9 — QR dinámico (`device_tokens`, SSE, check-in) — Pendiente
 - **Objetivo**: tablet fija con `device_token`, QR rotativo, check-in por SSE.
-- **Cuenta familiar (por decidir aquí)**: el hijo no tiene login ni móvil. El check-in lo hace el tutor con su JWT + `profile_id`, o el profesor a mano (B8).
+- **Cuenta familiar (decidido)**: el tutor hace check-in de sus hijos con su móvil; respaldo manual del profesor (CONTEXT.md §Asistencia).
 - **Entregable**: tabla `device_tokens` (hash), endpoints `/tablet/*`, SSE `/tablet/active-sessions`, rotación de QR.
 - **Fuera de alcance**: MFA de tablet (futuro).
 - **Checklist de cierre**:

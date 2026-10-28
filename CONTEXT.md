@@ -119,7 +119,7 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 - **Plazo de cancelación**: hasta N antes del inicio (parámetro de la academia, por defecto 1 hora) se cancela sin consecuencias. Siempre se puede cancelar hasta el inicio.
 - **Cancelación tardía**: cancelación del alumno o tutor fuera de plazo. Solo queda registrada; no hay sanción automática, el admin decide a mano.
   _Evitar_: penalización.
-- **Falta**: no presentarse a una sesión reservada. Es término de asistencia (B8), no de reservas.
+- **Falta**: ver «Asistencia».
 - **Pérdida de cobertura**: si la suscripción deja de estar en vigor o deja de cubrir una disciplina (p. ej. al bajar de plan), se cancelan sus reservas y esperas futuras no cubiertas con motivo «sin cobertura», con aviso (a sus tutores si es un hijo). No vuelven al recuperar la cobertura. Un perfil incompleto impide reservar pero no cancela lo ya reservado.
 - **Motivo de cancelación**: toda reserva cancelada o espera retirada tiene exactamente uno:
   - **cancelada por el alumno** (alumno o tutor, en plazo; también tras un cambio de clase que afecta a la sesión, aunque sea fuera de plazo);
@@ -128,3 +128,18 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
   - **sesión cancelada**;
   - **sin cobertura**;
   - **cambio de disciplina**.
+
+## Asistencia
+
+- **Asistencia**: si un alumno con reserva en una sesión estuvo o no. Solo existe sobre una reserva activa: quien no reservó no tiene asistencia, aunque se presente.
+  _Evitar_: check-in (para la asistencia en sí).
+- **Pasar lista**: el profesor marca a los presentes de su sesión. Se puede desde el inicio de la sesión. Antes del cierre, marcar y desmarcar es libre y no deja rastro.
+- **Cerrar la lista**: confirmar la lista de una sesión. Al cerrarla, toda reserva sin presente pasa a **falta**. Se puede desde el inicio de la sesión y sin límite posterior. Pasan lista y la cierran el profesor de la sesión (sustituto incluido) y el admin; ningún otro profesor.
+- **Sin registrar**: reserva de una sesión cuya lista no se ha cerrado. No es falta ni presencia.
+- **Falta**: reserva sin presente en una lista cerrada. Nunca se genera sola por pasar la hora.
+  _Evitar_: ausencia, no-show.
+- **Corrección**: cambio de una asistencia (presente ↔ falta) después de cerrar la lista. Exige motivo y queda fechada. La hace el profesor de la sesión dentro del **plazo de corrección** (parámetro de la academia, contado desde el cierre) y el admin siempre. Alumno y tutor no corrigen: lo piden a la academia.
+- **Check-in**: método de marcar presente escaneando con el móvil el QR de la tablet de la academia (B9). Mismas reglas que la lista manual: exige reserva y no marca tras el cierre. Por un hijo lo hace un tutor desde su móvil, eligiendo cuáles de sus hijos con reserva están; si no hay tutor, el profesor lo marca a mano. El hijo nunca tiene QR ni credencial propia.
+- **Sesión cancelada**: no tiene lista. La cancelación retroactiva anula su lista y sus asistencias.
+- **Ficha de salud vista por el profesor**: lesiones, condiciones, alergias, medicación y contacto de emergencia. Solo de los alumnos con reserva activa en sus sesiones del día (sustituciones incluidas) y solo ese día. Nunca experiencia ni disciplina previa.
+- **Auditoría**: registro inalterable que solo lee el admin. Recoge cada cierre de lista, cada corrección (qué cambió y motivo) y cada consulta de una ficha de salud por un profesor. No recoge el marcado previo al cierre.
