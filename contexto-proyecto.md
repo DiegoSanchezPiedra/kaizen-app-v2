@@ -536,8 +536,8 @@ Notación: `uid = current_setting('app.current_user_id', true)::uuid`, `role = c
 4. Asistencia: manual por profesor + QR dinámico en tablet fija.
    - Tablet autentica con `device_token` (no JWT de usuario).
    - Token hasheado en BD (`device_tokens`).
-   - Polling/SSE a `/api/tablet/active-sessions`.
-   - QR rota cada N segundos, incluye `session_id`.
+   - Polling/SSE a `/tablet/active-sessions`.
+   - QR rotativo de prueba de presencia; sin `session_id` (la sesión sale de la reserva, ver CONTEXT.md).
    - Ventana de check-in configurable (default 30 min antes, 10 min después).
 5. Perfiles públicos con flags granulares (`visible_fields jsonb`).
 6. Informes con tablas de agregación nocturna.

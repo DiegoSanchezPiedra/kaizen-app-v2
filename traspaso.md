@@ -115,7 +115,7 @@ scripts/              test-rls.js, test-mfa.js
 9. **`audit_log` append-only** (también para admin). `service_role` técnicamente podría borrar: no hacerlo nunca.
 10. **Pagos**: solo tarjeta vía Stripe (`cash_payments` reservada). Cancelación de suscripciones **solo admin** (`cancel-now` / `cancel-at-period-end`). Upgrade: prorrateo inmediato (`always_invoice` + `pending_if_incomplete`), disciplinas al instante. Downgrade: sin reembolso, al final del periodo (Subscription Schedule de 2 fases). Webhooks idempotentes vía `webhook_events`.
 11. **Morosos**: email al alumno en `invoice.payment_failed`; al admin solo lista pasiva (`status IN ('open','past_due','uncollectible')`), sin emails/push.
-12. **Asistencia QR**: tablet con `device_token` (hasheado, no JWT de usuario), QR rotativo con `session_id`, ventana configurable (default −30 / +10 min).
+12. **Asistencia QR**: tablet con `device_token` (hasheado, no JWT de usuario), QR rotativo de prueba de presencia sin `session_id` (ver CONTEXT.md), ventana configurable (default −30 / +10 min).
 13. **Reservas**: plaza bloqueada con `SELECT … FOR UPDATE`, lista de espera (`booking_status`: `confirmed | waitlisted | cancelled`).
 14. **Fuera de alcance explícito**: menores/tutores, firma eIDAS, refresh tokens, MFA para no-admin, S3.
 15. **Proceso**: no abrir un bloque sin cerrar el anterior; no implementar nada de bloques futuros; decisiones nuevas se documentan primero en `contexto-proyecto.md` §5.

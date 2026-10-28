@@ -255,15 +255,19 @@
   - [x] Tests por rol (`npm run test:attendance`).
 
 ### B9 — QR dinámico (`device_tokens`, SSE, check-in) — Pendiente
-- **Objetivo**: tablet fija con `device_token`, QR rotativo, check-in por SSE.
+- **Objetivo**: tablet fija con `device_token`, QR rotativo de prueba de presencia, check-in desde el móvil. Vocabulario en CONTEXT.md §Asistencia (check-in, reserva candidata, ventana, QR, tablet).
 - **Cuenta familiar (decidido)**: el tutor hace check-in de sus hijos con su móvil; respaldo manual del profesor (CONTEXT.md §Asistencia).
-- **Entregable**: tabla `device_tokens` (hash), endpoints `/tablet/*`, SSE `/tablet/active-sessions`, rotación de QR.
+- **Decidido (2026-10-28)**: el QR no lleva `session_id`; la sesión se deduce de las reservas candidatas (una → se marca; varias → se elige; ninguna → rechazo, nunca crea reserva). Se aceptan el QR actual y el anterior. Ventana −30/+10 min ajustable por el admin. La tablet muestra QR + sesiones abiertas, sin nombres. El check-in de un hijo queda con `recorded_by` = tutor; la lista del profesor muestra el método.
+- **Entregable**: tabla `device_tokens` (hash), vinculación con código de un solo uso y revocación (admin), endpoints `/tablet/*` (sin prefijo `/api`, como el resto de `src/index.js`), SSE `/tablet/active-sessions`, rotación de QR, endpoint de check-in del alumno/tutor.
+- **Nota**: `mark_attendance` (`migrations/010_attendance.js`) rechaza marcar antes de `starts_at`; el check-in necesita su propia función, con la ventana en lugar de `starts_at`.
 - **Fuera de alcance**: MFA de tablet (futuro).
 - **Checklist de cierre**:
   - [ ] `device_tokens` con hash y RLS.
+  - [ ] Admin vincula (código de un solo uso) y revoca tablets.
   - [ ] Tablet autentica con `device_token`.
-  - [ ] QR rota cada N segundos con `session_id`.
-  - [ ] Ventana de check-in configurable.
+  - [ ] QR rota cada N segundos (actual + anterior válidos), sin `session_id`.
+  - [ ] Ventana de check-in ajustable por el admin.
+  - [ ] Check-in: candidatas propias y de hijos; rechazo sin candidatas.
   - [ ] Tests manuales.
 
 ### B10 — Stripe base (checkout, portal, webhook idempotente) — Pendiente
