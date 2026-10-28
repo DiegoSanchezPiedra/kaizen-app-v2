@@ -47,7 +47,7 @@
 | B6 | Clases + sesiones (CRUD admin, generación a 1 año, vista profesor) | B5 | Hecho (calendario alumno pendiente) |
 | B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | IMPLEMENTADO (pendiente commit) |
 | B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | IMPLEMENTADO (pendiente commit) |
-| B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | Pendiente |
+| B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | IMPLEMENTADO (pendiente commit) |
 | B10 | Stripe base (checkout, portal, webhook idempotente) | B4.5, B7 | Pendiente |
 | B10.1 | Modelo Stripe en `invoices` + webhook `invoice.payment_failed` | B10 | Pendiente |
 | B10.2 | Endpoint admin `GET /admin/billing/failed-payments` | B10.1 | Pendiente |
@@ -254,21 +254,23 @@
   - [x] `audit_log` registra cierres de lista, correcciones y consultas de salud del profesor.
   - [x] Tests por rol (`npm run test:attendance`).
 
-### B9 — QR dinámico (`device_tokens`, SSE, check-in) — Pendiente
+### B9 — QR dinámico (`device_tokens`, SSE, check-in) — IMPLEMENTADO
 - **Objetivo**: tablet fija con `device_token`, QR rotativo de prueba de presencia, check-in desde el móvil. Vocabulario en CONTEXT.md §Asistencia (check-in, reserva candidata, ventana, QR, tablet).
 - **Cuenta familiar (decidido)**: el tutor hace check-in de sus hijos con su móvil; respaldo manual del profesor (CONTEXT.md §Asistencia).
 - **Decidido (2026-10-28)**: el QR no lleva `session_id`; la sesión se deduce de las reservas candidatas (una → se marca; varias → se elige; ninguna → rechazo, nunca crea reserva). Se aceptan el QR actual y el anterior. Ventana −30/+10 min ajustable por el admin. La tablet muestra QR + sesiones abiertas, sin nombres. El check-in de un hijo queda con `recorded_by` = tutor; la lista del profesor muestra el método.
 - **Entregable**: tabla `device_tokens` (hash), vinculación con código de un solo uso y revocación (admin), endpoints `/tablet/*` (sin prefijo `/api`, como el resto de `src/index.js`), SSE `/tablet/active-sessions`, rotación de QR, endpoint de check-in del alumno/tutor.
 - **Nota**: `mark_attendance` (`migrations/010_attendance.js`) rechaza marcar antes de `starts_at`; el check-in necesita su propia función, con la ventana en lugar de `starts_at`.
+- **Implementación** (migración `011`): `device_tokens` guarda sha256 del token y del código de vinculación (15 min, un solo uso); `app_user` sin acceso a las columnas de hash; RLS solo admin. El QR no se guarda: `HMAC(clave derivada de JWT_SECRET, floor(now/N))` en `src/services/checkin.js`, valen el tramo actual y el anterior. Funciones `SECURITY DEFINER` (owner `service_role`): `link_tablet`, `tablet_feed`, `checkin_qr_seconds` (la tablet llama sin contexto RLS por `appPool`), `check_in(booking?)` y la interna `checkin_window_open`. `academy_settings`: `checkin_opens_minutes` = 30, `checkin_closes_minutes` = 10, `checkin_qr_seconds` = 30. `check_in` bloquea la sesión `FOR UPDATE` como `close_attendance`. La lista del profesor devuelve `method`. Endpoints: `POST/GET /admin/tablets`, `POST /admin/tablets/:id/revoke`, `PUT /admin/settings/checkin`, `POST /tablet/link`, `GET /tablet/active-sessions` (SSE, `Authorization: Device <token>`), `POST /checkin { code, booking_id? }`.
+- **Pendiente**: rate limit en `/tablet/link`; auditar vincular/revocar; check-in de varios hijos en una petición.
 - **Fuera de alcance**: MFA de tablet (futuro).
 - **Checklist de cierre**:
-  - [ ] `device_tokens` con hash y RLS.
-  - [ ] Admin vincula (código de un solo uso) y revoca tablets.
-  - [ ] Tablet autentica con `device_token`.
-  - [ ] QR rota cada N segundos (actual + anterior válidos), sin `session_id`.
-  - [ ] Ventana de check-in ajustable por el admin.
-  - [ ] Check-in: candidatas propias y de hijos; rechazo sin candidatas.
-  - [ ] Tests manuales.
+  - [x] `device_tokens` con hash y RLS.
+  - [x] Admin vincula (código de un solo uso) y revoca tablets.
+  - [x] Tablet autentica con `device_token`.
+  - [x] QR rota cada N segundos (actual + anterior válidos), sin `session_id`.
+  - [x] Ventana de check-in ajustable por el admin.
+  - [x] Check-in: candidatas propias y de hijos; rechazo sin candidatas.
+  - [x] Tests (`npm run test:checkin`) y smoke del SSE con `curl -N`.
 
 ### B10 — Stripe base (checkout, portal, webhook idempotente) — Pendiente
 - **Objetivo**: checkout, portal de cliente y webhook idempotente.
