@@ -89,17 +89,21 @@ PK compuesta `(plan_id, discipline_id)`.
 
 Índices: `(student_id)`, `(status)`, `(stripe_subscription_id)`.
 
-### subscription_agreements
+### insurances (B10.3; `subscription_agreements` se borró en 013)
 | Columna | Tipo |
 |---|---|
 | id | uuid PK |
-| student_id | uuid FK |
-| insurance_type | text |
-| waiver_version | text |
-| accepted_at | timestamptz |
-| accepted_ip | text |
+| student_id | uuid FK profiles |
+| payer_id | uuid FK profiles |
+| status | sub_status |
+| bracket | text (`adult` / `minor`) |
+| stripe_subscription_id | text UNIQUE NOT NULL |
+| current_period_start / current_period_end | timestamptz |
+| cancel_at_period_end | boolean |
+| cancelled_at | timestamptz |
+| created_at | timestamptz |
 
-Índice: `(student_id)`.
+Índices: `(payer_id)`, único parcial `(student_id)` con estado vivo. `invoices.insurance_id` apunta aquí.
 
 ### cash_payments (creada vacía, reservada para futuro)
 | Columna | Tipo |

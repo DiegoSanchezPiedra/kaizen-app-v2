@@ -5,7 +5,9 @@ import { servicePool, closePools } from '../src/config/database.js';
 import { withRls } from '../src/db/rls.js';
 import { stripe } from '../src/config/stripe.js';
 import { createPlan, updatePlan } from '../src/services/catalog.js';
-import { createCheckout, createPortalSession } from '../src/services/billing.js';
+import {
+  createCheckout, createPortalSession, contractInsurance, getInsurance, updateInsuranceSettings,
+} from '../src/services/billing.js';
 
 const sp = async (c, fn) => { // savepoint: un error SQL no aborta el resto de la transacción
   await c.query('SAVEPOINT t');
@@ -70,6 +72,24 @@ await servicePool.query(`INSERT INTO plan_disciplines (plan_id, discipline_id) V
 const customerOf = async (id) =>
   (await servicePool.query(`SELECT stripe_customer_id FROM profiles WHERE id = $1`, [id])).rows[0].stripe_customer_id;
 const covers = async () => (await servicePool.query(`SELECT covers($1, $2) c`, [U.alu, disc])).rows[0].c;
+
+// Seguro (B10.3): parámetros globales; se guardan y se restauran al final.
+const savedSettings = (await servicePool.query(
+  `SELECT key, value FROM academy_settings WHERE key LIKE 'insurance\\_%'`)).rows;
+const insuranceAdmin = (body) => withRls({ uid: U.admin, role: 'admin' }, (c) => updateInsuranceSettings(c, body, U.admin));
+// Waiver vigente: el existente o uno de prueba (se borra al final).
+let testWaiver = null;
+if (!(await servicePool.query(`SELECT 1 FROM agreement_documents
+     WHERE type = 'waiver' AND published_at IS NOT NULL AND retired_at IS NULL`)).rowCount) {
+  testWaiver = (await servicePool.query(
+    `INSERT INTO agreement_documents (id, type, version, storage_path, checksum, published_at)
+     VALUES (gen_random_uuid(), 'waiver', '99.' || floor(random() * 1e6), 'test-billing.pdf', 'x', now()) RETURNING id`)).rows[0].id;
+}
+const signWaiver = (student, by = student) => servicePool.query(
+  `INSERT INTO user_agreements (id, profile_id, signed_by, type, version)
+   SELECT gen_random_uuid(), $1, $2, 'waiver', version FROM agreement_documents
+    WHERE type = 'waiver' AND published_at IS NOT NULL AND retired_at IS NULL`, [student, by]);
+const stripeSubs = []; // del seguro y de la cuota real, se cancelan al final
 
 try {
   await run('covers: en vigor = active + past_due; unpaid/cancelled no', async () => {
@@ -144,6 +164,18 @@ try {
       createCheckout(c, { payerId: U.alu, studentId: U.alu, planId: coOne.id, disciplineIds: [disc] }),
       (e) => e.code === 'subscription_exists'), { commit: false });
   });
+  await run('checkout: sin cobertura de riesgo exige elegir; seguro desactivado → 409', async () => {
+    await insuranceAdmin({ enabled: false });
+    await withRls({ uid: U.other, role: 'alumno' }, async (c) => {
+      const no = (body, code) => sp(c, () => assert.rejects(createCheckout(c,
+        { payerId: U.other, studentId: U.other, planId: coOne.id, disciplineIds: [disc], ...body }), (e) => e.code === code));
+      await no({}, 'risk_cover_required');
+      await no({ insurance: true }, 'insurance_disabled');
+      await no({ insurance: 'sí' }, 'invalid_field');
+    }, { commit: false });
+    await signWaiver(U.other);
+    await signWaiver(U.child2, U.tutor);
+  });
   await run('checkout: adulto se paga; cliente en el pagador reutilizado; metadatos del pedido', async () => {
     const go = () => withRls({ uid: U.other, role: 'alumno' }, (c) =>
       createCheckout(c, { payerId: U.other, studentId: U.other, planId: coOne.id, disciplineIds: [disc] }), { commit: false });
@@ -168,6 +200,84 @@ try {
       createPortalSession(c, U.admin), (e) => e.code === 'no_billing_account'), { commit: false });
     const { url } = await withRls({ uid: U.other, role: 'alumno' }, (c) => createPortalSession(c, U.other), { commit: false });
     assert.match(url, /^https:\/\/billing\.stripe\.com\//);
+  });
+
+  // Seguro contra el sandbox (llamadas reales).
+  await run('seguro: activar exige los dos precios; Price anual EUR por tramo; precio nuevo archiva el viejo', async () => {
+    await servicePool.query(`DELETE FROM academy_settings WHERE key LIKE 'insurance\\_%' AND key <> 'insurance_enabled'`);
+    await assert.rejects(insuranceAdmin({ enabled: true }), (e) => e.code === 'insurance_prices_missing');
+    await assert.rejects(insuranceAdmin({ price_adult_cents: 0 }), (e) => e.code === 'invalid_field');
+    await assert.rejects(insuranceAdmin({ price_adult_cents: 4000, enabled: true }), (e) => e.code === 'insurance_prices_missing');
+    assert.deepEqual(await insuranceAdmin({ price_adult_cents: 4000, price_minor_cents: 2500, enabled: true }),
+      { enabled: true, price_adult_cents: 4000, price_minor_cents: 2500 });
+    const priceOf = async (b) => (await servicePool.query(
+      `SELECT value #>> '{}' v FROM academy_settings WHERE key = $1`, [`insurance_stripe_price_${b}`])).rows[0].v;
+    const old = await priceOf('adult');
+    const p = await stripe.prices.retrieve(old);
+    assert.deepEqual([p.unit_amount, p.currency, p.recurring.interval, p.tax_behavior, p.metadata.bracket],
+      [4000, 'eur', 'year', 'inclusive', 'adult']);
+    await insuranceAdmin({ price_adult_cents: 4500 });
+    assert.equal((await stripe.prices.retrieve(old)).active, false);
+    assert.equal((await stripe.prices.retrieve(await priceOf('adult'))).unit_amount, 4500);
+  });
+  await run('checkout con seguro: el pedido lleva insurance en metadata', async () => {
+    await withRls({ uid: U.other, role: 'alumno' }, (c) => createCheckout(c,
+      { payerId: U.other, studentId: U.other, planId: coOne.id, disciplineIds: [disc], insurance: true }), { commit: false });
+    const { data: [s] } = await stripe.checkout.sessions.list({ customer: await customerOf(U.other), limit: 1 });
+    assert.equal(s.metadata.insurance, 'true');
+  });
+  let ins;
+  await run('contratar seguro después: solo el pagador con suscripción viva; cobra con la tarjeta de la cuota', async () => {
+    await withRls({ uid: U.other, role: 'alumno' }, (c) => assert.rejects(
+      contractInsurance(c, { payerId: U.other, studentId: U.other }), (e) => e.code === 'subscription_required'), { commit: false });
+    await withRls({ uid: U.admin, role: 'admin' }, (c) => assert.rejects(
+      contractInsurance(c, { payerId: U.admin, studentId: U.child }), (e) => e.code === 'not_payer'), { commit: false });
+    // Cuota real en Stripe para alu: cliente con tarjeta de prueba.
+    const customer = await stripe.customers.create({
+      payment_method: 'pm_card_visa', invoice_settings: { default_payment_method: 'pm_card_visa' } });
+    const { rows: [{ stripe_price_id: price }] } = await servicePool.query(`SELECT stripe_price_id FROM plans WHERE id = $1`, [coOne.id]);
+    const cuota = await stripe.subscriptions.create({ customer: customer.id, items: [{ price }],
+      default_payment_method: customer.invoice_settings.default_payment_method });
+    stripeSubs.push(cuota.id);
+    await servicePool.query(`UPDATE profiles SET stripe_customer_id = $2 WHERE id = $1`, [U.alu, customer.id]);
+    await servicePool.query(`UPDATE subscriptions SET stripe_subscription_id = $2, status = 'active' WHERE id = $1`, [sub.alu, cuota.id]);
+
+    const out = await withRls({ uid: U.alu, role: 'alumno' }, (c) =>
+      contractInsurance(c, { payerId: U.alu, studentId: U.alu }), { commit: false });
+    assert.equal(out.status, 'active');
+    ins = (await servicePool.query(`SELECT * FROM insurances WHERE id = $1`, [out.id])).rows[0];
+    stripeSubs.push(ins.stripe_subscription_id);
+    assert.deepEqual([ins.student_id, ins.payer_id, ins.status, ins.bracket], [U.alu, U.alu, 'active', 'adult']);
+    const st = await stripe.subscriptions.retrieve(ins.stripe_subscription_id);
+    assert.deepEqual([st.items.data[0].price.recurring.interval, st.metadata.kind], ['year', 'insurance']);
+    await withRls({ uid: U.alu, role: 'alumno' }, (c) => assert.rejects(
+      contractInsurance(c, { payerId: U.alu, studentId: U.alu }), (e) => e.code === 'insurance_exists'), { commit: false });
+    await withRls({ uid: U.alu, role: 'alumno' }, async (c) => {
+      assert.equal((await getInsurance(c, { userId: U.alu, studentId: U.alu })).status, 'active');
+    }, { commit: false });
+  });
+  await run('seguro: has_risk_cover = en vigor o waiver; RLS como los recibos', async () => {
+    const rc = async () => (await servicePool.query(`SELECT has_risk_cover($1) r`, [U.alu])).rows[0].r;
+    for (const [status, expected] of [['active', true], ['past_due', true], ['unpaid', false], ['cancelled', false]]) {
+      await servicePool.query(`UPDATE insurances SET status = $2 WHERE id = $1`, [ins.id, status]);
+      assert.equal(await rc(), expected, status);
+    }
+    await servicePool.query(`UPDATE insurances SET status = 'active' WHERE id = $1`, [ins.id]);
+    await withRls({ uid: U.admin, role: 'admin' }, async (c) => {
+      for (const [who, expected] of [['alu', true], ['admin', true], ['other', false], ['prof', false]]) {
+        await as(c, U[who], people[who]);
+        assert.equal((await c.query(`SELECT 1 FROM insurances WHERE id = $1`, [ins.id])).rowCount, expected ? 1 : 0, who);
+      }
+      await as(c, U.admin, 'admin');
+      await sp(c, () => assert.rejects(c.query(`UPDATE insurances SET status = 'active'`), /permission denied/));
+    }, { commit: false });
+  });
+  await run('desactivar el seguro: los vivos no renuevan, con aviso al pagador', async () => {
+    await insuranceAdmin({ enabled: false });
+    assert.equal((await stripe.subscriptions.retrieve(ins.stripe_subscription_id)).cancel_at_period_end, true);
+    const { rows } = await servicePool.query(
+      `SELECT changes FROM audit_log WHERE action = 'notice.insurance_wont_renew' AND resource_id = $1`, [ins.id]);
+    assert.deepEqual([rows.length, rows[0].changes.reason, rows[0].changes.recipients], [1, 'disabled', [U.alu]]);
   });
 
   // Plan ↔ Stripe contra el sandbox (llamadas reales).
@@ -207,6 +317,16 @@ try {
   });
 } finally {
   if (stripeSub) await stripe.subscriptions.cancel(stripeSub.id);
+  for (const id of stripeSubs) await stripe.subscriptions.cancel(id).catch(() => {});
+  await servicePool.query(`DELETE FROM academy_settings WHERE key LIKE 'insurance\\_%'`);
+  for (const { key, value } of savedSettings) {
+    await servicePool.query(`INSERT INTO academy_settings (key, value) VALUES ($1, $2)`, [key, value]);
+  }
+  await servicePool.query(`DELETE FROM audit_log WHERE resource_type = 'insurance' AND actor_id = ANY($1::uuid[])`, [Object.values(U)]);
+  await servicePool.query(`DELETE FROM invoices WHERE student_id = ANY($1::uuid[])`, [Object.values(U)]);
+  await servicePool.query(`DELETE FROM insurances WHERE student_id = ANY($1::uuid[])`, [Object.values(U)]);
+  await servicePool.query(`DELETE FROM user_agreements WHERE profile_id = ANY($1::uuid[])`, [Object.values(U)]);
+  if (testWaiver) await servicePool.query(`DELETE FROM agreement_documents WHERE id = $1`, [testWaiver]);
   if (syncedSub) await servicePool.query(`DELETE FROM subscriptions WHERE id = $1`, [syncedSub]);
   if (synced) {
     await servicePool.query(`DELETE FROM audit_log WHERE resource_id = $1`, [synced.id]);

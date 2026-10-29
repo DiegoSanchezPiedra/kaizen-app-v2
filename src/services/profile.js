@@ -1,38 +1,25 @@
 // src/services/profile.js
 import crypto from 'node:crypto';
 import { httpError } from '../lib/errors.js';
-import { getCurrentVersions } from './agreements.js';
-import { AGREEMENT_TYPES as types } from '../config/agreements.js';
 
 /**
- * Devuelve el estado de completitud del perfil de un alumno.
+ * Estado del perfil completo de un alumno o tutor (CONTEXT § Perfil completo) y su cobertura de riesgo.
  *
  * Contrato:
- *   { ok: true }
- *   | { ok: false, missing: string[] }
+ *   { ok: true, risk_cover?: boolean }
+ *   | { ok: false, missing: string[], risk_cover?: boolean }
  *
- * `missing` puede contener:
- *   - 'display_name'      → profiles.display_name vacío o NULL
- *   - 'health_info'       → no existe fila en student_health_info
- *   - 'emergency_contact' → falta emergency_contact_name o _phone
- *   - 'waiver' / 'data_protection' / 'rights_of_image'
- *                         → falta user_agreements en la versión vigente
- *
- * Reglas (ver §5 "Salud y consentimientos (B4.5)"):
- *   1. display_name no vacío.
- *   2. Fila en student_health_info con emergency_contact_name y
- *      emergency_contact_phone no nulos. El resto de campos clínicos
- *      puede estar vacío.
- *   3. user_agreements para CADA uno de los 3 tipos en su versión vigente.
+ * `missing`: 'display_name', 'health_info', 'emergency_contact', 'data_protection', 'rights_of_image'
+ * (función SQL profile_missing, la misma que usa la promoción). El `waiver` no cuenta: es cobertura de riesgo,
+ * requisito aparte para reservar (B10.3); `risk_cover` solo sale para el alumno (un tutor no entrena).
  *
  * Recibe el `client` de la transacción RLS que abrió quien orquesta.
- * Si el rol no es 'alumno', el helper no aplica (los admins/profesores no necesitan health info para operar);
- * devuelve { ok: true } sin tocar BD.
+ * Admin y profesor siempre están completos: devuelve { ok: true } sin tocar BD.
  *
  * @param {import('pg').PoolClient} client
  * @param {string} profileId  UUID del perfil (req.user.id)
- * @param {string} role       Rol del JWT ('alumno' | 'profesor' | 'admin')
- * @returns {Promise<{ ok: boolean, missing?: string[] }>}
+ * @param {string} role       Rol del JWT ('alumno' | 'tutor' | 'profesor' | 'admin')
+ * @returns {Promise<{ ok: boolean, missing?: string[], risk_cover?: boolean }>}
  */
 export async function getProfileStatus(client, profileId, role) {
   if (!profileId) {
@@ -47,42 +34,19 @@ export async function getProfileStatus(client, profileId, role) {
     return { ok: true };
   }
 
-  const versions = await getCurrentVersions(client);
-
-  const { rows } = await client.query(
-    `SELECT p.display_name,
-            h.profile_id IS NOT NULL AS has_health,
-            h.emergency_contact_name,
-            h.emergency_contact_phone,
-            ARRAY(
-              SELECT ua.type FROM user_agreements ua
-               WHERE ua.profile_id = p.id
-                 -- Adulto: solo firma propia. Menor: firma de un tutor (CONTEXT.md, firma por representación).
-                 AND (ua.signed_by = p.id)
-                     = (p.birth_date IS NULL OR p.birth_date <= CURRENT_DATE - interval '18 years')
-                 AND (ua.type, ua.version) = ANY (
-                   SELECT * FROM unnest($2::text[], $3::text[])
-                 )
-            ) AS signed
-       FROM profiles p
-       LEFT JOIN student_health_info h ON h.profile_id = p.id
-      WHERE p.id = $1`,
-    // Tipo sin vigente → versión NULL → nunca firmado: queda en `missing` (falla cerrado).
-    [profileId, types, types.map((t) => versions[t] ?? null)]
-  );
-  const r = rows[0];
-
-  const missing = [];
-  if (!r?.display_name || r.display_name.trim() === '') missing.push('display_name');
-  if (!r?.has_health) missing.push('health_info');
-  else if (!r.emergency_contact_name || !r.emergency_contact_phone) missing.push('emergency_contact');
-  for (const type of types) {
-    if (!r?.signed.includes(type)) missing.push(type);
-  }
+  const { rows: [r] } = await client.query(
+    `SELECT profile_missing($1) AS missing, has_risk_cover($1) AS risk_cover`, [profileId]);
+  // Perfil inexistente (NULL): incompleto.
+  const missing = r.missing ?? ['display_name'];
 
   // D11: el tutor solo necesita display_name + su propio data_protection.
-  const required = role === 'tutor' ? missing.filter((m) => TUTOR_REQUIRED.includes(m)) : missing;
-  return required.length === 0 ? { ok: true } : { ok: false, missing: required };
+  if (role === 'tutor') {
+    const required = missing.filter((m) => TUTOR_REQUIRED.includes(m));
+    return required.length === 0 ? { ok: true } : { ok: false, missing: required };
+  }
+  return missing.length === 0
+    ? { ok: true, risk_cover: r.risk_cover }
+    : { ok: false, missing, risk_cover: r.risk_cover };
 }
 
 const TUTOR_REQUIRED = ['display_name', 'data_protection'];

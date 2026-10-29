@@ -33,7 +33,7 @@ function validateSubject(req, res, next) {
 // GET /me/profile-status?profile_id=
 // Devuelve el estado de completitud del perfil del alumno (o de su hijo).
 // Útil para que el frontend pinte el onboarding sin provocar 403.
-// Respuesta: { ok: true } | { ok: false, missing: [...] }
+// Respuesta: { ok, missing?, risk_cover? } (risk_cover: cobertura de riesgo del alumno, B10.3)
 // ------------------------------------------------------------
 router.get(
   '/profile-status',

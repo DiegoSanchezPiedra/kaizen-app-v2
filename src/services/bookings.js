@@ -11,6 +11,7 @@ const SQL_ERRORS = {
   session_not_bookable: [409, 'La sesión está cancelada o ya ha empezado'],
   outside_booking_window: [409, 'La sesión aún no está dentro de la ventana de reserva'],
   not_covered: [403, 'La suscripción no cubre esta sesión'],
+  no_risk_cover: [403, 'Sin cobertura de riesgo: firma el waiver o contrata el seguro'],
   already_booked: [409, 'Ya tiene reserva o está en espera en esta sesión'],
   booking_overlap: [409, 'Tiene otra reserva que se solapa con esta sesión'],
   booking_not_found: [404, 'Reserva no encontrada'],

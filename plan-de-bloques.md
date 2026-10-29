@@ -51,7 +51,7 @@
 | B10 | Stripe base (checkout, portal, webhook idempotente) | B4.5, B7 | IMPLEMENTADO |
 | B10.1 | Modelo Stripe en `invoices` + webhook `invoice.payment_failed` | B10 | IMPLEMENTADO |
 | B10.2 | Endpoint admin morosos y "en gracia" por pagador | B10.1, B10.3 | Pendiente |
-| B10.3 | Seguro y cobertura de riesgo (seguro anual o `waiver`) | B10.1 | Pendiente |
+| B10.3 | Seguro y cobertura de riesgo (seguro anual o `waiver`) | B10.1 | Implementado |
 | B10.5 | `subscription_disciplines` + upgrade/downgrade | B10 | Pendiente |
 | B10.6 | Emails transaccionales de billing (al pagador) | B10.1 | Pendiente |
 | B11 | Baja admin de suscripciones y seguro + cambio de pagador | B10.5, B10.3 | Pendiente |
@@ -305,7 +305,7 @@
 - **RLS lectura**: pagador del recibo, alumno sujeto, tutores vinculados (incluido el vínculo histórico D16), admin. Profesor no.
 - **Fuera de alcance**: emails (B10.6), endpoint admin (B10.2), factura legal VeriFactu (bloque futuro; descargable desde la app).
 - **Implementación** (en `012` y `stripeWebhook.js`, junto con B10): `paid_cents` → `amount_paid_cents`, sin `external_pdf_url`, `status` con `CHECK`; `id` con default. Recibos de suscripción por `invoice.parent.subscription_details.subscription` (API `endive`); el primero lo guarda `checkout.session.completed` (su `invoice.paid` suele llegar antes que la fila). `last_payment_error` = mensaje del PaymentIntent del pago; se conserva el último aunque luego se pague.
-- **Pendiente**: recibos del seguro (sin suscripción) en B10.3.
+- **Hecho en B10.3**: recibos del seguro (`invoices.insurance_id`; un recibo es de una suscripción o de un seguro).
 - **Checklist de cierre**:
   - [x] Columnas añadidas y RLS.
   - [x] `invoice.payment_failed` guarda `last_payment_error` y crea el aviso al pagador.
@@ -321,7 +321,7 @@
   - [ ] Solo admin.
   - [ ] Tests.
 
-### B10.3 — Seguro y cobertura de riesgo — Pendiente
+### B10.3 — Seguro y cobertura de riesgo — IMPLEMENTADO
 - **Objetivo**: seguro anual de la academia como alternativa al `waiver` (ADR 0005, ADR 0006). Términos en `CONTEXT.md` («Seguro y cobertura de riesgo»).
 - **Reglas**:
   - Cobertura de riesgo = seguro en vigor (`active` / `past_due`) o `waiver` vigente. No hay seguro externo.
@@ -334,17 +334,57 @@
   - Visibilidad: el seguro, como los recibos; el profesor ve solo «sin cobertura de riesgo» en su lista del día.
 - **Entregable**: `waiver` fuera de `getProfileStatus` / `missing` (B4.5); `risk_cover` como requisito aparte en `book_session` (B7), en `promote_waitlist` y en la respuesta de estado; modelo del seguro (estado, pagador, tramo, `stripe_subscription_id`) y parámetros de la academia (precios, activado); endpoints admin de precios y activación; elección en `POST /billing/checkout` y endpoint de contratar seguro; webhooks distinguen cuota / seguro (recibos del seguro en `invoices`); renovación sin seguro (`cancel_at_period_end`) en los casos de arriba; avisos `notice.*`; aviso de profesor en la lista; borrar `subscription_agreements`. Datos existentes: `waiver` firmado ⇒ con cobertura.
 - **Fuera de alcance**: baja del seguro por el admin (B11), seguro sin suscripción (eventos, en su bloque), lista de morosos (B10.2, que debe incluir seguros `unpaid`).
+- **Implementación** (migración `013`):
+  - **Tabla `insurances`**: estado `sub_status`, pagador, `bracket` (`adult`/`minor`, tramo del Price en curso, leído de `price.metadata.bracket`) y `stripe_subscription_id`. Tiene `insurances_one_live_idx` (viva = `active`/`past_due`/`unpaid`) y RLS de lectura como los recibos; `app_user` no escribe.
+  - **`invoices.insurance_id`**, con `CHECK num_nonnulls(subscription_id, insurance_id) = 1`.
+  - **Funciones `SECURITY DEFINER`**:
+    - `signed_current(profile, type)` (interna).
+    - `profile_missing(profile)`: lo que le falta al alumno para el perfil completo, ya sin `waiver`. Es la única fuente: la usan `getProfileStatus` y la promoción.
+    - `has_risk_cover(profile)`: seguro `active`/`past_due` o `waiver` vigente. Un `waiver` ya firmado da cobertura sin migrar datos.
+  - **Reservas**:
+    - `book_session` → `no_risk_cover` (403).
+    - `promote_waitlist` salta a quien no tiene perfil completo o cobertura de riesgo, que sigue en la lista. Con esto desaparece el `shortcut:` de 009.
+  - Se borra `subscription_agreements`.
+  - **Ajustes**: `academy_settings.insurance_enabled` = `false`. Los precios y los ids de Stripe (`insurance_price_{adult,minor}_cents`, `insurance_stripe_price_{adult,minor}`, `insurance_stripe_product`) se crean al guardarlos.
+  - **Servicio** (`src/services/billing.js`):
+    - `updateInsuranceSettings`: un Product «Seguro» y un Price anual por precio (el viejo se archiva). Los seguros vivos no se migran: lo hace el aviso. Desactivar → `cancel_at_period_end` y `notice.insurance_wont_renew`.
+    - `startInsurance` (`default_incomplete`, cobro en servidor con `invoices.pay` `off_session: false`, `lock_student`) y `contractInsurance` / `getInsurance`. El `client_secret` para `handleNextAction` solo se devuelve al pagador.
+    - `upsertInsurance`.
+  - **Webhook**:
+    - Checkout con `metadata.insurance` → `startInsurance` (`idempotencyKey` por sesión). Si no puede crearse: `notice.insurance_not_paid`.
+    - Nuevo evento `customer.subscription.created`.
+    - `metadata.kind = 'insurance'` → `onInsuranceChange`, sin `revoke_coverage`. Si caduca sin pagarse: `notice.insurance_not_paid`.
+    - Baja de la cuota sin otra viva → el seguro no renueva.
+    - `syncInvoice` resuelve la cuota o el seguro (si la fila del seguro aún no está confirmada, la crea desde Stripe).
+    - El primer recibo del seguro (`billing_reason = subscription_create`) no genera `notice.payment_failed`: el pagador está en pantalla (3DS o rechazo); si no llega a pagarse, avisa `notice.insurance_not_paid` al caducar.
+    - **`invoice.upcoming`**: fija el Price del tramo de hoy y deja `notice.insurance_renewal`. No renueva (`notice.insurance_wont_renew`, con `reason`) si el seguro está desactivado, no hay suscripción viva, el pagador cambió o el hijo cumple 18 antes de renovar (decidido en el aviso, reclame o no el perfil).
+  - **Endpoints**:
+    - `POST /billing/checkout { …, insurance? }` → 409 `risk_cover_required` / `insurance_disabled` / `insurance_exists`.
+    - `POST /billing/insurance { profile_id? }` → 409 `subscription_required`, 403 `not_payer`.
+    - `GET /billing/insurance?profile_id=`.
+    - `PUT /admin/settings/insurance { price_adult_cents?, price_minor_cents?, enabled? }` → 409 `insurance_prices_missing`.
+  - **Estado y lista del profesor**: `GET /me/profile-status` devuelve `risk_cover` (solo alumno). La lista del profesor (`getAttendance`) devuelve `risk_cover`.
+  - **Tests**: `test:bookings` (regla nueva y regresión), `test:minors`, `test:billing` y `test:webhook` (seguro contra el sandbox).
+- **E2E** (2026-10-29, sandbox `kaizen-app-testing`, `stripe listen` + Chrome):
+  - Checkout con seguro y tarjeta 3DS: el seguro pide `requires_action`, se completa con `handleNextAction` y pasa a `active` con su recibo.
+  - 3DS fallado: la cuota sigue `active` y el seguro queda `incomplete`, sin cobertura de riesgo. El reintento reutiliza el mismo seguro; al caducar, `cancelled` + `notice.insurance_not_paid`.
+  - *Test clock* (simulación del Dashboard): `invoice.upcoming` real fija 45 € tras subir el precio, y la renovación cobra 45 €. Desactivado → `cancel_at_period_end`, y al final del año `cancelled` sin recibo nuevo.
+  - *Upcoming renewal events* = 30 días en el sandbox. Es un ajuste de toda la cuenta: en producción, coordinarlo con maat (B10.7).
+- **Notas**:
+  - Con *test clock*, Stripe rechaza modificar suscripciones mientras el reloj avanza. El aviso responde 500 y se reprocesa en el reintento (en el E2E, `stripe events resend`).
+  - La clave del sandbox reclamable (`rkcs_test_`) no permite *test clocks* por API ni `accounts.retrieve`.
+- **Pendiente**: reactivar el seguro no deshace los `cancel_at_period_end` de la desactivación.
 - **Checklist de cierre**:
-  - [ ] `missing` sin `waiver`; reservar exige `risk_cover`.
-  - [ ] Promoción salta (no saca) a quien no tiene cobertura de riesgo o perfil completo.
-  - [ ] Checkout obliga a elegir seguro o `waiver` si no hay cobertura; `waiver` firmado antes de pagar.
-  - [ ] Seguro tras el Checkout con 3DS; fallo ⇒ suscripción intacta, sin cobertura de riesgo y aviso.
-  - [ ] Contratar seguro después (con suscripción viva, sin seguro vivo, solo el pagador).
-  - [ ] Seguro desactivado por defecto; activación exige los dos precios.
-  - [ ] Renovación con precio y tramo del aviso; casos de no renovación.
-  - [ ] `unpaid` recuperable; vencimiento sin `waiver` bloquea reservar y no cancela reservas.
-  - [ ] `subscription_agreements` eliminada.
-  - [ ] Tests (incluida la regresión de B7/B9 con la nueva regla) y E2E con Stripe CLI.
+  - [x] `missing` sin `waiver`; reservar exige `risk_cover`.
+  - [x] Promoción salta (no saca) a quien no tiene cobertura de riesgo o perfil completo.
+  - [x] Checkout obliga a elegir seguro o `waiver` si no hay cobertura; `waiver` firmado antes de pagar.
+  - [x] Seguro tras el Checkout con 3DS; fallo ⇒ suscripción intacta, sin cobertura de riesgo y aviso.
+  - [x] Contratar seguro después (con suscripción viva, sin seguro vivo, solo el pagador).
+  - [x] Seguro desactivado por defecto; activación exige los dos precios.
+  - [x] Renovación con precio y tramo del aviso; casos de no renovación.
+  - [x] `unpaid` recuperable; vencimiento sin `waiver` bloquea reservar y no cancela reservas.
+  - [x] `subscription_agreements` eliminada.
+  - [x] Tests (incluida la regresión de B7/B9 con la nueva regla) y E2E con Stripe CLI.
 
 ### B10.5 — Upgrade/downgrade + cambio de disciplina — Pendiente
 - **Objetivo**: subir de plan (más caro) inmediato con prorrateo; bajar (igual o más barato) en la siguiente facturación; cambio de disciplina. Términos en `CONTEXT.md`.
@@ -374,6 +414,7 @@
 - **Entregable**:
   - Inventario de la cuenta real: número de suscripciones, Prices usados, trials/pausas, Stripe Tax, métodos de pago, configuración del portal, cómo se identifica a cada persona (email) y si maat es una plataforma Connect.
   - Script de importación idempotente: cliente → perfil pagador (`profiles.stripe_customer_id`), alumno y menores, Price de maat → plan de Kaizen (`subscriptions.update` al Price del plan con `proration_behavior: 'none'`), disciplinas (CSV o exportación de maat), fila en `subscriptions` + `subscription_disciplines`, recibos con `syncInvoice`.
+  - *Upcoming renewal events* (aviso del seguro, B10.3) es un ajuste de toda la cuenta: acordar con maat los 30 días.
   - Endpoint de webhook propio de Kaizen con API `2026-09-30.endive` (sin cambiar la versión por defecto de la cuenta), clave `rk_live_` restringida y configuración de portal propia.
   - Plan de corte: cuándo deja maat de vender y de recibir webhooks.
 - **Fuera de alcance**: cuentas de Stripe distintas (las tarjetas no se mueven sin el soporte de Stripe).
@@ -387,6 +428,7 @@
 - **Objetivo**: la baja la hace solo el admin (`cancel-now` / `cancel-at-period-end`), también la del seguro (paso a `waiver`); y el **cambio de pagador**.
 - **Cambio de pagador**: el admin elige al nuevo pagador (tutor vinculado o el propio alumno adulto) → enlace de Checkout para él (mismo plan y disciplinas, empieza al fin del periodo) → al completarlo, la suscripción antigua se cancela a fin de periodo. Si no lo completa a tiempo, no hay cambio y se avisa al admin. Al reclamar el perfil a los 18 se crea un aviso al admin para pasar el pago al propio alumno. Son dos suscripciones consecutivas (Stripe no cambia el cliente de una suscripción).
 - **Entregable**: endpoints `/admin/subscriptions/:id/cancel-now` y `/cancel-at-period-end`; baja del seguro; endpoint de cambio de pagador.
+- **Seguro y cambio de pagador** (B10.3): al cambiar de pagador, poner `cancel_at_period_end` en el seguro vivo (`insuranceWontRenew`, motivo `payer_changed`). El aviso de renovación ya lo detecta si no se hizo antes.
 - **Adelantado a B10** (2026-10-29): `POST /admin/subscriptions/:id/cancel-now` y `/cancel-at-period-end` (`src/routes/admin/billing.js`, `cancelSubscription` en `services/billing.js`): se pide la baja a Stripe y el estado local llega por el webhook; 404/409 si no existe o ya está cancelada; `audit_log` `subscription.cancel_now` / `subscription.cancel_at_period_end`. Quedan la baja del seguro y el cambio de pagador.
 - **Fuera de alcance**: baja por el alumno o el pagador (no permitida; revisión legal en `MEJORAS.md`).
 - **Checklist de cierre**:
@@ -486,4 +528,5 @@
   - [ ] **[Media] Smoke tests HTTP que matan procesos ajenos** (detectado en B8): en B8 se usó `pkill -f "node src/index.js"` para parar el servidor de prueba y probablemente paró otro servidor que ya escuchaba en el 3999. Arreglo: los E2E arrancan el servidor en un puerto libre (`PORT=0`/supertest) y lo paran por su PID, nunca con `pkill -f`.
   - [ ] **[Media] Llamadas a Stripe dentro de la transacción del webhook** (detectado en B10): `services/stripeWebhook.js` llama a la API de Stripe con la conexión de `servicePool` (máx. 5) abierta; una ráfaga de eventos con Stripe lento puede agotar el pool. Asumible al volumen de un gimnasio. Arreglo si hace falta: leer de Stripe antes de abrir la transacción o subir el pool del webhook.
   - [ ] **[Media] `past_due` → `unpaid` sin test real** (detectado en B10): `test-webhook` cubre la baja (`deleted`) pero no la ventana de reintentos. Arreglo: test con Stripe test clocks (avanzar el reloj hasta agotar los reintentos) que compruebe que `past_due` conserva las reservas y `unpaid` las cancela.
+  - [ ] **[Media] Webhooks que agotan los reintentos de Stripe** (detectado en B10.3): un evento que falla (500) se reprocesa en los reintentos de Stripe (unos 3 días); si los agota, se pierde, p. ej. el aviso de renovación del seguro (`invoice.upcoming`). Arreglo: alerta de webhooks fallidos en el Dashboard de producción y reenvío (`stripe events resend`) como procedimiento.
   - [ ] **[Baja] `scripts/test-attendance.js` falla entre las 00:00 y las 00:05 de Madrid** (detectado en B8): la sesión «de hoy» empieza 5 min antes de `now()` y cae en el día anterior. Arreglo: fijar la hora de la sesión dentro del día de Madrid o inyectar el reloj al migrar a la BD efímera.

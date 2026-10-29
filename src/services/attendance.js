@@ -30,7 +30,8 @@ export async function getAttendance(client, sessionId) {
     `SELECT attendance_closed_at FROM class_sessions WHERE id = $1`, [sessionId]); // la RLS oculta las ajenas al profesor
   if (!s) throw httpError(404, 'session_not_found', SQL_ERRORS.session_not_found[1]);
   const { rows: students } = await client.query(
-    `SELECT b.id AS booking_id, b.student_id, p.display_name, a.status, a.method, a.corrected_at, a.correction_reason
+    `SELECT b.id AS booking_id, b.student_id, p.display_name, a.status, a.method, a.corrected_at, a.correction_reason,
+            has_risk_cover(b.student_id) AS risk_cover -- solo el sí/no (CONTEXT § Quién ve el seguro)
        FROM bookings b
        JOIN profiles p ON p.id = b.student_id
        LEFT JOIN attendance a ON a.booking_id = b.id
