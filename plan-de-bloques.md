@@ -52,7 +52,7 @@
 | B10.1 | Modelo Stripe en `invoices` + webhook `invoice.payment_failed` | B10 | IMPLEMENTADO |
 | B10.2 | Endpoint admin morosos y "en gracia" por pagador | B10.1, B10.3 | IMPLEMENTADO |
 | B10.3 | Seguro y cobertura de riesgo (seguro anual o `waiver`) | B10.1 | Implementado |
-| B10.5 | `subscription_disciplines` + upgrade/downgrade | B10 | Pendiente |
+| B10.5 | Upgrade/downgrade + cambio de disciplina | B10 | Diseñado |
 | B10.6 | Emails transaccionales de billing (al pagador) | B10.1 | Pendiente |
 | B11 | Baja admin de suscripciones y seguro + cambio de pagador | B10.5, B10.3 | Pendiente |
 | B12 | ~~Validación final waiver/consentimientos en checkout~~ | — | ELIMINADO (absorbido por B4.5 y B10.3) |
@@ -387,15 +387,60 @@
   - [x] `subscription_agreements` eliminada.
   - [x] Tests (incluida la regresión de B7/B9 con la nueva regla) y E2E con Stripe CLI.
 
-### B10.5 — Upgrade/downgrade + cambio de disciplina — Pendiente
-- **Objetivo**: subir de plan (más caro) inmediato con prorrateo; bajar (igual o más barato) en la siguiente facturación; cambio de disciplina. Términos en `CONTEXT.md`.
-- **Entregable**: endpoints de upgrade/downgrade con Subscription Schedule; endpoint de cambio de disciplina; parámetro de academia "cambios de disciplina por periodo" (hoy 1); sustitución gratis por baja de disciplina y al reclamar el perfil a los 18 (con plan solo menores: cambio inmediato con prorrateo). `subscription_disciplines` ya existe (B10).
-- **Fuera de alcance**: cancelación (B11).
+### B10.5 — Upgrade/downgrade + cambio de disciplina — Diseñado
+- **Objetivo**: subir de plan (más caro) inmediato con prorrateo; bajar (igual o más barato) en la siguiente facturación; cambio de disciplina. Términos en `CONTEXT.md` («Suscripción», «Reservas»), decisión en ADR 0007.
+- **Reglas** (decididas 2026-10-29):
+  - **Subida**: *pending update* (`payment_behavior: pending_if_incomplete`, `proration_behavior: always_invoice`), con `price` y `metadata` (`plan_id`, `discipline_ids`). Solo se aplica si se paga. Si la tarjeta se rechaza: *void* del recibo y 402 `payment_failed`. Si pide 3DS: `client_secret` para `handleNextAction`. Si había una bajada programada, se libera su Schedule antes.
+  - **Bajada**: Subscription Schedule `from_subscription`, con la fase 1 actual y la fase 2 desde `current_period_end` (Price y `metadata` nuevos), `end_behavior: release`. Como mucho una programada: una nueva sustituye la fase 2, una subida o el `DELETE` liberan el Schedule. Lo reservado entretanto de las disciplinas que se pierden se cancela al aplicarse (`revoke_coverage`, «sin cobertura»).
+  - Subida o bajada por precio de Kaizen (`price_cents`): más caro = subida; igual o más barato = bajada; mismo plan → 409. Destino: plan activo, con las mismas validaciones que el checkout (edad, solo menores, elegibles, número).
+  - **Adulto en un plan solo menores** (paso a los 18, por estado y no por evento: no existe el flujo de reclamar): el cambio es inmediato con prorrateo, suba o baje. Una bajada así deja saldo a favor en el cliente de Stripe, sin reembolso.
+  - **Quién**: el cambio de plan, el pagador actual o el admin. El cambio de disciplina, además el alumno adulto y cualquier tutor vinculado. El admin no paga: si una subida suya pide 3DS → 409 `requires_payer_action` y aviso al pagador.
+  - **Estados**: el cambio de plan solo con la suscripción `active` y sin `cancel_at_period_end`; el cambio de disciplina con ella en vigor (`active` / `past_due`).
+  - **Cambio de disciplina**: una sustitución por llamada. Lo escribe el endpoint (ADR 0007) y la `metadata` de Stripe queda como espejo. Cuenta para el límite por periodo, contado en `audit_log` `subscription.discipline_change` desde `current_period_start`. Es gratis (no cuenta) si la disciplina abandonada ya no se cubre: desactivada, o solo menores para un adulto. Cancela las reservas y esperas futuras de la abandonada con motivo `discipline_change`. Un plan «todas» no tiene disciplinas que cambiar.
+  - **Parámetro** `discipline_changes_per_period`: valor inicial 1, admite 0 (`academy_int` no lo acepta, así que se lee con otra consulta).
+  - El seguro no se toca (CONTEXT § Seguro).
+- **Pasos**:
+  1. **Migración `014`**:
+     - `subscriptions.stripe_schedule_id`, `scheduled_plan_id`, `scheduled_discipline_ids bigint[]`, `scheduled_at`, todas nullable y escritas solo por el webhook.
+     - Seed `discipline_changes_per_period` = 1.
+     - Función `change_discipline(subscription, from, to, actor)` `SECURITY DEFINER`: `lock_student`, sustitución en `subscription_disciplines`, cancelación de reservas y esperas futuras de `from` con `discipline_change` + `booking_notice`. Devuelve las canceladas.
+  2. **Servicio** (`services/billing.js`):
+     - Extraer `validateOrder` (plan + disciplinas) de `createCheckout`.
+     - Nuevas: `changePlan`, `cancelScheduledChange`, `changeDiscipline`, `getSubscription` y `updateDisciplineChangeSettings`.
+  3. **Adaptar lo existente al Schedule**:
+     - `cancelSubscription`: libera el Schedule antes y avisa `notice.scheduled_change_discarded`.
+     - `syncPlanToStripe`: en las suscripciones con Schedule, actualiza el Price en sus fases en lugar de la suscripción. Una bajada programada a un plan retirado se respeta.
+     - Comprobar en el sandbox `cancel` / `cancel_at_period_end` con un Schedule adjunto.
+  4. **Webhook**:
+     - `customer.subscription.updated`: si `metadata.plan_id` ≠ `plan_id` local, actualiza `plan_id`, sustituye `subscription_disciplines` por `metadata.discipline_ids` y ejecuta `revoke_coverage`. En una bajada, `notice.plan_downgraded` al pagador.
+     - Nuevos `subscription_schedule.created/updated/released/canceled/completed`: releen el Schedule y rellenan o vacían `scheduled_*`.
+     - Añadir los eventos al endpoint del Dashboard y a `stripe listen`.
+  5. **Endpoints** (las tres acciones también para el admin en `routes/admin/billing.js`, `/admin/subscriptions/:id/...`):
+     - `GET /billing/subscription?profile_id=` → `{ id, status, plan, disciplines, current_period_end, cancel_at_period_end, scheduled_change, discipline_changes_left }`.
+     - `POST /billing/subscriptions/:id/plan { plan_id, discipline_ids }`:
+       - subida → `200 { change: 'upgrade', status: 'applied' | 'requires_action', client_secret? }`;
+       - bajada → `202 { change: 'downgrade', scheduled_at }`;
+       - errores: 400 `invalid_field`, 402 `payment_failed`, 403 `not_payer`, 404 `subscription_not_found` / `plan_not_found`, 409 `subscription_not_active` / `cancel_scheduled` / `same_plan` / `plan_minors_only` / `discipline_not_eligible` / `requires_payer_action` (admin).
+     - `DELETE /billing/subscriptions/:id/plan/scheduled` → 204; 404 `no_scheduled_change`.
+     - `POST /billing/subscriptions/:id/disciplines { from_id, to_id }` → `200 { disciplines, changes_left, free }`; 409 `discipline_change_limit { limit, used, resets_at }` / `plan_all_disciplines` / `discipline_not_chosen` / `discipline_not_eligible` / `subscription_not_in_force`.
+     - `PUT /admin/settings/discipline-changes { per_period }` (entero ≥ 0).
+  6. **Tests**:
+     - `test:billing`: validaciones, límite (también 0), sustitución gratis, permisos y errores.
+     - `test:webhook`: aplicar el plan desde la `metadata`, `scheduled_*`, `revoke_coverage`.
+     - E2E con `stripe listen` + Chrome:
+       - subida con tarjeta 3DS y con tarjeta rechazada;
+       - bajada con *test clock* hasta el cambio de fase;
+       - baja admin con una bajada programada;
+       - cambio de precio del plan con una bajada programada.
+- **Fuera de alcance**: baja (B11), flujo de reclamar el perfil a los 18 y su aviso (bloque propio; B10.5 lo resuelve por estado), emails (B10.6), UI.
 - **Checklist de cierre**:
-  - [ ] Upgrade: prorrateo + disciplinas al instante.
-  - [ ] Downgrade: sin reembolso + disciplinas al transicionar.
-  - [ ] Cambio de disciplina: inmediato, límite por periodo, cancela reservas futuras de la disciplina abandonada.
-  - [ ] Tests manuales con Stripe.
+  - [ ] Subida: prorrateo cobrado y plan y disciplinas aplicados solo tras el pago (3DS y rechazo).
+  - [ ] Bajada: sin reembolso, aplicada al cambiar de fase; sustituir y anular; reservas no cubiertas canceladas al aplicarse.
+  - [ ] Adulto en plan solo menores: cambio inmediato con prorrateo.
+  - [ ] Cambio de disciplina: inmediato, límite por periodo (también 0), gratis si ya no se cubre, cancela con `discipline_change`.
+  - [ ] Baja admin y cambio de precio conviven con un Schedule.
+  - [ ] Seguro intacto.
+  - [ ] Tests y E2E con Stripe CLI.
 
 ### B10.6 — Emails transaccionales de billing (al pagador) — Pendiente
 - **Objetivo**: email al alumno en `invoice.payment_failed`.
