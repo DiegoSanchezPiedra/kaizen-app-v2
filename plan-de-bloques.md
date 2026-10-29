@@ -50,7 +50,7 @@
 | B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | IMPLEMENTADO (pendiente commit) |
 | B10 | Stripe base (checkout, portal, webhook idempotente) | B4.5, B7 | IMPLEMENTADO |
 | B10.1 | Modelo Stripe en `invoices` + webhook `invoice.payment_failed` | B10 | IMPLEMENTADO |
-| B10.2 | Endpoint admin morosos y "en gracia" por pagador | B10.1 | Pendiente |
+| B10.2 | Endpoint admin morosos y "en gracia" por pagador | B10.1, B10.3 | Pendiente |
 | B10.3 | Seguro y cobertura de riesgo (seguro anual o `waiver`) | B10.1 | Pendiente |
 | B10.5 | `subscription_disciplines` + upgrade/downgrade | B10 | Pendiente |
 | B10.6 | Emails transaccionales de billing (al pagador) | B10.1 | Pendiente |
@@ -314,7 +314,7 @@
 
 ### B10.2 — Endpoint admin morosos y "en gracia" — Pendiente
 - **Objetivo**: lista para el panel admin, agrupada por pagador.
-- **Entregable**: endpoint solo admin con dos listas: **morosos** (pagadores con alguna suscripción `unpaid`) y **en gracia** (`past_due`, no morosos).
+- **Entregable**: endpoint solo admin con dos listas: **morosos** (pagadores con alguna suscripción o seguro `unpaid`) y **en gracia** (`past_due`, no morosos).
 - **Fuera de alcance**: UI (B19).
 - **Checklist de cierre**:
   - [ ] Endpoint devuelve las dos listas paginadas, agrupadas por pagador.
@@ -322,17 +322,29 @@
   - [ ] Tests.
 
 ### B10.3 — Seguro y cobertura de riesgo — Pendiente
-- **Objetivo**: seguro anual de la academia como alternativa al `waiver` (ADR 0005). Términos en `CONTEXT.md` («Seguro y cobertura de riesgo»).
-- **Reglas**: cobertura de riesgo = seguro en vigor o `waiver` vigente. Seguro por alumno, pagado por su pagador, independiente de la suscripción; precio anual por tramo (adulto / menor) editable por el admin; año por aniversario con renovación automática (2ª suscripción Stripe anual del mismo cliente); fallos de cobro como la suscripción. Al dejar de estar en vigor sin `waiver`: no puede reservar, sin cancelar reservas. Aviso al pagador 30 días antes de renovar y al dejar de estar en vigor. Contratable solo al contratar la suscripción o como paso `waiver` → seguro.
-- **Entregable**: `waiver` fuera de `getProfileStatus` / `missing` (B4.5); `risk_cover` como requisito aparte en `book_session` (B7) y en la respuesta de estado; modelo del seguro y sus precios; elección obligatoria seguro / `waiver` en el checkout (salvo cobertura en vigor); webhooks del seguro; borrar `subscription_agreements`. Datos existentes: `waiver` firmado ⇒ con cobertura.
-- **Fuera de alcance**: baja del seguro (B11), seguro sin suscripción (eventos, en su bloque).
+- **Objetivo**: seguro anual de la academia como alternativa al `waiver` (ADR 0005, ADR 0006). Términos en `CONTEXT.md` («Seguro y cobertura de riesgo»).
+- **Reglas**:
+  - Cobertura de riesgo = seguro en vigor (`active` / `past_due`) o `waiver` vigente. No hay seguro externo.
+  - Seguro por alumno, independiente de la suscripción: 2ª suscripción Stripe anual del mismo cliente, por aniversario. Estados como la suscripción; `unpaid` se recupera pagando el recibo y cuenta para moroso. Como mucho un seguro vivo por alumno.
+  - Lo contrata solo el pagador actual de la suscripción, para un alumno con suscripción viva y sin seguro vivo: al contratar la suscripción o en cualquier momento después.
+  - Checkout: elección obligatoria seguro / `waiver` salvo cobertura de riesgo. `waiver` → se firma antes de abrir el Checkout. Seguro → un solo paso: Checkout de la cuota y, tras confirmarse, el seguro en servidor con la misma tarjeta (`default_incomplete`, 3DS con `handleNextAction`). Si el seguro no se paga: la suscripción sigue, el alumno queda sin cobertura de riesgo y se avisa al pagador.
+  - Precios: dos (adulto / menor), > 0 €, editables por el admin. El seguro nace **desactivado** y solo se activa con los dos precios. Desactivado: no se contrata y los vivos no renuevan (aviso al pagador).
+  - Renovación: aviso al pagador 30 días antes; el aviso fija precio y tramo (edad ese día). No renueva (con aviso): tras la baja de la suscripción sin otra viva, tras un cambio de pagador, con el seguro desactivado, o si el día del cobro el alumno es un hijo de 18+ sin perfil reclamado.
+  - Sin cobertura de riesgo: no reserva; no se cancelan reservas. En espera, la promoción **salta** (sigue en la lista) a quien no tiene cobertura de riesgo o perfil completo; «sin cobertura» queda solo para la suscripción.
+  - Visibilidad: el seguro, como los recibos; el profesor ve solo «sin cobertura de riesgo» en su lista del día.
+- **Entregable**: `waiver` fuera de `getProfileStatus` / `missing` (B4.5); `risk_cover` como requisito aparte en `book_session` (B7), en `promote_waitlist` y en la respuesta de estado; modelo del seguro (estado, pagador, tramo, `stripe_subscription_id`) y parámetros de la academia (precios, activado); endpoints admin de precios y activación; elección en `POST /billing/checkout` y endpoint de contratar seguro; webhooks distinguen cuota / seguro (recibos del seguro en `invoices`); renovación sin seguro (`cancel_at_period_end`) en los casos de arriba; avisos `notice.*`; aviso de profesor en la lista; borrar `subscription_agreements`. Datos existentes: `waiver` firmado ⇒ con cobertura.
+- **Fuera de alcance**: baja del seguro por el admin (B11), seguro sin suscripción (eventos, en su bloque), lista de morosos (B10.2, que debe incluir seguros `unpaid`).
 - **Checklist de cierre**:
   - [ ] `missing` sin `waiver`; reservar exige `risk_cover`.
-  - [ ] Checkout obliga a elegir seguro o `waiver` si no hay cobertura.
-  - [ ] Renovación anual con el tramo de edad vigente.
-  - [ ] Vencimiento sin `waiver` bloquea reservar y no cancela reservas.
+  - [ ] Promoción salta (no saca) a quien no tiene cobertura de riesgo o perfil completo.
+  - [ ] Checkout obliga a elegir seguro o `waiver` si no hay cobertura; `waiver` firmado antes de pagar.
+  - [ ] Seguro tras el Checkout con 3DS; fallo ⇒ suscripción intacta, sin cobertura de riesgo y aviso.
+  - [ ] Contratar seguro después (con suscripción viva, sin seguro vivo, solo el pagador).
+  - [ ] Seguro desactivado por defecto; activación exige los dos precios.
+  - [ ] Renovación con precio y tramo del aviso; casos de no renovación.
+  - [ ] `unpaid` recuperable; vencimiento sin `waiver` bloquea reservar y no cancela reservas.
   - [ ] `subscription_agreements` eliminada.
-  - [ ] Tests (incluida la regresión de B7/B9 con la nueva regla).
+  - [ ] Tests (incluida la regresión de B7/B9 con la nueva regla) y E2E con Stripe CLI.
 
 ### B10.5 — Upgrade/downgrade + cambio de disciplina — Pendiente
 - **Objetivo**: subir de plan (más caro) inmediato con prorrateo; bajar (igual o más barato) en la siguiente facturación; cambio de disciplina. Términos en `CONTEXT.md`.
