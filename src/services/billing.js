@@ -37,12 +37,11 @@ async function ensureCustomer(client, payerId) {
 }
 
 /**
- * Valida los requisitos de contratar y abre un Checkout de Stripe. Perfil completo y
- * tutor→hijo los comprueba antes requireCompleteProfile.
- * @returns {{ url: string }}
+ * Plan y disciplinas de un pedido, con las mismas reglas al contratar y al cambiar de plan (B10.5):
+ * plan activo y de pago, edad, solo menores, número y disciplinas elegibles.
+ * @returns {{ plan, ids: string[], adult: boolean }}
  */
-export async function createCheckout(client, { payerId, studentId, planId, disciplineIds = [], insurance = false }) {
-  if (typeof insurance !== 'boolean') throw invalid('insurance', 'insurance debe ser booleano');
+async function validateOrder(client, { studentId, planId, disciplineIds = [] }) {
   if (!Array.isArray(disciplineIds)) throw invalid('discipline_ids', 'discipline_ids debe ser un array');
   const ids = [...new Set(disciplineIds.map(parseId))];
 
@@ -50,7 +49,7 @@ export async function createCheckout(client, { payerId, studentId, planId, disci
     `SELECT p.id, p.price_cents, p.max_disciplines, p.minors_only, p.is_active, p.stripe_price_id,
             ARRAY(SELECT discipline_id::text FROM plan_disciplines WHERE plan_id = p.id) AS eligible
        FROM plans p WHERE p.id = $1`, [parseId(planId)]);
-  // El suscriptor ve su plan retirado (012), pero no lo puede contratar.
+  // El suscriptor ve su plan retirado (012), pero no lo puede contratar ni cambiar a él.
   if (!plan?.is_active) throw httpError(404, 'plan_not_found', 'Plan no encontrado');
   if (plan.price_cents === 0 || !plan.stripe_price_id) {
     throw httpError(409, 'plan_not_purchasable', 'Este plan no se contrata por la pasarela');
@@ -74,6 +73,17 @@ export async function createCheckout(client, { payerId, studentId, planId, disci
       || (adult && ok.get(id).minors_only));
     if (bad.length) throw httpError(409, 'discipline_not_eligible', 'Disciplina no elegible', { ids: bad });
   }
+  return { plan, ids, adult };
+}
+
+/**
+ * Valida los requisitos de contratar y abre un Checkout de Stripe. Perfil completo y
+ * tutor→hijo los comprueba antes requireCompleteProfile.
+ * @returns {{ url: string }}
+ */
+export async function createCheckout(client, { payerId, studentId, planId, disciplineIds = [], insurance = false }) {
+  if (typeof insurance !== 'boolean') throw invalid('insurance', 'insurance debe ser booleano');
+  const { plan, ids } = await validateOrder(client, { studentId, planId, disciplineIds });
 
   const { rowCount } = await client.query(
     `SELECT 1 FROM subscriptions WHERE student_id = $1 AND status IN ${LIVE}`, [studentId]);
@@ -135,14 +145,26 @@ export async function createPortalSession(client, payerId) {
  */
 export async function cancelSubscription(client, { id, atPeriodEnd, actorId }) {
   const { rows: [s] } = await client.query(
-    `SELECT stripe_subscription_id, status FROM subscriptions WHERE id = $1`, [id]);
+    `SELECT stripe_subscription_id, status, student_id, payer_id FROM subscriptions WHERE id = $1`, [id]);
   if (!s) throw httpError(404, 'subscription_not_found', 'Suscripción no encontrada');
   // Stripe manda: entre la baja y su webhook la fila local aún no dice cancelled.
-  const current = s.status === 'cancelled' ? null : await stripe.subscriptions.retrieve(s.stripe_subscription_id);
+  const current = s.status === 'cancelled'
+    ? null : await stripe.subscriptions.retrieve(s.stripe_subscription_id, { expand: ['schedule'] });
   if (!current || current.status === 'canceled') {
     throw httpError(409, 'subscription_cancelled', 'La suscripción ya está cancelada');
   }
   await audit(client, actorId, atPeriodEnd ? 'subscription.cancel_at_period_end' : 'subscription.cancel_now', id, {});
+  // Con un Schedule adjunto Stripe no deja tocar la cancelación (B10.5): se libera y la bajada programada se descarta.
+  if (current.schedule) {
+    const pending = pendingPhase(current.schedule);
+    await stripe.subscriptionSchedules.release(current.schedule.id);
+    if (pending) {
+      await notice(client, {
+        action: 'notice.scheduled_change_discarded', actorId, type: 'subscription', resourceId: id,
+        recipients: [s.payer_id], student_id: s.student_id, plan_id: pending.metadata.plan_id,
+      });
+    }
+  }
   const sub = atPeriodEnd
     ? await stripe.subscriptions.update(s.stripe_subscription_id, { cancel_at_period_end: true })
     : await stripe.subscriptions.cancel(s.stripe_subscription_id);
@@ -155,6 +177,214 @@ export async function notice(db, { action, actorId, type, resourceId, recipients
     `INSERT INTO audit_log (id, actor_id, action, resource_type, resource_id, changes)
      VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)`,
     [actorId, action, type, resourceId, { ...extra, recipients }]);
+}
+
+// --- Cambio de plan y de disciplina (B10.5; CONTEXT § Suscripción; ADR 0007) ---
+// Subida = pending update (solo se aplica si se paga); bajada = Subscription Schedule de 2 fases.
+// plan_id y disciplinas nuevos viajan en la metadata y los aplica el webhook, como todo el estado de cobro.
+
+/** Fase pendiente de un Schedule (la bajada programada), o null. Un Schedule puede seguir adjunto ya aplicado. */
+export function pendingPhase(schedule) {
+  if (!schedule || !['active', 'not_started'].includes(schedule.status)) return null;
+  const current = schedule.current_phase?.start_date ?? 0;
+  return schedule.phases.find((p) => p.start_date > current) ?? null;
+}
+
+async function subscriptionFor(client, id) {
+  const { rows: [s] } = await client.query(
+    `SELECT s.id, s.student_id, s.payer_id, s.plan_id, s.status, s.cancel_at_period_end, s.stripe_subscription_id,
+            pl.price_cents, pl.minors_only, pl.max_disciplines
+       FROM subscriptions s JOIN plans pl ON pl.id = s.plan_id WHERE s.id = $1`, [id]);
+  if (!s) throw httpError(404, 'subscription_not_found', 'Suscripción no encontrada');
+  return s;
+}
+
+const onlyPayer = (s, actorId, isAdmin) => {
+  if (!isAdmin && s.payer_id !== actorId) {
+    throw httpError(403, 'not_payer', 'Solo el pagador o el admin cambian de plan');
+  }
+};
+
+/**
+ * Subir o bajar de plan (pagador actual o admin). Más caro = subida inmediata con prorrateo; igual o más
+ * barato = bajada en la siguiente facturación. Un adulto en un plan solo menores cambia ya, suba o baje.
+ * @returns {{ status: 200 | 202, body }}
+ */
+export async function changePlan(client, { id, actorId, isAdmin, planId, disciplineIds }) {
+  const s = await subscriptionFor(client, id);
+  onlyPayer(s, actorId, isAdmin);
+  if (s.status !== 'active') throw httpError(409, 'subscription_not_active', 'La suscripción no está activa');
+  if (s.cancel_at_period_end) throw httpError(409, 'cancel_scheduled', 'La suscripción tiene la baja programada');
+  if (parseId(planId) === s.plan_id) throw httpError(409, 'same_plan', 'Ya está en ese plan');
+  const { plan, ids, adult } = await validateOrder(client, { studentId: s.student_id, planId, disciplineIds });
+  if (!plan.stripe_price_id) throw httpError(409, 'plan_not_purchasable', 'Este plan no se contrata por la pasarela');
+
+  // Stripe manda: la fila local puede ir por detrás de una baja recién pedida.
+  const current = await stripe.subscriptions.retrieve(s.stripe_subscription_id, { expand: ['schedule'] });
+  if (current.status !== 'active') throw httpError(409, 'subscription_not_active', 'La suscripción no está activa');
+  if (current.cancel_at_period_end) throw httpError(409, 'cancel_scheduled', 'La suscripción tiene la baja programada');
+
+  const metadata = { plan_id: plan.id, discipline_ids: ids.join(',') };
+  const now = plan.price_cents > s.price_cents || (adult && s.minors_only);
+  await audit(client, actorId, now ? 'subscription.upgrade' : 'subscription.downgrade', id,
+    { from: s.plan_id, to: plan.id, discipline_ids: ids });
+  return now
+    ? applyPlanNow(s, current, plan, metadata, isAdmin)
+    : scheduleDowngrade(current, plan, metadata);
+}
+
+// Pending update: Stripe cobra el prorrateo y solo aplica price y metadata si se paga.
+async function applyPlanNow(s, current, plan, metadata, isAdmin) {
+  // Una subida anula la bajada programada (CONTEXT § Bajar de plan).
+  if (current.schedule) await stripe.subscriptionSchedules.release(current.schedule.id);
+  const sub = await stripe.subscriptions.update(current.id, {
+    items: [{ id: current.items.data[0].id, price: plan.stripe_price_id }],
+    payment_behavior: 'pending_if_incomplete', proration_behavior: 'always_invoice', metadata,
+  });
+  if (!sub.pending_update) return { status: 200, body: { change: 'upgrade', status: 'applied' } };
+
+  const inv = await stripe.invoices.retrieve(idOf(sub.latest_invoice),
+    { expand: ['confirmation_secret', 'payments.data.payment.payment_intent'] });
+  const pi = inv.payments?.data?.[0]?.payment.payment_intent;
+  if (pi?.status === 'requires_action') {
+    if (!isAdmin) {
+      return { status: 200, body: { change: 'upgrade', status: 'requires_action', client_secret: inv.confirmation_secret.client_secret } };
+    }
+    // El admin no paga: el pending update sigue vivo (caduca en 23 h) y el pagador lo completa en el recibo.
+    // servicePool: el aviso sobrevive al rollback del 409.
+    await notice(servicePool, {
+      action: 'notice.upgrade_requires_action', actorId: s.payer_id, type: 'subscription', resourceId: s.id,
+      recipients: [s.payer_id], student_id: s.student_id, plan_id: plan.id, hosted_invoice_url: inv.hosted_invoice_url,
+    });
+    throw httpError(409, 'requires_payer_action', 'El banco pide autenticación al pagador; se le ha avisado');
+  }
+  // Rechazada: anular el recibo descarta el pending update; el plan no cambia.
+  await stripe.invoices.voidInvoice(inv.id);
+  throw httpError(402, 'payment_failed', 'El cobro de la subida ha sido rechazado',
+    { decline_message: pi?.last_payment_error?.message ?? null });
+}
+
+// Schedule: fase 1 = la actual tal cual; fase 2 = el plan nuevo desde el fin de periodo. Como mucho una
+// programada: si ya hay Schedule, se sustituye su fase 2.
+async function scheduleDowngrade(current, plan, metadata) {
+  // Una subida pendiente de pago (3DS a medias) bloquea el Schedule: la bajada la sustituye.
+  if (current.pending_update) await stripe.invoices.voidInvoice(idOf(current.latest_invoice));
+  const schedule = current.schedule ?? await stripe.subscriptionSchedules.create({ from_subscription: current.id });
+  const phase = schedule.phases.find((p) => p.start_date === schedule.current_phase?.start_date) ?? schedule.phases[0];
+  await stripe.subscriptionSchedules.update(schedule.id, {
+    end_behavior: 'release',
+    proration_behavior: 'none',
+    phases: [
+      {
+        items: phase.items.map((i) => ({ price: idOf(i.price), quantity: i.quantity })),
+        start_date: phase.start_date, end_date: phase.end_date, metadata: current.metadata, proration_behavior: 'none',
+      },
+      {
+        items: [{ price: plan.stripe_price_id, quantity: 1 }], duration: { interval: 'month', interval_count: 1 },
+        metadata, proration_behavior: 'none',
+      },
+    ],
+  });
+  return { status: 202, body: { change: 'downgrade', scheduled_at: ts(phase.end_date) } };
+}
+
+/** Anular la bajada programada (pagador o admin): se libera el Schedule y la suscripción sigue igual. */
+export async function cancelScheduledChange(client, { id, actorId, isAdmin }) {
+  const s = await subscriptionFor(client, id);
+  onlyPayer(s, actorId, isAdmin);
+  const current = await stripe.subscriptions.retrieve(s.stripe_subscription_id, { expand: ['schedule'] });
+  if (!pendingPhase(current.schedule)) throw httpError(404, 'no_scheduled_change', 'No hay ninguna bajada programada');
+  await audit(client, actorId, 'subscription.downgrade_cancel', id, {});
+  await stripe.subscriptionSchedules.release(current.schedule.id);
+}
+
+const DISCIPLINE_ERRORS = {
+  subscription_not_found: [404, 'Suscripción no encontrada'],
+  subscription_not_in_force: [409, 'La suscripción no está en vigor'],
+  plan_all_disciplines: [409, 'El plan cubre todas las disciplinas: no hay nada que cambiar'],
+  discipline_not_chosen: [409, 'Esa disciplina no está entre las elegidas'],
+  discipline_not_eligible: [409, 'Disciplina no elegible'],
+  discipline_change_limit: [409, 'Ya no quedan cambios de disciplina en este periodo'],
+};
+
+/**
+ * Cambio de disciplina (ADR 0007: lo escribe Kaizen, no el webhook). Pueden el pagador, el admin, el alumno
+ * adulto y cualquier tutor vinculado. Las reglas viven en change_discipline (014); aquí, quién actúa.
+ * @returns {{ disciplines: string[], changes_left: number, free: boolean }}
+ */
+export async function changeDiscipline(client, { id, actorId, isAdmin, fromId, toId }) {
+  const field = (v, f) => {
+    if (!/^\d{1,18}$/.test(String(v))) throw invalid(f, `${f} debe ser un id`);
+    return String(v);
+  };
+  const from = field(fromId, 'from_id');
+  const to = field(toId, 'to_id');
+  const s = await subscriptionFor(client, id);
+  const { rows: [who] } = await client.query(
+    `SELECT is_guardian_of(p.id) AS guardian, p.birth_date IS NULL OR p.birth_date <= CURRENT_DATE - interval '18 years' AS adult
+       FROM profiles p WHERE p.id = $1`, [s.student_id]);
+  if (!(isAdmin || s.payer_id === actorId || (s.student_id === actorId && who.adult) || who.guardian)) {
+    throw httpError(403, 'not_allowed', 'No puedes cambiar las disciplinas de este alumno');
+  }
+
+  // change_discipline es interna (servicePool), como startInsurance.
+  const db = await servicePool.connect();
+  try {
+    await db.query('BEGIN');
+    // Actor de los avisos de reserva (booking_notice lee app.current_user_id).
+    await db.query(`SELECT set_config('app.current_user_id', $1, true)`, [actorId]);
+    const { rows: [{ r }] } = await db.query(`SELECT change_discipline($1, $2, $3, $4) AS r`, [id, from, to, actorId]);
+    const { rows } = await db.query(
+      `SELECT discipline_id FROM subscription_disciplines WHERE subscription_id = $1 ORDER BY discipline_id`, [id]);
+    const disciplines = rows.map((d) => d.discipline_id);
+    // Espejo en Stripe: el webhook solo aplica disciplinas cuando cambia metadata.plan_id, así que no las pisa.
+    await stripe.subscriptions.update(s.stripe_subscription_id, { metadata: { discipline_ids: disciplines.join(',') } });
+    const { rows: [{ left }] } = await db.query(
+      `SELECT GREATEST(discipline_change_limit() - discipline_changes_used($1), 0) AS left`, [id]);
+    await db.query('COMMIT');
+    return { disciplines, changes_left: left, free: r.free };
+  } catch (err) {
+    await db.query('ROLLBACK').catch(() => {});
+    const known = err.code === 'P0001' && DISCIPLINE_ERRORS[err.message];
+    if (known) throw httpError(known[0], err.message, known[1], err.detail ? JSON.parse(err.detail) : undefined);
+    throw err;
+  } finally {
+    db.release();
+  }
+}
+
+/**
+ * Suscripción del alumno (la viva o, si no hay, la última), con la bajada programada y los cambios de
+ * disciplina que le quedan en el periodo. La RLS decide quién la ve.
+ */
+export async function getSubscription(client, { studentId }) {
+  const { rows: [s] } = await client.query(
+    `SELECT s.id, s.status,
+            jsonb_build_object('id', pl.id::text, 'name', pl.name, 'price_cents', pl.price_cents,
+                               'max_disciplines', pl.max_disciplines) AS plan,
+            COALESCE((SELECT jsonb_agg(jsonb_build_object('id', d.id::text, 'name', d.name) ORDER BY d.name)
+                        FROM subscription_disciplines sd JOIN disciplines d ON d.id = sd.discipline_id
+                       WHERE sd.subscription_id = s.id), '[]') AS disciplines,
+            s.current_period_end, s.cancel_at_period_end,
+            CASE WHEN s.scheduled_plan_id IS NOT NULL THEN jsonb_build_object(
+              'plan_id', s.scheduled_plan_id::text, 'plan_name', sp.name,
+              'discipline_ids', to_jsonb(s.scheduled_discipline_ids::text[]), 'scheduled_at', s.scheduled_at) END
+              AS scheduled_change,
+            CASE WHEN pl.max_disciplines IS NOT NULL
+                 THEN GREATEST(discipline_change_limit() - discipline_changes_used(s.id), 0) END AS discipline_changes_left
+       FROM subscriptions s JOIN plans pl ON pl.id = s.plan_id LEFT JOIN plans sp ON sp.id = s.scheduled_plan_id
+      WHERE s.student_id = $1 ORDER BY s.status IN ${LIVE} DESC, s.created_at DESC LIMIT 1`, [studentId]);
+  if (!s) throw httpError(404, 'subscription_not_found', 'El alumno no tiene suscripción');
+  return s;
+}
+
+/** Cambios de disciplina por periodo (solo admin). Admite 0: sin cambios, salvo los gratis. */
+export async function updateDisciplineChangeSettings(client, body, actorId) {
+  const n = body.per_period;
+  if (!(Number.isInteger(n) && n >= 0 && n <= 1000)) throw invalid('per_period', 'per_period debe ser un entero ≥ 0');
+  await setSetting(client, 'discipline_changes_per_period', n);
+  await audit(client, actorId, 'settings.discipline_changes', 'discipline_changes_per_period', { per_period: n });
+  return { per_period: n };
 }
 
 // --- Seguro (B10.3; CONTEXT § Seguro y cobertura de riesgo; ADR 0006) ---

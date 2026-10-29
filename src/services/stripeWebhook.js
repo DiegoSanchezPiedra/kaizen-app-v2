@@ -3,7 +3,7 @@
 import { servicePool } from '../config/database.js';
 import { stripe } from '../config/stripe.js';
 import {
-  STATUS, ts, idOf, notice, insuranceSettings, insuranceWontRenew, upsertInsurance, startInsurance,
+  STATUS, ts, idOf, notice, insuranceSettings, insuranceWontRenew, upsertInsurance, startInsurance, pendingPhase,
 } from './billing.js';
 
 const IN_FORCE = ['active', 'past_due'];
@@ -147,10 +147,14 @@ async function onSubscriptionChange(client, obj) {
   const { rows: [row] } = await client.query(
     `UPDATE subscriptions SET status = $2, current_period_start = $3, current_period_end = $4,
                               cancel_at_period_end = $5, cancelled_at = $6
-      WHERE stripe_subscription_id = $1 RETURNING student_id`,
+      WHERE stripe_subscription_id = $1 RETURNING id, student_id, payer_id, plan_id`,
     [sub.id, status, ts(item.current_period_start), ts(item.current_period_end),
       sub.cancel_at_period_end, ts(sub.ended_at)]);
   if (!row) return; // nace en checkout.session.completed (o perdió la carrera)
+  // Cambio de plan (B10.5): pending update pagado o fase nueva del Schedule; el pedido viene en la metadata.
+  // El cambio de disciplina no cambia plan_id: su espejo en la metadata no se aplica aquí (ADR 0007).
+  if (sub.metadata.plan_id && sub.metadata.plan_id !== row.plan_id) await applyPlan(client, row, sub);
+  await syncSchedule(client, sub);
   // Pérdida de cobertura (CONTEXT § Reservas). En gracia (past_due) no se pierde nada.
   if (!IN_FORCE.includes(status)) await client.query(`SELECT revoke_coverage($1)`, [row.student_id]);
   // Baja sin otra suscripción viva: el seguro sigue hasta el final de su año y no renueva (CONTEXT § Seguro).
@@ -162,6 +166,56 @@ async function onSubscriptionChange(client, obj) {
       [row.student_id]);
     if (ins) await insuranceWontRenew(client, ins, 'subscription_cancelled');
   }
+}
+
+const disciplineIds = (m) => (m.discipline_ids ? m.discipline_ids.split(',') : []);
+
+// Plan y disciplinas del pedido. Lo que deja de cubrirse se cancela (también lo reservado con la bajada programada).
+async function applyPlan(client, row, sub) {
+  const m = sub.metadata;
+  const { rows: [p] } = await client.query(
+    `SELECT (SELECT price_cents FROM plans WHERE id = $1) AS before, price_cents AS after, stripe_price_id
+       FROM plans WHERE id = $2`, [row.plan_id, m.plan_id]);
+  await client.query(`UPDATE subscriptions SET plan_id = $2 WHERE id = $1`, [row.id, m.plan_id]);
+  await client.query(`DELETE FROM subscription_disciplines WHERE subscription_id = $1`, [row.id]);
+  const ids = disciplineIds(m);
+  if (ids.length) {
+    await client.query(
+      `INSERT INTO subscription_disciplines (subscription_id, discipline_id) SELECT $1, unnest($2::bigint[])`, [row.id, ids]);
+  }
+  await client.query(`SELECT revoke_coverage($1)`, [row.student_id]);
+  // Precio cambiado con el Schedule o el pending update ya pedidos (catalog.js no lo vio): al vigente, sin prorrateo.
+  const item = sub.items.data[0];
+  if (p.stripe_price_id && item.price.id !== p.stripe_price_id) {
+    await stripe.subscriptions.update(sub.id, { items: [{ id: item.id, price: p.stripe_price_id }], proration_behavior: 'none' });
+  }
+  if (p.after <= p.before) {
+    await notice(client, {
+      action: 'notice.plan_downgraded', actorId: row.payer_id, type: 'subscription', resourceId: row.id,
+      recipients: [row.payer_id], student_id: row.student_id, from_plan_id: row.plan_id, to_plan_id: m.plan_id,
+    });
+  }
+}
+
+// Bajada programada: scheduled_* = la fase pendiente del Schedule adjunto (o nada). stripe_schedule_id sigue
+// mientras el Schedule esté adjunto, aunque ya no tenga nada pendiente.
+async function syncSchedule(client, sub) {
+  const schedule = sub.schedule ? await stripe.subscriptionSchedules.retrieve(idOf(sub.schedule)) : null;
+  const attached = ['active', 'not_started'].includes(schedule?.status) ? schedule.id : null;
+  const next = pendingPhase(schedule);
+  await client.query(
+    `UPDATE subscriptions SET stripe_schedule_id = $2, scheduled_plan_id = $3, scheduled_discipline_ids = $4,
+                              scheduled_at = $5
+      WHERE stripe_subscription_id = $1`,
+    [sub.id, attached, next?.metadata.plan_id ?? null, next ? disciplineIds(next.metadata) : null, ts(next?.start_date)]);
+}
+
+// subscription_schedule.*: se relee la suscripción, que dice qué Schedule tiene adjunto ahora.
+async function onSchedule(client, obj) {
+  const schedule = await stripe.subscriptionSchedules.retrieve(obj.id);
+  const subId = idOf(schedule.subscription) ?? idOf(schedule.released_subscription);
+  if (!subId) return;
+  await syncSchedule(client, await stripe.subscriptions.retrieve(subId));
 }
 
 // Seguro (B10.3). Sin revoke_coverage: perder la cobertura de riesgo impide reservar pero no cancela reservas.
@@ -258,8 +312,10 @@ async function onInvoice(client, obj, event) {
   const row = await syncInvoice(client, obj.id);
   // Cobro fallido: no quita acceso (la suscripción pasa a past_due); aviso solo al pagador, nunca al hijo.
   // Primer cobro del seguro: el pagador está en pantalla (3DS o rechazo); si no llega a pagarse, avisa la caducidad.
-  const firstInsurance = row?.insurance_id && row.billing_reason === 'subscription_create';
-  if (row && event.type === 'invoice.payment_failed' && !firstInsurance) {
+  // Prorrateo de una subida (B10.5): quien la pide está en pantalla (402) y el recibo se anula.
+  const onScreen = (row?.insurance_id && row.billing_reason === 'subscription_create')
+    || row?.billing_reason === 'subscription_update';
+  if (row && event.type === 'invoice.payment_failed' && !onScreen) {
     await notice(client, {
       action: 'notice.payment_failed', actorId: row.payer_id, type: 'invoice', resourceId: row.id,
       recipients: [row.payer_id], next_payment_attempt: row.next_payment_attempt, error: row.last_payment_error,
@@ -294,9 +350,16 @@ const HANDLERS = {
   'invoice.finalized': onInvoice,
   'invoice.paid': onInvoice,
   'invoice.payment_failed': onInvoice,
+  'invoice.voided': onInvoice, // subida rechazada o pending update caducado
   'invoice.upcoming': onUpcoming,
   'charge.refunded': onRisk,
   'charge.dispute.created': onRisk,
   'radar.early_fraud_warning.created': onRisk,
+  // Bajada programada (B10.5)
+  'subscription_schedule.created': onSchedule,
+  'subscription_schedule.updated': onSchedule,
+  'subscription_schedule.released': onSchedule,
+  'subscription_schedule.canceled': onSchedule,
+  'subscription_schedule.completed': onSchedule,
 };
 export const HANDLED_EVENTS = Object.keys(HANDLERS);

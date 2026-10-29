@@ -6,9 +6,11 @@ import express from 'express';
 import { servicePool, closePools } from '../src/config/database.js';
 import { withRls } from '../src/db/rls.js';
 import { stripe, STRIPE_WEBHOOK_SECRET } from '../src/config/stripe.js';
-import { createPlan } from '../src/services/catalog.js';
+import { createPlan, updatePlan } from '../src/services/catalog.js';
 import { handleEvent } from '../src/services/stripeWebhook.js';
-import { cancelSubscription, updateInsuranceSettings } from '../src/services/billing.js';
+import {
+  cancelSubscription, updateInsuranceSettings, changePlan, cancelScheduledChange, getSubscription,
+} from '../src/services/billing.js';
 import webhooksRouter from '../src/routes/webhooks.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 
@@ -18,7 +20,10 @@ async function run(name, fn) {
 }
 const q = async (sql, params) => (await servicePool.query(sql, params)).rows;
 
-const people = { admin: 'admin', prof: 'profesor', alu: 'alumno', tutor: 'tutor', child: 'alumno', ins: 'alumno', ins2: 'alumno' };
+const people = {
+  admin: 'admin', prof: 'profesor', alu: 'alumno', tutor: 'tutor', child: 'alumno', ins: 'alumno', ins2: 'alumno',
+  pc: 'alumno', pc2: 'alumno', // B10.5
+};
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 for (const [k, role] of Object.entries(people)) {
   await q(`INSERT INTO profiles (id, display_name, birth_date) VALUES ($1, $2, $3)`,
@@ -80,6 +85,9 @@ const noticeOf = async (action, resourceId) =>
     .map((r) => r.changes);
 
 let sub1, raceSub, sess;
+const extraPlans = [];
+const extraDiscs = [];
+const extraSessions = [];
 try {
   await run('firma: sin cabecera, otro secreto o cuerpo alterado → 400 sin procesar', async () => {
     const payload = JSON.stringify(evt('kaizen.test', { object: 'test' }));
@@ -285,6 +293,222 @@ try {
     await handleEvent(evt('customer.subscription.deleted', { id: insCuota.id, object: 'subscription' }));
     assert.equal((await noticeOf('notice.insurance_wont_renew', ins.id)).length, 1);
   });
+
+  // --- B10.5: cambio de plan. Subida = pending update; bajada = Schedule; el webhook aplica la metadata. ---
+  const mkPlan = async (tag, body) => {
+    const p = await withRls({ uid: U.admin, role: 'admin' }, (c) => createPlan(c, { name: `T-Wh-${tag}-${Date.now()}`, ...body }));
+    extraPlans.push(p.id);
+    return p;
+  };
+  const up = await mkPlan('two', { price_cents: 3000, max_disciplines: 2 });
+  const top = await mkPlan('all', { price_cents: 4000, max_disciplines: null });
+  const down = await mkPlan('cheap', { price_cents: 1000, max_disciplines: 1 });
+  const kids = await mkPlan('kids', { price_cents: 2500, max_disciplines: null, minors_only: true });
+  const same = await mkPlan('same', { price_cents: 1000, max_disciplines: 1 }); // mismo precio que down = bajada
+  const [{ id: discB }] = await q(`INSERT INTO disciplines (name) VALUES ('T-Wh-B') RETURNING id`);
+  const [{ id: discC }] = await q(`INSERT INTO disciplines (name) VALUES ('T-Wh-C') RETURNING id`);
+  extraDiscs.push(discB, discC);
+  const asPc = (fn) => withRls({ uid: U.pc, role: 'alumno' }, fn);
+  const asAdmin = (fn) => withRls({ uid: U.admin, role: 'admin' }, fn);
+  const change = (who, id, planId, disciplineIds = []) => withRls({ uid: U[who], role: people[who] },
+    (c) => changePlan(c, { id, actorId: U[who], isAdmin: who === 'admin', planId, disciplineIds }));
+  const updated = (subId) => handleEvent(evt('customer.subscription.updated', { id: subId, object: 'subscription' }));
+  const discsOf = async (id) =>
+    (await q(`SELECT discipline_id FROM subscription_disciplines WHERE subscription_id = $1 ORDER BY 1`, [id])).map((r) => r.discipline_id);
+  const bookOn = async (discipline, student) => {
+    const [x] = await q(
+      `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status)
+       VALUES ($1, $2, now() + $3 * interval '1 day', now() + $3 * interval '1 day' + interval '1 hour', 60, 5, 'scheduled')
+       RETURNING id`, [discipline, U.prof, 4 + extraSessions.length]); // un día por sesión: el profesor no se solapa
+    extraSessions.push(x.id);
+    return (await q(`INSERT INTO bookings (id, session_id, student_id, booked_by, status)
+                     VALUES (gen_random_uuid(), $1, $2, $2, 'confirmed') RETURNING id`, [x.id, student]))[0].id;
+  };
+  const bookingOf = async (id) => (await q(`SELECT status, cancel_reason FROM bookings WHERE id = $1`, [id]))[0];
+  const setDefaultPm = async (cus, pm) => {
+    const attached = await stripe.paymentMethods.attach(pm, { customer: cus });
+    await stripe.customers.update(cus, { invoice_settings: { default_payment_method: attached.id } });
+    return attached.id;
+  };
+
+  const cusPc = await customer('pc', 'pm_card_visa');
+  const visaPc = (await stripe.customers.retrieve(cusPc)).invoice_settings.default_payment_method;
+  const pcSub = await paidSub(cusPc, 'pc', 'pc');
+  await handleEvent(completed(pcSub));
+  const pcRow = await localSub(pcSub.id);
+
+  await run('subida: pending update pagado; el webhook aplica plan y disciplinas y cancela lo que deja de cubrirse', async () => {
+    const bk = await bookOn(disc, U.pc);
+    assert.deepEqual((await change('pc', pcRow.id, up.id, [discB, discC])).body, { change: 'upgrade', status: 'applied' });
+    const st = await stripe.subscriptions.retrieve(pcSub.id, { expand: ['latest_invoice'] });
+    assert.deepEqual([st.items.data[0].price.id, st.metadata.plan_id, st.pending_update],
+      [(await q(`SELECT stripe_price_id FROM plans WHERE id = $1`, [up.id]))[0].stripe_price_id, up.id, null]);
+    assert.deepEqual([st.latest_invoice.billing_reason, st.latest_invoice.status], ['subscription_update', 'paid']);
+    assert.ok(st.latest_invoice.amount_paid > 0, 'prorrateo cobrado');
+    assert.equal((await localSub(pcSub.id)).plan_id, plan.id, 'local intacto hasta el webhook');
+    await updated(pcSub.id);
+    assert.equal((await localSub(pcSub.id)).plan_id, up.id);
+    assert.deepEqual(await discsOf(pcRow.id), [discB, discC].sort());
+    assert.deepEqual(Object.values(await bookingOf(bk)), ['cancelled', 'no_coverage']);
+    assert.deepEqual(await noticeOf('notice.plan_downgraded', pcRow.id), [], 'subida: sin aviso de bajada');
+  });
+
+  await run('subida rechazada: 402 payment_failed, recibo anulado y nada cambia', async () => {
+    await setDefaultPm(cusPc, 'pm_card_chargeCustomerFail');
+    try {
+      await assert.rejects(change('pc', pcRow.id, top.id), (e) => e.status === 402 && e.code === 'payment_failed');
+      const st = await stripe.subscriptions.retrieve(pcSub.id, { expand: ['latest_invoice'] });
+      assert.deepEqual([st.metadata.plan_id, st.pending_update, st.latest_invoice.status], [up.id, null, 'void']);
+      await updated(pcSub.id);
+      assert.equal((await localSub(pcSub.id)).plan_id, up.id);
+      // El recibo fallido del prorrateo se guarda anulado y sin aviso de cobro fallido (el pagador está en pantalla).
+      await handleEvent(evt('invoice.payment_failed', { id: st.latest_invoice.id, object: 'invoice' }));
+      const [inv] = await q(`SELECT id, status FROM invoices WHERE stripe_invoice_id = $1`, [st.latest_invoice.id]);
+      assert.equal(inv.status, 'void');
+      assert.deepEqual(await noticeOf('notice.payment_failed', inv.id), []);
+    } finally {
+      await stripe.customers.update(cusPc, { invoice_settings: { default_payment_method: visaPc } });
+    }
+  });
+
+  await run('subida con 3DS: el pagador recibe client_secret; el admin → 409 requires_payer_action y aviso al pagador', async () => {
+    await setDefaultPm(cusPc, 'pm_card_threeDSecure2Required');
+    try {
+      const { body } = await change('pc', pcRow.id, top.id);
+      assert.deepEqual([body.change, body.status], ['upgrade', 'requires_action']);
+      assert.match(body.client_secret, /_secret_/);
+      await assert.rejects(change('admin', pcRow.id, top.id), (e) => e.status === 409 && e.code === 'requires_payer_action');
+      const [n] = await noticeOf('notice.upgrade_requires_action', pcRow.id);
+      assert.deepEqual([n.recipients, n.plan_id], [[U.pc], top.id]);
+      assert.match(n.hosted_invoice_url, /^https:\/\//);
+      assert.ok((await stripe.subscriptions.retrieve(pcSub.id)).pending_update, 'sigue pendiente del pago');
+      // Una bajada sustituye la subida a medias (Stripe no deja tocar el Schedule con un pending update).
+      assert.equal((await change('pc', pcRow.id, down.id, [disc])).status, 202);
+      const st = await stripe.subscriptions.retrieve(pcSub.id, { expand: ['latest_invoice'] });
+      assert.deepEqual([st.pending_update, st.latest_invoice.status, !!st.schedule], [null, 'void', true]);
+      await stripe.subscriptionSchedules.release(st.schedule);
+    } finally {
+      // Limpieza: anular el recibo descarta el pending update.
+      const st = await stripe.subscriptions.retrieve(pcSub.id, { expand: ['latest_invoice'] });
+      if (st.latest_invoice.status === 'open') await stripe.invoices.voidInvoice(st.latest_invoice.id);
+      await stripe.customers.update(cusPc, { invoice_settings: { default_payment_method: visaPc } });
+    }
+    assert.equal((await stripe.subscriptions.retrieve(pcSub.id)).pending_update, null);
+  });
+
+  let scheduleId;
+  await run('bajada: Schedule con la fase 2 desde fin de periodo → scheduled_*; otra la sustituye; DELETE la anula', async () => {
+    const r = await change('pc', pcRow.id, down.id, [disc]);
+    assert.equal(r.status, 202);
+    const st = await stripe.subscriptions.retrieve(pcSub.id, { expand: ['schedule'] });
+    scheduleId = st.schedule.id;
+    const [p1, p2] = st.schedule.phases;
+    assert.deepEqual([r.body.change, r.body.scheduled_at.getTime()], ['downgrade', p1.end_date * 1000]);
+    assert.equal(p1.end_date, st.items.data[0].current_period_end);
+    assert.deepEqual([p2.metadata.plan_id, p2.metadata.discipline_ids, st.schedule.end_behavior], [down.id, String(disc), 'release']);
+    assert.equal(st.metadata.plan_id, up.id, 'la suscripción no cambia hasta la fase 2');
+    await handleEvent(evt('subscription_schedule.updated', { id: scheduleId, object: 'subscription_schedule' }));
+    let row = await localSub(pcSub.id);
+    assert.deepEqual([row.plan_id, row.stripe_schedule_id, row.scheduled_plan_id, row.scheduled_discipline_ids, row.scheduled_at.getTime()],
+      [up.id, scheduleId, down.id, [disc], p1.end_date * 1000]);
+    // Otra bajada sustituye la fase 2 en el mismo Schedule.
+    assert.equal((await change('admin', pcRow.id, plan.id, [discB])).status, 202);
+    const again = await stripe.subscriptionSchedules.retrieve(scheduleId);
+    assert.deepEqual([again.phases.length, again.phases[1].metadata.plan_id], [2, plan.id]);
+    await handleEvent(evt('subscription_schedule.updated', { id: scheduleId, object: 'subscription_schedule' }));
+    const got = await asPc((c) => getSubscription(c, { studentId: U.pc }));
+    assert.deepEqual([got.plan.id, got.scheduled_change.plan_id, got.scheduled_change.discipline_ids], [up.id, plan.id, [String(discB)]]);
+    // Anularla: se libera el Schedule.
+    await asPc((c) => cancelScheduledChange(c, { id: pcRow.id, actorId: U.pc, isAdmin: false }));
+    await handleEvent(evt('subscription_schedule.released', { id: scheduleId, object: 'subscription_schedule' }));
+    row = await localSub(pcSub.id);
+    assert.deepEqual([row.stripe_schedule_id, row.scheduled_plan_id, row.scheduled_discipline_ids, row.scheduled_at], [null, null, null, null]);
+    await assert.rejects(asPc((c) => cancelScheduledChange(c, { id: pcRow.id, actorId: U.pc, isAdmin: false })),
+      (e) => e.status === 404 && e.code === 'no_scheduled_change');
+  });
+
+  await run('subida con una bajada programada: libera el Schedule y aplica la subida', async () => {
+    await change('pc', pcRow.id, down.id, [disc]);
+    await change('pc', pcRow.id, top.id);
+    const st = await stripe.subscriptions.retrieve(pcSub.id);
+    assert.deepEqual([st.schedule, st.metadata.plan_id], [null, top.id]);
+    await updated(pcSub.id);
+    const row = await localSub(pcSub.id);
+    assert.deepEqual([row.plan_id, row.stripe_schedule_id, row.scheduled_plan_id], [top.id, null, null]);
+    assert.deepEqual(await discsOf(pcRow.id), [], '«todas»: sin disciplinas elegidas');
+  });
+
+  await run('bajada aplicada (cambio de fase simulado): plan y disciplinas de la metadata, revoke_coverage y aviso', async () => {
+    const bk = await bookOn(discC, U.pc); // «todas» la cubre; el plan barato con disc no
+    const st = await stripe.subscriptions.retrieve(pcSub.id);
+    const [{ stripe_price_id: downPrice }] = await q(`SELECT stripe_price_id FROM plans WHERE id = $1`, [down.id]);
+    // Lo que hace Stripe al entrar en la fase 2: Price y metadata de la fase.
+    await stripe.subscriptions.update(pcSub.id, {
+      items: [{ id: st.items.data[0].id, price: downPrice }], proration_behavior: 'none',
+      metadata: { plan_id: down.id, discipline_ids: String(disc) },
+    });
+    await updated(pcSub.id);
+    assert.equal((await localSub(pcSub.id)).plan_id, down.id);
+    assert.deepEqual(await discsOf(pcRow.id), [disc]);
+    assert.deepEqual(Object.values(await bookingOf(bk)), ['cancelled', 'no_coverage']);
+    const [n] = await noticeOf('notice.plan_downgraded', pcRow.id);
+    assert.deepEqual([n.recipients, n.from_plan_id, n.to_plan_id], [[U.pc], top.id, down.id]);
+    // Repetido: plan_id ya coincide, no se aplica ni avisa otra vez.
+    await updated(pcSub.id);
+    assert.equal((await noticeOf('notice.plan_downgraded', pcRow.id)).length, 1);
+  });
+
+  const priceOf = async (planId) => (await q(`SELECT stripe_price_id FROM plans WHERE id = $1`, [planId]))[0].stripe_price_id;
+  await run('cambio de precio con una bajada programada: el Price cambia en las fases del Schedule', async () => {
+    assert.equal((await change('pc', pcRow.id, same.id, [discB])).status, 202, 'mismo precio = bajada');
+    // El webhook rellena scheduled_plan_id, por el que la sincronización encuentra el Schedule.
+    const sch = (await stripe.subscriptions.retrieve(pcSub.id)).schedule;
+    await handleEvent(evt('subscription_schedule.created', { id: sch, object: 'subscription_schedule' }));
+    assert.equal((await localSub(pcSub.id)).scheduled_plan_id, same.id);
+    await asAdmin((c) => updatePlan(c, { id: same.id, body: { price_cents: 900 }, actorId: U.admin }));
+    let st = await stripe.subscriptions.retrieve(pcSub.id, { expand: ['schedule'] });
+    assert.deepEqual(st.schedule.phases.map((p) => p.items[0].price), [await priceOf(down.id), await priceOf(same.id)]);
+    // Precio del plan actual: fase actual y suscripción, sin prorrateo; la pendiente se respeta.
+    await asAdmin((c) => updatePlan(c, { id: down.id, body: { price_cents: 1100 }, actorId: U.admin }));
+    st = await stripe.subscriptions.retrieve(pcSub.id, { expand: ['schedule'] });
+    assert.deepEqual(st.schedule.phases.map((p) => p.items[0].price), [await priceOf(down.id), await priceOf(same.id)]);
+    assert.equal(st.items.data[0].price.id, await priceOf(down.id));
+    assert.equal(st.schedule.phases[1].metadata.plan_id, same.id);
+    // Retirar el plan de destino no cancela la bajada programada.
+    await asAdmin((c) => updatePlan(c, { id: same.id, body: { is_active: false }, actorId: U.admin }));
+    assert.equal((await stripe.subscriptionSchedules.retrieve(st.schedule.id)).phases[1].items[0].price, await priceOf(same.id));
+    await handleEvent(evt('subscription_schedule.updated', { id: st.schedule.id, object: 'subscription_schedule' }));
+    assert.equal((await localSub(pcSub.id)).scheduled_plan_id, same.id);
+  });
+
+  await run('baja admin con una bajada programada: libera el Schedule, descarta la bajada y avisa al pagador', async () => {
+    const { schedule } = await stripe.subscriptions.retrieve(pcSub.id);
+    const end = await asAdmin((c) => cancelSubscription(c, { id: pcRow.id, atPeriodEnd: true, actorId: U.admin }));
+    assert.deepEqual([end.stripe_status, end.cancel_at_period_end], ['active', true]);
+    assert.equal((await stripe.subscriptionSchedules.retrieve(schedule)).status, 'released');
+    const [n] = await noticeOf('notice.scheduled_change_discarded', pcRow.id);
+    assert.deepEqual([n.recipients, n.plan_id], [[U.pc], same.id]);
+    await updated(pcSub.id);
+    const row = await localSub(pcSub.id);
+    assert.deepEqual([row.cancel_at_period_end, row.stripe_schedule_id, row.scheduled_plan_id], [true, null, null]);
+    await assert.rejects(change('pc', pcRow.id, up.id, [disc, discB]), (e) => e.status === 409 && e.code === 'cancel_scheduled');
+  });
+
+  await run('adulto en un plan solo menores: el cambio es inmediato aunque baje; deja saldo a favor', async () => {
+    const cus = await customer('pc2', 'pm_card_visa');
+    const [{ stripe_price_id: kidsPrice }] = await q(`SELECT stripe_price_id FROM plans WHERE id = $1`, [kids.id]);
+    const s = await stripe.subscriptions.create({ customer: cus, items: [{ price: kidsPrice }],
+      metadata: { student_id: U.pc2, payer_id: U.pc2, plan_id: kids.id, discipline_ids: '' } });
+    stripeSubs.push(s.id);
+    await handleEvent(completed(s));
+    const row = await localSub(s.id);
+    assert.equal(row.plan_id, kids.id);
+    const r = await change('pc2', row.id, down.id, [disc]);
+    assert.deepEqual([r.status, r.body.status], [200, 'applied']);
+    await updated(s.id);
+    assert.equal((await localSub(s.id)).plan_id, down.id);
+    assert.ok((await stripe.customers.retrieve(cus)).balance < 0, 'saldo a favor, sin reembolso');
+  });
 } finally {
   server.close();
   for (const id of stripeSubs) {
@@ -305,8 +529,12 @@ try {
   await q(`DELETE FROM subscription_disciplines WHERE subscription_id = ANY($1::uuid[])`, [subs]);
   await q(`DELETE FROM subscriptions WHERE id = ANY($1::uuid[])`, [subs]);
   await q(`DELETE FROM webhook_events WHERE id = ANY($1::text[])`, [eventIds]);
-  await q(`DELETE FROM plans WHERE id = $1`, [plan.id]);
-  await q(`DELETE FROM disciplines WHERE id = $1`, [disc]);
+  for (const x of extraSessions) {
+    await q(`DELETE FROM bookings WHERE session_id = $1`, [x]);
+    await q(`DELETE FROM class_sessions WHERE id = $1`, [x]);
+  }
+  await q(`DELETE FROM plans WHERE id = ANY($1::bigint[])`, [[plan.id, ...extraPlans]]);
+  await q(`DELETE FROM disciplines WHERE id = ANY($1::bigint[])`, [[disc, ...extraDiscs]]);
   await q(`DELETE FROM guardianships WHERE tutor_id = $1`, [U.tutor]);
   await q(`DELETE FROM profiles WHERE id = ANY($1::uuid[])`, [ids]);
   await closePools();

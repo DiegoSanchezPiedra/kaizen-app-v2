@@ -3,7 +3,10 @@ import { Router } from 'express';
 import { requireAuth, requireRole, withRlsContext } from '../middleware/auth.js';
 import { requireCompleteProfile } from '../middleware/requireCompleteProfile.js';
 import { httpError } from '../lib/errors.js';
-import { createCheckout, createPortalSession, contractInsurance, getInsurance } from '../services/billing.js';
+import {
+  createCheckout, createPortalSession, contractInsurance, getInsurance,
+  getSubscription, changePlan, cancelScheduledChange, changeDiscipline,
+} from '../services/billing.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -48,6 +51,34 @@ router.post('/insurance', checkSubject, withRlsContext(async (req, client) => ({
 router.get('/insurance', (req, res, next) => (req.query.profile_id === undefined || UUID_RE.test(req.query.profile_id)
   ? next() : next(httpError(400, 'invalid_field', 'profile_id debe ser un uuid', { field: 'profile_id' }))),
 withRlsContext(async (req, client) => getInsurance(client, { userId: req.user.id, studentId: req.query.profile_id ?? req.user.id })));
+
+// --- Cambio de plan y de disciplina (B10.5). Quién puede, lo decide el servicio por la suscripción. ---
+
+router.param('id', (req, res, next, v) => (UUID_RE.test(v) ? next() : next(httpError(400, 'invalid_id', 'id inválido'))));
+
+// GET /billing/subscription?profile_id= → { id, status, plan, disciplines, current_period_end, cancel_at_period_end,
+//   scheduled_change, discipline_changes_left }
+router.get('/subscription', (req, res, next) => (req.query.profile_id === undefined || UUID_RE.test(req.query.profile_id)
+  ? next() : next(httpError(400, 'invalid_field', 'profile_id debe ser un uuid', { field: 'profile_id' }))),
+withRlsContext(async (req, client) => getSubscription(client, { studentId: req.query.profile_id ?? req.user.id })));
+
+// POST /billing/subscriptions/:id/plan { plan_id, discipline_ids } →
+//   subida 200 { change: 'upgrade', status: 'applied' | 'requires_action', client_secret? } (stripe.handleNextAction)
+//   bajada 202 { change: 'downgrade', scheduled_at }
+router.post('/subscriptions/:id/plan', withRlsContext(async (req, client) => changePlan(client, {
+  id: req.params.id, actorId: req.user.id, isAdmin: false, planId: req.body?.plan_id, disciplineIds: req.body?.discipline_ids,
+})));
+
+// DELETE /billing/subscriptions/:id/plan/scheduled → 204 (anula la bajada programada)
+router.delete('/subscriptions/:id/plan/scheduled', withRlsContext(async (req, client) => {
+  await cancelScheduledChange(client, { id: req.params.id, actorId: req.user.id, isAdmin: false });
+  return { status: 204, body: undefined };
+}));
+
+// POST /billing/subscriptions/:id/disciplines { from_id, to_id } → { disciplines, changes_left, free }
+router.post('/subscriptions/:id/disciplines', withRlsContext(async (req, client) => changeDiscipline(client, {
+  id: req.params.id, actorId: req.user.id, isAdmin: false, fromId: req.body?.from_id, toId: req.body?.to_id,
+})));
 
 // POST /billing/portal → { url }
 router.post('/portal', withRlsContext(async (req, client) => createPortalSession(client, req.user.id)));

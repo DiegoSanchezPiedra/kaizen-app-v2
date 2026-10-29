@@ -188,8 +188,10 @@ export async function syncPlanToStripe(client, plan, before) {
     const { product } = await stripe.prices.retrieve(oldPrice);
     if (plan.name !== before.name) await stripe.products.update(product, { name: plan.name });
     if (plan.price_cents !== before.price_cents) {
+      // Suscriptores y bajadas programadas a este plan (B10.5): las dos cuentan como suscriptores.
       const { rows: subs } = await client.query(
-        `SELECT stripe_subscription_id FROM subscriptions WHERE plan_id = $1 AND status = ANY($2)`, [plan.id, LIVE]);
+        `SELECT stripe_subscription_id FROM subscriptions
+          WHERE (plan_id = $1 OR scheduled_plan_id = $1) AND status = ANY($2)`, [plan.id, LIVE]);
       if (plan.price_cents === 0 && subs.length) {
         throw httpError(409, 'plan_has_subscriptions', 'Un plan con suscriptores no puede pasar a 0 €');
       }
@@ -198,9 +200,13 @@ export async function syncPlanToStripe(client, plan, before) {
       // shortcut: secuencial dentro de la petición; con cientos de suscriptores, pasarlo a un job.
       for (const { stripe_subscription_id: subId } of subs) {
         const sub = await stripe.subscriptions.retrieve(subId);
-        await stripe.subscriptions.update(subId, {
-          items: [{ id: sub.items.data[0].id, price: newPrice }], proration_behavior: 'none',
-        });
+        if (sub.schedule) {
+          await swapSchedulePrice(sub.schedule, oldPrice, newPrice);
+        } else if (sub.items.data[0].price.id === oldPrice) {
+          await stripe.subscriptions.update(subId, {
+            items: [{ id: sub.items.data[0].id, price: newPrice }], proration_behavior: 'none',
+          });
+        }
       }
       await stripe.prices.update(oldPrice, { active: false });
     } else if (plan.is_active !== before.is_active) {
@@ -210,6 +216,21 @@ export async function syncPlanToStripe(client, plan, before) {
   if (newPrice !== oldPrice) {
     await client.query(`UPDATE plans SET stripe_price_id = $2 WHERE id = $1`, [plan.id, newPrice]);
   }
+}
+
+// Con un Schedule adjunto (bajada programada) el Price se cambia en sus fases: cambiarlo en la suscripción
+// partiría la fase actual y dejaría la pendiente con el Price viejo. Las fases pasadas se omiten.
+async function swapSchedulePrice(scheduleId, oldPrice, newPrice) {
+  const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
+  const now = Math.floor(Date.now() / 1000);
+  const swap = (price) => (price === oldPrice ? newPrice : price);
+  await stripe.subscriptionSchedules.update(scheduleId, {
+    proration_behavior: 'none',
+    phases: schedule.phases.filter((p) => p.end_date > now).map((p) => ({
+      items: p.items.map((i) => ({ price: swap(typeof i.price === 'string' ? i.price : i.price.id), quantity: i.quantity })),
+      start_date: p.start_date, end_date: p.end_date, metadata: p.metadata, proration_behavior: p.proration_behavior,
+    })),
+  });
 }
 
 // Reglas de la lista elegible (vacía = cualquier disciplina permitida por edad: siempre válida).

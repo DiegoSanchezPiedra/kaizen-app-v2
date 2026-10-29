@@ -52,7 +52,7 @@
 | B10.1 | Modelo Stripe en `invoices` + webhook `invoice.payment_failed` | B10 | IMPLEMENTADO |
 | B10.2 | Endpoint admin morosos y "en gracia" por pagador | B10.1, B10.3 | IMPLEMENTADO |
 | B10.3 | Seguro y cobertura de riesgo (seguro anual o `waiver`) | B10.1 | Implementado |
-| B10.5 | Upgrade/downgrade + cambio de disciplina | B10 | Diseñado |
+| B10.5 | Upgrade/downgrade + cambio de disciplina | B10 | IMPLEMENTADO |
 | B10.6 | Emails transaccionales de billing (al pagador) | B10.1 | Pendiente |
 | B11 | Baja admin de suscripciones y seguro + cambio de pagador | B10.5, B10.3 | Pendiente |
 | B12 | ~~Validación final waiver/consentimientos en checkout~~ | — | ELIMINADO (absorbido por B4.5 y B10.3) |
@@ -230,7 +230,7 @@
 - **Entregable**: RLS en `bookings`; función `create_booking` con `FOR UPDATE`; endpoints de reserva/cancelación; middleware `requireCompleteProfile` (B4.5) montado.
 - **Reglas de dominio**: fijadas en `CONTEXT.md` § Reservas (grill-with-docs, sin ADR).
 - **Implementación** (migración `009`): la lógica vive en funciones `SECURITY DEFINER` (owner `service_role`): `book_session`, `cancel_booking`, `cancel_session_bookings` (públicas) y `covers`, `promote_waitlist` (internas). `app_user` solo lee `bookings`. Aforo: `FOR UPDATE` de la sesión; solape: `pg_advisory_xact_lock` por alumno. Enum `booking_cancel_reason`; `academy_settings`: `booking_window_days` = 14, `cancellation_notice_minutes` = 60. Se crea `subscription_disciplines` (solo tabla; flujos en B10.5). Avisos: filas `notice.*` en `audit_log` con `changes.recipients` (B15 los envía). Se corrige el `UNIQUE` de 001, que era total y no parcial. Endpoints: `GET /bookings`, `POST /bookings`, `POST /bookings/:id/cancel`.
-- **Pendiente**: la subida de aforo (ajuste de sesión) y el cambio de clase deben llamar a `promote_waitlist` y eximir de cancelación tardía; la pérdida de cobertura masiva y el cambio de disciplina quedan para B10.5; la promoción no vuelve a comprobar el perfil completo.
+- **Pendiente**: la subida de aforo (ajuste de sesión) y el cambio de clase deben llamar a `promote_waitlist` y eximir de cancelación tardía; la promoción no vuelve a comprobar el perfil completo. Hecho en B10.5: el cambio de disciplina.
 - **Fuera de alcance**: pago (B10), asistencia (B8).
 - **Checklist de cierre**:
   - [x] RLS en `bookings`.
@@ -387,7 +387,7 @@
   - [x] `subscription_agreements` eliminada.
   - [x] Tests (incluida la regresión de B7/B9 con la nueva regla) y E2E con Stripe CLI.
 
-### B10.5 — Upgrade/downgrade + cambio de disciplina — Diseñado
+### B10.5 — Upgrade/downgrade + cambio de disciplina — IMPLEMENTADO
 - **Objetivo**: subir de plan (más caro) inmediato con prorrateo; bajar (igual o más barato) en la siguiente facturación; cambio de disciplina. Términos en `CONTEXT.md` («Suscripción», «Reservas»), decisión en ADR 0007.
 - **Reglas** (decididas 2026-10-29):
   - **Subida**: *pending update* (`payment_behavior: pending_if_incomplete`, `proration_behavior: always_invoice`), con `price` y `metadata` (`plan_id`, `discipline_ids`). Solo se aplica si se paga. Si la tarjeta se rechaza: *void* del recibo y 402 `payment_failed`. Si pide 3DS: `client_secret` para `handleNextAction`. Si había una bajada programada, se libera su Schedule antes.
@@ -433,14 +433,65 @@
        - baja admin con una bajada programada;
        - cambio de precio del plan con una bajada programada.
 - **Fuera de alcance**: baja (B11), flujo de reclamar el perfil a los 18 y su aviso (bloque propio; B10.5 lo resuelve por estado), emails (B10.6), UI.
+- **Implementación** (migración `014`):
+  - **Sondeo del sandbox** (2026-10-29, antes del paso 3):
+    - Una subida rechazada no lanza error: Stripe responde 200 con `pending_update` y el recibo `open`; el *void* descarta el pending update.
+    - Con 3DS: PI `requires_action` y `confirmation_secret` en el recibo.
+    - Con un Schedule adjunto, `cancel_at_period_end` **falla** («update the schedule instead») y `cancel` funciona (cancela también el Schedule).
+    - Cambiar el Price directamente parte la fase actual y no toca la pendiente.
+    - Un Schedule acepta reenviar una fase con un Price archivado.
+    - Stripe no deja actualizar un Schedule si la suscripción tiene un pending update (salió en los tests).
+  - **`014`**:
+    - `subscriptions.stripe_schedule_id`, `scheduled_plan_id`, `scheduled_discipline_ids` y `scheduled_at` (inicio de la fase 2). Las escribe solo el webhook.
+    - Seed `discipline_changes_per_period` = 1.
+    - `discipline_change_limit()` y `discipline_changes_used(sub)`: definer, de solo lectura y con permiso para `app_user`. Cuentan los cambios no gratis del periodo en `audit_log`.
+    - `change_discipline(sub, from, to, actor)`: interna, la llama el servicio con `servicePool`. Bajo `lock_student` aplica las reglas de estado, elegibilidad, «gratis» y límite (el límite no tiene carreras). Sustituye la disciplina, cancela las reservas y esperas futuras de `from` con `discipline_change` y `notice.discipline_change`, y escribe `audit_log`. Devuelve `{ free, cancelled }`. El 409 del límite lleva `{ limit, used, resets_at }` en `DETAIL`.
+  - **Servicio** (`src/services/billing.js`):
+    - `validateOrder`, compartido con `createCheckout`.
+    - `changePlan`: valida contra local y contra Stripe. Es subida si el plan es más caro, o si es un adulto en un plan solo menores.
+      - `applyPlanNow`: libera el Schedule y pide el pending update. Si la tarjeta se rechaza, anula el recibo y responde 402. Si pide 3DS, devuelve el `client_secret` al pagador; al admin le responde 409 y deja `notice.upgrade_requires_action` con el `hosted_invoice_url` (escrito con `servicePool` para que sobreviva al rollback). En el caso del admin, el pending update sigue vivo 23 h.
+      - `scheduleDowngrade`: anula un pending update a medias (lo exige Stripe), crea o reutiliza el Schedule y reescribe sus fases (la actual tal cual y la nueva de 1 mes, `release`, `none`).
+    - `cancelScheduledChange` (libera el Schedule), `changeDiscipline` (permisos, `change_discipline` y espejo de `discipline_ids` en la metadata de Stripe dentro de la transacción), `getSubscription` y `updateDisciplineChangeSettings`.
+    - `pendingPhase(schedule)`: la fase pendiente. Un Schedule puede seguir adjunto ya aplicado.
+  - **Adaptado al Schedule**:
+    - `cancelSubscription` libera el Schedule antes de pedir la baja y, si había bajada pendiente, deja `notice.scheduled_change_discarded`.
+    - `syncPlanToStripe` incluye las suscripciones con bajada programada al plan. Con Schedule adjunto cambia el Price en sus fases vigentes (`swapSchedulePrice`, `none`). Una bajada a un plan retirado se respeta.
+  - **Webhook**:
+    - `customer.subscription.updated`: si `metadata.plan_id` ≠ plan local, `applyPlan` cambia el plan, sustituye las disciplinas, ejecuta `revoke_coverage`, deja `notice.plan_downgraded` si baja o se queda igual y alinea el Price si cambió entretanto. Siempre ejecuta `syncSchedule`.
+    - `subscription_schedule.created/updated/released/canceled/completed` → `onSchedule` (relee la suscripción).
+    - `invoice.voided` actualiza el recibo.
+    - El recibo de una subida (`billing_reason = subscription_update`) no genera `notice.payment_failed`.
+  - **Endpoints**:
+    - `GET /billing/subscription`, `POST /billing/subscriptions/:id/plan`, `DELETE /billing/subscriptions/:id/plan/scheduled` y `POST /billing/subscriptions/:id/disciplines`.
+    - Las mismas acciones del admin en `/admin/subscriptions/:id/...`, más `PUT /admin/settings/discipline-changes`.
+    - El cambio de disciplina sin permiso → 403 `not_allowed`.
+  - **Tests**:
+    - `test:billing`: validaciones y permisos del cambio de plan; cambio de disciplina (límite, límite 0, gratis, permisos, errores, espejo en Stripe); `getSubscription`.
+    - `test:webhook`, contra el sandbox: subida aplicada, rechazada y con 3DS (pagador y admin), bajada que sustituye una subida a medias, bajada (`scheduled_*`, sustituir, anular), subida que libera el Schedule, bajada aplicada (fase simulada), cambio de precio con Schedule, baja admin con Schedule y adulto en un plan solo menores.
+    - Regresión: `test:bookings`, `test:minors` y `test:catalog`.
+    - Arreglado un choque previo de `test:billing` (el seguro real de B10.3 contra el fixture de B10.2).
+  - **Sandbox**: la clave reclamable (`rkcs_test_`) se quedaba sin cupo. `.env` usa ahora la `sk_test_` del sandbox reclamado `kaizen-app-testing` (cuenta propia, no la de maat).
+- **E2E** (2026-10-29/30, sandbox `kaizen-app-testing`, `stripe listen --all-snapshot` + Chrome + *test clock*, por HTTP contra `npm run dev`):
+  - Subida con tarjeta 3DS: `requires_action` → `handleNextAction` → prorrateo de 15 € cobrado; plan y disciplinas aplicados por el webhook solo tras el pago; la reserva de la disciplina perdida, cancelada «sin cobertura».
+  - Subida rechazada: 402 `payment_failed` con `decline_message`, recibo `void`, `pending_update_expired` y nada cambia.
+  - Bajada con *test clock* hasta el cambio de fase: renovación al precio nuevo sin reembolso, plan y disciplinas aplicados, reserva hecha con la bajada programada cancelada, `notice.plan_downgraded` y `scheduled_*` vacíos. Una bajada posterior reutiliza el Schedule que sigue adjunto.
+  - Cambio de precio del plan destino y del actual con bajada programada: cambian las fases del Schedule y el Price de la suscripción, sin prorrateo. Retirar el plan destino respeta la bajada (Price archivado).
+  - Baja admin con bajada programada: Schedule liberado, `cancel_at_period_end` y `notice.scheduled_change_discarded`.
+  - Arreglo salido del E2E: el detalle del 402 se llamaba `error` y pisaba la categoría del `errorHandler`, que además no tenía el 402. Ahora es `decline_message` y `errorHandler` tiene `402: 'payment_required'`.
+  - Datos del E2E borrados después (base de desarrollo, *test clock* y productos archivados en el sandbox).
+- **Pendiente**:
+  - Añadir `subscription_schedule.*` e `invoice.voided` al endpoint del Dashboard. En local, `stripe listen --all-snapshot` (o `--events` con ellos).
+  - Las plazas que libera un cambio de disciplina no promocionan la espera (`shortcut:`, como `revoke_coverage`).
+  - Un cambio de precio del plan descarta un pending update a medias de sus suscriptores (Stripe lo anula al cambiar `items`).
+  - El cambio de plan no pasa por `requireCompleteProfile` (el diseño no lo pide).
 - **Checklist de cierre**:
-  - [ ] Subida: prorrateo cobrado y plan y disciplinas aplicados solo tras el pago (3DS y rechazo).
-  - [ ] Bajada: sin reembolso, aplicada al cambiar de fase; sustituir y anular; reservas no cubiertas canceladas al aplicarse.
-  - [ ] Adulto en plan solo menores: cambio inmediato con prorrateo.
-  - [ ] Cambio de disciplina: inmediato, límite por periodo (también 0), gratis si ya no se cubre, cancela con `discipline_change`.
-  - [ ] Baja admin y cambio de precio conviven con un Schedule.
-  - [ ] Seguro intacto.
-  - [ ] Tests y E2E con Stripe CLI.
+  - [x] Subida: prorrateo cobrado y plan y disciplinas aplicados solo tras el pago (3DS y rechazo).
+  - [x] Bajada: sin reembolso, aplicada al cambiar de fase; sustituir y anular; reservas no cubiertas canceladas al aplicarse.
+  - [x] Adulto en plan solo menores: cambio inmediato con prorrateo.
+  - [x] Cambio de disciplina: inmediato, límite por periodo (también 0), gratis si ya no se cubre, cancela con `discipline_change`.
+  - [x] Baja admin y cambio de precio conviven con un Schedule.
+  - [x] Seguro intacto.
+  - [x] Tests y E2E con Stripe CLI.
 
 ### B10.6 — Emails transaccionales de billing (al pagador) — Pendiente
 - **Objetivo**: email al alumno en `invoice.payment_failed`.

@@ -7,6 +7,7 @@ import { stripe } from '../src/config/stripe.js';
 import { createPlan, updatePlan } from '../src/services/catalog.js';
 import {
   createCheckout, createPortalSession, contractInsurance, getInsurance, updateInsuranceSettings, listOverduePayers,
+  changePlan, changeDiscipline, getSubscription, updateDisciplineChangeSettings,
 } from '../src/services/billing.js';
 
 const sp = async (c, fn) => { // savepoint: un error SQL no aborta el resto de la transacción
@@ -21,14 +22,18 @@ async function run(name, fn) {
   try { await fn(); console.log(`OK   ${name}`); } catch (e) { failed++; console.error(`FAIL ${name}\n`, e); }
 }
 
-const people = { admin: 'admin', prof: 'profesor', alu: 'alumno', other: 'alumno', tutor: 'tutor', child: 'alumno', child2: 'alumno' };
+const people = {
+  admin: 'admin', prof: 'profesor', alu: 'alumno', other: 'alumno', tutor: 'tutor', child: 'alumno', child2: 'alumno',
+  pc: 'alumno', child3: 'alumno', tutor2: 'tutor', // B10.5
+};
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 for (const [k, role] of Object.entries(people)) {
   await servicePool.query(`INSERT INTO profiles (id, display_name, birth_date) VALUES ($1, $2, $3)`,
     [U[k], `${k}-bill`, k.startsWith('child') ? '2016-05-05' : null]);
   await servicePool.query(`INSERT INTO user_roles (user_id, role) VALUES ($1, $2)`, [U[k], role]);
 }
-await servicePool.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2), ($1, $3)`, [U.tutor, U.child, U.child2]);
+await servicePool.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2), ($1, $3), ($1, $4), ($5, $4)`,
+  [U.tutor, U.child, U.child2, U.child3, U.tutor2]);
 
 const disc = (await servicePool.query(
   `INSERT INTO disciplines (name) VALUES ('T-Bill-A') RETURNING id`)).rows[0].id;
@@ -54,6 +59,8 @@ const { rows: [bk] } = await servicePool.query(
 
 const setStatus = (id, status) => servicePool.query(`UPDATE subscriptions SET status = $2 WHERE id = $1`, [id, status]);
 let synced, stripeSub, syncedSub;
+const pcSessions = [];
+let discD;
 
 // Checkout: K solo menores; B no elegible en el plan de 1.
 const mkDisc = async (name, minors) => (await servicePool.query(
@@ -90,6 +97,8 @@ const signWaiver = (student, by = student) => servicePool.query(
    SELECT gen_random_uuid(), $1, $2, 'waiver', version FROM agreement_documents
     WHERE type = 'waiver' AND published_at IS NOT NULL AND retired_at IS NULL`, [student, by]);
 const stripeSubs = []; // del seguro y de la cuota real, se cancelan al final
+const savedChanges = (await servicePool.query(
+  `SELECT value FROM academy_settings WHERE key = 'discipline_changes_per_period'`)).rows[0]?.value;
 
 try {
   await run('covers: en vigor = active + past_due; unpaid/cancelled no', async () => {
@@ -326,6 +335,8 @@ try {
      VALUES ($1, $2, $3, $4, 'active', $5)`, [od.sub2, U.child2, U.tutor, plan, `sub_test_${od.sub2}`]);
   sub.child2 = od.sub2; // lo borra el cleanup junto al resto
   od.ins = crypto.randomUUID();
+  // El seguro real de B10.3 sigue vivo y chocaría con insurances_one_live_idx: aquí ya no se usa.
+  await servicePool.query(`UPDATE insurances SET status = 'cancelled' WHERE student_id = $1`, [U.alu]);
   await servicePool.query(
     `INSERT INTO insurances (id, student_id, payer_id, status, bracket, stripe_subscription_id)
      VALUES ($1, $2, $2, 'active', 'adult', $3)`, [od.ins, U.alu, `sub_test_${od.ins}`]);
@@ -396,6 +407,113 @@ try {
     }
   });
   await reset();
+
+  // B10.5: validaciones del cambio de plan (fallan antes de Stripe) y cambio de disciplina.
+  // Los flujos con Stripe (subida, bajada, Schedule) están en test:webhook.
+  discD = await mkDisc('T-Bill-D', false);
+  const pc = {
+    one: await mkPlan({ tag: 'pc-one', max_disciplines: 1, price_cents: 2000 }),
+    two: await mkPlan({ tag: 'pc-two', max_disciplines: 2, price_cents: 3000 }),
+  };
+  co.push(pc.one, pc.two);
+  const { rows: [{ stripe_price_id: pcPrice }] } = await servicePool.query(`SELECT stripe_price_id FROM plans WHERE id = $1`, [pc.one.id]);
+  // Cuota real (el cambio de disciplina deja su espejo en la metadata de Stripe).
+  const pcCus = await stripe.customers.create({
+    payment_method: 'pm_card_visa', invoice_settings: { default_payment_method: 'pm_card_visa' } });
+  const pcStripe = await stripe.subscriptions.create({ customer: pcCus.id, items: [{ price: pcPrice }],
+    metadata: { student_id: U.pc, payer_id: U.pc, plan_id: pc.one.id, discipline_ids: String(disc) } });
+  stripeSubs.push(pcStripe.id);
+  const mkSub = async (key, student, payer, planId, stripeId, ids) => {
+    sub[key] = crypto.randomUUID();
+    await servicePool.query(
+      `INSERT INTO subscriptions (id, student_id, payer_id, plan_id, status, stripe_subscription_id,
+                                  current_period_start, current_period_end)
+       VALUES ($1, $2, $3, $4, 'active', $5, now() - interval '1 day', now() + interval '29 days')`,
+      [sub[key], student, payer, planId, stripeId]);
+    for (const d of ids) await servicePool.query(`INSERT INTO subscription_disciplines VALUES ($1, $2)`, [sub[key], d]);
+  };
+  await mkSub('pc', U.pc, U.pc, pc.one.id, pcStripe.id, [disc]);
+  await mkSub('child3', U.child3, U.tutor, pc.one.id, `sub_test_${crypto.randomUUID()}`, [disc]);
+  const setSub = (key, sql, params = []) => servicePool.query(`UPDATE subscriptions SET ${sql} WHERE id = $1`, [sub[key], ...params]);
+  const asUser = (who, fn) => withRls({ uid: U[who], role: people[who] }, fn, { commit: false });
+  const plan$ = (who, body) => asUser(who, (c) => changePlan(c, { id: sub.pc, actorId: U[who], isAdmin: who === 'admin', ...body }));
+  const disc$ = (who, key, fromId, toId) => withRls({ uid: U[who], role: people[who] },
+    (c) => changeDiscipline(c, { id: sub[key], actorId: U[who], isAdmin: who === 'admin', fromId, toId }));
+  const fails = (p, status, code) => assert.rejects(p, (e) => e.status === status && e.code === code);
+
+  await run('cambio de plan: quién, estado, mismo plan y las validaciones del checkout', async () => {
+    await fails(plan$('other', { planId: pc.two.id, disciplineIds: [disc, discB] }), 404, 'subscription_not_found'); // RLS
+    await fails(asUser('tutor2', (c) => changePlan(c, { id: sub.child3, actorId: U.tutor2, isAdmin: false, planId: pc.two.id })),
+      403, 'not_payer');
+    await fails(plan$('pc', { planId: pc.one.id, disciplineIds: [disc] }), 409, 'same_plan');
+    await fails(plan$('pc', { planId: coRetired.id }), 404, 'plan_not_found');
+    await fails(plan$('admin', { planId: coKids.id }), 409, 'plan_minors_only');
+    await fails(plan$('pc', { planId: pc.two.id, disciplineIds: [disc] }), 400, 'invalid_field');
+    await fails(plan$('pc', { planId: pc.two.id, disciplineIds: [disc, discK] }), 409, 'discipline_not_eligible');
+    await fails(plan$('pc', { planId: pc.two.id, disciplineIds: 'x' }), 400, 'invalid_field');
+    await setSub('pc', `status = 'past_due'`);
+    await fails(plan$('pc', { planId: pc.two.id, disciplineIds: [disc, discB] }), 409, 'subscription_not_active');
+    await setSub('pc', `status = 'active', cancel_at_period_end = true`);
+    await fails(plan$('admin', { planId: pc.two.id, disciplineIds: [disc, discB] }), 409, 'cancel_scheduled');
+    await setSub('pc', `cancel_at_period_end = false`);
+  });
+
+  await run('cambio de disciplina: inmediato, cancela con discipline_change, espejo en Stripe; límite por periodo', async () => {
+    const { rows: [s2] } = await servicePool.query(
+      `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status)
+       VALUES ($1, $2, now() + interval '3 days', now() + interval '3 days 1 hour', 60, 5, 'scheduled') RETURNING id`, [disc, U.prof]);
+    pcSessions.push(s2.id);
+    const { rows: [b] } = await servicePool.query(
+      `INSERT INTO bookings (id, session_id, student_id, booked_by, status)
+       VALUES (gen_random_uuid(), $1, $2, $2, 'confirmed') RETURNING id`, [s2.id, U.pc]);
+    assert.deepEqual(await disc$('pc', 'pc', disc, discB), { disciplines: [discB], changes_left: 0, free: false });
+    const { rows: [bk2] } = await servicePool.query(`SELECT status, cancel_reason FROM bookings WHERE id = $1`, [b.id]);
+    assert.deepEqual([bk2.status, bk2.cancel_reason], ['cancelled', 'discipline_change']);
+    const { rows: [n] } = await servicePool.query(
+      `SELECT actor_id, changes FROM audit_log WHERE action = 'notice.discipline_change' AND resource_id = $1`, [b.id]);
+    assert.deepEqual([n.actor_id, n.changes.recipients], [U.pc, [U.pc]]);
+    assert.equal((await stripe.subscriptions.retrieve(pcStripe.id)).metadata.discipline_ids, String(discB));
+    await assert.rejects(disc$('pc', 'pc', discB, disc), (e) => e.status === 409 && e.code === 'discipline_change_limit'
+      && e.details.limit === 1 && e.details.used === 1 && Boolean(e.details.resets_at));
+    const got = await asUser('pc', (c) => getSubscription(c, { studentId: U.pc }));
+    assert.deepEqual([got.id, got.plan.id, got.disciplines.map((d) => d.id), got.discipline_changes_left, got.scheduled_change],
+      [sub.pc, pc.one.id, [discB], 0, null]);
+  });
+
+  await run('cambio de disciplina gratis: la abandonada desactivada no cuenta para el límite', async () => {
+    await servicePool.query(`UPDATE disciplines SET is_active = false WHERE id = $1`, [discB]);
+    try {
+      assert.deepEqual(await disc$('admin', 'pc', discB, discD), { disciplines: [discD], changes_left: 0, free: true });
+    } finally {
+      await servicePool.query(`UPDATE disciplines SET is_active = true WHERE id = $1`, [discB]);
+    }
+  });
+
+  await run('límite 0: sin cambios salvo los gratis; per_period inválido → 400; solo admin', async () => {
+    const admin = (body) => withRls({ uid: U.admin, role: 'admin' }, (c) => updateDisciplineChangeSettings(c, body, U.admin));
+    for (const bad of [{ per_period: -1 }, { per_period: 1.5 }, { per_period: '1' }, {}]) {
+      await fails(admin(bad), 400, 'invalid_field');
+    }
+    await assert.rejects(withRls({ uid: U.pc, role: 'alumno' }, (c) => updateDisciplineChangeSettings(c, { per_period: 3 }, U.pc)));
+    assert.deepEqual(await admin({ per_period: 0 }), { per_period: 0 });
+    await assert.rejects(disc$('tutor', 'child3', disc, discB), (e) => e.code === 'discipline_change_limit' && e.details.limit === 0);
+    assert.equal((await asUser('tutor', (c) => getSubscription(c, { studentId: U.child3 }))).discipline_changes_left, 0);
+    await admin({ per_period: 1 });
+  });
+
+  await run('cambio de disciplina: quién (tutor no pagador sí; otro alumno y profesor no) y errores', async () => {
+    // tutor2 no paga pero es tutor vinculado: pasa el permiso y llega a las reglas.
+    await fails(disc$('tutor2', 'child3', discB, disc), 409, 'discipline_not_chosen');
+    await fails(disc$('other', 'child3', disc, discB), 404, 'subscription_not_found');
+    await fails(disc$('prof', 'pc', discD, disc), 404, 'subscription_not_found');
+    await fails(disc$('tutor', 'child3', disc, disc), 409, 'discipline_not_eligible'); // ya elegida
+    await fails(disc$('pc', 'pc', discD, discK), 409, 'discipline_not_eligible'); // adulto, solo menores
+    await fails(disc$('pc', 'pc', 'x', disc), 400, 'invalid_field');
+    await fails(disc$('tutor', 'child', disc, discB), 409, 'plan_all_disciplines');
+    await setSub('child3', `status = 'unpaid'`);
+    await fails(disc$('tutor', 'child3', disc, discB), 409, 'subscription_not_in_force');
+    await setSub('child3', `status = 'active'`);
+  });
 } finally {
   if (stripeSub) await stripe.subscriptions.cancel(stripeSub.id);
   for (const id of stripeSubs) await stripe.subscriptions.cancel(id).catch(() => {});
@@ -404,6 +522,12 @@ try {
     await servicePool.query(`INSERT INTO academy_settings (key, value) VALUES ($1, $2)`, [key, value]);
   }
   await servicePool.query(`DELETE FROM audit_log WHERE resource_type = 'insurance' AND actor_id = ANY($1::uuid[])`, [Object.values(U)]);
+  await servicePool.query(`DELETE FROM audit_log WHERE resource_id = ANY($1::text[])`, [Object.values(sub)]);
+  await servicePool.query(`DELETE FROM audit_log WHERE action = 'settings.discipline_changes' AND actor_id = $1`, [U.admin]);
+  await servicePool.query(`DELETE FROM academy_settings WHERE key = 'discipline_changes_per_period'`);
+  if (savedChanges !== undefined) {
+    await servicePool.query(`INSERT INTO academy_settings (key, value) VALUES ('discipline_changes_per_period', $1)`, [savedChanges]);
+  }
   await servicePool.query(`DELETE FROM invoices WHERE student_id = ANY($1::uuid[])`, [Object.values(U)]);
   await servicePool.query(`DELETE FROM insurances WHERE student_id = ANY($1::uuid[])`, [Object.values(U)]);
   await servicePool.query(`DELETE FROM user_agreements WHERE profile_id = ANY($1::uuid[])`, [Object.values(U)]);
@@ -416,13 +540,17 @@ try {
   await servicePool.query(`DELETE FROM audit_log WHERE resource_id = $1`, [bk.id]);
   await servicePool.query(`DELETE FROM bookings WHERE id = $1`, [bk.id]);
   await servicePool.query(`DELETE FROM class_sessions WHERE id = $1`, [sess.id]);
+  await servicePool.query(`DELETE FROM audit_log WHERE resource_id IN (SELECT id::text FROM bookings WHERE session_id = ANY($1::uuid[]))`, [pcSessions]);
+  await servicePool.query(`DELETE FROM bookings WHERE session_id = ANY($1::uuid[])`, [pcSessions]);
+  await servicePool.query(`DELETE FROM class_sessions WHERE id = ANY($1::uuid[])`, [pcSessions]);
+  await servicePool.query(`DELETE FROM subscription_disciplines WHERE subscription_id = ANY($1::uuid[])`, [Object.values(sub)]);
   await servicePool.query(`DELETE FROM invoices WHERE id = $1`, [inv]);
   await servicePool.query(`DELETE FROM subscriptions WHERE id = ANY($1::uuid[])`, [Object.values(sub)]);
   await servicePool.query(`DELETE FROM plans WHERE id = $1`, [plan]);
   for (const p of co) await servicePool.query(`DELETE FROM plan_disciplines WHERE plan_id = $1`, [p.id]);
   await servicePool.query(`DELETE FROM plans WHERE id = ANY($1::bigint[])`, [co.map((p) => p.id)]);
-  await servicePool.query(`DELETE FROM disciplines WHERE id = ANY($1::bigint[])`, [[disc, discK, discB]]);
-  await servicePool.query(`DELETE FROM guardianships WHERE tutor_id = $1`, [U.tutor]);
+  await servicePool.query(`DELETE FROM disciplines WHERE id = ANY($1::bigint[])`, [[disc, discK, discB, discD].filter(Boolean)]);
+  await servicePool.query(`DELETE FROM guardianships WHERE tutor_id = ANY($1::uuid[])`, [[U.tutor, U.tutor2]]);
   await servicePool.query(`DELETE FROM profiles WHERE id = ANY($1::uuid[])`, [Object.values(U)]);
   await closePools();
 }
