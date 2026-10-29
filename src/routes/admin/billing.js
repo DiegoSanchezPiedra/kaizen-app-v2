@@ -1,8 +1,8 @@
-// src/routes/admin/billing.js — baja de suscripciones (B11, adelantada a B10) y parámetros del seguro (B10.3). Solo admin.
+// src/routes/admin/billing.js — baja de suscripciones (B11, adelantada a B10), parámetros del seguro (B10.3) y morosos (B10.2). Solo admin.
 import { Router } from 'express';
 import { requireAuth, requireRole, withRlsContext } from '../../middleware/auth.js';
 import { httpError } from '../../lib/errors.js';
-import { cancelSubscription, updateInsuranceSettings } from '../../services/billing.js';
+import { cancelSubscription, updateInsuranceSettings, listOverduePayers } from '../../services/billing.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -26,5 +26,10 @@ router.post('/subscriptions/:id/cancel-at-period-end', withRlsContext(async (req
 router.put('/settings/insurance', withRlsContext(async (req, client) => ({
   settings: await updateInsuranceSettings(client, req.body ?? {}, req.user.id),
 })));
+
+// GET /admin/billing/delinquents|grace?limit&offset → pagadores con algo unpaid / solo past_due (CONTEXT § Moroso)
+for (const [path, list] of [['delinquents', 'delinquent'], ['grace', 'grace']]) {
+  router.get(`/billing/${path}`, withRlsContext(async (req, client) => listOverduePayers(client, { limit: req.query.limit, offset: req.query.offset, list })));
+}
 
 export default router;

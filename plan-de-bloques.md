@@ -50,7 +50,7 @@
 | B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | IMPLEMENTADO (pendiente commit) |
 | B10 | Stripe base (checkout, portal, webhook idempotente) | B4.5, B7 | IMPLEMENTADO |
 | B10.1 | Modelo Stripe en `invoices` + webhook `invoice.payment_failed` | B10 | IMPLEMENTADO |
-| B10.2 | Endpoint admin morosos y "en gracia" por pagador | B10.1, B10.3 | Pendiente |
+| B10.2 | Endpoint admin morosos y "en gracia" por pagador | B10.1, B10.3 | IMPLEMENTADO |
 | B10.3 | Seguro y cobertura de riesgo (seguro anual o `waiver`) | B10.1 | Implementado |
 | B10.5 | `subscription_disciplines` + upgrade/downgrade | B10 | Pendiente |
 | B10.6 | Emails transaccionales de billing (al pagador) | B10.1 | Pendiente |
@@ -312,14 +312,15 @@
   - [x] Idempotencia vía `webhook_events`.
   - [x] Tests manuales con Stripe CLI (E2E: recibos `paid` de ambos Checkouts).
 
-### B10.2 — Endpoint admin morosos y "en gracia" — Pendiente
+### B10.2 — Endpoint admin morosos y "en gracia" — IMPLEMENTADO
 - **Objetivo**: lista para el panel admin, agrupada por pagador.
 - **Entregable**: endpoint solo admin con dos listas: **morosos** (pagadores con alguna suscripción o seguro `unpaid`) y **en gracia** (`past_due`, no morosos).
-- **Fuera de alcance**: UI (B19).
+- **Fuera de alcance**: UI (B19), emails (B10.6).
+- **Implementación** (sin migración): `listOverduePayers` en `services/billing.js`, solo lectura sobre `subscriptions`, `insurances` e `invoices` (sin llamar a Stripe). `GET /admin/billing/delinquents` y `GET /admin/billing/grace` (`src/routes/admin/billing.js`), `?limit` (25, máx. 100) y `?offset`; error 400 `invalid_pagination`. Respuesta `{ payers, total, limit, offset }`; cada pagador trae `items` (suscripciones y seguros `past_due`/`unpaid`: alumno, plan o tramo, estado, fin de periodo) e `invoices` (recibos `open`: importe, intentos, siguiente reintento, último error, `hosted_invoice_url`). Orden: recibo pendiente más antiguo, luego `payer_id`. Un moroso muestra también lo que tenga en gracia.
 - **Checklist de cierre**:
-  - [ ] Endpoint devuelve las dos listas paginadas, agrupadas por pagador.
-  - [ ] Solo admin.
-  - [ ] Tests.
+  - [x] Endpoint devuelve las dos listas paginadas, agrupadas por pagador.
+  - [x] Solo admin (`requireRole('admin')` del router; la RLS además no da nada al resto).
+  - [x] Tests (`npm run test:billing`).
 
 ### B10.3 — Seguro y cobertura de riesgo — IMPLEMENTADO
 - **Objetivo**: seguro anual de la academia como alternativa al `waiver` (ADR 0005, ADR 0006). Términos en `CONTEXT.md` («Seguro y cobertura de riesgo»).

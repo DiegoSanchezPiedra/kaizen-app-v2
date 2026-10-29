@@ -359,3 +359,58 @@ export async function getInsurance(client, { userId, studentId }) {
   }
   return out;
 }
+
+// Una suscripción o seguro afectado = en periodo de gracia (past_due) o impagado (unpaid).
+const AFFECTED_SQL = `
+  affected AS (
+    SELECT 'subscription' AS kind, s.id, s.payer_id, s.student_id, s.status, pl.name AS label,
+           s.current_period_end, s.cancel_at_period_end
+      FROM subscriptions s JOIN plans pl ON pl.id = s.plan_id WHERE s.status IN ('past_due', 'unpaid')
+    UNION ALL
+    SELECT 'insurance', i.id, i.payer_id, i.student_id, i.status, i.bracket,
+           i.current_period_end, i.cancel_at_period_end
+      FROM insurances i WHERE i.status IN ('past_due', 'unpaid')
+  ),
+  -- Moroso = algo unpaid; en gracia = solo past_due. Un pagador sale en una sola lista.
+  payers AS (
+    SELECT payer_id FROM affected GROUP BY payer_id HAVING bool_or(status = 'unpaid') = $1
+  )`;
+
+/**
+ * Pagadores morosos (`delinquent`) o en periodo de gracia (`grace`), con sus suscripciones y seguros
+ * afectados y los recibos pendientes. Solo lectura: lo escribe el webhook y la RLS decide quién lo ve.
+ */
+export async function listOverduePayers(client, { list, limit = 25, offset = 0 }) {
+  limit = Number(limit);
+  offset = Number(offset);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0) {
+    throw httpError(400, 'invalid_pagination', 'limit debe estar entre 1 y 100 y offset ser >= 0');
+  }
+  const delinquent = list === 'delinquent';
+  const { rows } = await client.query(
+    `WITH ${AFFECTED_SQL},
+     pending AS (
+       SELECT a.payer_id, a.id AS item_id, v.id, v.period_start, v.amount_due_cents, v.attempt_count,
+              v.next_payment_attempt, v.last_payment_error, v.hosted_invoice_url
+         FROM invoices v JOIN affected a ON a.id = COALESCE(v.subscription_id, v.insurance_id)
+        WHERE v.status = 'open'
+     )
+     SELECT p.payer_id, pr.display_name,
+            (SELECT jsonb_agg(jsonb_build_object(
+                      'kind', a.kind, 'id', a.id, 'student_id', a.student_id, 'student_name', st.display_name,
+                      'label', a.label, 'status', a.status, 'current_period_end', a.current_period_end,
+                      'cancel_at_period_end', a.cancel_at_period_end) ORDER BY st.display_name, a.id)
+               FROM affected a JOIN profiles st ON st.id = a.student_id WHERE a.payer_id = p.payer_id) AS items,
+            COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                      'id', n.id, 'item_id', n.item_id, 'amount_due_cents', n.amount_due_cents,
+                      'attempt_count', n.attempt_count, 'next_payment_attempt', n.next_payment_attempt,
+                      'last_payment_error', n.last_payment_error, 'hosted_invoice_url', n.hosted_invoice_url)
+                      ORDER BY n.period_start NULLS LAST, n.id)
+               FROM pending n WHERE n.payer_id = p.payer_id), '[]') AS invoices
+       FROM payers p JOIN profiles pr ON pr.id = p.payer_id
+      ORDER BY (SELECT min(n.period_start) FROM pending n WHERE n.payer_id = p.payer_id) NULLS LAST, p.payer_id
+      LIMIT $2 OFFSET $3`, [delinquent, limit, offset]);
+  const { rows: [{ total }] } = await client.query(
+    `WITH ${AFFECTED_SQL} SELECT count(*)::int AS total FROM payers`, [delinquent]);
+  return { payers: rows, total, limit, offset };
+}

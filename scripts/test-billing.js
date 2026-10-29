@@ -6,7 +6,7 @@ import { withRls } from '../src/db/rls.js';
 import { stripe } from '../src/config/stripe.js';
 import { createPlan, updatePlan } from '../src/services/catalog.js';
 import {
-  createCheckout, createPortalSession, contractInsurance, getInsurance, updateInsuranceSettings,
+  createCheckout, createPortalSession, contractInsurance, getInsurance, updateInsuranceSettings, listOverduePayers,
 } from '../src/services/billing.js';
 
 const sp = async (c, fn) => { // savepoint: un error SQL no aborta el resto de la transacción
@@ -315,6 +315,87 @@ try {
       assert.equal((await stripe.prices.retrieve(now)).active, false);
     }, { commit: false });
   });
+  // B10.2: morosos y en gracia por pagador. Estados forzados en cada caso; se busca por payer_id (la BD puede tener más).
+  const overdue = async (list, opts = {}, user = { uid: U.admin, role: 'admin' }) =>
+    withRls(user, (c) => listOverduePayers(c, { list, ...opts }), { commit: false });
+  const has = async (list, payer) => (await overdue(list, { limit: 100 })).payers.find((p) => p.payer_id === payer);
+  const od = {}; // fixtures propios: 2.ª suscripción del tutor y seguro de alu
+  od.sub2 = crypto.randomUUID();
+  await servicePool.query(
+    `INSERT INTO subscriptions (id, student_id, payer_id, plan_id, status, stripe_subscription_id)
+     VALUES ($1, $2, $3, $4, 'active', $5)`, [od.sub2, U.child2, U.tutor, plan, `sub_test_${od.sub2}`]);
+  sub.child2 = od.sub2; // lo borra el cleanup junto al resto
+  od.ins = crypto.randomUUID();
+  await servicePool.query(
+    `INSERT INTO insurances (id, student_id, payer_id, status, bracket, stripe_subscription_id)
+     VALUES ($1, $2, $2, 'active', 'adult', $3)`, [od.ins, U.alu, `sub_test_${od.ins}`]);
+  const setIns = (status) => servicePool.query(`UPDATE insurances SET status = $2 WHERE id = $1`, [od.ins, status]);
+  const reset = async () => {
+    for (const k of ['alu', 'child', 'child2']) await setStatus(sub[k], 'active');
+    await setIns('active');
+    await servicePool.query(`DELETE FROM invoices WHERE id <> $1 AND student_id = ANY($2::uuid[])`, [inv, Object.values(U)]);
+  };
+  await run('morosos: suscripción unpaid; no sale en gracia', async () => {
+    await reset(); await setStatus(sub.alu, 'unpaid');
+    const p = await has('delinquent', U.alu);
+    assert.deepEqual(p.items.map((i) => [i.kind, i.status]), [['subscription', 'unpaid']]);
+    assert.equal(await has('grace', U.alu), undefined);
+  });
+  await run('morosos: solo el seguro unpaid también convierte en moroso', async () => {
+    await reset(); await setIns('unpaid');
+    const p = await has('delinquent', U.alu);
+    assert.deepEqual(p.items.map((i) => [i.kind, i.status, i.label]), [['insurance', 'unpaid', 'adult']]);
+  });
+  await run('en gracia: past_due no es moroso; active no sale', async () => {
+    await reset(); await setStatus(sub.alu, 'past_due');
+    assert.equal(await has('delinquent', U.alu), undefined);
+    assert.equal((await has('grace', U.alu)).items.length, 1);
+    assert.equal(await has('grace', U.tutor), undefined);
+  });
+  await run('mixto: unpaid + past_due del mismo tutor → solo morosos, con ambos hijos', async () => {
+    await reset(); await setStatus(sub.child, 'unpaid'); await setStatus(sub.child2, 'past_due');
+    assert.deepEqual((await has('delinquent', U.tutor)).items.map((i) => i.status).sort(), ['past_due', 'unpaid']);
+    assert.equal(await has('grace', U.tutor), undefined);
+  });
+  await run('tutor con dos hijos: uno past_due y otro active → en gracia con un solo item', async () => {
+    await reset(); await setStatus(sub.child2, 'past_due');
+    const p = await has('grace', U.tutor);
+    assert.deepEqual(p.items.map((i) => i.student_id), [U.child2]);
+  });
+  await run('recibos pendientes: open sí (con intentos, error, url), paid no', async () => {
+    await reset(); await setStatus(sub.child, 'past_due');
+    const mk = (status) => servicePool.query(
+      `INSERT INTO invoices (student_id, payer_id, subscription_id, stripe_invoice_id, status, amount_due_cents,
+                             attempt_count, last_payment_error, hosted_invoice_url)
+       VALUES ($1, $2, $3, $4, $5, 1000, 2, 'tarjeta rechazada', 'https://x/inv') RETURNING id`,
+      [U.child, U.tutor, sub.child, `in_test_${crypto.randomUUID()}`, status]);
+    const open = (await mk('open')).rows[0].id;
+    await mk('paid');
+    const p = await has('grace', U.tutor);
+    assert.equal(p.invoices.length, 1);
+    assert.deepEqual(
+      [p.invoices[0].id, p.invoices[0].item_id, p.invoices[0].attempt_count, p.invoices[0].last_payment_error, p.invoices[0].hosted_invoice_url],
+      [open, sub.child, 2, 'tarjeta rechazada', 'https://x/inv']);
+  });
+  await run('paginación: total, limit, offset; fuera de rango → 400', async () => {
+    await reset(); await setStatus(sub.alu, 'past_due'); await setStatus(sub.child, 'past_due');
+    const all = await overdue('grace', { limit: 100 });
+    assert.ok(all.total >= 2 && all.payers.length === all.total);
+    const page = await overdue('grace', { limit: 1, offset: 1 });
+    assert.deepEqual([page.payers.length, page.total, page.limit, page.offset], [1, all.total, 1, 1]);
+    assert.equal(page.payers[0].payer_id, all.payers[1].payer_id);
+    assert.equal((await overdue('grace', { limit: 1, offset: 1000 })).payers.length, 0);
+    for (const bad of [{ limit: 0 }, { limit: 101 }, { limit: 'x' }, { offset: -1 }]) {
+      await assert.rejects(overdue('grace', bad), (e) => e.status === 400 && e.code === 'invalid_pagination');
+    }
+  });
+  await run('RLS: quien no es admin no ve nada', async () => {
+    await reset(); await setStatus(sub.alu, 'unpaid');
+    for (const [uid, role] of [[U.prof, 'profesor'], [U.other, 'alumno']]) {
+      assert.equal((await overdue('delinquent', {}, { uid, role })).total, 0);
+    }
+  });
+  await reset();
 } finally {
   if (stripeSub) await stripe.subscriptions.cancel(stripeSub.id);
   for (const id of stripeSubs) await stripe.subscriptions.cancel(id).catch(() => {});
