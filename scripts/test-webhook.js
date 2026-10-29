@@ -115,6 +115,15 @@ try {
     assert.equal((await q(`SELECT 1 FROM webhook_events WHERE id = $1`, [e.id])).length, 0);
     await stripe.subscriptions.cancel(s.id);
   });
+  await run('suscripción de otra app de la cuenta (maat): checkout y trialing se ignoran sin error', async () => {
+    const c = await stripe.customers.create({ name: 'cliente de maat' });
+    const s = await stripe.subscriptions.create({ customer: c.id, items: [{ price }], trial_period_days: 7 });
+    stripeSubs.push(s.id);
+    assert.equal(await handleEvent(completed(s)), 'processed');
+    assert.equal(await handleEvent(evt('customer.subscription.updated', { id: s.id })), 'processed');
+    assert.equal(await localSub(s.id), undefined);
+    await stripe.customers.del(c.id);
+  });
   await run('carrera de checkouts: la segunda se cancela en Stripe, se reembolsa y se avisa a pagador y admin', async () => {
     raceSub = await paidSub(cusAlu, 'alu', 'alu');
     await handleEvent(completed(raceSub));

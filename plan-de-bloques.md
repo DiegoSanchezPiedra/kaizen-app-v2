@@ -355,6 +355,22 @@
   - [ ] Idempotencia (no duplicar en replay).
   - [ ] Test manual.
 
+### B10.7 — Migración de los clientes de maat — Pendiente (al pasar a producción)
+- **Contexto**: la cuenta de Stripe de producción hoy la usa maat, con clientes pagando. Hasta el paso a producción Kaizen trabaja solo con el sandbox; la cuenta real no se conecta antes.
+- **Objetivo**: que las suscripciones vivas de maat pasen a Kaizen sin que nadie vuelva a pagar ni a meter la tarjeta (clientes, tarjetas y aniversarios ya están en la cuenta).
+- **Ya hecho** (2026-10-29): convivencia en la misma cuenta. El webhook ignora los Checkouts sin el pedido de Kaizen en `metadata` y los estados sin mapear (`trialing`, `paused`) de suscripciones que no son de Kaizen (test en `test-webhook.js`).
+- **Entregable**:
+  - Inventario de la cuenta real: número de suscripciones, Prices usados, trials/pausas, Stripe Tax, métodos de pago, configuración del portal, cómo se identifica a cada persona (email) y si maat es una plataforma Connect.
+  - Script de importación idempotente: cliente → perfil pagador (`profiles.stripe_customer_id`), alumno y menores, Price de maat → plan de Kaizen (`subscriptions.update` al Price del plan con `proration_behavior: 'none'`), disciplinas (CSV o exportación de maat), fila en `subscriptions` + `subscription_disciplines`, recibos con `syncInvoice`.
+  - Endpoint de webhook propio de Kaizen con API `2026-09-30.endive` (sin cambiar la versión por defecto de la cuenta), clave `rk_live_` restringida y configuración de portal propia.
+  - Plan de corte: cuándo deja maat de vender y de recibir webhooks.
+- **Fuera de alcance**: cuentas de Stripe distintas (las tarjetas no se mueven sin el soporte de Stripe).
+- **Checklist de cierre**:
+  - [ ] Inventario revisado con el admin.
+  - [ ] Importación probada en un sandbox con datos copiados.
+  - [ ] Base legal del traspaso de datos confirmada (gestoría).
+  - [ ] Importación en producción y conteo cuadrado con Stripe.
+
 ### B11 — Baja admin de suscripciones y seguro + cambio de pagador — Pendiente
 - **Objetivo**: la baja la hace solo el admin (`cancel-now` / `cancel-at-period-end`), también la del seguro (paso a `waiver`); y el **cambio de pagador**.
 - **Cambio de pagador**: el admin elige al nuevo pagador (tutor vinculado o el propio alumno adulto) → enlace de Checkout para él (mismo plan y disciplinas, empieza al fin del periodo) → al completarlo, la suscripción antigua se cancela a fin de periodo. Si no lo completa a tiempo, no hay cambio y se avisa al admin. Al reclamar el perfil a los 18 se crea un aviso al admin para pasar el pago al propio alumno. Son dos suscripciones consecutivas (Stripe no cambia el cliente de una suscripción).

@@ -59,6 +59,8 @@ async function onCheckoutPaid(client, session) {
   // Con métodos de pago diferidos completed llega sin cobrar: se espera a async_payment_succeeded.
   if (session.mode !== 'subscription' || session.payment_status === 'unpaid') return;
   const sub = await stripe.subscriptions.retrieve(idOf(session.subscription));
+  // Sin el pedido de Kaizen es de otra app de la misma cuenta (maat): no es nuestra.
+  if (!sub.metadata?.student_id) return;
   // Pagador por el grafo de Stripe (cliente), no por metadata; metadata solo trae el pedido.
   const payer = await payerOf(client, sub.customer);
   const m = sub.metadata;
@@ -128,7 +130,12 @@ async function lostRace(client, sub, payer) {
 async function onSubscriptionChange(client, obj) {
   const sub = await stripe.subscriptions.retrieve(obj.id);
   const status = STATUS[sub.status];
-  if (!status) throw new Error(`estado de Stripe sin mapear: ${sub.status} (${sub.id})`);
+  if (!status) {
+    // trialing / paused de otra app de la cuenta (maat): solo es un error si la suscripción es nuestra.
+    const { rowCount } = await client.query(`SELECT 1 FROM subscriptions WHERE stripe_subscription_id = $1`, [sub.id]);
+    if (!rowCount) return;
+    throw new Error(`estado de Stripe sin mapear: ${sub.status} (${sub.id})`);
+  }
   const item = sub.items.data[0];
   const { rows: [row] } = await client.query(
     `UPDATE subscriptions SET status = $2, current_period_start = $3, current_period_end = $4,
