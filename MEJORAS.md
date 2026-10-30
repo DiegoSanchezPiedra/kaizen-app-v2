@@ -158,3 +158,6 @@ Una sola sesión inicial (antes de cerrar B4.5) debería fijar el vocabulario tr
 
 ### 5.2 Grados (cinturones, *kruang*) — **Impacto: Medio (bloque propio)**
 - No son badges: los otorga una persona, tienen historial, examen y quizá requisitos de horas. Por resolver: quién los da (admin, profesor de la disciplina), si son públicos (otro campo visible) y si un hijo los tiene.
+
+### 5.3 Push de logros — **Impacto: Bajo (mejora futura)**
+- Avisar al conseguir un badge (B15 lo dejó fuera). Obliga a comparar `student_progress` antes y después de cada marca de asistencia, y una corrección o una cancelación retroactiva puede quitar un badge ya avisado. Si se hace, sería un aviso más por push (ADR 0011) al alumno o a sus tutores.

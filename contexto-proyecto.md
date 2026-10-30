@@ -583,7 +583,7 @@ Owner de todas las tablas: `migrator`. **RLS activo con `FORCE` en las 8 tablas 
 | `plan_disciplines` | catálogo | relación plan ↔ disciplina (B5) |
 | `plans` | catálogo | planes de suscripción (B5) |
 | `profiles` | usuarios | identidad pública — **RLS Fase 1** |
-| `push_subscriptions` | notificaciones | suscripciones push (B15) |
+| `push_subscriptions` | notificaciones | dispositivos de push (B15, se rehace en `020`: `profile_id`, `endpoint` único, RLS `FORCE`) |
 | `student_health_info` | salud | **1:1 con `profiles`** (B4.5) — **RLS B4.5** |
 | `student_stats_daily` | agregación | stats diarias por alumno (B16); B14 no la usa (racha al leer), B16 decide su forma |
 | `subscriptions` | pagos | suscripciones Stripe (B10) |

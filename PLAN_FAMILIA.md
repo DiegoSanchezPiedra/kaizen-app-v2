@@ -103,6 +103,6 @@ Un hijo nunca es público ni aparece en el feed, la racha pública o los ranking
 ## 6. Riesgos nuevos
 
 - `create_child` es `SECURITY DEFINER`: si se rompe la comprobación del llamante, cualquiera podría crear perfiles vinculados. Se cubre con un test en `test-minors.js`.
-- Un hijo que cumple 18 y no reclama su perfil queda bloqueado en silencio. Hay que avisar a los tutores (B15).
+- Un hijo que cumple 18 y no reclama su perfil queda bloqueado en silencio. Hay que avisar a los tutores: B15 lo aplaza al bloque que cree el flujo de reclamar el perfil (sin ese flujo el aviso pediría algo imposible, y necesita un disparador por fecha).
 - Si el admin quitara el último tutor de un menor, el perfil quedaría inaccesible. Lo impide D12 (una comprobación en la app; valorar un trigger).
 - B9 asume "un alumno, un móvil". Hay que reabrirlo con este modelo.

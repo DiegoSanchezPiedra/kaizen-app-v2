@@ -59,7 +59,7 @@
 | B12 | ~~Validación final waiver/consentimientos en checkout~~ | — | ELIMINADO (absorbido por B4.5 y B10.3) |
 | B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 | IMPLEMENTADO |
 | B14 | Racha, horas, badges, ranking mensual opt-in y disciplina abierta | B8, B13 | IMPLEMENTADO |
-| B15 | Push (`push_subscriptions`, envío) | B2 | Pendiente |
+| B15 | Push (`push_subscriptions`, envío) | B2, B10.6 | Diseñado |
 | B16 | Agregaciones de informes + cron nocturno | B8 | Pendiente |
 | B17 | Endpoints de informes | B16 | Pendiente |
 | B18 | PWA (manifest, Service Worker) | B13 | Pendiente |
@@ -261,7 +261,7 @@
 - **Entregable**: RLS en `bookings`; función `create_booking` con `FOR UPDATE`; endpoints de reserva/cancelación; middleware `requireCompleteProfile` (B4.5) montado.
 - **Reglas de dominio**: fijadas en `CONTEXT.md` § Reservas (grill-with-docs, sin ADR).
 - **Implementación** (migración `009`): la lógica vive en funciones `SECURITY DEFINER` (owner `service_role`): `book_session`, `cancel_booking`, `cancel_session_bookings` (públicas) y `covers`, `promote_waitlist` (internas). `app_user` solo lee `bookings`. Aforo: `FOR UPDATE` de la sesión; solape: `pg_advisory_xact_lock` por alumno. Enum `booking_cancel_reason`; `academy_settings`: `booking_window_days` = 14, `cancellation_notice_minutes` = 60. Se crea `subscription_disciplines` (solo tabla; flujos en B10.5). Avisos: filas `notice.*` en `audit_log` con `changes.recipients` (se entregan por el outbox de B10.6, ADR 0008; los de reservas, por push en B15). Se corrige el `UNIQUE` de 001, que era total y no parcial. Endpoints: `GET /bookings`, `POST /bookings`, `POST /bookings/:id/cancel`.
-- **Pendiente**: la subida de aforo (ajuste de sesión) y el cambio de clase deben llamar a `promote_waitlist` y eximir de cancelación tardía; la promoción no vuelve a comprobar el perfil completo. Hecho en B10.5: el cambio de disciplina.
+- **Pendiente**: la subida de aforo (ajuste de sesión) y el cambio de clase deben llamar a `promote_waitlist` y eximir de cancelación tardía, y el cambio de clase debe avisar a los afectados (`CONTEXT.md`; con `booking_notice`, que desde B15 ya va por push); la promoción no vuelve a comprobar el perfil completo. Hecho en B10.5: el cambio de disciplina.
 - **Fuera de alcance**: pago (B10), asistencia (B8).
 - **Checklist de cierre**:
   - [x] RLS en `bookings`.
@@ -538,7 +538,7 @@
   - **Qué no va por email**:
     - Los avisos de reservas (`no_coverage`, `booking_promoted`, `session_cancelled`, `discipline_change`) van por push en B15.
     - Los admins de `recipients` (`stripe_risk` y la parte del admin de la carrera) no reciben entrega: los consultan en el panel (B19). Las disputas las notifica Stripe a la cuenta.
-    - El push de los avisos de facturación lo decide B15.
+    - El push de los avisos de facturación lo decide B15. **Decidido en B15**: no, solo email.
   - **Avisos nuevos**:
     - `notice.subscription_unpaid` / `notice.insurance_unpaid`: los crea el webhook en la transición a `unpaid` (no en cada evento). Llevan el `hosted_invoice_url` del recibo `open`.
     - `notice.subscription_cancelled`: lo crea `cancelSubscription` (baja admin), con `ends_at` (ahora o `current_period_end`) y, si la había, la bajada descartada (`discarded_plan_id`). **Sustituye** a `notice.scheduled_change_discarded`, que deja de crearse.
@@ -1139,7 +1139,7 @@
   - **Disciplina abierta**: la cubre un plan de 1 disciplina; un adulto no cubre una abierta solo menores; no se puede elegir; marcarla con elegidas → 409; desmarcarla cancela reservas futuras con «sin cobertura»; no sale en las disciplinas públicas.
   - **Regresión**: `test:profiles` (ajustado a 8 columnas y 3 funciones), `test:bookings`, `test:billing`, `test:webhook`, `test:catalog`, `test:classes`, `test:calendar`, `test:attendance`, `test:checkin`, `test:rls`, `test:minors`.
 - **Fuera de alcance**:
-  - push de logros (B15; puede detectar «acaba de conseguir» comparando `student_progress` antes y después de marcar presente);
+  - push de logros (B15 lo pasa a `MEJORAS.md` 5.3; podría detectar «acaba de conseguir» comparando `student_progress` antes y después de marcar presente);
   - feed de actividad, ranking general, badges por disciplina, «1.º del mes», grados (en `MEJORAS.md`);
   - `student_stats_daily` (B16);
   - caché o agregados de la racha (solo si un día hace falta);
@@ -1179,16 +1179,101 @@
   - Una abierta en `plan_disciplines` se ignora para cubrir, pero `checkEligible` (B5) la sigue contando entre las elegibles de un plan.
   - Los `id` de disciplina salen como número dentro del `jsonb` (`hours.disciplines`, como `public_disciplines` en B13) y como texto en `discipline.id` del ranking (como el resto del catálogo).
 
-### B15 — Push (`push_subscriptions`, envío) — Pendiente
-- **Objetivo**: notificaciones push.
-- **Cuenta familiar**: los avisos de un hijo van a todos sus tutores (incluido "cumple 18, debe reclamar su perfil"); los de facturación, al pagador.
-- **Entregable**: RLS en `push_subscriptions`; endpoints de suscripción; envío con web-push.
-- **Sobre el outbox de B10.6** (ADR 0008): push es un canal más en `notice_deliveries` (`channel = 'push'`), con el mismo worker. Hay que añadirlo al mapa de canales de `notice()` y hacer que `booking_notice` (SQL) cree sus entregas push. Decide aquí si los avisos de facturación van también por push.
-- **Fuera de alcance**: push al admin (solo alumno).
+### B15 — Push (`push_subscriptions`, envío) — Diseñado
+- **Objetivo**: entregar por push los avisos de reservas y el nuevo de re-firma, con email de respaldo para quien no tiene ningún dispositivo de push. Términos en `CONTEXT.md` («Avisos»), decisiones en ADR 0008 (outbox) y ADR 0011 (push por destinatario con email de respaldo).
+- **Choques con lo existente** (detectados en el diseño, 2026-10-31):
+  - La checklist pedía push de «pago fallido», pero `CONTEXT.md` dice que los avisos de facturación van siempre por email. **Gana `CONTEXT.md`**: la facturación sigue solo por email (B10.6) y el mapa `CHANNELS` de JS no cambia.
+  - Este bloque y `PLAN_FAMILIA.md` (§ 6) incluían el aviso «cumple 18, debe reclamar su perfil», pero no existe el flujo de reclamar el perfil (aplazado desde B4.6) y el aviso necesita un disparador por fecha (un cron). **Se aplaza** al bloque que cree ese flujo.
+  - B14 dejó el push de logros para B15: obliga a comparar `student_progress` antes y después de cada marca, y una corrección quita un badge ya avisado. **Pasa a `MEJORAS.md`** (5.3).
+  - `CONTEXT.md` dice que el cambio de clase avisa al alumno, pero ese aviso no existe (como la promoción y la exención de cancelación tardía, pendientes desde B7). **Queda pendiente** con ellos, fuera de B15.
+  - `push_subscriptions` (001): sin RLS, `app_user` con `arwd`, `user_id` sin FK y `endpoint` sin `UNIQUE`. Está vacía: **se rehace**.
+  - No hay logout en el servidor (JWT sin estado): dar de baja un dispositivo es cosa del cliente (B18).
+  - El aviso de re-firma tampoco existía: se crea aquí.
+- **Reglas** (decididas 2026-10-31):
+  - **Qué va por push**:
+    - Reservas (`booking_notice`): `no_coverage`, `booking_promoted`, `session_cancelled`, `discipline_change`. Destinatarios sin cambios: el alumno o todos sus tutores (también los de un hijo con 18 sin reclamar).
+    - Re-firma (`notice.agreement_published`, nuevo), ver abajo.
+    - Facturación: **no** (solo email, B10.6).
+  - **Canal por destinatario, al crear el aviso** (ADR 0011): `push` si tiene al menos un dispositivo de push; si no, `email` (email de respaldo). No se vuelve a decidir: si sus dispositivos caducan después, la entrega acaba `skipped` (`no_subscription`).
+  - **Quién no recibe entrega**: los admin (como en B10.6), el **actor** del aviso (el tutor que cambia la disciplina de su hijo; los demás tutores, sí) y nadie con rol profesor (no tiene avisos). El aviso queda igualmente en `audit_log`.
+  - **Agrupar cancelaciones**: si una misma transacción cancela varias reservas de un alumno con la misma acción (`no_coverage`, `discipline_change`), `audit_log` guarda una fila por reserva, pero solo la primera crea entregas. El worker compone un único mensaje con todas las de la misma acción, alumno y `created_at` (`now()` es constante en la transacción): «Se han cancelado 8 reservas de Lucía…».
+  - **Caducidad**: los avisos de reservas guardan `expires_at` = inicio de la sesión (en uno agrupado, la sesión más próxima); el worker los marca `skipped` (`stale`) desde entonces, como en B10.6. El TTL del push es el tiempo que le queda al aviso hasta caducar.
+  - **Re-firma** (`agreement_published`):
+    - Al publicar una versión, en la misma transacción.
+    - Destinatarios: quien tenía firmada la versión **anterior** (la que se retira) de ese tipo y sigue con una suscripción viva (`active`, `past_due`, `unpaid`). Por un hijo (menor de 18), sus tutores; el tutor (rol) que firmó su propio `data_protection`, si algún hijo suyo tiene una suscripción viva.
+    - Excluidos: el hijo con 18 cumplidos sin reclamar su perfil (sus tutores ya no firman por él), del `waiver` quien tiene el seguro en vigor, y todo en la primera publicación de un tipo (no hay anterior).
+    - Una sola entrega por destinatario aunque tenga varios hijos afectados. El texto no los nombra: «Hay una versión nueva de <acuerdo>. Fírmala para seguir reservando».
+  - **Entrega push**: una por aviso, destinatario y canal (el `UNIQUE` de ADR 0008). El worker la envía a **todos** los dispositivos de push del destinatario en ese momento:
+    - `sent` si al menos uno la acepta (201);
+    - 404/410 → borra ese dispositivo; si no queda ninguno que la aceptara, `skipped` (`no_subscription`);
+    - red, 429, 5xx → reintenta la entrega entera con las esperas de B10.6. Los dispositivos que ya la recibieron no la ven dos veces: `tag` y cabecera `Topic` = id del aviso;
+    - 401/403 → `failed` sin borrar nada (suele ser VAPID mal configurada);
+    - otro 4xx → `failed` (permanente).
+  - **Dispositivos de push** (`push_subscriptions`):
+    - Una fila por dispositivo, de un solo perfil: `endpoint` `UNIQUE`. Al suscribirse se hace upsert por `endpoint` y la fila **pasa al usuario actual** (móvil compartido).
+    - Lo dan de alta y de baja solo **alumno y tutor** (el resto, 403). La baja al cerrar sesión la hace el cliente (B18); si no la hace, el dispositivo sigue recibiendo avisos hasta que otro se suscriba en él o caduque (riesgo aceptado, ADR 0011).
+    - Sin límite de dispositivos por perfil (el rate limiting es de B20).
+    - `endpoint` validado en la ruta (frontera de confianza, contra el SSRF del worker): `https` y host en una lista cerrada de push services: `fcm.googleapis.com`, `*.push.services.mozilla.com`, `*.notify.windows.com`, `*.push.apple.com`. El worker confía en lo guardado.
+  - **VAPID**:
+    - `.env`: `PUSH_TRANSPORT` (`log` | `webpush`, por defecto `log`, como `EMAIL_TRANSPORT`), `VAPID_PUBLIC_KEY` y `VAPID_PRIVATE_KEY` (obligatorias con `webpush`), `VAPID_SUBJECT` (`mailto:` del buzón de la academia; por defecto el de `EMAIL_REPLY_TO`). Se validan al arrancar.
+    - Generar: `npx web-push generate-vapid-keys`. La privada no se versiona.
+    - Rotar: cambiar las claves y vaciar `push_subscriptions`; la PWA (B18) compara la clave pública al abrir y vuelve a suscribirse. Sin doble clave.
+  - **Contenido**:
+    - Payload JSON `{ title, body, url, tag }`, cifrado por `web-push` (`aes128gcm`). Solo español. Fechas y horas en `es-ES`, hora de Madrid.
+    - Datos mínimos (se ve en la pantalla de bloqueo): nombre del alumno (un tutor con dos hijos necesita saber cuál), disciplina o clase y fecha de la sesión, o el tipo de acuerdo. **Nunca** salud, edad, fecha de nacimiento ni motivo de una cuenta impagada. Ejemplo: «Sesión cancelada · BJJ Fundamentos, lun 3 nov 19:00 (Lucía)».
+    - `url` a `APP_URL/bookings` (reservas) o `APP_URL/agreements` (re-firma).
+  - **Email de respaldo**: plantillas para los 4 avisos de reservas y la re-firma con `mail()` de B10.6. El pie pasa a ser un parámetro: «email de servicio sobre tus reservas en Kaizen» (o «sobre tus acuerdos»), con el contacto de la academia. Mismo enlace que el push.
+  - **Sin opt-out** por tipo de aviso: el push se deja quitándole el permiso al navegador (y entonces llega el email de respaldo); el email de respaldo es de servicio (LSSI art. 21).
+- **Pasos**:
+  1. **Migración `020`**:
+     - `push_subscriptions` se borra y se crea: `id uuid` (default `gen_random_uuid()`), `profile_id` → `profiles` `ON DELETE CASCADE`, `endpoint text UNIQUE`, `p256dh text`, `auth text`, `created_at`. Índice por `profile_id`. RLS `ENABLE` + `FORCE`: `SELECT` y `DELETE` de las filas propias para `app_user`; sin `INSERT` ni `UPDATE` directos. El `down` la recrea como en 001.
+     - `notice_deliveries`: `CHECK (channel IN ('email', 'push'))`.
+     - `save_push_subscription(endpoint, p256dh, auth)` (`SECURITY DEFINER`, `EXECUTE` para `app_user`): exige `app.current_user_id`; upsert por `endpoint` con `profile_id` = el usuario actual.
+     - `enqueue_notice(audit_id, recipients uuid[], actor uuid)` (interna, sin `EXECUTE` para `app_user`): una entrega por destinatario, sin admins ni el actor; `push` si tiene algún dispositivo de push, si no `email`; `ON CONFLICT DO NOTHING`.
+     - `booking_notice` con `CREATE OR REPLACE`: añade `expires_at` (inicio de la sesión) a `changes`, y llama a `enqueue_notice` salvo que en la transacción ya exista un aviso con la misma acción y el mismo alumno (`created_at = now()`).
+     - `agreement_notice(document uuid)` (`SECURITY DEFINER`, `EXECUTE` para `app_user`): exige admin (`42501` `not_allowed`) y que el documento sea el vigente; busca la versión retirada más reciente del tipo (sin ella, no hace nada), crea `notice.agreement_published` (`type`, `version`, `previous_version`, `recipients`) y llama a `enqueue_notice`.
+     - Con su `down` (probado up → down → up).
+  2. **Dependencia**: `web-push` (cifrado `aes128gcm` y firma VAPID; no compensa escribirlos a mano).
+  3. **Configuración** (`src/config/push.js`): las variables de VAPID de arriba, validadas al arrancar.
+  4. **`services/push.js`**: `send({ subscription, payload, ttl, topic })` con dos transportes, `webpush` y `log` (consola + fichero, como el email). Devuelve el estado por dispositivo; clasifica el error en `gone` (404/410), transitorio (red, 429, 5xx) o permanente.
+  5. **`services/notices.js`**:
+     - `compose` por canal: el email de B10.6, los 5 nuevos emails de respaldo y el payload push (con los avisos agrupados).
+     - `sendPending`: las entregas `push` leen los dispositivos del destinatario, envían a todos, borran los `gone` y marcan como arriba (`skipped` `no_subscription` si no queda ninguno).
+     - `mail()` con el pie como parámetro.
+  6. **`publishDocument`** (`services/agreements.js`): llama a `agreement_notice` tras publicar, en la misma transacción.
+  7. **Rutas** (`routes/me.js` y una ruta pública para la clave):
+     - `POST /me/push-subscriptions` `{ endpoint, keys: { p256dh, auth } }` → 201; 400 `invalid_field` (endpoint fuera de la lista, no `https`, claves vacías o no base64url); 403 `forbidden` si el rol no es alumno ni tutor.
+     - `DELETE /me/push-subscriptions` `{ endpoint }` → 204 (también si no existe o es de otro: no se distingue).
+     - `GET /push/vapid-public-key` → `{ key }` (con sesión; 503 `push_disabled` con `PUSH_TRANSPORT=log` sin claves).
+  8. **Docs**: `contexto-proyecto.md` §3 (variables) y §6 (`push_subscriptions`, funciones de `020`).
+- **Tests** (`test:push`, nuevo; `web-push` real contra un servidor HTTP local que responde 201, 404, 410, 429 o 500, con claves de cliente de `crypto.createECDH('prime256v1')` y endpoints insertados con `servicePool`):
+  - **Canal**: con un dispositivo → `push`; sin ninguno → `email`; admin y actor sin entrega; los avisos de facturación siguen solo con `email`.
+  - **Envío**: dos dispositivos reciben el payload descifrable con `tag` y `Topic`; 410 en uno borra ese y la entrega queda `sent`; 410 en todos → `skipped` `no_subscription`; 429/500 → `pending` con espera; 401/403 → `failed` sin borrar; caducado al empezar la sesión → `skipped` `stale`; TTL acotado.
+  - **Agrupar**: `revoke_coverage` de un alumno con 3 reservas → 3 avisos, 1 entrega por tutor, un mensaje con las 3.
+  - **Re-firma**: solo quien firmó la anterior y tiene suscripción viva; tutor por su hijo; tutor (rol) por su `data_protection`; sin el hijo de 18 sin reclamar; `waiver` sin quien tiene seguro en vigor; primera publicación sin aviso; un no admin que llama a `agreement_notice` → `42501`.
+  - **Dispositivos**: alta, baja; mismo `endpoint` desde otro usuario pasa a ser suyo y el anterior deja de verlo; RLS: nadie lee ni borra los ajenos; `app_user` no inserta directamente; profesor y admin → 403; endpoint `http`, de un host fuera de la lista o con IP → 400.
+  - **Contenido**: payloads y emails de respaldo sin fecha de nacimiento ni edad; nombre del alumno presente.
+  - **Regresión**: `test:notices`, `test:bookings`, `test:billing`, `test:webhook`, `test:attendance`, `test:agreements`, `test:rls`, `test:minors`.
+  - **Manual**: con `PUSH_TRANSPORT=log`, cancelar una sesión y ver el payload en el fichero. El push real en Chrome queda para B18 (necesita el Service Worker).
+- **Fuera de alcance**:
+  - push de los avisos de facturación (solo email);
+  - push al admin y al profesor;
+  - aviso «cumple 18, reclama tu perfil» (bloque del flujo de reclamar el perfil);
+  - aviso de cambio de clase (pendiente de B7);
+  - push de logros (`MEJORAS.md` 5.3);
+  - preferencias de avisos;
+  - Service Worker, pedir permiso y baja al cerrar sesión (B18);
+  - límite de dispositivos y rate limiting de las rutas (B20);
+  - endpoint y UI de entregas fallidas (B19).
 - **Checklist de cierre**:
-  - [ ] Suscripción/desuscripción.
-  - [ ] Envío en eventos clave (pago fallido, reserva, **re-firma de agreement tras publicación de versión nueva** — B4.5.1).
-  - [ ] Tests manuales.
+  - [ ] Migración `020`: `push_subscriptions` rehecha con RLS `FORCE`, `channel` con `push`, `save_push_subscription`, `enqueue_notice`, `booking_notice` y `agreement_notice`.
+  - [ ] Alta y baja de dispositivos de push (alumno y tutor), con traspaso del `endpoint` y la lista cerrada de hosts.
+  - [ ] Avisos de reservas y de re-firma por push, o por email si no hay dispositivo; sin admin ni actor; agrupados y caducados al empezar la sesión.
+  - [ ] Avisos de facturación sin cambios (solo email).
+  - [ ] Worker: envío a todos los dispositivos, limpieza 404/410, reintentos y `skipped` como arriba.
+  - [ ] Contenido mínimo, en español, sin salud, edad ni fecha de nacimiento.
+  - [ ] VAPID por `.env`, validada al arrancar.
+  - [ ] Tests (`test:push` y regresión) y prueba manual con `PUSH_TRANSPORT=log`.
 
 ### B16 — Agregaciones de informes + cron nocturno — Pendiente
 - **Objetivo**: agregaciones diarias (`student_stats_daily`, `academy_stats_daily`).
