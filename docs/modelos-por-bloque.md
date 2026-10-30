@@ -26,7 +26,7 @@ Qué lo baja: especificación cerrada en el plan, código que sigue un patrón y
 | **B6** — calendario del alumno (lo que falta) | — (sin diseño nuevo) | Sonnet, medio | Lectura sobre sesiones y reservas que ya existen. |
 | **B10.7** — migración de los clientes de maat | Opus, **xhigh** | Opus, **alto** | Cuenta de producción de un tercero con clientes pagando, dinero real y ajustes de toda la cuenta (reintentos, emails, descriptor). Un error no se deshace. |
 | **B13** — perfiles públicos y directorio | Opus, alto | Opus, medio | Privacidad: los hijos nunca son públicos, la salud no puede filtrarse y hay que decidir qué ve el profesor. Es RLS pura. |
-| **B14** — racha, badges, tabla opt-in | Opus, medio | Sonnet, medio | Poco riesgo; ojo solo con el opt-in de menores en la tabla. |
+| **B14** — racha, horas, badges, ranking opt-in y disciplina abierta | Opus, medio | Opus, medio | Diseñado: toca `covers()` (reservas y cobros), amplía la vista pública `public_profiles`, añade funciones `SECURITY DEFINER` que leen asistencia de menores, y las reglas de semana y mes dependen de la hora de Madrid. |
 | **B15** — push | Opus, alto | Opus, medio | Se engancha al outbox (ADR 0008) y a `booking_notice` en SQL; VAPID y caducidad de suscripciones; avisos a tutores de menores. |
 | **B16** — agregaciones de informes y cron nocturno | Opus, medio | Sonnet, alto | SQL de agregación con rendimiento e idempotencia del cron; lógica sencilla pero fácil de equivocar en los bordes (zonas horarias, días sin datos). |
 | **B17** — endpoints de informes | Sonnet, medio | Sonnet, medio | Lectura sobre B16; solo hay que cuidar quién ve qué. |

@@ -148,3 +148,13 @@ Una sola sesión inicial (antes de cerrar B4.5) debería fijar el vocabulario tr
 - B13 busca con `ILIKE`. Con `unaccent` (extensión de PostgreSQL, la crea un superusuario) «Jose» encontraría a «José».
 
 ---8<--- FIN MEJORAS.md ---8<---
+
+## Sección 5: Pendientes que salieron del diseño de B14
+
+### 5.1 Más gamificación — **Impacto: Bajo (mejora futura)**
+- **Feed de actividad** («Ana ha conseguido 100 h»): B14 borra `activity_feed`. Si vuelve, sería otra superficie pública con su propio opt-in y la regla de que un hijo nunca aparece.
+- **Ranking general** (todas las horas del mes, con el sparring una vez), **badges por disciplina** y **«1.º del mes en X»**: este último obliga a calcular los rankings de todos los meses pasados.
+- **Salto de semanas por disciplina**: hoy una semana solo se salta si la academia no celebró ninguna sesión (`shortcut:` en B14).
+
+### 5.2 Grados (cinturones, *kruang*) — **Impacto: Medio (bloque propio)**
+- No son badges: los otorga una persona, tienen historial, examen y quizá requisitos de horas. Por resolver: quién los da (admin, profesor de la disciplina), si son públicos (otro campo visible) y si un hijo los tiene.

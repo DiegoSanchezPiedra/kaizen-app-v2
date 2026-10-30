@@ -566,7 +566,7 @@ Owner de todas las tablas: `migrator`. **RLS activo con `FORCE` en las 8 tablas 
 |---|---|---|
 | `academy_settings` | configuración | parámetros globales (PK `key text`, `value jsonb`) — **RLS Fase 1** |
 | `academy_stats_daily` | agregación | stats diarias de academia (B16) |
-| `activity_feed` | social | feed de actividad (B14) |
+| `activity_feed` | social | sin uso; **B14 diseñado la borra** (no hay feed) |
 | `agreement_documents` | legal | documentos legales versionados (B4.5.1) |
 | `attendance` | operativa | asistencia a sesiones (B8) |
 | `audit_log` | auditoría | **RLS Fase 1, append-only** |
@@ -586,7 +586,7 @@ Owner de todas las tablas: `migrator`. **RLS activo con `FORCE` en las 8 tablas 
 | `profiles` | usuarios | identidad pública — **RLS Fase 1** |
 | `push_subscriptions` | notificaciones | suscripciones push (B15) |
 | `student_health_info` | salud | **1:1 con `profiles`** (B4.5) — **RLS B4.5** |
-| `student_stats_daily` | agregación | stats diarias por alumno (B16) |
+| `student_stats_daily` | agregación | stats diarias por alumno (B16); B14 no la usa (racha al leer), B16 decide su forma |
 | `subscriptions` | pagos | suscripciones Stripe (B10) |
 | `user_agreements` | legal | consentimientos firmados por usuario (B4.5). Renombrada desde `subscription_agreements`. Append-only. — **RLS B4.5** |
 | `user_mfa` | auth | secretos TOTP admin — **RLS Fase 1** |
