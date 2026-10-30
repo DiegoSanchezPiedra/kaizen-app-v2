@@ -189,6 +189,16 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 - **Ficha de salud vista por el profesor**: lesiones, condiciones, alergias, medicación y contacto de emergencia. Solo de los alumnos con reserva activa en sus sesiones del día (sustituciones incluidas) y solo ese día. Nunca experiencia ni disciplina previa.
 - **Auditoría**: registro inalterable que solo lee el admin. Recoge cada cierre de lista, cada corrección (qué cambió y motivo) y cada consulta de una ficha de salud por un profesor. No recoge el marcado previo al cierre.
 
+## Perfil público y directorio
+
+- **Perfil público**: la parte de un perfil que su dueño decide enseñar al resto de la academia. Es *opt-in*: todo perfil nace no público. Solo pueden serlo los **alumnos adultos con acceso propio** y los **profesores**. Nunca un hijo, tampoco el que ya cumplió 18 sin reclamar su perfil (no tiene acceso propio); ni un tutor (rol) ni el admin.
+- **Público** significa visible para la academia: lo ve cualquier perfil con sesión iniciada (alumnos, tutores, profesores y admin), nunca alguien de fuera sin sesión.
+  _Evitar_: público como «en internet».
+- **Campos visibles**: lo que enseña un perfil público. El nombre y el papel (alumno o profesor) van siempre. El resto lo elige el dueño, campo a campo, de una lista cerrada: bio, redes sociales (en bloque), disciplinas y «miembro desde» (mes y año). Las disciplinas de un alumno son las que cubre su suscripción en vigor (ninguna si no tiene); las de un profesor, las de las clases que imparte como profesor habitual. Al hacerse público, solo se ve el nombre. No hay foto por ahora. Nunca se enseñan, se elija lo que se elija: teléfono, email, fecha de nacimiento o edad, salud, suscripción, pagos, seguro, reservas ni asistencia.
+- **Publicar** y **despublicar**: solo el dueño hace público su perfil y elige sus campos visibles; un tutor nunca lo hace por un hijo. El admin puede despublicar cualquier perfil (p. ej. por una bio ofensiva), pero no edita su contenido; el dueño puede volver a publicarlo. Un hijo que reclama su perfil empieza no público.
+- **Directorio**: la lista de los perfiles públicos de la academia, ordenada por nombre. Se busca por nombre y se filtra por papel y por disciplina, pero un filtro solo mira lo que cada perfil enseña: quien oculta sus disciplinas no aparece al filtrar por disciplina. Un perfil que no es público no se distingue de uno que no existe.
+- **Qué se ve de un perfil que no es público**: todo, el propio perfil, sus tutores (el de un hijo) y el admin. El profesor, solo el nombre de los alumnos que han reservado alguna de sus sesiones. El nombre del profesor de una sesión lo ve cualquiera con sesión iniciada, sea público o no: es parte del horario, no una ficha.
+
 ## Avisos
 
 - **Aviso**: comunicación a uno o varios perfiles (sus **destinatarios**) de algo que les afecta: un cobro fallido, una reserva cancelada, una renovación… Queda registrado aunque no llegue a enviarse.

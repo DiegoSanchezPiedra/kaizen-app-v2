@@ -515,7 +515,7 @@ Notación: `uid = current_setting('app.current_user_id', true)::uuid`, `role = c
 - **`withRlsContext`**: desde B4.5 pasa `(req, res, client)` al handler. `client` es el de `appPool` dentro de transacción.
 
 **Riesgo residual aceptado en B3:**
-- `profiles_select` permite a `profesor` leer todos los perfiles. En B13 se revisará si restringir a "solo alumnos con reserva activa".
+- `profiles_select` permite a `profesor` leer todos los perfiles. En B13 se revisará si restringir a "solo alumnos con reserva activa". → **B13 diseñado** (ADR 0010): el profesor, solo los alumnos con alguna reserva en sus sesiones; `profiles` sin lectura pública (`is_public` sale de la política) y lo público por la vista `public_profiles`.
 - `academy_settings_select_all_authenticated = uid IS NOT NULL` asume que todos los parámetros son públicos para autenticados. En B5 se revisará si añadir `is_public` o política específica.
 
 ### Datos de salud
@@ -831,7 +831,7 @@ text
 - **No meter `password_hash`/`google_sub` en `profiles`**: van en `auth_credentials`.
 - ~~**RLS en `auth_credentials` rompe login**~~ → resuelto en B3.
 - ~~**RLS en `profiles` rompe registro**~~ → resuelto en B3.
-- **Política `profiles_select` demasiado laxa para `profesor`**: aceptado en B3; revisar en B13.
+- **Política `profiles_select` demasiado laxa para `profesor`**: aceptado en B3; revisar en B13. → decidido en B13 (ADR 0010); queda como residual que el profesor lee a nivel SQL la fila entera (no solo `display_name`) de los alumnos de sus sesiones.
 - **`academy_settings` pública para autenticados**: revisar en B5 (añadir `is_public` o política específica).
 - **`audit_log` protegido solo por RLS + `REVOKE`**: `service_role` podría `DELETE`. Protección = disciplina de código + auditoría en B20.
 - **`scripts/test-rls.js` y `scripts/test-mfa.js` destructivos**: solo local. B20 los migrará a BD efímera.
@@ -845,7 +845,7 @@ text
 - **`test-mfa.js` manipula `mfa_enabled` con `service_role`** para el caso de recovery codes. Acotado al script. B20.
 - **MFA solo admin, pero `user_mfa` es genérica**: la restricción está en la capa de app. Mitigado por `requireRole('admin')` en las dos rutas actuales.
 - **Flujo HTTP de MFA verificado manualmente, sin test automatizado**: el flujo 1a–1i se ha verificado a mano contra el servidor. B20 añadirá supertest para cubrirlo en CI.
-- **`student_health_info` nunca debe unirse a `public_profiles`**: cuando B13 cree la vista pública, verificar explícitamente que no incluye campos de salud. Añadir a checklist de B13.
+- **`student_health_info` nunca debe unirse a `public_profiles`**: cuando B13 cree la vista pública, verificar explícitamente que no incluye campos de salud. Añadir a checklist de B13. → B13 lo garantiza con un test de dependencias de la vista (`information_schema.view_table_usage`) y de su lista exacta de columnas.
 - **`requireCompleteProfile` puede quedar desactualizado** si cambia la definición de "completo". Mitigación: constantes en `src/config/agreements.js`; tests en `scripts/test-rls.js` que cubren los 3 tipos.
 - **Consentimiento sin firma electrónica avanzada (eIDAS)**: el `POST /me/agreements` con `{ type, version }` + `ip`/`user_agent`/`signed_at` es consentimiento simple. Si se necesita eIDAS (B12/B20), migrar. Documentado en §5.
 - ~~**Menores sin tutor modelado**~~ → `guardianships` en B4.6; modelo redefinido como Cuenta familiar (`PLAN_FAMILIA.md`).

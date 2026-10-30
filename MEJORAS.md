@@ -138,4 +138,13 @@ Una sola sesión inicial (antes de cerrar B4.5) debería fijar el vocabulario tr
 - **Baja solo por el admin**: la normativa de consumo tiende a exigir que darse de baja sea tan fácil como darse de alta (online). Si aplica, hay que abrir la baja a final de periodo al pagador (portal de Stripe o desde la app). B11 la dejó solo para el admin (decidido 2026-10-30). Otro motivo para abrirla: quien no encuentra cómo darse de baja acaba disputando el cargo, y cada disputa cuesta 20 € en Stripe aunque se gane.
 - **Factura legal (VeriFactu)**: los recibos de Stripe no son facturas. Elegir un servicio externo homologado; requisito: la factura se descarga desde la app.
 
+## Sección 4: Pendientes que salieron del diseño de B13
+
+### 4.1 Avatar del perfil público — **Impacto: Bajo (mejora futura)**
+- **Contexto**: B13 deja `avatar_url` sin usar. Una URL externa filtra la IP de quien mira al servidor de terceros y no controla la imagen.
+- **Por resolver antes de activarlo**: subida a `storage/` con límite de tamaño y tipo, **recodificar la imagen para quitar los EXIF** (una foto de móvil puede llevar la ubicación GPS de casa; pide una dependencia como `sharp`), servirla por un endpoint con sesión, *backups* (B20) y que nunca exista para un hijo.
+
+### 4.2 Búsqueda del directorio sin acentos — **Impacto: Bajo**
+- B13 busca con `ILIKE`. Con `unaccent` (extensión de PostgreSQL, la crea un superusuario) «Jose» encontraría a «José».
+
 ---8<--- FIN MEJORAS.md ---8<---

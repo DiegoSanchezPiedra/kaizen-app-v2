@@ -57,7 +57,7 @@
 | B10.7 | Migración de los clientes de maat | B10–B11 | Pendiente (al pasar a producción) |
 | B11 | Baja del seguro y cambio de pagador | B10.5, B10.3, B10.6 | IMPLEMENTADO |
 | B12 | ~~Validación final waiver/consentimientos en checkout~~ | — | ELIMINADO (absorbido por B4.5 y B10.3) |
-| B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 | Pendiente |
+| B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 | Diseñado |
 | B14 | Racha, badges, tabla opt-in | B7 | Pendiente |
 | B15 | Push (`push_subscriptions`, envío) | B2 | Pendiente |
 | B16 | Agregaciones de informes + cron nocturno | B8 | Pendiente |
@@ -900,17 +900,105 @@
 ### B12 — ELIMINADO
 - Absorbido: los consentimientos (`data_protection`, `rights_of_image`) ya los exige el perfil completo (B4.5) en el checkout, y el `waiver` pasa a la elección seguro / `waiver` del checkout (B10.3, ADR 0005).
 
-### B13 — Perfiles públicos (flags, `public_profiles`, directorio) — Pendiente
-- **Objetivo**: perfiles públicos con flags granulares y directorio.
-- **Cuenta familiar**: un hijo nunca es público (`is_public` forzado a false). Añadir al checklist.
-- **Entregable**: vista/función `public_profiles` respetando `visible_fields`; endpoint `/public/profiles`.
-- **Fuera de alcance**: UI (B18).
+### B13 — Perfiles públicos (flags, `public_profiles`, directorio) — Diseñado
+- **Objetivo**: perfil público *opt-in* con campos visibles elegidos uno a uno, directorio para la academia, y cerrar lo que `profiles` deja leer hoy (el profesor y los perfiles públicos leen filas enteras). Términos en `CONTEXT.md` («Perfil público y directorio»), decisión en ADR 0010.
+- **Choques con lo existente** (detectados en el diseño, 2026-10-30):
+  - `profiles_select` (003) tiene `OR is_public = true`: la RLS filtra filas, no columnas, así que un perfil público dejaría a cualquiera con sesión leer su fila entera (`phone`, `birth_date`, `stripe_customer_id`). Hoy está latente: ningún endpoint pone `is_public`.
+  - El profesor lee todas las filas de `profiles` (también la `birth_date` de los menores) y todo `user_roles` (riesgo aceptado en B3).
+  - `profiles_update_guardian` (006) deja al tutor, a nivel SQL, poner `is_public` en un hijo. «Forzado a false» no puede ser un `CHECK` porque la edad cambia con el tiempo.
+  - El calendario del alumno (lo que queda de B6) necesita el nombre del profesor, y un alumno solo puede leer la fila de un profesor si es pública.
+- **Reglas** (decididas 2026-10-30):
+  - **Quién puede ser público**: alumnos adultos **con acceso propio** (con `auth_credentials`) y profesores, siempre *opt-in* (`is_public` empieza en `false`). Nunca un hijo, tampoco el que cumplió 18 sin reclamar su perfil (no tiene `auth_credentials`), ni el rol tutor ni el admin. Lo decide la vista al leer, no el flag guardado.
+  - **Público = visible para la academia**: cualquier perfil con sesión iniciada (alumno, tutor, profesor, admin). Nunca sin sesión. Ver el directorio no exige perfil completo.
+  - **Campos visibles** (`visible_fields`): `display_name` y `role` van siempre. Flags booleanos, todos `false` al empezar, con una lista cerrada:
+    - `bio`;
+    - `social_links` (en bloque);
+    - `disciplines`: alumno, las disciplinas activas que **cubre** (`covers()`, 012) su suscripción en vigor, con un plan de «todas» las elegibles, y lista vacía si no tiene; profesor, las disciplinas de sus clases no retiradas como profesor habitual (sin sustituciones ni sesiones sueltas);
+    - `member_since` (`created_at`, como `YYYY-MM`).
+
+    Nunca, con o sin flag: `phone`, email, `birth_date` o edad, salud, suscripción, pagos, seguro, reservas ni asistencia. No están en la lista.
+  - **Sin avatar**: `avatar_url` se queda sin usar (fuera de alcance, ver abajo).
+  - **Lectura** (ADR 0010):
+    - `profiles_select` pierde `OR is_public = true`.
+    - Lo público se lee solo por la vista **`public_profiles`** (owner `service_role`, `security_barrier`, `GRANT SELECT` solo a `app_user`):
+      - **filas**: `is_public`, rol `alumno` o `profesor`, adulto (`birth_date` nula o de hace 18 años o más, como `ADULT` de 006), con `auth_credentials`, y `app.current_user_id` no nulo;
+      - **columnas**, exactamente: `id`, `display_name`, `role`, `bio`, `social_links`, `disciplines` (`jsonb` `[{ id, name }]`), `member_since`. Los cuatro opcionales con `CASE WHEN (visible_fields->>'x')::boolean THEN … END`: oculto = `NULL`.
+    - **Un filtro solo mira lo que el perfil enseña**: los filtros se aplican sobre la vista, así que `discipline_id` no encuentra a quien oculta sus disciplinas.
+    - **`trainer_names (id, display_name)`**: vista de los perfiles con rol `profesor`, con el mismo patrón (owner `service_role`, exige sesión). El nombre del profesor de una sesión lo ve cualquiera con sesión, sea público o no. La usará el calendario del alumno (lo que queda de B6).
+  - **Salud**: la vista no depende de `student_health_info`, y lo garantiza un test (ver Tests), no la revisión.
+  - **Profesor**:
+    - `profiles_select`: además del suyo, solo los alumnos con **alguna reserva** (cualquier estado y fecha) en una sesión que imparte (`class_sessions.trainer_id`, sustituciones incluidas), el mismo alcance que `bookings_select` (009). Con un helper `teaches_student(p_id)` `SECURITY DEFINER` (owner `service_role`, como `is_guardian_of`) para no encadenar la RLS de `bookings` dentro de la de `profiles`.
+    - `user_roles_select`: sin `'profesor'` (el propio perfil y el admin).
+    - **Riesgo residual que se acepta**: la RLS trabaja por filas, así que de esos alumnos el profesor puede leer a nivel SQL `phone` y `birth_date`. La API solo selecciona `display_name`. Escrito en el ADR 0010.
+  - **Edición**:
+    - Solo el dueño, con `PATCH /me/profile` (sin `profile_id`: un tutor nunca edita el perfil público de un hijo).
+    - `is_public: true` de quien no puede ser público → 403 `not_eligible`. `bio` y `social_links` se guardan aunque no pueda: no salen en ningún sitio.
+    - Validación (400 `invalid_field`):
+      - `visible_fields`: objeto solo con las 4 claves de la lista y valores booleanos (se fusiona con lo guardado);
+      - `bio`: texto de 500 caracteres como mucho, o `null`;
+      - `social_links`: objeto `{ red: url }`, con las redes `instagram`, `tiktok`, `youtube` y `web`, y URLs `https://` de 200 caracteres como mucho, o `null`.
+    - `profiles_update_guardian` añade `AND is_public = false` a su `WITH CHECK`: el tutor no publica al hijo ni a nivel SQL, y el hijo que reclama su perfil empieza no público sin hacer nada más.
+  - **Despublicar** (admin): `POST /admin/profiles/:id/unpublish` pone `is_public = false`, sin tocar el contenido. Es idempotente (si no era público, 200 sin hacer nada). Deja `profile.unpublish` en `audit_log` y no avisa. El dueño puede volver a publicar.
+  - **Directorio**:
+    - `limit` / `offset` como `listOverduePayers` (B10.2): 25 por defecto, 100 como máximo, 400 `invalid_pagination`, `{ profiles, total, limit, offset }`.
+    - Orden `display_name, id`.
+    - Filtros: `q` (`ILIKE` sobre el nombre, sin `unaccent`: haría falta una extensión), `role` (`alumno` / `profesor`) y `discipline_id`.
+  - **Respuesta de una ficha**: los campos ocultos **no aparecen** (no salen como `null`). Un perfil que no existe y uno que no es público dan el mismo 404 `profile_not_found`.
+- **Pasos**:
+  1. **Migración `017`**:
+     - `profiles_select`: sin `OR is_public = true`; el profesor, con `teaches_student(id)` en lugar de `role IN ('admin','profesor')`.
+     - `teaches_student(p_id uuid)`: `SECURITY DEFINER`, owner `service_role`, `EXECUTE` solo para `app_user`.
+     - `user_roles_select`: sin `'profesor'`.
+     - `profiles_update_guardian`: `WITH CHECK` con `AND is_public = false`.
+     - Vistas `public_profiles` y `trainer_names`, con owner `service_role`, `security_barrier` y `GRANT SELECT` a `app_user`.
+     - Datos: `UPDATE profiles SET is_public = false` de quien no puede ser público (debería no haber ninguno; por si acaso).
+  2. **Antes de quitar `'profesor'` de `user_roles_select`**: comprobar que ningún camino con el `client` del profesor lee `user_roles` de otros. Por ejemplo, `notice()` filtra admins leyendo `user_roles`: con la RLS de un no admin el filtro no los ve. Hoy el profesor no crea avisos.
+  3. **Servicio** (`services/profiles.js`): `listPublicProfiles`, `getPublicProfile`, `getMyProfile` (con `eligible`), `updateMyProfile` y `unpublishProfile`. Todos sobre `client` (RLS) y las vistas; nunca `servicePool`.
+  4. **Rutas**: `routes/profiles.js` (`requireAuth`), `/me/profile` en `routes/me.js` y `routes/admin/profiles.js`.
+  5. `test-rls.js`: el caso «profesor ve perfiles de alumnos» pasa a «solo los de sus sesiones».
+- **Endpoints**:
+  - `GET /profiles?q=&role=&discipline_id=&limit=&offset=` → `{ profiles: [ficha], total, limit, offset }`; 400 `invalid_pagination` / `invalid_field`.
+  - `GET /profiles/:id` → `{ profile: ficha }`; 400 `invalid_id`; 404 `profile_not_found`.
+  - Ficha: `{ id, display_name, role, bio?, social_links?, disciplines?: [{ id, name }], member_since?: 'YYYY-MM' }`.
+  - `GET /me/profile` → `{ is_public, eligible, visible_fields, bio, social_links }` (lo guardado, con los 4 flags siempre presentes).
+  - `PATCH /me/profile { is_public?, visible_fields?, bio?, social_links? }` → igual que el `GET`; 400 `invalid_field`; 403 `not_eligible`.
+  - `POST /admin/profiles/:id/unpublish` → `200 { id, is_public: false }`; 404 `profile_not_found`.
+  - `audit_log`: `profile.unpublish`.
+- **Tests** (`test:profiles`, nuevo):
+  - **Vista**:
+    - las columnas de `public_profiles` son **exactamente** las 7 esperadas;
+    - por `information_schema.view_table_usage`, solo depende de tablas permitidas (`profiles`, `user_roles`, `auth_credentials`, `subscriptions`, `plans`, `plan_disciplines`, `subscription_disciplines`, `disciplines`, `classes`) y **nunca** de `student_health_info`;
+    - sin `app.current_user_id`, 0 filas (también en `trainer_names`).
+  - **Quién sale**: alumno adulto público sí; no público, no; hijo con `is_public = true` forzado por SQL, no; hijo con 18 sin reclamar, no; tutor (rol) y admin con `is_public`, no; profesor público, sí.
+  - **Campos**: cada flag por separado; un campo oculto no aparece en la respuesta; `disciplines` del alumno (plan de N, plan de «todas», sin suscripción en vigor → `[]`) y del profesor (clases no retiradas, sin sustituciones); `member_since`.
+  - **Filtros**: `q`, `role`, `discipline_id` (quien oculta sus disciplinas no aparece) y paginación (`total`, límites, 400).
+  - **404 iguales**: un id inexistente y uno no público.
+  - **Edición**: validaciones de `PATCH`, `not_eligible` (tutor, admin), fusión de `visible_fields`, y el tutor no puede poner `is_public` a su hijo por SQL (`WITH CHECK`).
+  - **Despublicar**: admin, idempotente, `audit_log`; un no admin → 403.
+  - **RLS**:
+    - `profiles` ya no muestra un perfil público ajeno a un alumno;
+    - el profesor ve a los alumnos de sus sesiones (también los que cancelaron, también en sesiones pasadas y de sustitución) y no al resto;
+    - el profesor no lee `user_roles` ajenos;
+    - `trainer_names` lo lee un alumno.
+  - **Regresión**: `test:rls`, `test:attendance` (la lista del profesor), `test:minors`, `test:bookings` y `test:checkin`.
+- **Fuera de alcance**:
+  - **avatar** (subida, recodificar la imagen para quitar EXIF y la ubicación GPS, almacenamiento y *backups*): en `MEJORAS.md`;
+  - búsqueda sin acentos (`unaccent`);
+  - el calendario del alumno (lo que queda de B6), que solo usará `trainer_names`;
+  - el flujo de reclamar el perfil a los 18 (bloque propio; el perfil empieza no público sin hacer nada);
+  - feed, rachas y rankings (B14);
+  - avisos por despublicar;
+  - sacar las columnas privadas de `profiles` a otra tabla (alternativa descartada en el ADR 0010);
+  - UI (B18).
 - **Checklist de cierre**:
-  - [ ] `public_profiles` solo expone campos permitidos.
-  - [ ] **`student_health_info` NO se une a `public_profiles`** (riesgo §9 B4.5).
-  - [ ] Directorio paginado.
-  - [ ] Revisar política `profiles_select` para `profesor` (¿restringir a alumnos con reserva?).
-  - [ ] Tests.
+  - [ ] Migración `017`: `profiles_select` sin `is_public` y profesor con `teaches_student`, `user_roles_select` sin profesor, `WITH CHECK` del tutor, vistas `public_profiles` y `trainer_names`.
+  - [ ] `public_profiles` solo expone las 7 columnas, cada campo opcional detrás de su flag.
+  - [ ] **`student_health_info` NO se une a `public_profiles`**, garantizado por el test de dependencias (riesgo §9 B4.5).
+  - [ ] Un hijo nunca es público, tampoco con 18 sin reclamar su perfil, ni con el flag forzado por SQL.
+  - [ ] Directorio paginado, con filtros que solo miran lo visible.
+  - [ ] `profiles_select` del profesor restringida a los alumnos con reserva en sus sesiones.
+  - [ ] Endpoints de lectura, edición y despublicar, con `audit_log`.
+  - [ ] Tests (`test:profiles` y regresión).
 
 ### B14 — Racha, badges, tabla opt-in — Pendiente
 - **Objetivo**: gamificación básica (racha, badges, tabla opt-in).
@@ -987,6 +1075,7 @@
   - [ ] E2E de flujos críticos (incluye flujo MFA completo de B4 con supertest, y flujo B4.5/B4.5.1: subir → publicar → firmar → `requireCompleteProfile`).
   - [ ] `scripts/test-rls.js` y `scripts/test-mfa.js` migrados a BD efímera por test run (no destructivo en local compartido).
   - [ ] **[Alta] `audit_log` insertable por cualquier autenticado** (detectado en B8): la política `audit_log_insert_authenticated` (003) deja a cualquier usuario con `app_user` insertar filas arbitrarias, con lo que la auditoría es inalterable pero no auténtica. Arreglo: quitar la política y el `INSERT` a `app_user`, y mover los `INSERT` directos de `services/catalog.js` y `services/agreements.js` a funciones `SECURITY DEFINER` (las de 009/010 ya no la necesitan).
+  - [ ] **[Media] `UPDATE` de cualquier columna propia en `profiles`** (detectado en el diseño de B13): `profiles_update_self_or_admin` deja a cualquiera, a nivel SQL, cambiar sus propias `birth_date`, `stripe_customer_id` o `is_public` sin pasar por la API (que no lo expone). Arreglo: limitar las columnas editables (trigger o funciones `SECURITY DEFINER` por caso) o revisar el `WITH CHECK`.
   - [ ] **[Media] Smoke tests HTTP que matan procesos ajenos** (detectado en B8): en B8 se usó `pkill -f "node src/index.js"` para parar el servidor de prueba y probablemente paró otro servidor que ya escuchaba en el 3999. Arreglo: los E2E arrancan el servidor en un puerto libre (`PORT=0`/supertest) y lo paran por su PID, nunca con `pkill -f`.
   - [ ] **[Media] Llamadas a Stripe dentro de la transacción del webhook** (detectado en B10): `services/stripeWebhook.js` llama a la API de Stripe con la conexión de `servicePool` (máx. 5) abierta; una ráfaga de eventos con Stripe lento puede agotar el pool. Asumible al volumen de un gimnasio. Arreglo si hace falta: leer de Stripe antes de abrir la transacción o subir el pool del webhook.
   - [ ] **[Media] `past_due` → `unpaid` sin test real** (detectado en B10): `test-webhook` cubre la baja (`deleted`) pero no la ventana de reintentos. Arreglo: test con Stripe test clocks (avanzar el reloj hasta agotar los reintentos) que compruebe que `past_due` conserva las reservas y `unpaid` las cancela.
