@@ -118,22 +118,31 @@ export async function listCalendar(client, user, { from, to, discipline_id, prof
   else if (profile_id) subjects = [profile_id];
 
   const { rows } = await client.query(
-    `SELECT s.id, s.starts_at, s.ends_at, jsonb_build_object('id', d.id, 'name', d.name) AS discipline,
+    // covers() una vez por sujeto y disciplina, no por sesión: MATERIALIZED impide que el planificador la reparta.
+    `WITH s AS MATERIALIZED (
+       SELECT * FROM class_sessions
+        WHERE starts_at >= $1::date::timestamp AT TIME ZONE '${TZ}'
+          AND starts_at <  ($2::date + 1)::timestamp AT TIME ZONE '${TZ}'
+          AND ($3::bigint IS NULL OR discipline_id = $3)),
+     cov AS MATERIALIZED (
+       SELECT dd.discipline_id,
+              COALESCE(jsonb_object_agg(x, session_coverage(x, dd.discipline_id)) FILTER (WHERE x IS NOT NULL), '{}')
+                AS covered
+         FROM (SELECT DISTINCT discipline_id FROM s) dd LEFT JOIN unnest($4::uuid[]) x ON true
+        GROUP BY dd.discipline_id)
+     SELECT s.id, s.starts_at, s.ends_at, jsonb_build_object('id', d.id, 'name', d.name) AS discipline,
             CASE WHEN tn.id IS NOT NULL THEN jsonb_build_object('id', tn.id, 'display_name', tn.display_name) END AS trainer,
             s.location, s.capacity, s.status, (s.status = 'scheduled' AND s.ends_at < now()) AS held,
-            (SELECT COALESCE(jsonb_object_agg(x, session_coverage(x, s.discipline_id)), '{}')
-               FROM unnest($4::uuid[]) x) AS covered,
+            cov.covered,
             (SELECT COALESCE(jsonb_object_agg(x, (SELECT jsonb_build_object('id', b.id, 'status', b.status)
                                                     FROM bookings b
                                                    WHERE b.session_id = s.id AND b.student_id = x
                                                      AND b.status <> 'cancelled')), '{}')
                FROM unnest($4::uuid[]) x) AS booking
-       FROM class_sessions s
+       FROM s
        JOIN disciplines d ON d.id = s.discipline_id
+       JOIN cov ON cov.discipline_id = s.discipline_id
        LEFT JOIN trainer_names tn ON tn.id = s.trainer_id
-      WHERE s.starts_at >= $1::date::timestamp AT TIME ZONE '${TZ}'
-        AND s.starts_at <  ($2::date + 1)::timestamp AT TIME ZONE '${TZ}'
-        AND ($3::bigint IS NULL OR s.discipline_id = $3)
       ORDER BY s.starts_at, s.id`,
     [f, t, discipline_id ?? null, subjects]
   );
