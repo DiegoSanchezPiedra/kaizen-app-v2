@@ -40,20 +40,21 @@
 | B2 | Auth base (local + Google OIDC) + JWT + `SET LOCAL` | B1 | CERRADO |
 | B3 | RLS Fase 1 + tests por rol | B2 | CERRADO |
 | B4 | MFA TOTP admin | B2 | CERRADO |
-| B4.5 | `student_health_info` + `user_agreements` + bloqueo backend | B2 | Pendiente |
-| B4.5.1 | Gestión documental admin (`agreement_documents`, storage, subida) | B4.5 | Pendiente |
-| B4.6 | Cuenta familiar: el tutor crea y gestiona hijos sin credenciales (`PLAN_FAMILIA.md`) | B4.5.1 | IMPLEMENTADO (pendiente commit) |
-| B5 | CRUD disciplinas, planes y disciplinas elegibles (`plan_disciplines`) (admin) | B3, B4.6 | IMPLEMENTADO (pendiente commit) |
-| B6 | Clases + sesiones (CRUD admin, generación a 1 año, vista profesor) | B5 | Hecho (calendario alumno pendiente) |
-| B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | IMPLEMENTADO (pendiente commit) |
-| B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | IMPLEMENTADO (pendiente commit) |
-| B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | IMPLEMENTADO (pendiente commit) |
+| B4.5 | `student_health_info` + `user_agreements` + bloqueo backend | B2 | IMPLEMENTADO |
+| B4.5.1 | Gestión documental admin (`agreement_documents`, storage, subida) | B4.5 | IMPLEMENTADO |
+| B4.6 | Cuenta familiar: el tutor crea y gestiona hijos sin credenciales (`PLAN_FAMILIA.md`) | B4.5.1 | IMPLEMENTADO |
+| B5 | CRUD disciplinas, planes y disciplinas elegibles (`plan_disciplines`) (admin) | B3, B4.6 | IMPLEMENTADO |
+| B6 | Clases + sesiones (CRUD admin, generación a 1 año, vista profesor) | B5 | IMPLEMENTADO (calendario del alumno pendiente) |
+| B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | IMPLEMENTADO |
+| B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | IMPLEMENTADO |
+| B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | IMPLEMENTADO |
 | B10 | Stripe base (checkout, portal, webhook idempotente) | B4.5, B7 | IMPLEMENTADO |
 | B10.1 | Modelo Stripe en `invoices` + webhook `invoice.payment_failed` | B10 | IMPLEMENTADO |
 | B10.2 | Endpoint admin morosos y "en gracia" por pagador | B10.1, B10.3 | IMPLEMENTADO |
-| B10.3 | Seguro y cobertura de riesgo (seguro anual o `waiver`) | B10.1 | Implementado |
+| B10.3 | Seguro y cobertura de riesgo (seguro anual o `waiver`) | B10.1 | IMPLEMENTADO |
 | B10.5 | Upgrade/downgrade + cambio de disciplina | B10 | IMPLEMENTADO |
 | B10.6 | Emails transaccionales de billing (al pagador) | B10.1, B10.3, B10.5 | IMPLEMENTADO |
+| B10.7 | Migración de los clientes de maat | B10–B11 | Pendiente (al pasar a producción) |
 | B11 | Baja del seguro y cambio de pagador | B10.5, B10.3, B10.6 | IMPLEMENTADO |
 | B12 | ~~Validación final waiver/consentimientos en checkout~~ | — | ELIMINADO (absorbido por B4.5 y B10.3) |
 | B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 | Pendiente |
@@ -124,7 +125,8 @@
   - [x] `npm run test:mfa` → 13/13 `OK`, exit 0.
   - [x] Verificación HTTP end-to-end del flujo completo (1a–1i): login → `mfa_required` → `/auth/mfa/verify` con TOTP → token final → `/auth/me` con `mfa_enabled: true`; recovery code válido una vez y rechazado en el reintento; `mfa_token` rechazado por `requireAuth`.
 
-### B4.5 — `student_health_info` + `user_agreements` + bloqueo backend — Pendiente
+### B4.5 — `student_health_info` + `user_agreements` + bloqueo backend — IMPLEMENTADO
+- **Estado** (verificado el 2026-10-30: commit en el historial y tests verdes: `65bd98b`, `test:rls` 22 OK). La checklist de abajo no se marcó en su día; detalle en `contexto-proyecto.md` §4.
 - **Objetivo**: onboarding de salud y consentimientos; bloquear reservas/checkout hasta que estén completos. Versiones vigentes hardcodeadas en config (B4.5.1 las moverá a BD).
 - **Entregable**:
   - Migración `004_student_health_and_agreements.js`: `student_health_info` (1:1, RLS self+admin), `user_agreements` (append-only, RLS self+admin), vista `student_health_professor_view` (`SECURITY INVOKER`, solo `injuries`/`conditions`), triggers `set_updated_at`.
@@ -151,7 +153,8 @@
   - [ ] Servidor reiniciado tras `migrate` (riesgo §9).
   - [ ] Commit `feat(B4.5): student_health_info + user_agreements + requireCompleteProfile`.
 
-### B4.5.1 — Gestión documental admin (`agreement_documents`, storage, subida) — Pendiente
+### B4.5.1 — Gestión documental admin (`agreement_documents`, storage, subida) — IMPLEMENTADO
+- **Estado** (verificado el 2026-10-30: commit en el historial y tests verdes: `672d870`, `test:agreements` 7 OK). La checklist de abajo no se marcó en su día; la verificación HTTP manual no consta.
 - **Objetivo**: que el admin pueda subir, publicar y retirar los PDFs de los 3 tipos de agreement; `requireCompleteProfile` pasa a leer la versión vigente de BD.
 - **Dependencia dura**: va **inmediatamente después de B4.5, antes de B5**. Sin esto, B7/B10 no pueden usar versiones reales.
 - **Entregable**:
@@ -179,7 +182,7 @@
   - [ ] Verificación HTTP manual end-to-end: admin sube PDF → publica → alumno `GET /agreements/waiver/current` obtiene el PDF → `POST /me/agreements` con la versión nueva → `requireCompleteProfile` `ok: true`.
   - [ ] Commit `feat(B4.5.1): agreement_documents + storage + subida admin + requireCompleteProfile desde BD`.
 
-### B4.6 — Cuenta familiar — IMPLEMENTADO (pendiente commit)
+### B4.6 — Cuenta familiar — IMPLEMENTADO
 - **Objetivo**: el tutor se registra, crea a sus hijos (perfiles **sin credenciales**) y gestiona todo por ellos. Plan, decisiones D1–D16 y tabla de refactor en `PLAN_FAMILIA.md`; vocabulario en `CONTEXT.md`; ADR 0002.
 - **Primera versión** (commit `bc4685d`): menor con login propio y tutor que solo firmaba. Se sustituye.
 - **Dependencia dura**: después de B4.5.1 y **antes de B5** (reservas y pagos nacen con este modelo).
@@ -213,7 +216,8 @@
   - [x] Tests por rol: `npm run test:catalog` → 10/10 OK; `test:rls`, `test:agreements`, `test:minors` verdes.
   - [x] `migrate:down` → `migrate` → `migrate:down` sin error.
 
-### B6 — CRUD `class_sessions` + calendario — Pendiente
+### B6 — CRUD `class_sessions` + calendario — IMPLEMENTADO (calendario del alumno pendiente)
+- **Estado** (verificado el 2026-10-30: commit en el historial y tests verdes: `096b5e8`, `test:classes` 12 OK). La checklist de abajo no se marcó en su día.
 - **Objetivo**: sesiones de clase con calendario.
 - **Entregable**: RLS en `class_sessions`; endpoints admin + lectura para alumnos.
 - **Fuera de alcance**: reservas (B7), QR (B9), eventos (`events`/`event_registrations`, sin bloque asignado).
@@ -239,7 +243,8 @@
   - [x] `requireCompleteProfile` (B4.5) bloquea reservas con `403 profile_incomplete`.
   - [x] Tests de concurrencia + rol (`npm run test:bookings`).
 
-### B8 — Asistencia manual (`register_attendance`, auditoría) — Pendiente
+### B8 — Asistencia manual (`register_attendance`, auditoría) — IMPLEMENTADO
+- **Estado** (verificado el 2026-10-30: commit en el historial y tests verdes: `4703047`, `test:attendance` 12 OK).
 - **Objetivo**: profesor pasa lista manualmente; se audita.
 - **Cuenta familiar**: la edición de la ficha de salud del hijo por el tutor ya está en B4.6 (sale de aquí).
 - **Entregable**: RLS en `attendance`; endpoints de lista; inserción en `audit_log`.

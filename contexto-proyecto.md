@@ -296,7 +296,8 @@ MFA TOTP admin: setup + activate + verify (login en dos pasos con `mfa_token`), 
 
 **Repo Git:** commit `feat(B4): MFA TOTP admin (setup/activate/verify, recovery codes, AES-256-GCM) + fix withRlsContext`.
 
-### B4.5 — EN CURSO (1 fix pendiente: owner de la vista)
+### B4.5 — IMPLEMENTADO
+> 2026-10-30: el fix del owner de la vista está aplicado (`test:rls` 22 OK) y el bloque tiene commit (`65bd98b`). Lo de abajo es el registro de entonces.
 `student_health_info` (1:1) + `user_agreements` (3 tipos obligatorios, versionados) + helper `requireCompleteProfile` + endpoints `/me/*` + `GET /agreements/:type/current`. **Todo implementado y verificado excepto el test de la vista del profesor**, que falla por owner incorrecto. Ver §8 para el fix exacto.
 
 **Migración `004_student_health_and_agreements.js` aplicada** (reversible: `migrate:down` → `migrate` → `migrate:down` verificado):
@@ -359,7 +360,7 @@ MFA TOTP admin: setup + activate + verify (login en dos pasos con `mfa_token`), 
   - `GET /agreements/otro/current` → `404 { error:"not_found", code:"unknown_agreement_type", allowed:[...] }`.
   - `POST /me/health` sin token → `401 { error:"unauthorized", code:"missing_token" }`.
 
-**Fix pendiente para cerrar B4.5 (ver §8 para detalle):**
+**Fix para cerrar B4.5 (aplicado; ver §8):**
 1. `npm run migrate:down` (revierte `004`).
 2. En `migrations/004_student_health_and_agreements.js`, cambiar `pgm.sql('ALTER VIEW student_health_professor_view OWNER TO migrator;')` → `pgm.sql('ALTER VIEW student_health_professor_view OWNER TO service_role;')`. Actualizar el comentario encima de la vista para explicar que `SECURITY DEFINER` con owner `service_role` (`BYPASSRLS`) es lo que permite que la vista devuelva filas; `migrator` es `NOBYPASSRLS` y con `FORCE ROW LEVEL SECURITY` en la tabla base, la vista devolvía 0 filas.
 3. `npm run migrate`.
@@ -367,16 +368,19 @@ MFA TOTP admin: setup + activate + verify (login en dos pasos con `mfa_token`), 
 5. `npm run test:rls` → esperado **22 OK, 0 FAIL** (o **24 OK** si se añaden los 2 tests opcionales de alumno/admin sobre la vista).
 6. Commit `feat(B4.5): student_health_info + user_agreements + requireCompleteProfile`.
 
-### B4.5.1 — IMPLEMENTADO (pendiente verificación HTTP manual y commit)
+### B4.5.1 — IMPLEMENTADO (commit `672d870`; la verificación HTTP manual no consta)
 Migración `005_agreement_documents.js`: tabla `agreement_documents` (ciclo borrador → publicado → retirado, índice único parcial de una vigente por tipo, RLS, sin DELETE) y `UNIQUE(user_id)` en `user_roles` (ADR `docs/adr/0001-rol-unico-por-perfil.md`). `getCurrentVersions` lee de BD; `src/config/agreements.js` solo exporta `AGREEMENT_TYPES` y `VERSION_RE`. Endpoints admin en `src/routes/admin/agreements.js`: `GET /admin/agreements/documents`, `POST /admin/agreements/documents?type=&version=` (**cuerpo crudo `application/pdf`, ≤ 10 MB, sin multipart ni dependencia nueva**), `POST /admin/agreements/documents/:id/publish` (retira la vigente anterior y audita). `GET /agreements/:type/current` sirve el PDF. Sin `retireDocument`: se retira solo al publicar otro. Un tipo sin documento vigente cuenta como no firmado, así que **ningún alumno tiene el perfil completo hasta que un admin publique los 3 tipos**. Test: `npm run test:agreements`.
 
-### B4.6 — REABIERTO: rediseño Cuenta Familiar (plan en `PLAN_FAMILIA.md`)
+### B4.6 — IMPLEMENTADO (nuevo modelo de Cuenta Familiar, commit `920772c`; plan en `PLAN_FAMILIA.md`)
 **Primera versión (commit `bc4685d`, sustituida):** migración `006_minors_guardians.js` (`profiles.birth_date`, rol `tutor`, `guardianships` creada solo por admin, `user_agreements.signed_by` + RLS de firma por representación), `birthDate` obligatoria en `POST /auth/register`, `profile_id` opcional en `POST /me/agreements`, `getProfileStatus` menor/adulto, `scripts/test-minors.js`. Modelaba al menor **con login propio**.
 
 **Nuevo modelo (decidido el 2026-10-27, sin implementar):** el tutor se registra, crea a sus hijos (perfiles **sin credenciales**) y gestiona todo por ellos: perfil, ficha de salud, acuerdos, cuota, reservas, eventos y avisos. Se reescribe `006` en el sitio (no hay nada desplegado). Se conserva casi todo el esquema (`birth_date`, `guardianships`, `signed_by`) y se añaden `create_child` (SQL `SECURITY DEFINER`), el helper RLS `is_guardian_of`, políticas de tutor en `student_health_info` y `profiles`, y `GET/POST /me/children` + `PATCH /me/children/:id`. El registro propio exige ≥ 18. El rol `tutor` firma su propio `data_protection`. Decisiones D1–D16 en §5 "Cuenta familiar"; tabla mantener/refactorizar/borrar en `PLAN_FAMILIA.md` §4. **Va antes de B5.**
 
-### B5–B20 — PENDIENTES
-Ver `plan-de-bloques.md`.
+### B5–B11 — IMPLEMENTADOS · B10.7 y B13–B20 — PENDIENTES
+Estado al 2026-10-30 (detalle, decisiones y pendientes de cada bloque en `plan-de-bloques.md`):
+- **Implementados, con commit y tests verdes**: B5 catálogo, B6 clases y sesiones (falta el calendario del alumno), B7 reservas, B8 asistencia, B9 check-in QR, B10 Stripe base, B10.1 recibos, B10.2 morosos, B10.3 seguro, B10.5 cambio de plan y de disciplina, B10.6 emails de billing, B11 baja del seguro y cambio de pagador.
+- **Pendientes**: B10.7 migración de los clientes de maat (al pasar a producción) y B13–B20. Siguiente en orden: **B13**.
+- B12 eliminado (absorbido por B4.5 y B10.3).
 
 ---
 
