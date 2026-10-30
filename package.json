@@ -23,6 +23,7 @@
     "test:webhook": "dotenv -e .env -- node scripts/test-webhook.js",
     "test:notices": "dotenv -e .env -- node scripts/test-notices.js",
     "test:profiles": "dotenv -e .env -- node scripts/test-profiles.js",
+    "test:calendar": "dotenv -e .env -- node scripts/test-calendar.js",
     "extend-horizon": "dotenv -e .env -- node scripts/extend-horizon.js",
     "sync-stripe-plans": "dotenv -e .env -- node scripts/sync-stripe-plans.js",
     "stripe-portal-config": "dotenv -e .env -- node scripts/stripe-portal-config.js",

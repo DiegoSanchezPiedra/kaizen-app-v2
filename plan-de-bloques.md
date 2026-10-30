@@ -44,7 +44,7 @@
 | B4.5.1 | Gestión documental admin (`agreement_documents`, storage, subida) | B4.5 | IMPLEMENTADO |
 | B4.6 | Cuenta familiar: el tutor crea y gestiona hijos sin credenciales (`PLAN_FAMILIA.md`) | B4.5.1 | IMPLEMENTADO |
 | B5 | CRUD disciplinas, planes y disciplinas elegibles (`plan_disciplines`) (admin) | B3, B4.6 | IMPLEMENTADO |
-| B6 | Clases + sesiones (CRUD admin, generación a 1 año, vista profesor) | B5 | IMPLEMENTADO (calendario del alumno pendiente) |
+| B6 | Clases + sesiones (CRUD admin, generación a 1 año, vista profesor, calendario) | B5 | IMPLEMENTADO |
 | B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | IMPLEMENTADO |
 | B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | IMPLEMENTADO |
 | B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | IMPLEMENTADO |
@@ -216,7 +216,7 @@
   - [x] Tests por rol: `npm run test:catalog` → 10/10 OK; `test:rls`, `test:agreements`, `test:minors` verdes.
   - [x] `migrate:down` → `migrate` → `migrate:down` sin error.
 
-### B6 — CRUD `class_sessions` + calendario — IMPLEMENTADO (calendario del alumno pendiente)
+### B6 — CRUD `class_sessions` + calendario — IMPLEMENTADO
 - **Estado** (verificado el 2026-10-30: commit en el historial y tests verdes: `096b5e8`, `test:classes` 12 OK). La checklist de abajo no se marcó en su día.
 - **Objetivo**: sesiones de clase con calendario.
 - **Entregable**: RLS en `class_sessions`; endpoints admin + lectura para alumnos.
@@ -224,9 +224,36 @@
 - **Nota**: un evento no es una sesión (ver `CONTEXT.md`). La FK `events.id → class_sessions(id)` de `001` es un error; se elimina cuando se aborden los eventos.
 - **Nota**: `session_status.completed` sobra: «celebrada» se calcula por la hora (ver `CONTEXT.md`). El enum queda en `scheduled | cancelled`.
 - **Checklist de cierre**:
-  - [ ] RLS en `class_sessions`.
-  - [ ] CRUD admin + listado por disciplina/fecha.
-  - [ ] Tests por rol.
+  - [x] RLS en `class_sessions`.
+  - [x] CRUD admin + listado por disciplina/fecha.
+  - [x] Calendario del alumno, del tutor y del admin, con la cobertura por sujeto.
+  - [x] Tests por rol.
+- **Implementación del calendario** (migración `018`, 2026-10-30):
+  - **Decidido 2026-10-30**:
+    - `GET /sessions/calendar?from=&to=&discipline_id=&profile_id=` → `{ sessions }`. `from`/`to` son días de Madrid, ambos inclusive, como `listTrainerSessions`: por defecto, de hoy a hoy + 30, y 92 días como mucho.
+    - Solo alumno, tutor y admin (`requireRole`). El profesor recibe 403 `insufficient_role`: sus sesiones están en `/professor/sessions`. Ver no exige perfil completo.
+    - Cada sesión: `{ id, starts_at, ends_at, discipline: { id, name }, trainer: { id, display_name }, location, capacity, status, held, covered, booking }`.
+    - `held` («celebrada») = `status = 'scheduled'` y `ends_at < now()`. Las canceladas aparecen con `status: 'cancelled'`.
+    - `booking` es la reserva activa del sujeto (`{ id, status }`, `confirmed` o `waitlisted`) o `null`. Sin plazas libres: un alumno no puede contar las reservas ajenas con la RLS (ver Pendiente).
+    - **Sujetos**: el alumno es él mismo, y `covered` y `booking` van planos. El tutor los recibe por hijo vigente (`{ <child_id>: … }`), sin el hijo que cumplió 18 sin reclamar su perfil y sin cobertura propia. El admin sin `profile_id` no recibe ni `covered` ni `booking`; con `profile_id`, recibe los de ese alumno. `profile_id` de alguien que no es admin → 400 `invalid_field`.
+    - **Disciplinas retiradas** (aceptado): la RLS de `disciplines` solo enseña al alumno las activas y las de su suscripción viva, así que una sesión (pasada o cancelada) de una disciplina retirada no le sale. Al admin, sí.
+  - **`018`**: `session_coverage(p_student, p_discipline)` es `SECURITY DEFINER`, tiene owner `service_role` y da `EXECUTE` a `app_user`. Llama a `covers` (012) si quien llama es el propio alumno, su tutor vinculado (`is_guardian_of`) o el admin; si no, devuelve `NULL`. No duplica la lógica de `covers`, que sigue sin `EXECUTE` para `app_user`. Tiene su `down` (probado up → down → up).
+  - **Montaje**: `routes/sessions.js` se monta en `/sessions` **antes** que `attendance.js`, porque el `router.use(requireRole('profesor', 'admin'))` de este cierra todo `/sessions`.
+  - **Servicio**: `listCalendar` en `services/sessions.js`, con el `client` RLS. El nombre del profesor (sustituto incluido) sale de `trainer_names`. Los hijos del tutor salen de `listChildren` (sin `pending_claim`). Un rango invertido o de más de 92 días → 400 `invalid_range`; una fecha mal formada o un `discipline_id` no entero → 400 `invalid_field`.
+  - **Tests**: `test:calendar` (15) cubre:
+    - alumno sin suscripción (lo ve todo, también solo menores y canceladas, con `covered` false);
+    - plan de N y plan de «todas» (este no cubre solo menores a un adulto);
+    - tutor con dos hijos y uno de 18 sin reclamar;
+    - admin con y sin `profile_id`;
+    - la disciplina retirada y el filtro `discipline_id`;
+    - `session_coverage` por SQL (`NULL` para un perfil ajeno, también al tutor y al profesor);
+    - la RLS del profesor y el nombre del sustituto;
+    - los 400;
+    - la ruta por HTTP con un express en memoria (403 del profesor, 401, y la asistencia sigue cerrada al alumno).
+
+    Regresión con la API parada: `test:classes` 12, `test:bookings` 18, `test:profiles` 25 y `test:rls` 22, todos OK; `npm run lint` sin errores. Contra la API real (`npm run dev`, JWT firmados): 200 (alumno, tutor, admin), 403 (profesor), 400 `invalid_range` / `invalid_field` y 401; la base de desarrollo no tenía sesiones, así que las listas salieron vacías.
+- **Pendiente**:
+  - Plazas libres en el calendario: harían falta otra función `SECURITY DEFINER`, porque `bookings_select` no deja contar las reservas ajenas.
 
 ### B7 — Reservas (`create_booking`, `FOR UPDATE`, lista de espera) — IMPLEMENTADO
 - **Objetivo**: reservas con bloqueo de plaza (`FOR UPDATE`) y lista de espera.

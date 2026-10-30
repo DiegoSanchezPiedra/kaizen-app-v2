@@ -12,6 +12,7 @@ import catalogRouter from './routes/catalog.js';
 import adminClassesRouter from './routes/admin/classes.js';
 import professorRouter from './routes/professor.js';
 import bookingsRouter from './routes/bookings.js';
+import sessionsRouter from './routes/sessions.js';
 import attendanceRouter from './routes/attendance.js';
 import adminCheckinRouter from './routes/admin/checkin.js';
 import adminBillingRouter from './routes/admin/billing.js';
@@ -56,6 +57,7 @@ app.use('/checkin', checkinRouter);
 app.use('/professor', professorRouter);
 app.use('/bookings', bookingsRouter);
 app.use('/billing', billingRouter);
+app.use('/sessions', sessionsRouter); // antes que attendanceRouter: su requireRole cierra todo /sessions
 app.use('/sessions', attendanceRouter);
 app.use('/profiles', profilesRouter);
 app.use('/', catalogRouter);

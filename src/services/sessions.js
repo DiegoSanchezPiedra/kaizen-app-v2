@@ -1,5 +1,6 @@
-// src/services/sessions.js — generación de sesiones a partir de clases (ADR 0004) y vista del profesor.
+// src/services/sessions.js — generación de sesiones a partir de clases (ADR 0004) vista del profesor y calendario.
 import { httpError } from '../lib/errors.js';
+import { listChildren } from './profile.js';
 
 const TZ = 'Europe/Madrid';
 const DEFAULT_HORIZON_DAYS = 365;
@@ -88,4 +89,62 @@ export async function getTrainerSession(client, trainerId, id) {
   );
   if (!s) throw httpError(404, 'session_not_found', 'Sesión no encontrada');
   return s;
+}
+
+const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: TZ });
+const addDays = (d, n) => new Date(Date.parse(d) + n * 864e5).toISOString().slice(0, 10);
+
+// Calendario (CONTEXT § Clases y sesiones): todas las sesiones que deja ver la RLS, con la cobertura y la
+// reserva activa de cada sujeto. Sujetos: el alumno; los hijos vigentes del tutor; el alumno de `profile_id` (admin).
+// Con un solo sujeto, `covered`/`booking` van planos; el tutor los recibe por hijo; el admin sin sujeto, sin ellos.
+// Una sesión de una disciplina retirada no sale si la RLS de disciplines no la deja ver (aceptado, B6).
+export async function listCalendar(client, user, { from, to, discipline_id, profile_id } = {}) {
+  const f = from ? dateParam(from, 'from') : today();
+  const t = to ? dateParam(to, 'to') : addDays(f, 30);
+  const days = (Date.parse(t) - Date.parse(f)) / 864e5;
+  if (days < 0 || days >= MAX_RANGE_DAYS) {
+    throw httpError(400, 'invalid_range', `to debe ser >= from y el rango de ${MAX_RANGE_DAYS} días como mucho`);
+  }
+  if (discipline_id !== undefined && !/^\d{1,18}$/.test(discipline_id)) {
+    throw httpError(400, 'invalid_field', 'discipline_id debe ser un entero', { field: 'discipline_id' });
+  }
+  if (profile_id !== undefined && user.role !== 'admin') {
+    throw httpError(400, 'invalid_field', 'profile_id solo lo usa el admin', { field: 'profile_id' });
+  }
+
+  let subjects = [];
+  if (user.role === 'alumno') subjects = [user.id];
+  else if (user.role === 'tutor') subjects = (await listChildren(client, user.id)).filter((c) => !c.pending_claim).map((c) => c.id);
+  else if (profile_id) subjects = [profile_id];
+
+  const { rows } = await client.query(
+    `SELECT s.id, s.starts_at, s.ends_at, jsonb_build_object('id', d.id, 'name', d.name) AS discipline,
+            CASE WHEN tn.id IS NOT NULL THEN jsonb_build_object('id', tn.id, 'display_name', tn.display_name) END AS trainer,
+            s.location, s.capacity, s.status, (s.status = 'scheduled' AND s.ends_at < now()) AS held,
+            (SELECT COALESCE(jsonb_object_agg(x, session_coverage(x, s.discipline_id)), '{}')
+               FROM unnest($4::uuid[]) x) AS covered,
+            (SELECT COALESCE(jsonb_object_agg(x, (SELECT jsonb_build_object('id', b.id, 'status', b.status)
+                                                    FROM bookings b
+                                                   WHERE b.session_id = s.id AND b.student_id = x
+                                                     AND b.status <> 'cancelled')), '{}')
+               FROM unnest($4::uuid[]) x) AS booking
+       FROM class_sessions s
+       JOIN disciplines d ON d.id = s.discipline_id
+       LEFT JOIN trainer_names tn ON tn.id = s.trainer_id
+      WHERE s.starts_at >= $1::date::timestamp AT TIME ZONE '${TZ}'
+        AND s.starts_at <  ($2::date + 1)::timestamp AT TIME ZONE '${TZ}'
+        AND ($3::bigint IS NULL OR s.discipline_id = $3)
+      ORDER BY s.starts_at, s.id`,
+    [f, t, discipline_id ?? null, subjects]
+  );
+  if (user.role === 'tutor') return rows;
+  for (const r of rows) {
+    if (subjects.length) {
+      [r.covered, r.booking] = [r.covered[subjects[0]], r.booking[subjects[0]]];
+    } else {
+      delete r.covered;
+      delete r.booking;
+    }
+  }
+  return rows;
 }

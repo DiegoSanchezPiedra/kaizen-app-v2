@@ -378,7 +378,7 @@ Migración `005_agreement_documents.js`: tabla `agreement_documents` (ciclo borr
 
 ### B5–B13 — IMPLEMENTADOS · B10.7 y B14–B20 — PENDIENTES
 Estado al 2026-10-30 (detalle, decisiones y pendientes de cada bloque en `plan-de-bloques.md`):
-- **Implementados, con commit y tests verdes**: B5 catálogo, B6 clases y sesiones (falta el calendario del alumno), B7 reservas, B8 asistencia, B9 check-in QR, B10 Stripe base, B10.1 recibos, B10.2 morosos, B10.3 seguro, B10.5 cambio de plan y de disciplina, B10.6 emails de billing, B11 baja del seguro y cambio de pagador, B13 perfiles públicos, directorio y lectura de `profiles` (migración `017`, `test:profiles`).
+- **Implementados, con commit y tests verdes**: B5 catálogo, B6 clases, sesiones y calendario del alumno (migración `018`, `test:calendar`), B7 reservas, B8 asistencia, B9 check-in QR, B10 Stripe base, B10.1 recibos, B10.2 morosos, B10.3 seguro, B10.5 cambio de plan y de disciplina, B10.6 emails de billing, B11 baja del seguro y cambio de pagador, B13 perfiles públicos, directorio y lectura de `profiles` (migración `017`, `test:profiles`).
 - **Pendientes**: B10.7 migración de los clientes de maat (al pasar a producción) y B14–B20. Siguiente en orden: **B14**.
 - B12 eliminado (absorbido por B4.5 y B10.3).
 
