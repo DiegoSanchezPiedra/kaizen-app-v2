@@ -1,0 +1,11 @@
+# Los avisos se entregan desde un outbox (`notice_deliveries`) con un worker en el proceso
+
+Los avisos (`notice.*`) ya se escriben en `audit_log` dentro de la misma transacción que sus efectos: el webhook de Stripe, la baja admin, el cambio de plan y las funciones SQL de reservas. Para enviarlos por email (B10.6) y después por push (B15), cada aviso genera **entregas** en una tabla aparte, `notice_deliveries`: una fila por aviso, destinatario y canal (`UNIQUE (audit_id, recipient_id, channel)`), creada en la **misma sentencia** que el aviso. Un **worker dentro del proceso** de la API recoge cada ~30 s las entregas pendientes con `FOR UPDATE SKIP LOCKED`, compone el mensaje a partir del aviso y de los datos actuales, lo envía y marca el resultado (`sent`, `failed` o `skipped`). Reintenta con espera creciente y no envía nada que haya caducado (24 h, o antes si el aviso lo dice). Al proveedor se le pasa el id de la entrega como clave de idempotencia. `audit_log` sigue siendo inalterable: el estado del envío vive solo en las entregas.
+
+Se descartaron:
+- **Enviar desde el propio webhook**. Antes del COMMIT, un rollback o un reintento de Stripe manda un email de algo que no ocurrió, o lo manda dos veces. Después del COMMIT, si el proveedor falla, el email se pierde, porque el evento ya consta como procesado. Además, cada sitio que crea avisos necesitaría su propio envío.
+- **Marcar el envío en `audit_log`**, porque es *append-only* y la auditoría dejaría de ser inalterable.
+- **Que el worker busque en `audit_log` los avisos sin entrega** (anti-join). La regla «qué acción va por qué canal y a quién» quedaría escondida en una consulta que crece con la auditoría.
+- **Un cron por minuto** (como `extend-horizon`), que añade latencia y arranca un proceso en cada ejecución. Y `LISTEN/NOTIFY`, más complejo de lo que pide el volumen de un gimnasio.
+
+El precio de esta decisión es una tabla más, que crece con cada aviso, y un worker que vive con la API: si la API está caída no sale nada, aunque lo pendiente sale al volver. También obliga a que todo aviso con canal pase por `notice()` (o por su equivalente SQL cuando B15 añada push a `booking_notice`). Volver atrás supondría migrar las entregas pendientes y rehacer el envío de B10.6 y de B15.

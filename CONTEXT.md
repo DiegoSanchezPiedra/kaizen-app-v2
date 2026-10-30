@@ -57,14 +57,14 @@ Solo términos de dominio. Sin detalles de implementación.
 - **Estados de la suscripción**: son los de la pasarela de pago, sin traducción.
   - **Activa**: al corriente de pago.
   - **En periodo de gracia**: ha fallado un cobro y la pasarela sigue reintentándolo. Dura lo que dura la ventana de reintentos (2 semanas). El alumno no pierde nada mientras tanto.
-  - **Impagada**: se agotaron los reintentos sin cobrar. La suscripción no se cancela: se recupera pagando el recibo pendiente.
+  - **Impagada**: se agotaron los reintentos sin cobrar. La suscripción no se cancela: se recupera pagando el recibo pendiente. Al pasar a impagada se avisa al pagador, con el enlace para pagar ese recibo. Igual con el seguro.
   - **Cancelada**: terminada. Queda como historial.
   - **Pendiente de pago en efectivo**: reservado para el pago en efectivo, que no está activo.
   _Evitar_: moroso (para el estado; es del pagador), vencida.
 - **Suscripción en vigor**: la que da acceso: activa o en periodo de gracia.
 - **Suscripción viva**: la que impide contratar otra para el mismo alumno: activa, en periodo de gracia o impagada. Quien tiene una impagada paga su recibo; no empieza de cero.
 - **Moroso**: pagador con alguna suscripción o seguro impagado. Una en periodo de gracia no lo convierte en moroso.
-- **Baja**: terminar una suscripción. Solo la hace el admin. El pagador puede, por su cuenta, cambiar su tarjeta y ver sus recibos.
+- **Baja**: terminar una suscripción. Solo la hace el admin, y se avisa al pagador (si había una bajada programada, el aviso dice que se descarta). El pagador puede, por su cuenta, cambiar su tarjeta y ver sus recibos.
 - **Pago en efectivo**: reservado. No está activo; cuando se active tendrá su propio bloque.
 - **Disciplinas elegidas**: las disciplinas concretas que el alumno escoge al suscribirse, tantas como permite su plan y entre las elegibles. Pertenecen a la suscripción, no al plan.
 - **Cubrir**: una suscripción cubre una disciplina si está entre sus disciplinas elegidas o si el plan es de todas y la disciplina es elegible para ese alumno (para un adulto, nunca una solo menores). Cubrir da acceso ilimitado: todas las clases de esa disciplina, todos los días; solo limita el aforo de cada sesión.
@@ -156,7 +156,7 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
   _Evitar_: penalización.
 - **Falta**: ver «Asistencia».
 - **Pérdida de cobertura**: si la suscripción deja de estar en vigor (pasa a impagada o cancelada) o deja de cubrir una disciplina (p. ej. al aplicarse una bajada de plan; lo reservado mientras estaba programada también), se cancelan sus reservas y esperas futuras no cubiertas con motivo «sin cobertura», con aviso al pagador y a sus tutores si es un hijo. No vuelven al recuperar la cobertura. Un perfil incompleto o la pérdida de cobertura de riesgo impiden reservar pero no cancelan lo ya reservado.
-- **Aviso de cobro fallido**: cuando falla un cobro se avisa solo al pagador, nunca al hijo. Los avisos de facturación siempre van al pagador.
+- **Aviso de cobro fallido**: cuando falla un cobro se avisa solo al pagador, nunca al hijo, en cada intento fallido. Los avisos de facturación siempre van al pagador (ver «Avisos»).
 - **Motivo de cancelación**: toda reserva cancelada o espera retirada tiene exactamente uno:
   - **cancelada por el alumno** (alumno o tutor, en plazo; también tras un cambio de clase que afecta a la sesión, aunque sea fuera de plazo);
   - **cancelación tardía** (alumno o tutor, fuera de plazo);
@@ -185,3 +185,13 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 - **Sesión cancelada**: no tiene lista. La cancelación retroactiva anula su lista y sus asistencias.
 - **Ficha de salud vista por el profesor**: lesiones, condiciones, alergias, medicación y contacto de emergencia. Solo de los alumnos con reserva activa en sus sesiones del día (sustituciones incluidas) y solo ese día. Nunca experiencia ni disciplina previa.
 - **Auditoría**: registro inalterable que solo lee el admin. Recoge cada cierre de lista, cada corrección (qué cambió y motivo) y cada consulta de una ficha de salud por un profesor. No recoge el marcado previo al cierre.
+
+## Avisos
+
+- **Aviso**: comunicación a uno o varios perfiles (sus **destinatarios**) de algo que les afecta: un cobro fallido, una reserva cancelada, una renovación… Queda registrado aunque no llegue a enviarse.
+  _Evitar_: notificación (para el aviso; es la del navegador o el móvil).
+- **Canal**: vía por la que se entrega un aviso: **email** o **push**. Cada tipo de aviso tiene sus canales; un mismo aviso puede ir por varios.
+- **Aviso de facturación**: aviso sobre el dinero de una suscripción o de un seguro (cobro fallido, impagada, baja, renovación o no renovación del seguro, cambio de plan…). Va siempre al **pagador**, nunca al hijo, y siempre por **email**. Es un email de servicio: no se puede dar de baja de él. Nunca incluye datos de salud, edad ni fecha de nacimiento.
+- **Aviso de reservas**: aviso sobre una reserva o una espera (sin cobertura, promoción, sesión cancelada, cambio de disciplina). Va al alumno o, si es un hijo, a todos sus tutores, por push.
+- El admin no recibe avisos por email ni push: los consulta en su panel. Las disputas y los avisos de fraude los notifica además la pasarela de pago a la cuenta.
+- **Idioma**: los avisos, como la app, solo en español.

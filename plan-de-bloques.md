@@ -53,7 +53,7 @@
 | B10.2 | Endpoint admin morosos y "en gracia" por pagador | B10.1, B10.3 | IMPLEMENTADO |
 | B10.3 | Seguro y cobertura de riesgo (seguro anual o `waiver`) | B10.1 | Implementado |
 | B10.5 | Upgrade/downgrade + cambio de disciplina | B10 | IMPLEMENTADO |
-| B10.6 | Emails transaccionales de billing (al pagador) | B10.1 | Pendiente |
+| B10.6 | Emails transaccionales de billing (al pagador) | B10.1, B10.3, B10.5 | Diseñado |
 | B11 | Baja admin de suscripciones y seguro + cambio de pagador | B10.5, B10.3 | Pendiente |
 | B12 | ~~Validación final waiver/consentimientos en checkout~~ | — | ELIMINADO (absorbido por B4.5 y B10.3) |
 | B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 | Pendiente |
@@ -229,7 +229,7 @@
 - **Cuenta familiar**: `student_id` = sujeto + `booked_by` = actor; RLS con `is_guardian_of`; `profile_id` opcional; bloqueo si el hijo o el tutor está incompleto. `event_registrations`: mismo patrón. Ver `PLAN_FAMILIA.md` §5.
 - **Entregable**: RLS en `bookings`; función `create_booking` con `FOR UPDATE`; endpoints de reserva/cancelación; middleware `requireCompleteProfile` (B4.5) montado.
 - **Reglas de dominio**: fijadas en `CONTEXT.md` § Reservas (grill-with-docs, sin ADR).
-- **Implementación** (migración `009`): la lógica vive en funciones `SECURITY DEFINER` (owner `service_role`): `book_session`, `cancel_booking`, `cancel_session_bookings` (públicas) y `covers`, `promote_waitlist` (internas). `app_user` solo lee `bookings`. Aforo: `FOR UPDATE` de la sesión; solape: `pg_advisory_xact_lock` por alumno. Enum `booking_cancel_reason`; `academy_settings`: `booking_window_days` = 14, `cancellation_notice_minutes` = 60. Se crea `subscription_disciplines` (solo tabla; flujos en B10.5). Avisos: filas `notice.*` en `audit_log` con `changes.recipients` (B15 los envía). Se corrige el `UNIQUE` de 001, que era total y no parcial. Endpoints: `GET /bookings`, `POST /bookings`, `POST /bookings/:id/cancel`.
+- **Implementación** (migración `009`): la lógica vive en funciones `SECURITY DEFINER` (owner `service_role`): `book_session`, `cancel_booking`, `cancel_session_bookings` (públicas) y `covers`, `promote_waitlist` (internas). `app_user` solo lee `bookings`. Aforo: `FOR UPDATE` de la sesión; solape: `pg_advisory_xact_lock` por alumno. Enum `booking_cancel_reason`; `academy_settings`: `booking_window_days` = 14, `cancellation_notice_minutes` = 60. Se crea `subscription_disciplines` (solo tabla; flujos en B10.5). Avisos: filas `notice.*` en `audit_log` con `changes.recipients` (se entregan por el outbox de B10.6, ADR 0008; los de reservas, por push en B15). Se corrige el `UNIQUE` de 001, que era total y no parcial. Endpoints: `GET /bookings`, `POST /bookings`, `POST /bookings/:id/cancel`.
 - **Pendiente**: la subida de aforo (ajuste de sesión) y el cambio de clase deben llamar a `promote_waitlist` y eximir de cancelación tardía; la promoción no vuelve a comprobar el perfil completo. Hecho en B10.5: el cambio de disciplina.
 - **Fuera de alcance**: pago (B10), asistencia (B8).
 - **Checklist de cierre**:
@@ -493,16 +493,107 @@
   - [x] Seguro intacto.
   - [x] Tests y E2E con Stripe CLI.
 
-### B10.6 — Emails transaccionales de billing (al pagador) — Pendiente
-- **Objetivo**: email al alumno en `invoice.payment_failed`.
-- **Cuenta familiar**: el destinatario es el **pagador**, no el alumno (un hijo no tiene email).
-- **Entregable**: proveedor elegido (Resend/Postmark/SMTP), `services/email.js`, plantilla.
-- **Fuera de alcance**: push (B15).
+### B10.6 — Emails transaccionales de billing (al pagador) — Diseñado
+- **Objetivo**: entregar por email al pagador los avisos de facturación que ya se crean (`notice.*` en `audit_log`) y los que faltaban (impagada, baja). Términos en `CONTEXT.md` («Avisos»), decisión en ADR 0008.
+- **Reglas** (decididas 2026-10-30):
+  - **Qué va por email**: 11 avisos de facturación, solo al pagador:
+    - `payment_failed`: en cada intento, con el siguiente reintento.
+    - `checkout_payment_failed`.
+    - `checkout_race_refunded`: solo la entrega del pagador.
+    - `insurance_not_paid`, `insurance_renewal`, `insurance_wont_renew`.
+    - `plan_downgraded`, `upgrade_requires_action`.
+    - Nuevos: `subscription_unpaid`, `insurance_unpaid`, `subscription_cancelled`.
+  - **Qué no va por email**:
+    - Los avisos de reservas (`no_coverage`, `booking_promoted`, `session_cancelled`, `discipline_change`) van por push en B15.
+    - Los admins de `recipients` (`stripe_risk` y la parte del admin de la carrera) no reciben entrega: los consultan en el panel (B19). Las disputas las notifica Stripe a la cuenta.
+    - El push de los avisos de facturación lo decide B15.
+  - **Avisos nuevos**:
+    - `notice.subscription_unpaid` / `notice.insurance_unpaid`: los crea el webhook en la transición a `unpaid` (no en cada evento). Llevan el `hosted_invoice_url` del recibo `open`.
+    - `notice.subscription_cancelled`: lo crea `cancelSubscription` (baja admin), con `ends_at` (ahora o `current_period_end`) y, si la había, la bajada descartada (`discarded_plan_id`). **Sustituye** a `notice.scheduled_change_discarded`, que deja de crearse.
+  - **Emails de cliente de Stripe** (cobro fallido, 3DS, renovación, recibos): apagados. Kaizen envía los suyos. Son ajustes de toda la cuenta, con la marca de la cuenta, y la de producción es de maat (ver B10.7).
+  - **Outbox (ADR 0008)**:
+    - `notice()` escribe el aviso en `audit_log` y sus entregas en `notice_deliveries` en **una sola sentencia** (CTE), también con `servicePool` en *autocommit* (`upgrade_requires_action`).
+    - Las entregas salen de un mapa acción → canales en JS. Solo para destinatarios que no son admin.
+    - `booking_notice` (SQL) no cambia.
+  - **Worker** en el proceso (`index.js`), cada ~30 s:
+    - Toma las entregas `pending` con `next_attempt_at <= now()` mediante `FOR UPDATE SKIP LOCKED`.
+    - Compone el email **al enviar** (`audit_log.changes` + datos actuales). No guarda copia del email.
+    - Estados: `pending` → `sent` | `failed` | `skipped`.
+  - **Reintentos**:
+    - Errores transitorios (red, 429, 5xx): reintento a 1 min, 5 min, 30 min, 2 h y 6 h, y después `failed`.
+    - Errores permanentes (4xx): `failed` a la primera.
+    - Caducidad: lo que sea antes, 24 h desde el aviso o su `expires_at`. Caducado → `skipped` (`stale`). Sin email → `skipped`.
+    - Un `failed` no bloquea nada: queda con `last_error` para el panel (B19).
+  - **Idempotencia**:
+    - Replays de Stripe: `webhook_events` (el aviso se crea una vez por evento).
+    - Duplicados de entrega: `UNIQUE (audit_id, recipient_id, channel)`.
+    - Caída entre envío y marca: cabecera `Idempotency-Key` de Resend = id de la entrega (vale 24 h; los reintentos caben).
+  - **Proveedor: Resend**:
+    - Por `fetch`, sin SDK. `services/email.js` con dos transportes: `resend` y `log` (consola + fichero), por `.env`.
+    - Datos en EE. UU. con DPA y SCC (apuntarlo en el registro de actividades). Si la gestoría exige la UE: Brevo, cambiando solo el transporte.
+  - **Remitente**:
+    - `Kaizen <avisos@mail.<dominio>>` (subdominio dedicado), con `Reply-To` al buzón de la academia.
+    - DNS del subdominio: SPF y DKIM (registros de Resend) y DMARC `p=none`, que pasa a `quarantine` con informes limpios.
+    - Hasta tener dominio: el remitente de pruebas de Resend. Verificar el dominio es un paso de producción y no bloquea el cierre.
+  - **Contenido**:
+    - Solo español. Una función por aviso que devuelve `{ subject, text, html }`, con *template literals* y un esqueleto HTML común. Siempre con texto plano.
+    - Datos mínimos: nombre del pagador, nombre del alumno, plan o seguro, importe, fechas y enlace. **Nunca** salud, edad, fecha de nacimiento ni tarjeta. `turns_18` se redacta como «cambio de tramo de edad».
+    - Destinatario: `auth_credentials.email` (con `servicePool`), aunque `email_verified = false`.
+    - Enlaces a `APP_URL` (pantalla de facturación, desde la que se abre el portal). Excepción: `hosted_invoice_url` en `subscription_unpaid`, `insurance_unpaid` y `upgrade_requires_action`.
+    - Sin opt-out: son emails de servicio (LSSI art. 21). El pie lo explica y da el contacto de la academia.
+  - **Subida del admin con 3DS** (`upgrade_requires_action`):
+    - Enlace al `hosted_invoice_url`: la página de Stripe autentica y paga el prorrateo. El webhook aplica el plan como siempre.
+    - El aviso guarda `expires_at` = `pending_update.expires_at` y el email muestra la fecha límite.
+    - Contenido: plan actual → nuevo, alumno e importe. Sin recordatorio: si no lo completa, no cambia nada.
+- **Pasos**:
+  1. **Migración `015`**:
+     - Tabla `notice_deliveries`: `id uuid`, `audit_id` → `audit_log`, `recipient_id` → `profiles`, `channel` (`CHECK` `email`; B15 añade `push`), `status` (`CHECK` `pending`/`sent`/`failed`/`skipped`), `attempts`, `next_attempt_at`, `sent_at`, `provider_message_id`, `last_error`, `created_at`.
+     - `UNIQUE (audit_id, recipient_id, channel)` e índice parcial `(next_attempt_at) WHERE status = 'pending'`.
+     - Sin acceso para `app_user` (como `webhook_events`).
+  2. **Configuración**: `EMAIL_TRANSPORT` (`log` | `resend`, por defecto `log`), `RESEND_API_KEY` (obligatoria con `resend`), `EMAIL_FROM`, `EMAIL_REPLY_TO`, `EMAIL_LOG_PATH`. Se validan al arrancar.
+  3. **`services/email.js`**: `send({ to, subject, text, html, idempotencyKey })` con los dos transportes. Clasifica los errores en transitorio o permanente.
+  4. **`services/notices.js`**:
+     - Mapa acción → canales.
+     - `notice()` se mueve desde `billing.js` y crea en una sentencia el aviso y sus entregas.
+     - Plantillas de los 11 avisos.
+     - `sendPending(db, transport)`: un lote del worker.
+     - `startNoticeWorker()`, llamado desde `index.js` y parado al cerrar.
+  5. **Emisores**:
+     - Webhook: `subscription_unpaid` en `onSubscriptionChange` e `insurance_unpaid` en `onInsuranceChange`, en la transición a `unpaid`, con el recibo `open`.
+     - `cancelSubscription`: `subscription_cancelled` en lugar de `scheduled_change_discarded`.
+     - `applyPlanNow`: `expires_at` en `upgrade_requires_action`.
+  6. **Stripe**: confirmar en el Dashboard del sandbox que los emails de cliente están apagados.
+- **Endpoints**: ninguno. La consulta de entregas fallidas para el panel queda para B19.
+- **Tests**:
+  - **`npm run test:notices` (nuevo)**, con un transporte falso en memoria:
+    - entregas solo para las acciones con email, sin admins y una por destinatario; los avisos de reservas no crean ninguna;
+    - destinatario = pagador, nunca el hijo;
+    - `sent`; sin duplicados al ejecutar dos veces o con dos workers;
+    - reintento con espera creciente; `failed` permanente; `skipped` por 24 h, por `expires_at` y sin email;
+    - las 11 plantillas, con su enlace, sin fecha de nacimiento ni edad.
+  - **`test:webhook`** (regresión, sandbox):
+    - `subscription_unpaid` / `insurance_unpaid` en la transición, con su entrega;
+    - la baja admin crea `subscription_cancelled` y no `scheduled_change_discarded`;
+    - sin `payment_failed` con el pagador en pantalla.
+  - **E2E** con `EMAIL_TRANSPORT=log`: subida del admin con tarjeta 3DS → enlace del fichero → autenticar en la página de Stripe → plan aplicado por el webhook.
+  - **Un envío real** con `EMAIL_TRANSPORT=resend` y el remitente de pruebas: clave, `Idempotency-Key` (dos llamadas → un email) y aspecto en Gmail y en el móvil.
+- **Fuera de alcance**:
+  - push (B15);
+  - endpoint y UI de entregas fallidas (B19);
+  - rebotes y quejas por webhook de Resend;
+  - email de pago correcto, de pago recuperado y de tarjeta a punto de caducar;
+  - aviso de baja del seguro (B11);
+  - otros idiomas (ver B18);
+  - verificación del dominio real (producción).
 - **Checklist de cierre**:
-  - [ ] Proveedor configurado en `.env`.
-  - [ ] Email enviado en `invoice.payment_failed`.
-  - [ ] Idempotencia (no duplicar en replay).
-  - [ ] Test manual.
+  - [ ] Migración `015` (`notice_deliveries`, sin acceso para `app_user`).
+  - [ ] `notice()` crea aviso y entregas en una sentencia; mapa acción → canales; sin admins.
+  - [ ] Avisos nuevos `subscription_unpaid`, `insurance_unpaid` y `subscription_cancelled`; `scheduled_change_discarded` retirado.
+  - [ ] Worker con `SKIP LOCKED`, reintentos, caducidad (24 h / `expires_at`) e `Idempotency-Key`.
+  - [ ] 11 plantillas en español con datos mínimos.
+  - [ ] Proveedor configurado en `.env` (`log` por defecto, `resend` probado una vez).
+  - [ ] Emails de cliente de Stripe apagados en el sandbox.
+  - [ ] Tests (`test:notices`, regresión de `test:webhook`) y E2E del 3DS del admin desde el enlace.
 
 ### B10.7 — Migración de los clientes de maat — Pendiente (al pasar a producción)
 - **Contexto**: la cuenta de Stripe de producción hoy la usa maat, con clientes pagando. Hasta el paso a producción Kaizen trabaja solo con el sandbox; la cuenta real no se conecta antes.
@@ -512,6 +603,7 @@
   - Inventario de la cuenta real: número de suscripciones, Prices usados, trials/pausas, Stripe Tax, métodos de pago, configuración del portal, cómo se identifica a cada persona (email) y si maat es una plataforma Connect.
   - Script de importación idempotente: cliente → perfil pagador (`profiles.stripe_customer_id`), alumno y menores, Price de maat → plan de Kaizen (`subscriptions.update` al Price del plan con `proration_behavior: 'none'`), disciplinas (CSV o exportación de maat), fila en `subscriptions` + `subscription_disciplines`, recibos con `syncInvoice`.
   - *Upcoming renewal events* (aviso del seguro, B10.3) es un ajuste de toda la cuenta: acordar con maat los 30 días.
+  - Emails de cliente de Stripe que tenga activos maat (cobro fallido, 3DS, renovación, recibos): son de toda la cuenta y se solapan con los de Kaizen (B10.6); acordar con maat antes del corte.
   - Endpoint de webhook propio de Kaizen con API `2026-09-30.endive` (sin cambiar la versión por defecto de la cuenta), clave `rk_live_` restringida y configuración de portal propia.
   - Plan de corte: cuándo deja maat de vender y de recibir webhooks.
 - **Fuera de alcance**: cuentas de Stripe distintas (las tarjetas no se mueven sin el soporte de Stripe).
@@ -525,6 +617,7 @@
 - **Objetivo**: la baja la hace solo el admin (`cancel-now` / `cancel-at-period-end`), también la del seguro (paso a `waiver`); y el **cambio de pagador**.
 - **Cambio de pagador**: el admin elige al nuevo pagador (tutor vinculado o el propio alumno adulto) → enlace de Checkout para él (mismo plan y disciplinas, empieza al fin del periodo) → al completarlo, la suscripción antigua se cancela a fin de periodo. Si no lo completa a tiempo, no hay cambio y se avisa al admin. Al reclamar el perfil a los 18 se crea un aviso al admin para pasar el pago al propio alumno. Son dos suscripciones consecutivas (Stripe no cambia el cliente de una suscripción).
 - **Entregable**: endpoints `/admin/subscriptions/:id/cancel-now` y `/cancel-at-period-end`; baja del seguro; endpoint de cambio de pagador.
+- **Avisos** (B10.6): la baja del seguro crea su `notice.*` al pagador y lo añade al mapa de canales (email).
 - **Seguro y cambio de pagador** (B10.3): al cambiar de pagador, poner `cancel_at_period_end` en el seguro vivo (`insuranceWontRenew`, motivo `payer_changed`). El aviso de renovación ya lo detecta si no se hizo antes.
 - **Adelantado a B10** (2026-10-29): `POST /admin/subscriptions/:id/cancel-now` y `/cancel-at-period-end` (`src/routes/admin/billing.js`, `cancelSubscription` en `services/billing.js`): se pide la baja a Stripe y el estado local llega por el webhook; 404/409 si no existe o ya está cancelada; `audit_log` `subscription.cancel_now` / `subscription.cancel_at_period_end`. Quedan la baja del seguro y el cambio de pagador.
 - **Fuera de alcance**: baja por el alumno o el pagador (no permitida; revisión legal en `MEJORAS.md`).
@@ -564,6 +657,7 @@
 - **Objetivo**: notificaciones push.
 - **Cuenta familiar**: los avisos de un hijo van a todos sus tutores (incluido "cumple 18, debe reclamar su perfil"); los de facturación, al pagador.
 - **Entregable**: RLS en `push_subscriptions`; endpoints de suscripción; envío con web-push.
+- **Sobre el outbox de B10.6** (ADR 0008): push es un canal más en `notice_deliveries` (`channel = 'push'`), con el mismo worker. Hay que añadirlo al mapa de canales de `notice()` y hacer que `booking_notice` (SQL) cree sus entregas push. Decide aquí si los avisos de facturación van también por push.
 - **Fuera de alcance**: push al admin (solo alumno).
 - **Checklist de cierre**:
   - [ ] Suscripción/desuscripción.
@@ -597,6 +691,7 @@
   - [ ] Offline básico.
   - [ ] **Aviso de re-firma pendiente al alumno** (B4.5.1) visible en la PWA.
   - [ ] Build reproducible (`npm run build:frontend` o equivalente, a decidir aquí).
+  - [ ] **Decidir i18n antes de empezar el frontend** (hoy solo español, también los avisos de B10.6): añadirlo después obliga a repasar cada pantalla.
 
 ### B19 — Panel admin (métricas, usuarios, auditoría, morosos) — Pendiente
 - **Objetivo**: panel admin con métricas, usuarios, auditoría y morosos.

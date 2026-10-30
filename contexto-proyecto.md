@@ -34,7 +34,7 @@ Al terminar cada bloque:
 - **Auth**: JWT propio (`sub` + `role`: `alumno | profesor | admin`). Middleware `SET LOCAL` para RLS.
 - **Auth externa**: Google OIDC (Sign in with Google) — ID Token verificado en backend.
 - **Pagos**: Stripe (solo tarjeta; efectivo reservado para futuro).
-- **Email transaccional**: proveedor a decidir en B10.6 (Resend, Postmark o SMTP propio).
+- **Email transaccional**: Resend, por `fetch` y sin SDK (B10.6, ADR 0008). Plan B: Brevo, si se exigen datos en la UE.
 - **Migraciones**: `node-pg-migrate` + `dotenv-cli`.
 - **Roles BD**: `migrator` (DDL, NOBYPASSRLS), `app_user` (RLS, NOBYPASSRLS), `service_role` (BYPASSRLS).
 - **Hash password**: `argon2` (argon2id).
@@ -88,8 +88,11 @@ STRIPE_SECRET_KEY=...
 STRIPE_WEBHOOK_SECRET=...
 
 B10.6:
-EMAIL_PROVIDER_API_KEY=...
-EMAIL_FROM=...
+EMAIL_TRANSPORT=log            # log | resend
+RESEND_API_KEY=...             # obligatoria con resend
+EMAIL_FROM=Kaizen <avisos@mail.<dominio>>
+EMAIL_REPLY_TO=...             # buzón de la academia
+EMAIL_LOG_PATH=./storage/mail.log
 
 text
 
@@ -524,7 +527,7 @@ Notación: `uid = current_setting('app.current_user_id', true)::uuid`, `role = c
 |---|---|
 | Evento Stripe clave | `invoice.payment_failed` (también `invoice.payment_action_required`, `customer.subscription.updated/deleted`) |
 | Datos en `invoices` | Añadir `stripe_invoice_id`, `status`, `attempt_count`, `next_payment_attempt`, `last_payment_error` (jsonb), `hosted_invoice_url` |
-| Notificación al alumno | **Email transaccional** en `invoice.payment_failed` (B10.6). Push en B15. |
+| Notificación al pagador | **Email transaccional** de los 11 avisos de facturación (B10.6: outbox `notice_deliveries` + worker, ADR 0008). Push en B15. |
 | Notificación al admin | **Pasiva**: lista en panel (B10.2 + UI en B19). Sin email diario ni push al admin. |
 | Lista de morosos | `GET /admin/billing/failed-payments` sobre `invoices` con `status IN ('open','past_due','uncollectible')` |
 | Segmentación | B10.1 (modelo + webhook), B10.2 (endpoint admin), B10.6 (emails), B19 (UI) |
@@ -827,7 +830,7 @@ text
 - **`scripts/test-rls.js` y `scripts/test-mfa.js` destructivos**: solo local. B20 los migrará a BD efímera.
 - **Scripts de test sin framework**: suficiente para B3/B4/B4.5; migrar a Node test runner o Vitest en B20.
 - **Webhook Stripe sin idempotencia**: usar `webhook_events` (B10).
-- **Emails de billing sin proveedor decidido**: B10.6 depende de elegir Resend/Postmark/SMTP.
+- ~~**Emails de billing sin proveedor decidido**~~ → Resend (B10.6 diseñado).
 - ~~**`withRlsContext` no serializaba el resultado**~~ → resuelto en B4.
 - **`loginGoogle` en alta nueva firma un token que se descarta**: ineficiencia menor, sin impacto de seguridad. Limpiar en B20 si se unifica el contrato.
 - ~~**`dotenv-cli` expone el binario como `dotenv`**~~ → corregido en B4.
