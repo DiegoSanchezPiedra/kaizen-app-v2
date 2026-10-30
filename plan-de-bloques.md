@@ -1101,9 +1101,9 @@
   - **Disciplina abierta**:
     - `disciplines.is_open boolean NOT NULL DEFAULT false`, la pone el admin al crear o editar (B5);
     - `covers()`: además de lo de siempre, cubre una abierta para cualquier suscripción en vigor, respetando «solo menores» (adulto nunca una `minors_only`, ni con plan solo menores);
-    - **no se elige**: no puede estar en `subscription_disciplines` (contratar, subir/bajar, cambio y baja de disciplina → 400 `invalid_field` si se elige) y no ocupa hueco; en `plan_disciplines` se ignora;
+    - **no se elige**: no puede estar en `subscription_disciplines` y no ocupa hueco; en `plan_disciplines` se ignora. Elegirla da 409 `discipline_not_eligible`, como cualquier disciplina no elegible: en `validateOrder` (`billing.js`: contratar, subir/bajar) y en `change_discipline` (014: cambio y baja de disciplina);
     - marcarla abierta con alguna `subscription_disciplines` de una suscripción viva → 409 `discipline_in_use`;
-    - desmarcarla: `revoke_coverage(student)` (012) para cada alumno con reservas o esperas futuras en ella (cancela con «sin cobertura» y avisa);
+    - desmarcarla: `revoke_coverage(student)` (012) para cada alumno con reservas o esperas futuras en ella (cancela con «sin cobertura» y avisa). `app_user` no tiene `EXECUTE` sobre `revoke_coverage` (solo lo llama el webhook, con `servicePool`): el servicio de catálogo lo llama con `servicePool` tras confirmar el cambio, o con una función `SECURITY DEFINER` que exija admin; no se da `EXECUTE` a `app_user`;
     - `public_disciplines` y el filtro `discipline_id` del directorio **no** incluyen las abiertas;
     - el calendario (`covers()`) ya la marca cubierta para cualquier suscriptor.
 - **Pasos**:
@@ -1119,7 +1119,7 @@
      - `public_profiles`: columna `achievements` (`public_achievements(id)`), con `REVOKE`/`GRANT` como en 017.
   2. **Servicio** (`services/progress.js`, nuevo): `getProgress`, `getRanking`; las reglas de racha y badges viven en SQL (una sola fuente; el servicio solo pagina y da forma). Siempre `client` (RLS), nunca `servicePool`.
   3. **B13**: `VISIBLE_FIELDS` con `ranking` y `achievements`; `getPublicProfile` borra `achievements` si es `NULL`.
-  4. **B5 / B10.5**: `is_open` en el CRUD admin de disciplinas (con el 409 y `revoke_coverage` al desmarcar), y rechazo de abiertas al elegir disciplinas (checkout, cambio de plan, cambio y baja de disciplina).
+  4. **B5 / B10.5**: `is_open` en el CRUD admin de disciplinas (con el 409 y `revoke_coverage` al desmarcar), y rechazo de abiertas al elegir disciplinas (`validateOrder` en `billing.js` y `change_discipline` de 014, que se reescribe en `019` con `NOT d.is_open`).
   5. **Rutas**: `GET /me/progress` en `routes/me.js` (`profile_id` como el resto) y `routes/rankings.js` (`requireAuth`).
   6. **Docs**: `contexto-proyecto.md` §6 (`activity_feed` borrada, `is_open`), `db-architecture.md` si sigue listando `activity_feed`.
 - **Endpoints**:
@@ -1127,7 +1127,8 @@
   - `GET /rankings/:disciplineId?month=&limit=&offset=` → `{ discipline: { id, name }, month, rows: [{ rank, id, display_name, hours }], total, limit, offset }`; 400 `invalid_id` / `invalid_field` / `invalid_pagination`; 404 `ranking_not_found` (no existe o es abierta).
   - `GET /profiles/:id` y `GET /profiles`: la ficha gana `achievements?`.
   - `GET/PATCH /me/profile`: `visible_fields` con 6 claves.
-  - Admin de disciplinas: `is_open` en crear/editar; 409 `discipline_in_use`.
+  - Admin de disciplinas (`POST /admin/disciplines`, `PATCH /admin/disciplines/:id`): `is_open` en crear/editar; 409 `discipline_in_use`.
+  - Contratar, cambiar de plan y cambio de disciplina: elegir una abierta → 409 `discipline_not_eligible`.
 - **Tests** (`test:progress`, nuevo):
   - **Racha**: semanas seguidas; semana sin presente rompe; semana sin sesiones celebradas en la academia se salta; semana en curso sin presente no rompe; dos presentes en una semana cuentan una; corte lunes 00:00 en Madrid (también en el cambio de hora); `best` > `current`; presente sin cerrar suma y desmarcado no; corrección presente → falta y cancelación retroactiva cambian el pasado.
   - **Horas**: duración real (1 h 30 = 1,5); mes por `starts_at` en Madrid (sesión del 31 a las 23:30); abierta suma en cada disciplina con presente ese mes y en ninguna si solo hizo la abierta.
@@ -1136,7 +1137,7 @@
   - **Privado**: propio, tutor de su hijo, admin sí; otro alumno, profesor y tutor ajeno no.
   - **Perfil público**: `achievements` detrás de su flag; columnas de `public_profiles` exactamente 8 y funciones exactamente `can_be_public`, `public_disciplines`, `public_achievements`, ninguna menciona `student_health_info`.
   - **Disciplina abierta**: la cubre un plan de 1 disciplina; un adulto no cubre una abierta solo menores; no se puede elegir; marcarla con elegidas → 409; desmarcarla cancela reservas futuras con «sin cobertura»; no sale en las disciplinas públicas.
-  - **Regresión**: `test:profiles` (ajustado a 8 columnas y 3 funciones), `test:bookings`, `test:billing`, `test:catalog`, `test:calendar`, `test:attendance`, `test:rls`, `test:minors`.
+  - **Regresión**: `test:profiles` (ajustado a 8 columnas y 3 funciones), `test:bookings`, `test:billing`, `test:webhook`, `test:catalog`, `test:classes`, `test:calendar`, `test:attendance`, `test:checkin`, `test:rls`, `test:minors`.
 - **Fuera de alcance**:
   - push de logros (B15; puede detectar «acaba de conseguir» comparando `student_progress` antes y después de marcar presente);
   - feed de actividad, ranking general, badges por disciplina, «1.º del mes», grados (en `MEJORAS.md`);
