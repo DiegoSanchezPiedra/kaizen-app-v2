@@ -57,7 +57,7 @@
 | B10.7 | Migración de los clientes de maat | B10–B11 | Pendiente (al pasar a producción) |
 | B11 | Baja del seguro y cambio de pagador | B10.5, B10.3, B10.6 | IMPLEMENTADO |
 | B12 | ~~Validación final waiver/consentimientos en checkout~~ | — | ELIMINADO (absorbido por B4.5 y B10.3) |
-| B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 | Diseñado |
+| B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 | IMPLEMENTADO |
 | B14 | Racha, badges, tabla opt-in | B7 | Pendiente |
 | B15 | Push (`push_subscriptions`, envío) | B2 | Pendiente |
 | B16 | Agregaciones de informes + cron nocturno | B8 | Pendiente |
@@ -900,7 +900,7 @@
 ### B12 — ELIMINADO
 - Absorbido: los consentimientos (`data_protection`, `rights_of_image`) ya los exige el perfil completo (B4.5) en el checkout, y el `waiver` pasa a la elección seguro / `waiver` del checkout (B10.3, ADR 0005).
 
-### B13 — Perfiles públicos (flags, `public_profiles`, directorio) — Diseñado
+### B13 — Perfiles públicos (flags, `public_profiles`, directorio) — IMPLEMENTADO
 - **Objetivo**: perfil público *opt-in* con campos visibles elegidos uno a uno, directorio para la academia, y cerrar lo que `profiles` deja leer hoy (el profesor y los perfiles públicos leen filas enteras). Términos en `CONTEXT.md` («Perfil público y directorio»), decisión en ADR 0010.
 - **Choques con lo existente** (detectados en el diseño, 2026-10-30):
   - `profiles_select` (003) tiene `OR is_public = true`: la RLS filtra filas, no columnas, así que un perfil público dejaría a cualquiera con sesión leer su fila entera (`phone`, `birth_date`, `stripe_customer_id`). Hoy está latente: ningún endpoint pone `is_public`.
@@ -991,14 +991,42 @@
   - sacar las columnas privadas de `profiles` a otra tabla (alternativa descartada en el ADR 0010);
   - UI (B18).
 - **Checklist de cierre**:
-  - [ ] Migración `017`: `profiles_select` sin `is_public` y profesor con `teaches_student`, `user_roles_select` sin profesor, `WITH CHECK` del tutor, vistas `public_profiles` y `trainer_names`.
-  - [ ] `public_profiles` solo expone las 7 columnas, cada campo opcional detrás de su flag.
-  - [ ] **`student_health_info` NO se une a `public_profiles`**, garantizado por el test de dependencias (riesgo §9 B4.5).
-  - [ ] Un hijo nunca es público, tampoco con 18 sin reclamar su perfil, ni con el flag forzado por SQL.
-  - [ ] Directorio paginado, con filtros que solo miran lo visible.
-  - [ ] `profiles_select` del profesor restringida a los alumnos con reserva en sus sesiones.
-  - [ ] Endpoints de lectura, edición y despublicar, con `audit_log`.
-  - [ ] Tests (`test:profiles` y regresión).
+  - [x] Migración `017`: `profiles_select` sin `is_public` y profesor con `teaches_student`, `user_roles_select` sin profesor, `WITH CHECK` del tutor, vistas `public_profiles` y `trainer_names`.
+  - [x] `public_profiles` solo expone las 7 columnas, cada campo opcional detrás de su flag.
+  - [x] **`student_health_info` NO se une a `public_profiles`**, garantizado por el test de dependencias (riesgo §9 B4.5).
+  - [x] Un hijo nunca es público, tampoco con 18 sin reclamar su perfil, ni con el flag forzado por SQL.
+  - [x] Directorio paginado, con filtros que solo miran lo visible.
+  - [x] `profiles_select` del profesor restringida a los alumnos con reserva en sus sesiones.
+  - [x] Endpoints de lectura, edición y despublicar, con `audit_log`.
+  - [x] Tests (`test:profiles` y regresión).
+- **Implementación** (migración `017`):
+  - **`017`**:
+    - `teaches_student(p_id)` (`SECURITY DEFINER`, owner `service_role`, `EXECUTE` solo `app_user`): alguna reserva, en cualquier estado y fecha, en una sesión con `class_sessions.trainer_id` = quien llama.
+    - `profiles_select` = `id = uid OR admin OR (profesor AND teaches_student(id))`; `user_roles_select` = `user_id = uid OR admin`; `profiles_update_guardian` con `AND is_public = false` en el `WITH CHECK`.
+    - Vistas `public_profiles` y `trainer_names` con `security_barrier`, owner `service_role` y `REVOKE ALL FROM PUBLIC, app_user` antes del `GRANT SELECT`: los permisos por defecto del migrator darían a `app_user` también `INSERT` / `UPDATE` / `DELETE`, y `trainer_names` (una sola tabla en el `FROM`) es una vista actualizable que se salta la RLS.
+    - Las dos exigen `app.current_user_id` no vacío (`NULLIF`, como desde 012). Los flags se leen con `COALESCE((visible_fields->>'x')::boolean, false)`.
+    - `member_since` = `created_at` en hora de Madrid, `YYYY-MM`. `disciplines` ordenadas por nombre.
+    - Datos: el `UPDATE` de los no elegibles corre como `service_role` (el migrator no salta la `FORCE` RLS). No había ninguno.
+    - Con su `down` (probado up → down → up).
+  - **Decidido 2026-10-30 — `covers()` en línea en la vista**: `covers` solo la ejecuta `service_role`, y una función dentro de una vista se comprueba con el rol que consulta, no con el owner. Darle `EXECUTE` a `app_user` dejaría preguntar si cualquier alumno tiene cobertura. La vista repite la lógica de `covers` (012) para un adulto (en vigor = `active` / `past_due`, disciplina activa, sin `minors_only` de disciplina ni de plan, plan de N por `subscription_disciplines` y de «todas» por sus elegibles o cualquiera). Por eso dependen de ella `subscriptions`, `plans`, `plan_disciplines` y `subscription_disciplines`, como preveía la lista del test. **Si cambia `covers`, hay que cambiar también la vista.**
+  - **Paso 2 (`user_roles` del profesor)**: ningún camino con el `client` del profesor lee `user_roles` ajenos. `notice()` solo se llama desde el webhook y `billing.js` (alumno, tutor, admin o `servicePool`); `classes.js` lo lee en un servicio de admin; el login, con `servicePool`. Las funciones SQL que leen `user_roles` son `SECURITY DEFINER`. La lista de asistencia del profesor lee `profiles` de alumnos con reserva, que entran en `teaches_student`.
+  - **Servicio** (`services/profiles.js`), siempre con `client`:
+    - `listPublicProfiles`: paginación como `listOverduePayers`, `total` con un `count` aparte; `q` con `%`, `_` y `\` escapados; `role` fuera de `alumno` / `profesor`, `discipline_id` no numérico o `q` que no es un texto de 100 caracteres como mucho → 400 `invalid_field`. `discipline_id` filtra con `disciplines @> [{ id }]` sobre la vista.
+    - `getPublicProfile`: los 4 campos opcionales que la vista da `NULL` se borran de la ficha (tampoco sale una `bio` visible pero vacía).
+    - `getMyProfile`: `eligible` con la misma regla que la vista, leída por la RLS del dueño (su fila, su rol y su `auth_credentials`).
+    - `updateMyProfile`: un solo `UPDATE`, con `visible_fields` fusionado en SQL (`||`). Una clave ausente no cambia nada; `null` en `bio` / `social_links` borra.
+    - `unpublishProfile`: `FOR UPDATE` de la fila y `audit_log` `profile.unpublish` solo si estaba publicado (repetir no deja otra fila).
+  - **Rutas**: `routes/profiles.js` (`requireAuth`, `invalid_id` por `router.param`), `GET`/`PATCH /me/profile` en `routes/me.js` (validación fuera de la transacción; un campo desconocido, también `profile_id`, → 400 `invalid_field`; URL con `URL.canParse`) y `routes/admin/profiles.js` (`requireRole('admin')`).
+  - **Tests**:
+    - `test:profiles` (25): todos los casos de Tests. Las rutas se prueban por HTTP con un express en memoria y JWT firmados, sin la API levantada.
+    - La consulta a `view_table_usage` va con el migrator (`DATABASE_URL`): esa vista solo lista tablas del rol conectado, y con `service_role` sale vacía.
+    - También: `app_user` sin escritura en las vistas, una suscripción `cancelled` no da disciplinas, `%` literal en `q`, y `PATCH` que borra `bio` / `social_links`.
+    - `test-rls.js`: «alumno A ve perfiles públicos» pasa a «NO ve en `profiles` un perfil público ajeno», y «profesor ve perfiles de alumnos» a «solo los de sus sesiones» (A no ha reservado; los casos con reservas, en `test:profiles`).
+    - Regresión con la API parada: `test:profiles` 25, `test:rls` 22, `test:attendance` 12, `test:minors` 14, `test:bookings` 18 y `test:checkin` 8, todos OK.
+- **Pendiente**:
+  - La regla de quién puede ser público está escrita dos veces (la vista y `getMyProfile`), y la de `covers`, dos (la función y la vista).
+  - `bio` y `display_name` no se filtran por contenido: lo resuelve el admin despublicando.
+  - Riesgo residual aceptado (ADR 0010): el profesor lee a nivel SQL la fila entera de los alumnos de sus sesiones.
 
 ### B14 — Racha, badges, tabla opt-in — Pendiente
 - **Objetivo**: gamificación básica (racha, badges, tabla opt-in).

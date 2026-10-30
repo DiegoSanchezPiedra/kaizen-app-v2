@@ -13,6 +13,7 @@ import {
   CHILD_FIELDS,
 } from '../services/profile.js';
 import { signAgreement } from '../services/agreements.js';
+import { getMyProfile, updateMyProfile, VISIBLE_FIELDS, SOCIAL_NETWORKS } from '../services/profiles.js';
 import { isValidPastDate } from '../services/auth.js';
 
 const router = Router();
@@ -189,6 +190,43 @@ router.patch(
   withRlsContext(async (req, client) => ({
     child: await updateChild(client, req.params.id, req.body),
   }))
+);
+
+// ------------------------------------------------------------
+// Perfil público propio (B13). Sin profile_id: un tutor nunca edita el perfil público de un hijo.
+// GET   /me/profile → { is_public, eligible, visible_fields, bio, social_links }
+// PATCH /me/profile { is_public?, visible_fields?, bio?, social_links? } → igual; 403 not_eligible
+// ------------------------------------------------------------
+const PROFILE_FIELDS = ['is_public', 'visible_fields', 'bio', 'social_links'];
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const isUrl = (v) => typeof v === 'string' && v.length <= 200 && v.startsWith('https://') && URL.canParse(v);
+const PROFILE_CHECKS = {
+  is_public: (v) => typeof v === 'boolean',
+  visible_fields: (v) => isPlainObject(v)
+    && Object.entries(v).every(([k, b]) => VISIBLE_FIELDS.includes(k) && typeof b === 'boolean'),
+  bio: (v) => v === null || (typeof v === 'string' && v.length <= 500),
+  social_links: (v) => v === null || (isPlainObject(v)
+    && Object.entries(v).every(([k, url]) => SOCIAL_NETWORKS.includes(k) && isUrl(url))),
+};
+
+function validateProfile(req, res, next) {
+  const body = req.body ?? {};
+  const bad = Object.keys(body).find((k) => !PROFILE_FIELDS.includes(k) || !PROFILE_CHECKS[k](body[k]));
+  if (bad) return next(httpError(400, 'invalid_field', `Campo inválido: ${bad}`, { field: bad }));
+  return next();
+}
+
+router.get(
+  '/profile',
+  requireAuth,
+  withRlsContext(async (req, client) => getMyProfile(client, req.user.id))
+);
+
+router.patch(
+  '/profile',
+  requireAuth,
+  validateProfile,
+  withRlsContext(async (req, client) => updateMyProfile(client, req.user.id, req.body ?? {}))
 );
 
 export default router;

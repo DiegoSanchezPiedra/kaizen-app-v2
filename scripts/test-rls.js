@@ -132,11 +132,12 @@ async function main() {
       assert.equal(rows.length, 0);
     });
 
-    await run('alumno A ve perfiles públicos', async () => {
+    // B13 (ADR 0010): lo público se lee por la vista public_profiles, no por profiles.
+    await run('alumno A NO ve en profiles un perfil público ajeno', async () => {
       const { rows } = await withCtx({ uid: ids.a, role: 'alumno' }, (c) =>
         c.query(`SELECT id FROM profiles WHERE id = $1`, [ids.pub])
       );
-      assert.equal(rows.length, 1);
+      assert.equal(rows.length, 0);
     });
 
     await run('alumno A no puede insertar un profile con id ajeno', async () => {
@@ -183,11 +184,12 @@ async function main() {
       );
     });
 
-    await run('profesor ve perfiles de alumnos', async () => {
+    // B13: solo los alumnos con reserva en sus sesiones (casos con reservas en test:profiles).
+    await run('profesor solo ve perfiles de alumnos de sus sesiones (A no ha reservado ninguna)', async () => {
       const { rows } = await withCtx({ uid: ids.professor, role: 'profesor' }, (c) =>
-        c.query(`SELECT id FROM profiles WHERE id = $1`, [ids.a])
+        c.query(`SELECT id FROM profiles WHERE id = ANY($1::uuid[])`, [[ids.a, ids.professor]])
       );
-      assert.equal(rows.length, 1);
+      assert.deepEqual(rows.map((r) => r.id), [ids.professor]);
     });
 
     await run('admin ve auth_credentials de cualquiera', async () => {

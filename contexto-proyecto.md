@@ -376,10 +376,10 @@ Migración `005_agreement_documents.js`: tabla `agreement_documents` (ciclo borr
 
 **Nuevo modelo (decidido el 2026-10-27, sin implementar):** el tutor se registra, crea a sus hijos (perfiles **sin credenciales**) y gestiona todo por ellos: perfil, ficha de salud, acuerdos, cuota, reservas, eventos y avisos. Se reescribe `006` en el sitio (no hay nada desplegado). Se conserva casi todo el esquema (`birth_date`, `guardianships`, `signed_by`) y se añaden `create_child` (SQL `SECURITY DEFINER`), el helper RLS `is_guardian_of`, políticas de tutor en `student_health_info` y `profiles`, y `GET/POST /me/children` + `PATCH /me/children/:id`. El registro propio exige ≥ 18. El rol `tutor` firma su propio `data_protection`. Decisiones D1–D16 en §5 "Cuenta familiar"; tabla mantener/refactorizar/borrar en `PLAN_FAMILIA.md` §4. **Va antes de B5.**
 
-### B5–B11 — IMPLEMENTADOS · B10.7 y B13–B20 — PENDIENTES
+### B5–B13 — IMPLEMENTADOS · B10.7 y B14–B20 — PENDIENTES
 Estado al 2026-10-30 (detalle, decisiones y pendientes de cada bloque en `plan-de-bloques.md`):
-- **Implementados, con commit y tests verdes**: B5 catálogo, B6 clases y sesiones (falta el calendario del alumno), B7 reservas, B8 asistencia, B9 check-in QR, B10 Stripe base, B10.1 recibos, B10.2 morosos, B10.3 seguro, B10.5 cambio de plan y de disciplina, B10.6 emails de billing, B11 baja del seguro y cambio de pagador.
-- **Pendientes**: B10.7 migración de los clientes de maat (al pasar a producción) y B13–B20. Siguiente en orden: **B13**.
+- **Implementados, con commit y tests verdes**: B5 catálogo, B6 clases y sesiones (falta el calendario del alumno), B7 reservas, B8 asistencia, B9 check-in QR, B10 Stripe base, B10.1 recibos, B10.2 morosos, B10.3 seguro, B10.5 cambio de plan y de disciplina, B10.6 emails de billing, B11 baja del seguro y cambio de pagador, B13 perfiles públicos, directorio y lectura de `profiles` (migración `017`, `test:profiles`).
+- **Pendientes**: B10.7 migración de los clientes de maat (al pasar a producción) y B14–B20. Siguiente en orden: **B14**.
 - B12 eliminado (absorbido por B4.5 y B10.3).
 
 ---
@@ -491,9 +491,9 @@ Notación: `uid = current_setting('app.current_user_id', true)::uuid`, `role = c
 
 | Tabla | SELECT | INSERT | UPDATE | DELETE |
 |---|---|---|---|---|
-| `profiles` | `id = uid OR is_public = true OR role IN ('admin','profesor')` | `id = uid` | `id = uid OR role = 'admin'` | `role = 'admin'` |
+| `profiles` | `id = uid OR role = 'admin' OR (role = 'profesor' AND teaches_student(id))` (B13; sin `is_public`: lo público, por la vista `public_profiles`, ADR 0010) + `profiles_select_guardian` (006) | `id = uid` | `id = uid OR role = 'admin'`; tutor (006) con `WITH CHECK … AND is_public = false` (B13) | `role = 'admin'` |
 | `auth_credentials` | `profile_id = uid OR role = 'admin'` | `profile_id = uid` | `profile_id = uid OR role = 'admin'` | `role = 'admin'` |
-| `user_roles` | `user_id = uid OR role IN ('admin','profesor')` | `role = 'admin' OR (user_id = uid AND role = 'alumno')` | `role = 'admin'` | `role = 'admin'` |
+| `user_roles` | `user_id = uid OR role = 'admin'` (B13: sin profesor) | `role = 'admin' OR (user_id = uid AND role = 'alumno')` | `role = 'admin'` | `role = 'admin'` |
 | `user_mfa` | `user_id = uid OR role = 'admin'` | `user_id = uid` | `user_id = uid OR role = 'admin'` | `user_id = uid OR role = 'admin'` |
 | `audit_log` | `role = 'admin'` | `uid IS NOT NULL` | — (denegado; + `REVOKE`) | — (denegado; + `REVOKE`) |
 | `academy_settings` | `uid IS NOT NULL` (cualquier autenticado) | `role = 'admin'` | `role = 'admin'` | `role = 'admin'` |
