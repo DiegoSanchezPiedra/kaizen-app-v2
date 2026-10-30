@@ -1,13 +1,16 @@
 // src/services/notices.js — avisos y su entrega (B10.6; CONTEXT § Avisos; ADR 0008).
 // notice() escribe el aviso en audit_log y sus entregas en notice_deliveries en una sentencia (outbox).
-// El worker de la API las envía: compone el email al enviar, con el aviso y los datos actuales.
+// El worker de la API las envía: compone el mensaje al enviar, con el aviso y los datos actuales.
+// Los avisos de reservas y de re-firma (B15, ADR 0011) crean sus entregas en SQL (enqueue_notice): push, o email
+// de respaldo si el destinatario no tenía dispositivos de push.
 import { servicePool } from '../config/database.js';
 import { APP_URL } from '../config/stripe.js';
 import { EMAIL_REPLY_TO } from '../config/email.js';
 import { send } from './email.js';
+import { send as sendPush } from './push.js';
 
-// Acción → canales. Los avisos de facturación van por email al pagador; los de reservas (booking_notice, SQL)
-// no tienen canal hasta B15 (push). stripe_risk solo va a admins, que nunca reciben entregas.
+// Acción → canales de notice(). Los avisos de facturación van solo por email al pagador; los de reservas y
+// re-firma no pasan por aquí (SQL). stripe_risk solo va a admins, que nunca reciben entregas.
 const CHANNELS = Object.fromEntries([
   'payment_failed', 'checkout_payment_failed', 'checkout_race_refunded',
   'insurance_not_paid', 'insurance_renewal', 'insurance_wont_renew',
@@ -38,12 +41,14 @@ const day = (d) => new Date(d).toLocaleDateString('es-ES', { day: 'numeric', mon
 const moment = (d) => new Date(d).toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: TZ });
 const BILLING = `${APP_URL}/billing`;
 
+const BILLING_FOOTER = 'Este es un email de servicio sobre tus pagos en Kaizen: no se puede dar de baja mientras '
+  + 'tengas pagos con la academia.';
+
 // Esqueleto común: saludo, párrafos, un enlace y el pie de email de servicio (LSSI art. 21: sin baja).
-function mail(subject, d, paragraphs, [label, url] = ['Ir a facturación', BILLING]) {
+function mail(subject, d, paragraphs, [label, url] = ['Ir a facturación', BILLING], about = BILLING_FOOTER) {
   const hello = d.payer ? `Hola, ${d.payer}:` : 'Hola:';
   const contact = EMAIL_REPLY_TO ? `escribe a ${EMAIL_REPLY_TO}` : 'contesta a este email';
-  const footer = 'Este es un email de servicio sobre tus pagos en Kaizen: no se puede dar de baja mientras tengas '
-    + `pagos con la academia. Para cualquier duda, ${contact}.`;
+  const footer = `${about} Para cualquier duda, ${contact}.`;
   const text = [hello, ...paragraphs, `${label}: ${url}`, '--', footer].join('\n\n');
   const html = `<!doctype html><html lang="es"><body style="margin:0;padding:24px;background:#f4f4f5;font-family:Arial,sans-serif;color:#18181b">
 <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:8px;padding:24px;line-height:1.5">
@@ -165,10 +170,92 @@ const TEMPLATES = {
     ...(d.c.refunded ? refund(d) : ['No se te cobrará nada.'])]),
 };
 
+// --- Avisos de reservas y de re-firma (B15): push { title, body, url, tag } o email de respaldo ---
+
+const when = (d) => new Date(d).toLocaleString('es-ES', {
+  weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: TZ,
+});
+const label = (s) => `${s.discipline}, ${when(s.starts_at)}`;
+// Uno o varios (agrupados): las reservas del grupo, con el nombre del alumno y nada más de él.
+const one = (g, single, many) => (g.sessions.length === 1
+  ? `${label(g.sessions[0])} (${g.student}): ${single}`
+  : `Se han cancelado ${g.sessions.length} reservas de ${g.student}: ${many}`);
+const BOOKINGS = `${APP_URL}/bookings`;
+const AGREEMENTS_URL = `${APP_URL}/agreements`;
+const AGREEMENT_NAMES = {
+  waiver: 'la exención de responsabilidad (waiver)',
+  data_protection: 'la política de protección de datos',
+  rights_of_image: 'la autorización de derechos de imagen',
+};
+
+// g = { student, sessions: [{ discipline, starts_at }] } o { c: changes } (re-firma) → { title, body }
+const SERVICE = {
+  'notice.no_coverage': (g) => ({
+    title: g.sessions.length === 1 ? 'Reserva cancelada' : 'Reservas canceladas',
+    body: one(g, 'ya no la cubre su suscripción', 'ya no las cubre su suscripción'),
+  }),
+  'notice.discipline_change': (g) => ({
+    title: g.sessions.length === 1 ? 'Reserva cancelada' : 'Reservas canceladas',
+    body: one(g, 'ha cambiado de disciplina', 'ha cambiado de disciplina'),
+  }),
+  'notice.session_cancelled': (g) => ({
+    title: g.sessions.length === 1 ? 'Sesión cancelada' : 'Sesiones canceladas',
+    body: one(g, 'la academia ha cancelado la sesión', 'la academia ha cancelado las sesiones'),
+  }),
+  'notice.booking_promoted': (g) => ({
+    title: 'Tienes plaza',
+    body: g.sessions.length === 1
+      ? `${label(g.sessions[0])} (${g.student}): ha quedado una plaza libre y la reserva está confirmada`
+      : `${g.student} tiene plaza en ${g.sessions.length} sesiones de su lista de espera`,
+  }),
+  'notice.agreement_published': (g) => ({
+    title: 'Nueva versión de un acuerdo',
+    body: `Hay una versión nueva de ${AGREEMENT_NAMES[g.c.type]}. Fírmala para seguir reservando.`,
+  }),
+};
+
+// Las reservas del grupo de la entrega (misma acción, alumno y transacción; ver booking_notice en 020).
+// Por el id del aviso y no por created_at: un Date de JS pierde los microsegundos.
+async function bookingGroup(db, { audit_id: id }) {
+  const { rows } = await db.query(
+    `SELECT st.display_name AS student, d.name AS discipline, x.starts_at
+       FROM audit_log a0 JOIN audit_log a ON a.created_at = a0.created_at AND a.resource_type = 'booking'
+                                         AND a.action = a0.action AND a.changes->>'student_id' = a0.changes->>'student_id'
+       JOIN bookings b ON b.id::text = a.resource_id
+       JOIN class_sessions x ON x.id = b.session_id JOIN disciplines d ON d.id = x.discipline_id
+       JOIN profiles st ON st.id = b.student_id
+      WHERE a0.id = $1
+      ORDER BY x.starts_at, a.id`, [id]);
+  return { student: rows[0]?.student ?? 'el alumno', sessions: rows };
+}
+
+async function composeService(db, d) {
+  const isBooking = d.resource_type === 'booking';
+  const g = isBooking ? await bookingGroup(db, d) : { c: d.changes };
+  const { title, body } = SERVICE[d.action](g);
+  const url = isBooking ? BOOKINGS : AGREEMENTS_URL;
+  if (d.channel === 'push') return { title, body, url, tag: d.audit_id };
+  const { rows: [r] } = await db.query(
+    `SELECT pr.display_name AS payer, ac.email FROM profiles pr
+       LEFT JOIN auth_credentials ac ON ac.profile_id = pr.id WHERE pr.id = $1`, [d.recipient_id]);
+  if (!r?.email) return null;
+  const list = isBooking && g.sessions.length > 1 ? g.sessions.map((s) => `· ${label(s)}`) : [];
+  const msg = isBooking
+    ? mail(`${title} de ${g.student}`, r, [`${body}.`, ...list],
+      ['Ver las reservas', url], 'Este es un email de servicio sobre tus reservas en Kaizen.')
+    : mail(title, r, [body], ['Ver los acuerdos', url], 'Este es un email de servicio sobre tus acuerdos en Kaizen.');
+  return { to: r.email, ...msg };
+}
+
 const PLAN_KEYS = ['plan_id', 'from_plan_id', 'to_plan_id', 'discarded_plan_id'];
 
-/** Email de una entrega con los datos actuales, o null si el destinatario no tiene email. */
-export async function compose(db, { recipient_id: to, action, resource_type: type, resource_id: resId, changes: c }) {
+/**
+ * Mensaje de una entrega con los datos actuales: email { to, subject, text, html } o, en una entrega push,
+ * payload { title, body, url, tag }. null si es email y el destinatario no tiene email.
+ */
+export async function compose(db, d) {
+  if (SERVICE[d.action]) return composeService(db, d);
+  const { recipient_id: to, action, resource_type: type, resource_id: resId, changes: c } = d;
   const { rows: [r] } = await db.query(
     `SELECT pr.display_name AS payer, ac.email, st.display_name AS student, i.current_period_end AS insurance_end,
             CASE WHEN v.id IS NOT NULL THEN jsonb_build_object('amount_due_cents', v.amount_due_cents, 'plan', pl.name) END
@@ -202,21 +289,51 @@ const mark = (client, id, { status, attempts, retryMin = 0, messageId = null, er
                                 sent_at = CASE WHEN $2 = 'sent' THEN now() END, provider_message_id = $5, last_error = $6
     WHERE id = $1`, [id, status, attempts, retryMin, messageId, error]);
 
+// Entrega push (ADR 0011): a todos los dispositivos del destinatario ahora. sent si alguno la acepta; 404/410
+// borra ese dispositivo; transitorio → reintenta la entrega entera (tag y Topic evitan verla dos veces);
+// si no, failed (401/403 y otros 4xx, sin borrar) o, sin ningún dispositivo que quede, skipped.
+async function deliverPush(client, db, d, attempts, transport) {
+  const { rows: devices } = await client.query(
+    `SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE profile_id = $1`, [d.recipient_id]);
+  if (!devices.length) return mark(client, d.id, { status: 'skipped', attempts: d.attempts, error: 'no_subscription' });
+  const payload = await compose(db, d);
+  const topic = d.audit_id.replaceAll('-', ''); // Topic: como mucho 32 caracteres base64url
+  const results = await Promise.all(devices.map((s) => transport({
+    subscription: { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, ttl: d.ttl, topic,
+  })));
+  const gone = devices.filter((_, i) => results[i].status === 'gone').map((s) => s.id);
+  if (gone.length) await client.query(`DELETE FROM push_subscriptions WHERE id = ANY($1::uuid[])`, [gone]);
+  const has = (status) => results.some((r) => r.status === status);
+  const error = results.map((r) => r.error).filter(Boolean).join('; ') || null;
+  if (has('sent')) return mark(client, d.id, { status: 'sent', attempts, error });
+  const retry = has('transient') && RETRY_MIN[d.attempts];
+  if (retry) return mark(client, d.id, { status: 'pending', attempts, retryMin: retry, error });
+  if (has('transient') || has('permanent')) return mark(client, d.id, { status: 'failed', attempts, error });
+  return mark(client, d.id, { status: 'skipped', attempts, error: 'no_subscription' });
+}
+
 /**
  * Un lote del worker: entregas pendientes y vencidas, bloqueadas con SKIP LOCKED (dos workers no se pisan).
- * Caducado (24 h desde el aviso o su expires_at, lo que sea antes) o sin email → skipped.
+ * Caducado (24 h desde el aviso o su expires_at, lo que sea antes; en uno agrupado, la sesión más próxima)
+ * o sin email → skipped. El TTL del push es lo que le queda hasta caducar.
  * @returns {Promise<number>} entregas tratadas
  */
-export async function sendPending(db = servicePool, transport = send) {
+export async function sendPending(db = servicePool, transport = send, pushTransport = sendPush) {
   const client = await db.connect();
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `SELECT d.id, d.recipient_id, d.attempts, a.action, a.resource_type, a.resource_id, a.changes,
-              now() > LEAST(a.created_at + interval '24 hours', (a.changes->>'expires_at')::timestamptz) AS stale
-         FROM notice_deliveries d JOIN audit_log a ON a.id = d.audit_id
-        WHERE d.status = 'pending' AND d.next_attempt_at <= now()
-        ORDER BY d.next_attempt_at LIMIT ${BATCH} FOR UPDATE OF d SKIP LOCKED`);
+      `SELECT d.*, now() > x.expires AS stale, GREATEST(ceil(extract(epoch FROM x.expires - now())), 0)::int AS ttl
+         FROM (SELECT d.id, d.recipient_id, d.attempts, d.channel, d.audit_id, a.action, a.resource_type,
+                      a.resource_id, a.changes, a.created_at
+                 FROM notice_deliveries d JOIN audit_log a ON a.id = d.audit_id
+                WHERE d.status = 'pending' AND d.next_attempt_at <= now()
+                ORDER BY d.next_attempt_at LIMIT ${BATCH} FOR UPDATE OF d SKIP LOCKED) d,
+         LATERAL (SELECT LEAST(d.created_at + interval '24 hours', CASE WHEN d.resource_type = 'booking'
+                    THEN (SELECT min((g.changes->>'expires_at')::timestamptz) FROM audit_log g
+                           WHERE g.created_at = d.created_at AND g.resource_type = 'booking'
+                             AND g.action = d.action AND g.changes->>'student_id' = d.changes->>'student_id')
+                    ELSE (d.changes->>'expires_at')::timestamptz END) AS expires) x`);
     for (const d of rows) {
       const attempts = d.attempts + 1;
       if (d.stale) {
@@ -224,6 +341,10 @@ export async function sendPending(db = servicePool, transport = send) {
         continue;
       }
       try {
+        if (d.channel === 'push') {
+          await deliverPush(client, db, d, attempts, pushTransport);
+          continue;
+        }
         // Con el pool: un error de SQL al componer no aborta la transacción de los bloqueos.
         const email = await compose(db, d);
         if (!email) {

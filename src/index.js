@@ -23,6 +23,7 @@ import tabletRouter from './routes/tablet.js';
 import checkinRouter from './routes/checkin.js';
 import billingRouter from './routes/billing.js';
 import webhooksRouter from './routes/webhooks.js';
+import pushRouter from './routes/push.js';
 import { startNoticeWorker } from './services/notices.js';
 
 const app = express();
@@ -62,6 +63,7 @@ app.use('/sessions', sessionsRouter); // antes que attendanceRouter: su requireR
 app.use('/sessions', attendanceRouter);
 app.use('/profiles', profilesRouter);
 app.use('/rankings', rankingsRouter);
+app.use('/push', pushRouter);
 app.use('/', catalogRouter);
 app.use(notFound);
 app.use(errorHandler);
@@ -69,7 +71,7 @@ app.use(errorHandler);
 const server = app.listen(PORT, () => {
   console.log(`[kaizen] escuchando en http://127.0.0.1:${PORT}`);
 });
-const stopNoticeWorker = startNoticeWorker(); // avisos por email (B10.6, ADR 0008)
+const stopNoticeWorker = startNoticeWorker(); // avisos por email y push (B10.6 y B15, ADRs 0008 y 0011)
 
 // Cierre limpio
 for (const sig of ['SIGINT', 'SIGTERM']) {

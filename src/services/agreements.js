@@ -106,6 +106,8 @@ export async function publishDocument(client, { id, actorId }) {
      VALUES ($1, $2, 'agreement_document.publish', 'agreement_document', $3, $4)`,
     [crypto.randomUUID(), actorId, id, { type: doc.type, version: doc.version, retired: retired[0]?.version ?? null }]
   );
+  // Aviso de re-firma a quien queda bloqueado (B15), en la misma transacción.
+  await client.query(`SELECT agreement_notice($1)`, [id]);
   return published;
 }
 

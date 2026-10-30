@@ -95,12 +95,21 @@ EMAIL_FROM="Kaizen <onboarding@resend.dev>"   # remitente de pruebas; en producc
 EMAIL_REPLY_TO=...             # buzón de la academia (opcional; el pie lo da como contacto)
 EMAIL_LOG_PATH=./storage/emails.log
 
+B15 (push, ADR 0011):
+PUSH_TRANSPORT=log             # log | webpush; src/config/push.js valida al arrancar
+VAPID_PUBLIC_KEY=...           # obligatorias con webpush; generar con npx web-push generate-vapid-keys
+VAPID_PRIVATE_KEY=...          # no se versiona
+VAPID_SUBJECT=mailto:...       # por defecto mailto:EMAIL_REPLY_TO
+PUSH_LOG_PATH=./storage/push.log
+
 text
 
 `MFA_ENCRYPTION_KEY` **obligatoria**: `src/config/mfa.js` falla al arrancar si falta o no mide 32 B. Acepta base64 (44 chars) o hex (64 chars). Generar con:
 `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.
 
 `AGREEMENTS_STORAGE_PATH` (B4.5.1): ruta **fuera** de `src/` y **fuera** de `uploads` genéricos. Default `./storage/agreements`. El directorio se crea al arrancar si no existe. Añadir `storage/` a `.gitignore` (excepto `storage/.gitkeep`).
+
+VAPID (B15): rotar = cambiar las dos claves y vaciar `push_subscriptions`; la PWA (B18) compara la clave de `GET /push/vapid-public-key` al abrir y vuelve a suscribirse. Sin claves, esa ruta responde 503 `push_disabled`.
 
 `.env.example` versionado con los nombres (sin valores). `.env` en `.gitignore`.
 
@@ -376,10 +385,10 @@ Migración `005_agreement_documents.js`: tabla `agreement_documents` (ciclo borr
 
 **Nuevo modelo (decidido el 2026-10-27, sin implementar):** el tutor se registra, crea a sus hijos (perfiles **sin credenciales**) y gestiona todo por ellos: perfil, ficha de salud, acuerdos, cuota, reservas, eventos y avisos. Se reescribe `006` en el sitio (no hay nada desplegado). Se conserva casi todo el esquema (`birth_date`, `guardianships`, `signed_by`) y se añaden `create_child` (SQL `SECURITY DEFINER`), el helper RLS `is_guardian_of`, políticas de tutor en `student_health_info` y `profiles`, y `GET/POST /me/children` + `PATCH /me/children/:id`. El registro propio exige ≥ 18. El rol `tutor` firma su propio `data_protection`. Decisiones D1–D16 en §5 "Cuenta familiar"; tabla mantener/refactorizar/borrar en `PLAN_FAMILIA.md` §4. **Va antes de B5.**
 
-### B5–B14 — IMPLEMENTADOS · B10.7 y B15–B20 — PENDIENTES
-Estado al 2026-10-30 (detalle, decisiones y pendientes de cada bloque en `plan-de-bloques.md`):
-- **Implementados, con commit y tests verdes**: B5 catálogo, B6 clases, sesiones y calendario del alumno (migración `018`, `test:calendar`), B7 reservas, B8 asistencia, B9 check-in QR, B10 Stripe base, B10.1 recibos, B10.2 morosos, B10.3 seguro, B10.5 cambio de plan y de disciplina, B10.6 emails de billing, B11 baja del seguro y cambio de pagador, B13 perfiles públicos, directorio y lectura de `profiles` (migración `017`, `test:profiles`), B14 racha, horas, badges, ranking mensual opt-in y disciplina abierta (migración `019`, `test:progress`).
-- **Pendientes**: B10.7 migración de los clientes de maat (al pasar a producción) y B15–B20. Siguiente en orden: **B15**.
+### B5–B15 — IMPLEMENTADOS · B7.1, B10.7 y B16–B20 — PENDIENTES
+Estado al 2026-10-31 (detalle, decisiones y pendientes de cada bloque en `plan-de-bloques.md`):
+- **Implementados, con commit y tests verdes**: B5 catálogo, B6 clases, sesiones y calendario del alumno (migración `018`, `test:calendar`), B7 reservas, B8 asistencia, B9 check-in QR, B10 Stripe base, B10.1 recibos, B10.2 morosos, B10.3 seguro, B10.5 cambio de plan y de disciplina, B10.6 emails de billing, B11 baja del seguro y cambio de pagador, B13 perfiles públicos, directorio y lectura de `profiles` (migración `017`, `test:profiles`), B14 racha, horas, badges, ranking mensual opt-in y disciplina abierta (migración `019`, `test:progress`), B15 push de reservas y re-firma con email de respaldo (migración `020`, `test:push`).
+- **Pendientes**: B7.1 cambio de clase y ajuste de sesión, B10.7 migración de los clientes de maat (al pasar a producción) y B16–B20. Siguiente en orden: **B7.1**.
 - B12 eliminado (absorbido por B4.5 y B10.3).
 
 ---
@@ -577,13 +586,13 @@ Owner de todas las tablas: `migrator`. **RLS activo con `FORCE` en las 8 tablas 
 | `event_registrations` | eventos | inscripciones a eventos |
 | `events` | eventos | eventos especiales |
 | `invoices` | pagos | facturas (ampliar en B10.1) |
-| `notice_deliveries` | notificaciones | entregas de los avisos (outbox, B10.6, ADR 0008); solo `servicePool` |
+| `notice_deliveries` | notificaciones | entregas de los avisos (outbox, B10.6, ADR 0008); `channel` `email` o `push` (B15); solo `servicePool` |
 | `payer_changes` | pagos | cambio de pagador pendiente (B11, ADR 0009); RLS de lectura para los dos pagadores y el admin, escribe `servicePool` |
 | `pgmigrations` | sistema | control de migraciones |
 | `plan_disciplines` | catálogo | relación plan ↔ disciplina (B5) |
 | `plans` | catálogo | planes de suscripción (B5) |
 | `profiles` | usuarios | identidad pública — **RLS Fase 1** |
-| `push_subscriptions` | notificaciones | dispositivos de push (B15, se rehace en `020`: `profile_id`, `endpoint` único, RLS `FORCE`) |
+| `push_subscriptions` | notificaciones | dispositivos de push (B15, rehecha en `020`): `profile_id` → `profiles` `CASCADE`, `endpoint` `UNIQUE`, `p256dh`, `auth`. RLS `FORCE`: `app_user` solo `SELECT` y `DELETE` de las suyas; el alta y el traspaso, por `save_push_subscription` |
 | `student_health_info` | salud | **1:1 con `profiles`** (B4.5) — **RLS B4.5** |
 | `student_stats_daily` | agregación | stats diarias por alumno (B16); B14 no la usa (racha al leer), B16 decide su forma |
 | `subscriptions` | pagos | suscripciones Stripe (B10) |
@@ -595,6 +604,8 @@ Owner de todas las tablas: `migrator`. **RLS activo con `FORCE` en las 8 tablas 
 `activity_feed` (001) se borró en B14 (`019`): no hay feed.
 
 **Funciones de B14** (`019`, `SECURITY DEFINER`, owner `service_role`): `student_progress`, `public_achievements`, `monthly_ranking` y `revoke_open_discipline` (exige admin), con `EXECUTE` para `app_user`; internas `student_present` (fuente única de los presentes que cuentan), `month_hours` y `student_achievements`. `covers` cubre además las abiertas; `public_disciplines` y `change_discipline` las excluyen. La vista `public_profiles` gana la columna `achievements`.
+
+**Funciones de B15** (`020`, `SECURITY DEFINER`, owner `service_role`): `save_push_subscription(endpoint, p256dh, auth)` (upsert por `endpoint` para el usuario actual) y `agreement_notice(document)` (exige admin; aviso `notice.agreement_published` a quien firmó la versión retirada y sigue con suscripción viva; la llama `publishDocument`), con `EXECUTE` para `app_user`; interna `enqueue_notice(audit, recipients, actor)` (entregas sin admins, profesores ni actor; `push` si tiene algún dispositivo, si no `email`). `booking_notice` guarda `expires_at` (inicio de la sesión) y crea las entregas solo en el primer aviso de cada acción y alumno de la transacción (agrupado). Índice parcial `audit_log (created_at) WHERE resource_type = 'booking'` para esa búsqueda.
 
 ### `profiles` (identidad pública)
 id uuid NOT NULL (PK) ← sin default; la app genera

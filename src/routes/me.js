@@ -1,7 +1,7 @@
 // src/routes/me.js
 import { Router } from 'express';
 import { httpError } from '../lib/errors.js';
-import { requireAuth, withRlsContext } from '../middleware/auth.js';
+import { requireAuth, requireRole, withRlsContext } from '../middleware/auth.js';
 import {
   getProfileStatus,
   upsertHealthInfo,
@@ -240,6 +240,58 @@ router.get(
   validateSubject,
   withRlsContext(async (req, client) =>
     getProgress(client, { studentId: req.query.profile_id ?? req.user.id, month: req.query.month }))
+);
+
+// ------------------------------------------------------------
+// POST /me/push-subscriptions { endpoint, keys: { p256dh, auth } } → 201 (B15, ADR 0011)
+// DELETE /me/push-subscriptions { endpoint } → 204, exista o no (no se distingue el ajeno)
+// Solo alumno y tutor. El alta pasa el endpoint al usuario actual (móvil compartido).
+// ------------------------------------------------------------
+// Frontera de confianza contra el SSRF del worker: https a un push service conocido, sin puerto ni usuario.
+const PUSH_HOSTS = [/^fcm\.googleapis\.com$/, /\.push\.services\.mozilla\.com$/, /\.notify\.windows\.com$/,
+  /\.push\.apple\.com$/];
+const B64URL = /^[A-Za-z0-9_-]+={0,2}$/;
+const keyOf = (v, bytes) => typeof v === 'string' && B64URL.test(v) && Buffer.from(v, 'base64url').length === bytes;
+
+function validPushEndpoint(endpoint) {
+  if (typeof endpoint !== 'string' || endpoint.length > 2048) return false;
+  let url;
+  try { url = new URL(endpoint); } catch { return false; }
+  return url.protocol === 'https:' && !url.port && !url.username && !url.password
+    && PUSH_HOSTS.some((h) => h.test(url.hostname));
+}
+
+function validatePushSubscription(req, res, next) {
+  const { endpoint, keys } = req.body ?? {};
+  if (!validPushEndpoint(endpoint)) return next(httpError(400, 'invalid_field', 'Campo inválido: endpoint', { field: 'endpoint' }));
+  if (req.method === 'DELETE') return next();
+  // p256dh: punto P-256 sin comprimir (65 bytes); auth: 16 bytes.
+  const bad = !keyOf(keys?.p256dh, 65) ? 'keys.p256dh' : !keyOf(keys?.auth, 16) ? 'keys.auth' : null;
+  if (bad) return next(httpError(400, 'invalid_field', `Campo inválido: ${bad}`, { field: bad }));
+  return next();
+}
+
+router.post(
+  '/push-subscriptions',
+  requireAuth,
+  requireRole('alumno', 'tutor'),
+  validatePushSubscription,
+  withRlsContext(async (req, client) => {
+    const { endpoint, keys } = req.body;
+    await client.query(`SELECT save_push_subscription($1, $2, $3)`, [endpoint, keys.p256dh, keys.auth]);
+    return { status: 201, body: { ok: true } };
+  })
+);
+
+router.delete(
+  '/push-subscriptions',
+  requireAuth,
+  requireRole('alumno', 'tutor'),
+  validatePushSubscription,
+  withRlsContext(async (req, client) => {
+    await client.query(`DELETE FROM push_subscriptions WHERE endpoint = $1`, [req.body.endpoint]);
+    return { status: 204, body: null };
+  })
 );
 
 export default router;
