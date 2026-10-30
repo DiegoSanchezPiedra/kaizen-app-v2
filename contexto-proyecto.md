@@ -86,6 +86,7 @@ AGREEMENTS_STORAGE_PATH=./storage/agreements
 B10:
 STRIPE_SECRET_KEY=...
 STRIPE_WEBHOOK_SECRET=...
+STRIPE_STATEMENT_DESCRIPTOR="KAI ZEN TRAINING CAMP"   # B11: en los Products de Kaizen (no en la cuenta, que comparte maat); src/config/stripe.js valida al arrancar
 
 B10.6:
 EMAIL_TRANSPORT=log            # log | resend; src/config/email.js valida al arrancar
@@ -527,7 +528,7 @@ Notación: `uid = current_setting('app.current_user_id', true)::uuid`, `role = c
 |---|---|
 | Evento Stripe clave | `invoice.payment_failed` (también `invoice.payment_action_required`, `customer.subscription.updated/deleted`) |
 | Datos en `invoices` | Añadir `stripe_invoice_id`, `status`, `attempt_count`, `next_payment_attempt`, `last_payment_error` (jsonb), `hosted_invoice_url` |
-| Notificación al pagador | **Email transaccional** de los 11 avisos de facturación (B10.6: outbox `notice_deliveries` + worker, ADR 0008). Push en B15. |
+| Notificación al pagador | **Email transaccional** de los 16 avisos de facturación (B10.6 y B11: outbox `notice_deliveries` + worker, ADR 0008). Push en B15. |
 | Notificación al admin | **Pasiva**: lista en panel (B10.2 + UI en B19). Sin email diario ni push al admin. |
 | Lista de morosos | `GET /admin/billing/failed-payments` sobre `invoices` con `status IN ('open','past_due','uncollectible')` |
 | Segmentación | B10.1 (modelo + webhook), B10.2 (endpoint admin), B10.6 (emails), B19 (UI) |
@@ -574,6 +575,7 @@ Owner de todas las tablas: `migrator`. **RLS activo con `FORCE` en las 8 tablas 
 | `events` | eventos | eventos especiales |
 | `invoices` | pagos | facturas (ampliar en B10.1) |
 | `notice_deliveries` | notificaciones | entregas de los avisos (outbox, B10.6, ADR 0008); solo `servicePool` |
+| `payer_changes` | pagos | cambio de pagador pendiente (B11, ADR 0009); RLS de lectura para los dos pagadores y el admin, escribe `servicePool` |
 | `pgmigrations` | sistema | control de migraciones |
 | `plan_disciplines` | catálogo | relación plan ↔ disciplina (B5) |
 | `plans` | catálogo | planes de suscripción (B5) |

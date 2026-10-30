@@ -13,6 +13,7 @@ const CHANNELS = Object.fromEntries([
   'insurance_not_paid', 'insurance_renewal', 'insurance_wont_renew',
   'plan_downgraded', 'upgrade_requires_action',
   'subscription_unpaid', 'insurance_unpaid', 'subscription_cancelled',
+  'insurance_cancelled', 'payer_change_requested', 'payer_change_paid', 'payer_change_expired', 'payer_change_cancelled',
 ].map((a) => [`notice.${a}`, ['email']]));
 
 /** Aviso + una entrega por destinatario no admin y canal, en una sentencia (también en autocommit). */
@@ -62,7 +63,20 @@ const WONT_RENEW = {
   turns_18: 'hay un cambio de tramo de edad', // nunca la edad ni la fecha
 };
 
-// d = { c: changes, payer, student, plans: { id: nombre }, invoice, insurance_end }
+const VOIDED = 'Los recibos que quedaban pendientes se han anulado: ya no se cobrarán.';
+const future = (d) => new Date(d) > new Date();
+
+// Cambio de pagador (B11). El mismo aviso va al pagador antiguo y al nuevo con textos distintos.
+const isOld = (d) => d.to === d.change.old_payer_id;
+const refund = (d) => (d.c.refunded ? [`Te hemos devuelto ${eur(d.c.refunded)} que se llegaron a cobrar.`] : []);
+const CANCELLED = {
+  admin: 'la academia lo ha anulado',
+  replaced: 'la academia lo ha sustituido por otro',
+  subscription_cancelled: 'la suscripción se ha dado de baja',
+  expired: 'el plazo para pagarlo ya había terminado',
+};
+
+// d = { to, c: changes, payer, student, plans: { id: nombre }, invoice, insurance_end, change }
 const TEMPLATES = {
   'notice.payment_failed': (d) => mail(`No hemos podido cobrar el recibo de ${d.student}`, d, [
     `El cobro de ${eur(d.invoice.amount_due_cents)} ${d.invoice.plan ? `del plan ${d.invoice.plan}` : 'del seguro'} `
@@ -114,9 +128,41 @@ const TEMPLATES = {
   ], ['Pagar el recibo', d.c.hosted_invoice_url]),
   'notice.subscription_cancelled': (d) => mail(`Baja de la suscripción de ${d.student}`, d, [
     `La academia ha dado de baja la suscripción de ${d.student} (plan ${plan(d, 'plan_id')}). `
-      + (new Date(d.c.ends_at) > new Date() ? `Seguirá activa hasta el ${day(d.c.ends_at)}.` : 'La baja es efectiva desde hoy.'),
+      + (future(d.c.ends_at) ? `Seguirá activa hasta el ${day(d.c.ends_at)}.` : 'La baja es efectiva desde hoy.'),
     ...(d.c.discarded_plan_id ? [`El cambio al plan ${plan(d, 'discarded_plan_id')} que estaba programado queda anulado.`] : []),
+    ...(d.c.voided ? [VOIDED] : []),
   ]),
+  'notice.insurance_cancelled': (d) => mail(`Baja del seguro de ${d.student}`, d, [
+    `La academia ha dado de baja el seguro de ${d.student}. `
+      + (future(d.c.ends_at) ? `Seguirá vigente hasta el ${day(d.c.ends_at)} y no se renovará.` : 'La baja es efectiva desde hoy.')
+      + ' No se devuelve la parte del año no usada.',
+    ...(d.c.voided ? [VOIDED] : []),
+    `Sin el seguro, ${d.student} necesita el waiver firmado para reservar clases. Se puede firmar desde la app.`,
+  ]),
+  'notice.payer_change_requested': (d) => mail(`Pago de la suscripción de ${d.student}`, d, [
+    `La academia ha pedido que pases a pagar la suscripción de ${d.student} (plan ${plan(d, 'plan_id')}, `
+      + `${eur(d.change.price_cents)} al mes).`,
+    `Hoy no se te cobra nada: empezarás a pagar el ${day(d.c.starts_at)}. Para aceptarlo, añade tu tarjeta antes `
+      + `del ${moment(d.c.deadline)}.`,
+  ], ['Revisar y pagar', `${BILLING}/payer-changes/${d.change.id}`]),
+  'notice.payer_change_paid': (d) => mail(`Cambio de pagador de ${d.student} confirmado`, d, [
+    isOld(d)
+      ? `${d.change.new_payer} ha aceptado pagar la suscripción de ${d.student}. La que pagas tú termina el `
+        + `${day(d.change.starts_at)} y desde entonces la paga ${d.change.new_payer}.`
+      : `Desde el ${day(d.change.starts_at)} pagarás ${eur(d.change.price_cents)} al mes por la suscripción de `
+        + `${d.student} (plan ${plan(d, 'plan_id')}), con la tarjeta que has añadido. Hasta entonces no se te cobra nada.`,
+    ...(d.c.from_plan_id !== d.c.plan_id
+      ? [`El cambio al plan ${plan(d, 'plan_id')} que estaba programado se aplica desde esa fecha.`] : []),
+  ]),
+  'notice.payer_change_expired': (d) => mail(`El cambio de pagador de ${d.student} ha caducado`, d, isOld(d)
+    ? [`El nuevo pagador no completó el pago a tiempo, así que sigues pagando tú la suscripción de ${d.student}.`]
+    : [`El plazo para pagar la suscripción de ${d.student} terminó sin completarse y el enlace ya no vale. `
+        + 'Si sigue haciendo falta, la academia puede volver a pedirlo.', ...refund(d)]),
+  'notice.payer_change_cancelled': (d) => mail(`Cambio de pagador de ${d.student} anulado`, d, isOld(d)
+    ? [`El cambio de pagador de la suscripción de ${d.student} se ha anulado porque ${CANCELLED[d.c.reason]}.`]
+    : [`El cambio para que pagues la suscripción de ${d.student} se ha anulado porque `
+        + `${CANCELLED[d.c.reason] ?? 'ya no está vigente'}. El enlace que recibiste ya no vale.`,
+    ...(d.c.refunded ? refund(d) : ['No se te cobrará nada.'])]),
 };
 
 const PLAN_KEYS = ['plan_id', 'from_plan_id', 'to_plan_id', 'discarded_plan_id'];
@@ -126,18 +172,23 @@ export async function compose(db, { recipient_id: to, action, resource_type: typ
   const { rows: [r] } = await db.query(
     `SELECT pr.display_name AS payer, ac.email, st.display_name AS student, i.current_period_end AS insurance_end,
             CASE WHEN v.id IS NOT NULL THEN jsonb_build_object('amount_due_cents', v.amount_due_cents, 'plan', pl.name) END
-              AS invoice
+              AS invoice,
+            CASE WHEN pc.id IS NOT NULL THEN jsonb_build_object(
+              'id', pc.id, 'old_payer_id', pc.old_payer_id, 'new_payer', np.display_name, 'starts_at', pc.starts_at,
+              'price_cents', pp.price_cents) END AS change
        FROM profiles pr LEFT JOIN auth_credentials ac ON ac.profile_id = pr.id
        LEFT JOIN invoices v ON $3 = 'invoice' AND v.id::text = $4
        LEFT JOIN subscriptions s ON s.id = v.subscription_id LEFT JOIN plans pl ON pl.id = s.plan_id
        LEFT JOIN insurances i ON $3 = 'insurance' AND i.id::text = $4
+       LEFT JOIN payer_changes pc ON $3 = 'payer_change' AND pc.id::text = $4
+       LEFT JOIN profiles np ON np.id = pc.new_payer_id LEFT JOIN plans pp ON pp.id = pc.plan_id
        LEFT JOIN profiles st ON st.id = COALESCE($2::uuid, v.student_id)
       WHERE pr.id = $1`, [to, c.student_id ?? null, type, resId]);
   // Aunque email_verified = false: es la única dirección del pagador (plan B10.6).
   if (!r?.email) return null;
   const ids = PLAN_KEYS.map((k) => c[k]).filter(Boolean);
   const { rows: plans } = await db.query(`SELECT id::text, name FROM plans WHERE id = ANY($1::bigint[])`, [ids]);
-  const msg = TEMPLATES[action]({ ...r, student: r.student ?? 'el alumno', c, plans: Object.fromEntries(plans.map((p) => [p.id, p.name])) });
+  const msg = TEMPLATES[action]({ ...r, to, student: r.student ?? 'el alumno', c, plans: Object.fromEntries(plans.map((p) => [p.id, p.name])) });
   return { to: r.email, ...msg };
 }
 

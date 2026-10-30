@@ -54,7 +54,7 @@
 | B10.3 | Seguro y cobertura de riesgo (seguro anual o `waiver`) | B10.1 | Implementado |
 | B10.5 | Upgrade/downgrade + cambio de disciplina | B10 | IMPLEMENTADO |
 | B10.6 | Emails transaccionales de billing (al pagador) | B10.1, B10.3, B10.5 | IMPLEMENTADO |
-| B11 | Baja del seguro y cambio de pagador | B10.5, B10.3, B10.6 | Diseñado |
+| B11 | Baja del seguro y cambio de pagador | B10.5, B10.3, B10.6 | IMPLEMENTADO |
 | B12 | ~~Validación final waiver/consentimientos en checkout~~ | — | ELIMINADO (absorbido por B4.5 y B10.3) |
 | B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 | Pendiente |
 | B14 | Racha, badges, tabla opt-in | B7 | Pendiente |
@@ -497,7 +497,7 @@
 - **Objetivo**: entregar por email al pagador los avisos de facturación que ya se crean (`notice.*` en `audit_log`) y los que faltaban (impagada, baja). Términos en `CONTEXT.md` («Avisos»), decisión en ADR 0008.
 - **Reglas** (decididas 2026-10-30):
   - **Qué va por email**: 11 avisos de facturación, solo al pagador:
-    - `payment_failed`: en cada intento, con el siguiente reintento.
+    - `payment_failed`: en cada intento, con el siguiente reintento. **Cambiado en B11**: solo en el primer intento.
     - `checkout_payment_failed`.
     - `checkout_race_refunded`: solo la entrega del pagador.
     - `insurance_not_paid`, `insurance_renewal`, `insurance_wont_renew`.
@@ -648,6 +648,8 @@
   - Script de importación idempotente: cliente → perfil pagador (`profiles.stripe_customer_id`), alumno y menores, Price de maat → plan de Kaizen (`subscriptions.update` al Price del plan con `proration_behavior: 'none'`), disciplinas (CSV o exportación de maat), fila en `subscriptions` + `subscription_disciplines`, recibos con `syncInvoice`.
   - *Upcoming renewal events* (aviso del seguro, B10.3) es un ajuste de toda la cuenta: acordar con maat los 30 días.
   - Emails de cliente de Stripe que tenga activos maat (cobro fallido, 3DS, renovación, recibos): son de toda la cuenta y se solapan con los de Kaizen (B10.6); acordar con maat antes del corte.
+  - Descriptor: `STRIPE_STATEMENT_DESCRIPTOR` en el `.env` de producción y `npm run sync-stripe-plans` tras importar los planes, para que los Products de Kaizen lo lleven. Confirmar que «KAI ZEN TRAINING CAMP» es el nombre comercial con el que se conoce la academia (lo exigen las redes de tarjetas).
+  - *Revenue recovery → Retries* de la cuenta: Kaizen necesita «mark the subscription as unpaid» al agotar los reintentos (en el sandbox estaba en cancelar; ver E2E de B11). Es un ajuste de toda la cuenta: si maat cancela, acordarlo antes del corte.
   - Endpoint de webhook propio de Kaizen con API `2026-09-30.endive` (sin cambiar la versión por defecto de la cuenta), clave `rk_live_` restringida y configuración de portal propia.
   - Plan de corte: cuándo deja maat de vender y de recibir webhooks.
 - **Fuera de alcance**: cuentas de Stripe distintas (las tarjetas no se mueven sin el soporte de Stripe).
@@ -657,7 +659,7 @@
   - [ ] Base legal del traspaso de datos confirmada (gestoría).
   - [ ] Importación en producción y conteo cuadrado con Stripe.
 
-### B11 — Baja del seguro y cambio de pagador — Diseñado
+### B11 — Baja del seguro y cambio de pagador — IMPLEMENTADO
 - **Objetivo**: baja del seguro por el admin (a fin de año o inmediata) y **cambio de pagador**. Además, arreglar que la baja inmediata de una suscripción deje su recibo pendiente cobrándose. Términos en `CONTEXT.md` («Suscripción», «Seguro y cobertura de riesgo»), decisión en ADR 0009.
 - **Ya hecho en B10** (2026-10-29): `POST /admin/subscriptions/:id/cancel-now` y `/cancel-at-period-end` (`cancelSubscription`). Se pide la baja a Stripe y el estado local llega por el webhook. `audit_log` `subscription.cancel_now` / `subscription.cancel_at_period_end`.
 - **Sondeo del sandbox** (2026-10-30, `kaizen-app-testing`, *test clock*):
@@ -778,16 +780,117 @@
   - deshacer un cambio de pagador ya pagado;
   - UI y panel de cambios caducados (B19).
 - **Checklist de cierre**:
-  - [ ] Migración `016` (`payer_changes`, RLS de lectura, sin escritura para `app_user`).
-  - [ ] Baja del seguro en los dos modos, con la tabla de estados, sin reembolso, *void* de los `open` y `insurance_cancelled`.
-  - [ ] Baja inmediata de la suscripción anula sus recibos `open`.
-  - [ ] Cambio de pagador: pedir, enlace a la app, Checkout con anchor, `paid`, traspaso idempotente en D sin cancelar reservas, `expired` sin cron.
-  - [ ] Bajada programada trasladada; pedido congelado con `payer_change_pending`.
-  - [ ] Bajas y anulaciones con el cambio en marcha (incluida la carrera anular / pagar).
-  - [ ] Seguro `payer_changed` en el traspaso.
-  - [ ] 5 avisos nuevos en `CHANNELS` con plantillas.
-  - [ ] `audit_log` registra.
-  - [ ] Tests (`test:billing`, `test:webhook`, `test:notices`, regresión) y E2E con Stripe CLI y *test clock*.
+  - [x] Migración `016` (`payer_changes`, RLS de lectura, sin escritura para `app_user`).
+  - [x] Baja del seguro en los dos modos, con la tabla de estados, sin reembolso, *void* de los `open` y `insurance_cancelled`.
+  - [x] Baja inmediata de la suscripción anula sus recibos `open`.
+  - [x] Cambio de pagador: pedir, enlace a la app, Checkout con anchor, `paid`, traspaso idempotente en D sin cancelar reservas, `expired` sin cron.
+  - [x] Bajada programada trasladada; pedido congelado con `payer_change_pending`.
+  - [x] Bajas y anulaciones con el cambio en marcha (incluida la carrera anular / pagar).
+  - [x] Seguro `payer_changed` en el traspaso.
+  - [x] 5 avisos nuevos en `CHANNELS` con plantillas.
+  - [x] `audit_log` registra.
+  - [x] Tests (`test:billing`, `test:webhook`, `test:notices`, regresión).
+  - [x] E2E con Stripe CLI y *test clock*.
+- **Implementación** (migración `016`):
+  - **Sondeo del sandbox** (2026-10-30, antes del paso 3; *test clock*, Checkout completado en Chrome con 4242):
+    - Checkout con `billing_cycle_anchor` = D (fin de periodo de otra suscripción del mismo reloj) y `proration_behavior: none`: la página dice «0,00 € hoy, luego 10,00 €/mes desde D». Completado: `status: complete`, `payment_status: no_payment_required` (no `paid`), `amount_total` 0.
+    - La sucesora nace **`active`**, **sin ningún recibo** (`latest_invoice` nulo) ni cargo, con la tarjeta como `default_payment_method`. Su periodo va de la creación a D.
+    - Reloj a D + 1 h: la antigua (con `cancel_at_period_end`) pasa a `canceled` y la sucesora cobra el mes completo (`subscription_cycle`, 10 €, `paid`).
+    - Orden de creación de los eventos: `invoice.upcoming` (sucesora, al avanzar el reloj, antes de D), `customer.subscription.deleted` (antigua), `invoice.created` / `updated` / `finalized` / `paid` (sucesora) y `customer.subscription.updated` (sucesora). La antigua no emite `updated` en D, solo `deleted`.
+    - Consecuencias: `onCheckoutPaid` no descarta el Checkout del cambio (solo descarta `unpaid`). No hay recibo de 0 € que ignorar. `onUpcoming` ignora el `invoice.upcoming` de la sucesora (no es un seguro).
+    - Antes, en la fase 1: un recibo `open` de prueba se fabrica sin *test clock* con `invoiceItems.create({ subscription })` + `invoices.create({ subscription, auto_advance: false })` + `finalize`. Tras `cancel` sigue `open`, y el *void* lo cierra.
+  - **`016`**: `payer_changes` como en el paso 1, con `payer_changes_one_pending_idx` (`requested` / `paid`) y `CHECK` de `cancel_reason` (`admin` / `replaced` / `subscription_cancelled`). RLS de lectura para el pagador antiguo, el nuevo y el admin; `app_user` no escribe. La escriben el servicio (`serviceTx`, transacción propia con `servicePool`) y el webhook.
+  - **Baja del seguro** (`cancelInsurance`):
+    - Lee la fila con la RLS del admin y relee Stripe. Errores: 404 `insurance_not_found`, 409 `insurance_cancelled` (también si Stripe ya la canceló y el webhook no ha llegado), `insurance_not_live` e `insurance_cancel_scheduled`.
+    - `update cancel_at_period_end` o `cancel` sin `prorate` ni `invoice_now`. En `cancel-now`, `voidOpenInvoices` (compartido con `cancelSubscription`).
+    - `notice.insurance_cancelled` con `servicePool` (`ends_at`, `voided` = número de recibos anulados), al pagador del seguro y al de la suscripción viva si es otro.
+    - `risk_cover` = si le queda cobertura de riesgo sin el seguro (el `waiver` vigente, `signed_current` con `servicePool`). Es igual en los dos modos, para que el panel avise también en la baja a fin de año.
+    - La respuesta va sin envolver (`{ id, stripe_status, ends_at, risk_cover }`), como dice el diseño. La baja de la suscripción sigue devolviendo `{ subscription }`.
+  - **`cancelSubscription`**: `voidOpenInvoices` en `cancel-now` y `voided` en `subscription_cancelled`, que lo dice en el email. Cierra el cambio de pagador pendiente **antes** de pedir la baja a Stripe, para que el fin de la antigua no se tome por un traspaso.
+  - **Cambio de pagador** (`services/billing.js`):
+    - `requestPayerChange`:
+      - Valida: `payer_id`, perfil, `same_payer` e `invalid_payer` (el nuevo pagador es un menor, un adulto no vinculado al menor, o otro que no es el propio alumno adulto). Lo comprueba `validNewPayer` con `servicePool`.
+      - Bajo el bloqueo de la fila de la suscripción: `payer_change_paid`, estado local, y con Stripe releído `subscription_not_active` / `cancel_scheduled` / `upgrade_pending` / `period_ending_soon`.
+      - D = `current_period_end` de Stripe y fecha límite = D − 1 h. El plan y las disciplinas salen de la fase pendiente del Schedule, o los actuales.
+      - Un `requested` anterior se cierra con `replaced`. Escribe `audit_log` y `payer_change_requested` (`expires_at` = fecha límite).
+    - `cancelPayerChange`: un `requested` pasa a `cancelled (admin)`, caduca su Checkout y avisa. Uno `paid` → 409.
+    - `closePayerChange`: comparten el cierre la sustitución, el `DELETE` y la baja. Caduca el Checkout abierto y, si estaba `paid`, descarta la sucesora y avisa también al antiguo.
+    - `getPayerChange`: comprueba la RLS con `client` y lee el detalle con `servicePool` (el nuevo pagador no ve un plan retirado). `EFFECTIVE_STATUS` da `expired` a un `requested` pasada la fecha límite; también en `getSubscription.payer_change`.
+    - `assertNewPayer` (403 `not_new_payer`, también si el tutor ya no está vinculado) y `payerChangeCheckout`:
+      - bajo `FOR UPDATE` de la fila: Checkout con `billing_cycle_anchor` = D, `proration_behavior: none`, `metadata.payer_change_id` y 30 min;
+      - guarda el `checkout_session_id` y caduca el Checkout anterior, para que haya uno abierto a la vez.
+    - `assertNotFrozen` (409 `payer_change_pending`) en `changePlan`, `cancelScheduledChange` y `changeDiscipline`. Este último comprueba tras bloquear la fila de la suscripción, igual que el pedido, para que no se crucen.
+    - `discardSuccessor`: cancela la sucesora, anula sus recibos `open` y reembolsa los pagados (clave `successor-refund-<pi>`). Devuelve lo reembolsado, que va en `refunded` de los avisos.
+  - **Webhook** (`stripeWebhook.js`):
+    - `onPayerChangePaid` (desde `onCheckoutPaid` con `metadata.payer_change_id`, tras comprobar el cliente):
+      - Idempotente si la sucesora ya está guardada.
+      - Cambio no `requested`: descarta la sucesora. Avisa `payer_change_cancelled` con `reason` = `cancel_reason` o `expired`, salvo si es una segunda sucesora del mismo cambio.
+      - **Checkout tardío**: la antigua ya renovó (su periodo empieza en D o después) → `markExpired`, sin tocar la antigua.
+      - Si no: libera el Schedule, pone `cancel_at_period_end`, `paid` y `payer_change_paid` a los dos pagadores (`from_plan_id` para decir si se trasladó la bajada).
+    - `transferPayer`: bajo `lock_student` y `FOR UPDATE` del cambio, los cinco pasos del diseño.
+      - La regla del seguro: el vivo y renovando que no paga el nuevo pagador → `insuranceWontRenew('payer_changed', [pagador del seguro, nuevo])`.
+      - Se dispara desde `onSubscriptionChange`: de la sucesora antes del `UPDATE`, y de la antigua `cancelled` antes de `revoke_coverage`.
+      - También desde `syncInvoice` (recibo de la sucesora sin fila).
+    - `expirePayerChange` (antigua no cancelada con periodo que empieza en D o después) y `markExpired`: `expired`, descarta la sucesora si la hay y avisa a admins, antiguo y nuevo.
+  - **Avisos** (`notices.js`):
+    - `CHANNELS` pasa de 11 a 16.
+    - `compose` lee el cambio (nuevo pagador, D, precio actual del plan) y pasa el destinatario a las plantillas, que distinguen antiguo y nuevo.
+    - `insurance_cancelled` dice que no se devuelve la parte no usada, los recibos anulados y lo del `waiver`.
+  - **Endpoints**:
+    - Los del diseño, y además `GET /admin/payer-changes/:id`: el router `/billing` exige `alumno` / `tutor` y el admin no podía leer el cambio (decidido 2026-10-30).
+    - `POST /billing/payer-changes/:id/checkout` lleva los guards `asNewPayer` (403 antes que el `not_guardian` de `requireCompleteProfile`) y `requireCompleteProfile`, con el alumno como sujeto.
+  - **Decidido 2026-10-30, salido de la fase 3 — reembolso de la sucesora**:
+    - Si el `checkout.session.completed` llega tras D, la antigua ya renovó con su pagador y la sucesora cobró el primer mes. Antes, según el orden de los eventos, el nuevo pagador pagaba sin recibir nada, y la antigua recibía la baja tras renovar.
+    - Ahora el Checkout tardío caduca el cambio y toda sucesora descartada se reembolsa.
+    - Es la **segunda excepción a «sin reembolsos automáticos»**, como la carrera de checkouts: corrige un cobro de más que Kaizen descarta, no devuelve un servicio prestado.
+    - Fuera de ese caso (o de quitar a mano la baja de la antigua en el Dashboard), la sucesora se descarta antes de D y no hay nada que devolver.
+  - **Decidido 2026-10-30, tras el E2E — costes de Stripe**:
+    - Smart Retries se queda como está (8 reintentos en 2 semanas y `unpaid` al agotarse): un intento rechazado no cuesta nada en Stripe.
+    - `notice.payment_failed` solo en el **primer intento** (`attempt_count = 1`). Los reintentos no avisan y, si se agotan, avisa `subscription_unpaid` / `insurance_unpaid`. Son 2 emails en vez de 9, para no saturar al pagador.
+    - **Descriptor del extracto** `KAI ZEN TRAINING CAMP` (`STRIPE_STATEMENT_DESCRIPTOR`, validado al arrancar en `config/stripe.js`). Va en el `statement_descriptor` de los Products de Kaizen, cada plan y el del seguro: Stripe lo usa en los cobros de la suscripción antes que el de la cuenta, que en producción comparte maat. Se pone al crear el Product, y `npm run sync-stripe-plans` lo aplica a los que ya existen. Vacío: el de la cuenta.
+    - `attempt_count` solo sube con los reintentos automáticos (un pago manual no cuenta), según la documentación de Stripe; el test simula el segundo intento al releer el recibo.
+    - La baja por el pagador no cambia; queda en `MEJORAS.md`, también como medida contra las disputas.
+  - **Tests**:
+    - `test:billing`:
+      - tabla de estados de la baja del seguro contra seguros reales, sin saldo a favor, destinatarios y `risk_cover`;
+      - validaciones del pedido (con `upgrade_pending` y `period_ending_soon` simulados al releer Stripe), aviso y `audit_log`;
+      - congelado en las cuatro acciones, `GET` y Checkout por quién (con el tutor desvinculado y pasada la fecha límite), `amount_total` 0;
+      - sustituir un `requested` (Checkout caducado), `DELETE` y pedido con un `paid`, y bajada trasladada.
+    - `test:webhook`:
+      - baja del seguro a fin de año (antes, 409 de un seguro que ya no renovaba) e inmediata de un seguro `unpaid` con un recibo `open`: `void`, fuera de morosos y sin cobertura;
+      - baja inmediata de la suscripción con un recibo `open`;
+      - Checkout del cambio pagado (Schedule liberado, sin fila nueva, replay y sucesora duplicada);
+      - traspaso con la antigua primero y con el recibo de la sucesora primero (una fila, reservas intactas, seguro `payer_changed` o intacto);
+      - `expired` en la renovación, carrera `DELETE` / pago, Checkout tardío con la sucesora reembolsada una vez, y baja con el cambio pagado.
+      - D se simula cancelando la antigua en Stripe; la renovación, al releer.
+    - `test:notices`: las 16 plantillas, más los textos del nuevo pagador (con reembolso y sin él) y las entregas sin admins.
+    - Regresión con la API parada: `test:billing` 38, `test:webhook` 35, `test:notices` 9, `test:bookings` 18, `test:minors` 14 y `test:catalog` 10, todos OK.
+- **E2E** (2026-10-30, sandbox `kaizen-app-testing`, `stripe listen --all-snapshot` + Chrome + *test clock*, por HTTP contra `npm run dev` con tokens firmados; fixtures por base de datos, con documentos de acuerdos de prueba porque la base de desarrollo no tiene ninguno publicado):
+  - **Cambio completo hasta D**:
+    - tutor A da de alta a su hija con un Checkout de 20 € y reserva una sesión;
+    - el admin pide el cambio a tutor B → 201 con D y la fecha límite;
+    - el worker deja el email en `storage/emails.log`: plan, 20 €/mes, «hoy no se te cobra nada», fecha límite en hora de Madrid y enlace a `/billing/payer-changes/:id`;
+    - tutor B hace `GET` y abre el Checkout: «0,00 € hoy, 20 €/mes desde el 30 de noviembre», pagado en Chrome;
+    - el webhook lo deja `paid` y pone `cancel_at_period_end` a la antigua; la sucesora queda `active`, sin recibo ni fila local, y sale un email a cada pagador con su texto;
+    - reloj a D + 1 h: antigua `cancelled`, sucesora en local pagada por tutor B (mismo plan y disciplina), cambio `completed`, recibo de 20 € `paid` de tutor B y la reserva `confirmed`. Solo hay avisos del cambio: ni `no_coverage` ni `payment_failed`.
+  - **Cambio sin pagar → `expired`**:
+    - cambio de vuelta a tutor A sobre la sucesora, sin pagar, y reloj a su D;
+    - la sucesora renueva con tutor B y el cambio queda `expired`; el `GET` lo da `expired` y el Checkout tardío responde 409 `payer_change_expired`;
+    - emails: «el enlace ya no vale» a tutor A y «sigues pagando tú» a tutor B. Los admins son destinatarios del aviso, sin entregas.
+  - **Baja inmediata de un seguro `unpaid`**:
+    - tutor B contrata el seguro por HTTP y se le pone al seguro, y solo a él, una tarjeta que se rechaza;
+    - avance real de algo más de un año, de dos en dos meses: `past_due` en la renovación, 9 intentos y `unpaid` a las dos semanas, con tutor B en morosos;
+    - `POST /admin/insurances/:id/cancel-now` → 200 con `risk_cover: true` (waiver firmado): recibo `void` en Stripe y en local, tutor B fuera de morosos, seguro `cancelled` por el webhook y repetido → 409 `insurance_cancelled`; email `insurance_cancelled`;
+    - la suscripción sigue `active`.
+  - **Hallazgo — ajuste de la cuenta**: el sandbox tenía *Revenue recovery → Retries → «If all retries for a payment fail»* en **cancelar la suscripción**. En el primer intento el seguro acabó `canceled` (`reason: payment_failed`) con el recibo `open` (Stripe ya no lo cobraba) y sin aviso al pagador de que el seguro había terminado. Kaizen supone `unpaid` desde B10.2 y los tests lo simulaban. Cambiado a **«mark the subscription as unpaid»** en el sandbox (2026-10-30); hay que revisar la cuenta de producción (B10.7).
+  - **Incidencia de montaje**: el primer `stripe listen` no llevaba `--forward-to` y se perdieron los eventos del alta de tutor A. Se reenviaron firmados a la ruta real. En el primer intento se reenviaron también eventos de la regresión anterior: sus perfiles ya no existían y no escribieron nada (comprobado).
+  - Con el *test clock*, una baja inmediata se lee «seguirá vigente hasta…» en el email: la plantilla compara `ends_at` con la hora real. En producción `ended_at` es el momento de la baja (`subscription_cancelled` de B10.6 hace igual).
+  - Datos del E2E borrados después (base de desarrollo, *test clock*, plan y seguro archivados en Stripe y ajustes del seguro restaurados).
+- **Pendiente**:
+  - Endpoints sin prueba por HTTP en los tests (el E2E sí pasa por HTTP); en especial, el Checkout del cambio con un perfil incompleto (403 de `requireCompleteProfile`).
+  - Si Stripe cancelara un seguro tras los reintentos (otro ajuste de la cuenta), el pagador no recibiría ningún aviso de que se ha terminado. Con `unpaid` no pasa.
+  - Si el precio del plan cambia con un cambio `paid`, la sincronización no ve la sucesora (no tiene fila): el primer cobro en D es al precio viejo y el traspaso la alinea, sin prorrateo, para los siguientes.
+  - Un aviso escrito con `servicePool` en *autocommit* (`insurance_cancelled`) se queda aunque la ruta haga rollback después, como en B10.6.
 
 ### B12 — ELIMINADO
 - Absorbido: los consentimientos (`data_protection`, `rights_of_image`) ya los exige el perfil completo (B4.5) en el checkout, y el `waiver` pasa a la elección seguro / `waiver` del checkout (B10.3, ADR 0005).

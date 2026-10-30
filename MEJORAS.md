@@ -135,7 +135,7 @@ Una sola sesión inicial (antes de cerrar B4.5) debería fijar el vocabulario tr
 
 ### 3.2 Revisión legal con la gestoría — **Impacto: Alto (decisión, no código)**
 - **`waiver` como alternativa al seguro** (ADR 0005): un `waiver` no exime de la negligencia propia ni sustituye a un seguro que exijan la póliza de RC o la federación.
-- **Baja solo por el admin**: la normativa de consumo tiende a exigir que darse de baja sea tan fácil como darse de alta (online). Si aplica, B11 debe abrir la baja a final de periodo al pagador (portal de Stripe o desde la app).
+- **Baja solo por el admin**: la normativa de consumo tiende a exigir que darse de baja sea tan fácil como darse de alta (online). Si aplica, hay que abrir la baja a final de periodo al pagador (portal de Stripe o desde la app). B11 la dejó solo para el admin (decidido 2026-10-30). Otro motivo para abrirla: quien no encuentra cómo darse de baja acaba disputando el cargo, y cada disputa cuesta 20 € en Stripe aunque se gane.
 - **Factura legal (VeriFactu)**: los recibos de Stripe no son facturas. Elegir un servicio externo homologado; requisito: la factura se descarga desde la app.
 
 ---8<--- FIN MEJORAS.md ---8<---

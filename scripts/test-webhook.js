@@ -10,6 +10,7 @@ import { createPlan, updatePlan } from '../src/services/catalog.js';
 import { handleEvent } from '../src/services/stripeWebhook.js';
 import {
   cancelSubscription, updateInsuranceSettings, changePlan, cancelScheduledChange, getSubscription,
+  cancelInsurance, listOverduePayers, requestPayerChange, cancelPayerChange,
 } from '../src/services/billing.js';
 import webhooksRouter from '../src/routes/webhooks.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
@@ -24,14 +25,15 @@ const people = {
   admin: 'admin', prof: 'profesor', alu: 'alumno', tutor: 'tutor', child: 'alumno', ins: 'alumno', ins2: 'alumno',
   pc: 'alumno', pc2: 'alumno', // B10.5
   unp: 'alumno', // B10.6
+  kid: 'alumno', t1: 'tutor', t2: 'tutor', // B11: kid (menor) lo paga t1; t2, también vinculado
 };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 for (const [k, role] of Object.entries(people)) {
   await q(`INSERT INTO profiles (id, display_name, birth_date) VALUES ($1, $2, $3)`,
-    [U[k], `${k}-wh`, k === 'child' ? '2016-05-05' : null]);
+    [U[k], `${k}-wh`, ['child', 'kid'].includes(k) ? '2016-05-05' : null]);
   await q(`INSERT INTO user_roles (user_id, role) VALUES ($1, $2)`, [U[k], role]);
 }
-await q(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [U.tutor, U.child]);
+await q(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2), ($3, $4), ($5, $4)`, [U.tutor, U.child, U.t1, U.kid, U.t2]);
 const [{ id: disc }] = await q(`INSERT INTO disciplines (name) VALUES ('T-Wh-A') RETURNING id`);
 const plan = await withRls({ uid: U.admin, role: 'admin' }, (c) =>
   createPlan(c, { name: `T-Wh-one-${Date.now()}`, price_cents: 2000, max_disciplines: 1 }));
@@ -172,7 +174,7 @@ try {
     assert.equal(n.changes.stripe_subscription_id, raceSub.id);
     assert.ok(n.changes.recipients.includes(U.admin));
   });
-  await run('invoice.payment_failed: guarda intento y motivo; aviso solo al pagador (tutor), no al hijo', async () => {
+  await run('invoice.payment_failed: guarda intento y motivo; aviso solo al pagador (tutor) y solo en el primer intento', async () => {
     const s = await stripe.subscriptions.create({ customer: cusTutor, items: [{ price }] });
     stripeSubs.push(s.id);
     await q(`INSERT INTO subscriptions (student_id, payer_id, plan_id, status, stripe_subscription_id)
@@ -183,6 +185,15 @@ try {
       ['open', 1, 'Your card was declined.', U.tutor, U.child]);
     const [n] = await q(`SELECT changes FROM audit_log WHERE action = 'notice.payment_failed' AND resource_id = $1`, [inv.id]);
     assert.deepEqual(n.changes.recipients, [U.tutor]);
+    // Reintento automático fallido (B11): sin aviso; si se agotan, avisa el paso a unpaid. Solo los reintentos
+    // automáticos suben attempt_count (un pago manual no): se simula al releer el recibo.
+    const { retrieve } = stripe.invoices;
+    stripe.invoices.retrieve = async (...a) => ({ ...(await retrieve.apply(stripe.invoices, a)), attempt_count: 2 });
+    try {
+      await handleEvent(evt('invoice.payment_failed', { id: s.latest_invoice, object: 'invoice' }));
+    } finally { stripe.invoices.retrieve = retrieve; }
+    assert.equal((await q(`SELECT attempt_count FROM invoices WHERE id = $1`, [inv.id]))[0].attempt_count, 2);
+    assert.equal((await q(`SELECT 1 FROM audit_log WHERE action = 'notice.payment_failed' AND resource_id = $1`, [inv.id])).length, 1);
   });
   await run('baja en Stripe → customer.subscription.deleted: cancelled y reservas futuras canceladas sin cobertura', async () => {
     [sess] = await q(
@@ -573,6 +584,235 @@ try {
     await ev();
     assert.equal((await localIns('ins')).status, 'active');
   });
+
+  // --- B11: bajas. Un recibo open de una suscripción cancelada sigue cobrándose: la baja inmediata lo anula. ---
+  // Recibo open sin intento de cobro (auto_advance false), como el que deja un cobro fallido.
+  const openInvoice = async (subId) => {
+    const { customer: cus } = await stripe.subscriptions.retrieve(subId);
+    await stripe.invoiceItems.create({ customer: cus, subscription: subId, amount: 500, currency: 'eur' });
+    const inv = await stripe.invoices.create({ customer: cus, subscription: subId, auto_advance: false });
+    return stripe.invoices.finalizeInvoice(inv.id, { auto_advance: false });
+  };
+  const cancelIns = (id, atPeriodEnd) => asAdmin((c) => cancelInsurance(c, { id, atPeriodEnd, actorId: U.admin }));
+  const insEvent = (type) => handleEvent(evt(type, { id: ins.stripe_subscription_id, object: 'subscription' }));
+
+  await run('baja del seguro a fin de año: sigue en vigor y no renueva; aviso con la fecha de fin', async () => {
+    // Ya no renueva por la baja de la cuota (arriba): 409, por cualquier motivo.
+    await assert.rejects(cancelIns(ins.id, true), (e) => e.status === 409 && e.code === 'insurance_cancel_scheduled');
+    await stripe.subscriptions.update(ins.stripe_subscription_id, { cancel_at_period_end: false });
+    const r = await cancelIns(ins.id, true);
+    await insEvent('customer.subscription.updated');
+    const i = await localIns('ins');
+    assert.deepEqual([i.status, i.cancel_at_period_end, r.ends_at.getTime()], ['active', true, i.current_period_end.getTime()]);
+    assert.equal((await q(`SELECT has_risk_cover($1) r`, [U.ins]))[0].r, true);
+    const [n] = await noticeOf('notice.insurance_cancelled', ins.id);
+    assert.deepEqual([n.recipients, n.voided, new Date(n.ends_at).getTime()], [[U.ins], 0, i.current_period_end.getTime()]);
+  });
+
+  await run('baja inmediata del seguro impagado: recibo open anulado, fuera de morosos, sin cobertura de riesgo', async () => {
+    const inv = await openInvoice(ins.stripe_subscription_id);
+    await asUnpaid(ins.stripe_subscription_id, () => insEvent('customer.subscription.updated'));
+    await handleEvent(evt('invoice.finalized', { id: inv.id, object: 'invoice' }));
+    const delinquent = async () => (await asAdmin((c) => listOverduePayers(c, { list: 'delinquent', limit: 100 })))
+      .payers.some((p) => p.payer_id === U.ins);
+    assert.equal(await delinquent(), true);
+    const r = await cancelIns(ins.id, false);
+    assert.deepEqual([r.stripe_status, r.risk_cover], ['canceled', false]);
+    assert.equal((await stripe.invoices.retrieve(inv.id)).status, 'void');
+    await insEvent('customer.subscription.deleted');
+    await handleEvent(evt('invoice.voided', { id: inv.id, object: 'invoice' }));
+    assert.equal((await localIns('ins')).status, 'cancelled');
+    assert.equal((await q(`SELECT status FROM invoices WHERE stripe_invoice_id = $1`, [inv.id]))[0].status, 'void');
+    assert.equal(await delinquent(), false);
+    assert.equal((await q(`SELECT has_risk_cover($1) r`, [U.ins]))[0].r, false);
+    const [, n] = await noticeOf('notice.insurance_cancelled', ins.id);
+    assert.deepEqual([n.voided, new Date(n.ends_at) <= new Date()], [1, true]);
+    await assert.rejects(cancelIns(ins.id, false), (e) => e.status === 409 && e.code === 'insurance_cancelled');
+  });
+
+  await run('baja inmediata de la suscripción: anula sus recibos open y el aviso lo dice', async () => {
+    const s = (await q(`SELECT stripe_subscription_id, id FROM subscriptions WHERE student_id = $1`, [U.unp]))[0];
+    const inv = await openInvoice(s.stripe_subscription_id);
+    await asAdmin((c) => cancelSubscription(c, { id: s.id, atPeriodEnd: false, actorId: U.admin }));
+    assert.equal((await stripe.invoices.retrieve(inv.id)).status, 'void');
+    const [n] = await noticeOf('notice.subscription_cancelled', s.id);
+    assert.equal(n.voided, 1);
+  });
+
+  // --- B11: cambio de pagador. D se simula cancelando la antigua en Stripe (como la fase de B10.5). ---
+  const cusT1 = await customer('t1', 'pm_card_visa');
+  const cusT2 = await customer('t2', 'pm_card_visa');
+  const kidOld = await paidSub(cusT1, 'kid', 't1');
+  await handleEvent(completed(kidOld));
+  const kidRow = await localSub(kidOld.id);
+  // Seguro del menor pagado por t1.
+  const [{ v: insPriceMinor }] = await q(`SELECT value #>> '{}' v FROM academy_settings WHERE key = 'insurance_stripe_price_minor'`);
+  const kidIns = await stripe.subscriptions.create({ customer: cusT1, items: [{ price: insPriceMinor }],
+    metadata: { kind: 'insurance', student_id: U.kid, payer_id: U.t1 } });
+  stripeSubs.push(kidIns.id);
+  await handleEvent(evt('customer.subscription.created', { id: kidIns.id, object: 'subscription' }));
+  const kidInsId = (await localIns('kid')).id;
+  const pcOf = async (id) => (await q(`SELECT * FROM payer_changes WHERE id = $1`, [id]))[0];
+  const requestPc = async (subId, payer) =>
+    (await asAdmin((c) => requestPayerChange(c, { id: subId, payerId: U[payer], actorId: U.admin }))).body;
+  // Lo que deja el Checkout del cambio pagado: la sucesora con anchor = D y el pedido en la metadata, sin cobro hoy.
+  const successor = async (pc, cus, payer) => {
+    const s = await stripe.subscriptions.create({
+      customer: cus, items: [{ price: await priceOf(pc.plan_id) }],
+      billing_cycle_anchor: Math.floor(pc.starts_at / 1000), proration_behavior: 'none',
+      metadata: { student_id: U.kid, payer_id: U[payer], plan_id: pc.plan_id, discipline_ids: pc.discipline_ids.join(','),
+        payer_change_id: pc.id },
+    });
+    stripeSubs.push(s.id);
+    return s;
+  };
+  // El sondeo con test clock: el Checkout de 0 € llega como no_payment_required.
+  const paidCheckout = (s) => handleEvent(completed(s, { payment_status: 'no_payment_required' }));
+  // Renovación en D (simulada al releer): periodo nuevo desde startsAt.
+  const asRenewed = async (subId, startsAt, fn) => {
+    const start = Math.floor(startsAt / 1000);
+    const { retrieve } = stripe.subscriptions;
+    stripe.subscriptions.retrieve = async (...a) => {
+      const st = await retrieve.apply(stripe.subscriptions, a);
+      return a[0] !== subId ? st
+        : { ...st, items: { ...st.items, data: [{ ...st.items.data[0], current_period_start: start, current_period_end: start + 30 * 86400 }] } };
+    };
+    try { await fn(); } finally { stripe.subscriptions.retrieve = retrieve; }
+  };
+  const liveOfKid = async () => (await q(`SELECT id FROM subscriptions WHERE student_id = $1 AND status IN ('active', 'past_due', 'unpaid')`, [U.kid])).length;
+  let pc1, succ1, succ2;
+
+  await run('Checkout del cambio pagado: paid, la antigua con cancel_at_period_end y su Schedule liberado, sin fila nueva', async () => {
+    // Bajada programada antes de pedirlo: se traslada a la sucesora y su Schedule se libera al pagar.
+    assert.equal((await change('t1', kidRow.id, down.id, [disc])).status, 202);
+    pc1 = await requestPc(kidRow.id, 't2');
+    assert.deepEqual([pc1.plan_id, pc1.discipline_ids], [down.id, [disc]]);
+    succ1 = await successor(pc1, cusT2, 't2');
+    await paidCheckout(succ1);
+    const pc = await pcOf(pc1.id);
+    assert.deepEqual([pc.status, pc.stripe_subscription_id], ['paid', succ1.id]);
+    const st = await stripe.subscriptions.retrieve(kidOld.id);
+    assert.deepEqual([st.status, st.cancel_at_period_end, st.schedule], ['active', true, null]);
+    assert.equal(await localSub(succ1.id), undefined, 'la sucesora no tiene fila hasta el traspaso');
+    const [n] = await noticeOf('notice.payer_change_paid', pc1.id);
+    assert.deepEqual([n.recipients, n.from_plan_id, n.plan_id], [[U.t1, U.t2], plan.id, down.id]);
+    // Antes de D, los eventos de la sucesora no hacen nada (la antigua sigue viva en Stripe).
+    await handleEvent(evt('customer.subscription.created', { id: succ1.id, object: 'subscription' }));
+    assert.deepEqual([await localSub(succ1.id), (await pcOf(pc1.id)).status], [undefined, 'paid']);
+    // Repetido: nada. Otra sucesora del mismo cambio (dos Checkouts pagados): se cancela sin aviso.
+    await paidCheckout(succ1);
+    const dup = await successor(pc1, cusT2, 't2');
+    await paidCheckout(dup);
+    assert.equal((await stripe.subscriptions.retrieve(dup.id)).status, 'canceled');
+    assert.deepEqual([(await pcOf(pc1.id)).stripe_subscription_id, await noticeOf('notice.payer_change_cancelled', pc1.id)], [succ1.id, []]);
+  });
+
+  await run('traspaso con la antigua primero: una sola fila, reservas intactas, seguro payer_changed; repetido no cambia nada', async () => {
+    const bk = await bookOn(disc, U.kid);
+    await stripe.subscriptions.cancel(kidOld.id); // D
+    await handleEvent(evt('customer.subscription.deleted', { id: kidOld.id, object: 'subscription' }));
+    assert.equal((await localSub(kidOld.id)).status, 'cancelled');
+    const row = await localSub(succ1.id);
+    assert.deepEqual([row.payer_id, row.plan_id, row.status, row.current_period_end.getTime()],
+      [U.t2, down.id, 'active', pc1.starts_at.getTime()]);
+    assert.deepEqual(await discsOf(row.id), [disc]);
+    assert.equal((await pcOf(pc1.id)).status, 'completed');
+    assert.deepEqual(Object.values(await bookingOf(bk)), ['confirmed', null], 'la cobertura no se interrumpe');
+    assert.equal((await stripe.subscriptions.retrieve(kidIns.id)).cancel_at_period_end, true);
+    const [w] = await noticeOf('notice.insurance_wont_renew', kidInsId);
+    assert.deepEqual([w.reason, w.recipients], ['payer_changed', [U.t1, U.t2]]);
+    await handleEvent(evt('customer.subscription.deleted', { id: kidOld.id, object: 'subscription' }));
+    await handleEvent(evt('customer.subscription.updated', { id: succ1.id, object: 'subscription' }));
+    assert.equal(await liveOfKid(), 1);
+    assert.equal((await noticeOf('notice.insurance_wont_renew', kidInsId)).length, 1);
+  });
+
+  await run('traspaso con la sucesora primero (su recibo); el seguro ya del nuevo pagador no se toca', async () => {
+    await stripe.subscriptions.update(kidIns.id, { cancel_at_period_end: false });
+    await handleEvent(evt('customer.subscription.updated', { id: kidIns.id, object: 'subscription' }));
+    const row1 = await localSub(succ1.id);
+    const pc2 = await requestPc(row1.id, 't1'); // de vuelta a t1, que paga el seguro
+    succ2 = await successor(pc2, cusT1, 't1');
+    await paidCheckout(succ2);
+    await stripe.subscriptions.cancel(succ1.id); // D
+    const inv = await openInvoice(succ2.id);
+    await handleEvent(evt('invoice.finalized', { id: inv.id, object: 'invoice' }));
+    const row2 = await localSub(succ2.id);
+    assert.deepEqual([row2.payer_id, (await localSub(succ1.id)).status, (await pcOf(pc2.id)).status], [U.t1, 'cancelled', 'completed']);
+    assert.equal((await q(`SELECT subscription_id FROM invoices WHERE stripe_invoice_id = $1`, [inv.id]))[0].subscription_id, row2.id);
+    assert.equal((await stripe.subscriptions.retrieve(kidIns.id)).cancel_at_period_end, false, 'el seguro ya lo paga t1');
+    await handleEvent(evt('customer.subscription.deleted', { id: succ1.id, object: 'subscription' }));
+    assert.equal(await liveOfKid(), 1);
+  });
+
+  await run('sin pago a tiempo: la renovación de la antigua lo marca expired y avisa a admins, antiguo y nuevo', async () => {
+    const row2 = await localSub(succ2.id);
+    const pc3 = await requestPc(row2.id, 't2');
+    await asRenewed(succ2.id, pc3.starts_at,
+      () => handleEvent(evt('customer.subscription.updated', { id: succ2.id, object: 'subscription' })));
+    assert.equal((await pcOf(pc3.id)).status, 'expired');
+    const [n] = await noticeOf('notice.payer_change_expired', pc3.id);
+    assert.deepEqual([n.recipients.includes(U.admin), n.recipients.slice(-2)], [true, [U.t1, U.t2]]);
+    await handleEvent(evt('customer.subscription.updated', { id: succ2.id, object: 'subscription' }));
+    assert.equal(await liveOfKid(), 1);
+  });
+
+  await run('carrera DELETE / pago: el Checkout pagado de un cambio anulado cancela su sucesora y avisa', async () => {
+    const row2 = await localSub(succ2.id);
+    const pc4 = await requestPc(row2.id, 't2');
+    await asAdmin((c) => cancelPayerChange(c, { id: row2.id, actorId: U.admin }));
+    const s = await successor(pc4, cusT2, 't2');
+    await paidCheckout(s);
+    assert.equal((await stripe.subscriptions.retrieve(s.id)).status, 'canceled');
+    assert.equal((await pcOf(pc4.id)).status, 'cancelled');
+    const ns = await noticeOf('notice.payer_change_cancelled', pc4.id);
+    assert.deepEqual(ns.map((n) => [n.reason, n.recipients]), [['admin', [U.t2]], ['admin', [U.t2]]]);
+    assert.deepEqual([await localSub(s.id), await liveOfKid()], [undefined, 1]);
+  });
+
+  await run('Checkout que llega tras la renovación: expired, la antigua sin baja y la sucesora reembolsada una vez', async () => {
+    const row2 = await localSub(succ2.id);
+    const pc6 = await requestPc(row2.id, 't2');
+    // Sucesora que ya cobró su primer mes en D: sin anchor, cobra al crearse.
+    const s = await stripe.subscriptions.create({ customer: cusT2, items: [{ price: await priceOf(pc6.plan_id) }],
+      metadata: { student_id: U.kid, payer_id: U.t2, plan_id: pc6.plan_id, discipline_ids: pc6.discipline_ids.join(','),
+        payer_change_id: pc6.id } });
+    stripeSubs.push(s.id);
+    await asRenewed(succ2.id, pc6.starts_at, async () => {
+      await paidCheckout(s);
+      await paidCheckout(s); // replay
+    });
+    const pc = await pcOf(pc6.id);
+    assert.deepEqual([pc.status, pc.stripe_subscription_id], ['expired', s.id]);
+    assert.equal((await stripe.subscriptions.retrieve(succ2.id)).cancel_at_period_end, false, 'la antigua sigue sin baja');
+    assert.equal((await stripe.subscriptions.retrieve(s.id)).status, 'canceled');
+    const inv = await stripe.invoices.retrieve(s.latest_invoice, { expand: ['payments.data.payment'] });
+    const refunds = await stripe.refunds.list({ payment_intent: inv.payments.data[0].payment.payment_intent });
+    assert.deepEqual([inv.amount_paid > 0, refunds.data.length, refunds.data[0].amount], [true, 1, inv.amount_paid]);
+    const ns = await noticeOf('notice.payer_change_expired', pc6.id);
+    assert.deepEqual(ns.map((n) => [n.refunded, n.recipients.slice(-2)]), [[inv.amount_paid, [U.t1, U.t2]]]);
+    // La renovación de la antigua procesada después: nada que caducar.
+    await asRenewed(succ2.id, pc6.starts_at,
+      () => handleEvent(evt('customer.subscription.updated', { id: succ2.id, object: 'subscription' })));
+    assert.deepEqual([(await noticeOf('notice.payer_change_expired', pc6.id)).length, await liveOfKid()], [1, 1]);
+  });
+
+  await run('baja de la antigua con el cambio pagado: la sucesora se cancela y se avisa a los dos pagadores', async () => {
+    const row2 = await localSub(succ2.id);
+    const pc5 = await requestPc(row2.id, 't2');
+    const s = await successor(pc5, cusT2, 't2');
+    await paidCheckout(s);
+    assert.equal((await pcOf(pc5.id)).status, 'paid');
+    await asAdmin((c) => cancelSubscription(c, { id: row2.id, atPeriodEnd: false, actorId: U.admin }));
+    assert.equal((await stripe.subscriptions.retrieve(s.id)).status, 'canceled');
+    const pc = await pcOf(pc5.id);
+    assert.deepEqual([pc.status, pc.cancel_reason], ['cancelled', 'subscription_cancelled']);
+    const [n] = await noticeOf('notice.payer_change_cancelled', pc5.id);
+    assert.deepEqual(n.recipients, [U.t2, U.t1]);
+    // El fin de la antigua no se toma por un traspaso.
+    await handleEvent(evt('customer.subscription.deleted', { id: succ2.id, object: 'subscription' }));
+    assert.deepEqual([await localSub(s.id), await liveOfKid()], [undefined, 0]);
+  });
 } finally {
   server.close();
   for (const id of stripeSubs) {
@@ -590,6 +830,7 @@ try {
   await q(`DELETE FROM insurances WHERE student_id = ANY($1::uuid[])`, [ids]);
   await q(`DELETE FROM academy_settings WHERE key LIKE 'insurance\\_%'`);
   for (const { key, value } of savedSettings) await q(`INSERT INTO academy_settings (key, value) VALUES ($1, $2)`, [key, value]);
+  await q(`DELETE FROM payer_changes WHERE student_id = ANY($1::uuid[])`, [ids]);
   await q(`DELETE FROM subscription_disciplines WHERE subscription_id = ANY($1::uuid[])`, [subs]);
   await q(`DELETE FROM subscriptions WHERE id = ANY($1::uuid[])`, [subs]);
   await q(`DELETE FROM webhook_events WHERE id = ANY($1::text[])`, [eventIds]);
@@ -599,7 +840,7 @@ try {
   }
   await q(`DELETE FROM plans WHERE id = ANY($1::bigint[])`, [[plan.id, ...extraPlans]]);
   await q(`DELETE FROM disciplines WHERE id = ANY($1::bigint[])`, [[disc, ...extraDiscs]]);
-  await q(`DELETE FROM guardianships WHERE tutor_id = $1`, [U.tutor]);
+  await q(`DELETE FROM guardianships WHERE tutor_id = ANY($1::uuid[])`, [[U.tutor, U.t1, U.t2]]);
   await q(`DELETE FROM profiles WHERE id = ANY($1::uuid[])`, [ids]);
   await closePools();
 }

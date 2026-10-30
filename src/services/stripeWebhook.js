@@ -1,9 +1,9 @@
-// src/services/stripeWebhook.js — eventos de Stripe (B10, B10.1, B10.3). Solo el webhook escribe billing (servicePool).
+// src/services/stripeWebhook.js — eventos de Stripe (B10, B10.1, B10.3, B10.5, B11). Solo el webhook escribe billing (servicePool).
 // Los eventos llegan desordenados y repetidos: cada handler relee el objeto actual de Stripe y hace upsert.
 import { servicePool } from '../config/database.js';
 import { stripe } from '../config/stripe.js';
 import {
-  STATUS, ts, idOf, insuranceSettings, insuranceWontRenew, upsertInsurance, startInsurance, pendingPhase,
+  STATUS, ts, idOf, insuranceSettings, insuranceWontRenew, upsertInsurance, startInsurance, pendingPhase, discardSuccessor,
 } from './billing.js';
 import { notice } from './notices.js';
 
@@ -58,6 +58,8 @@ async function onCheckoutPaid(client, session) {
   if (!payer || payer !== m.payer_id) {
     throw new Error(`checkout ${session.id}: el cliente ${idOf(sub.customer)} no es el pagador ${m.payer_id}`);
   }
+  // Cambio de pagador (B11): la sucesora no tiene fila hasta el traspaso.
+  if (m.payer_change_id) return onPayerChangePaid(client, sub, payer);
   const item = sub.items.data[0];
 
   await client.query('SAVEPOINT sub');
@@ -132,6 +134,115 @@ async function lostRace(client, sub, payer) {
   });
 }
 
+// --- Cambio de pagador (B11; ADR 0009): Checkout pagado, traspaso en D y caducidad ---
+
+// Checkout del cambio completado (0 € hoy). Requested → paid: la antigua termina en D (se libera su Schedule, porque
+// con él Stripe no deja poner cancel_at_period_end). Si no (anulado, caducado u otra sucesora ya pagada), o si el
+// evento llega cuando la antigua ya renovó: se descarta la sucesora.
+async function onPayerChangePaid(client, sub, payer) {
+  const { rows: [pc] } = await client.query(`SELECT * FROM payer_changes WHERE id = $1 FOR UPDATE`, [sub.metadata.payer_change_id]);
+  if (!pc || pc.new_payer_id !== payer) {
+    throw new Error(`checkout de la sucesora ${sub.id}: el cambio ${sub.metadata.payer_change_id} no es de ${payer}`);
+  }
+  if (pc.stripe_subscription_id === sub.id) return; // ya procesado
+  if (pc.status !== 'requested') {
+    const refunded = await discardSuccessor(sub.id);
+    // Otra sucesora del mismo cambio (dos Checkouts pagados): se descarta sin aviso.
+    if (pc.stripe_subscription_id) return;
+    return notice(client, {
+      action: 'notice.payer_change_cancelled', actorId: payer, type: 'payer_change', resourceId: pc.id,
+      recipients: [payer], student_id: pc.student_id, reason: pc.cancel_reason ?? pc.status, refunded,
+    });
+  }
+  const { rows: [old] } = await client.query(
+    `SELECT stripe_subscription_id, plan_id FROM subscriptions WHERE id = $1`, [pc.subscription_id]);
+  const current = await stripe.subscriptions.retrieve(old.stripe_subscription_id);
+  // Webhook tardío: la antigua ya renovó con su pagador. No se le pone la baja: el cambio caduca.
+  if (ts(current.items.data[0].current_period_start) >= pc.starts_at) return markExpired(client, pc, sub.id);
+  if (current.schedule) await stripe.subscriptionSchedules.release(idOf(current.schedule));
+  if (!current.cancel_at_period_end) await stripe.subscriptions.update(current.id, { cancel_at_period_end: true });
+  await client.query(
+    `UPDATE payer_changes SET status = 'paid', stripe_subscription_id = $2, updated_at = now() WHERE id = $1`, [pc.id, sub.id]);
+  await notice(client, {
+    action: 'notice.payer_change_paid', actorId: payer, type: 'payer_change', resourceId: pc.id,
+    recipients: [pc.old_payer_id, pc.new_payer_id], student_id: pc.student_id, from_plan_id: old.plan_id,
+    plan_id: pc.plan_id, starts_at: pc.starts_at,
+  });
+}
+
+/**
+ * Traspaso: la antigua termina y la sucesora nace en local. Lo dispara el primer evento de D (fin de la antigua o
+ * evento / recibo de la sucesora) y es idempotente. Después, revoke_coverage ya ve la sucesora: no cancela reservas.
+ * @returns {Promise<boolean>} si se ha hecho ahora
+ */
+async function transferPayer(client, { id }) {
+  const { rows: [pc] } = await client.query(`SELECT * FROM payer_changes WHERE id = $1`, [id]);
+  await client.query(`SELECT lock_student($1)`, [pc.student_id]);
+  const { rows: [{ status }] } = await client.query(`SELECT status FROM payer_changes WHERE id = $1 FOR UPDATE`, [id]);
+  if (status !== 'paid') return false; // ya traspasado (u otro desenlace)
+  const { rows: [old] } = await client.query(`SELECT stripe_subscription_id FROM subscriptions WHERE id = $1`, [pc.subscription_id]);
+  const oldSub = await stripe.subscriptions.retrieve(old.stripe_subscription_id);
+  if (oldSub.status !== 'canceled') return false; // aún no es D
+  await client.query(
+    `UPDATE subscriptions SET status = 'cancelled', cancel_at_period_end = $2, cancelled_at = $3 WHERE id = $1`,
+    [pc.subscription_id, oldSub.cancel_at_period_end, ts(oldSub.ended_at)]);
+
+  const sub = await stripe.subscriptions.retrieve(pc.stripe_subscription_id);
+  const item = sub.items.data[0];
+  const { rows: [row] } = await client.query(
+    `INSERT INTO subscriptions (student_id, payer_id, plan_id, status, stripe_subscription_id,
+                                current_period_start, current_period_end, cancel_at_period_end)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+    [pc.student_id, pc.new_payer_id, pc.plan_id, STATUS[sub.status], sub.id,
+      ts(item.current_period_start), ts(item.current_period_end), sub.cancel_at_period_end]);
+  if (pc.discipline_ids.length) {
+    await client.query(
+      `INSERT INTO subscription_disciplines (subscription_id, discipline_id) SELECT $1, unnest($2::bigint[])`,
+      [row.id, pc.discipline_ids]);
+  }
+  // Precio cambiado desde el Checkout (la sincronización no ve la sucesora sin fila): al vigente, sin prorrateo.
+  const { rows: [plan] } = await client.query(`SELECT stripe_price_id FROM plans WHERE id = $1`, [pc.plan_id]);
+  if (plan.stripe_price_id && plan.stripe_price_id !== item.price.id) {
+    await stripe.subscriptions.update(sub.id, { items: [{ id: item.id, price: plan.stripe_price_id }], proration_behavior: 'none' });
+  }
+  await client.query(`UPDATE payer_changes SET status = 'completed', updated_at = now() WHERE id = $1`, [id]);
+  if (sub.latest_invoice) await syncInvoice(client, idOf(sub.latest_invoice));
+
+  await client.query(`SELECT revoke_coverage($1)`, [pc.student_id]);
+  // El seguro no cambia de pagador (CONTEXT § Seguro y cambio de pagador): si lo paga otro, termina sin renovarse.
+  const { rows: [ins] } = await client.query(
+    `SELECT id, student_id, payer_id, stripe_subscription_id FROM insurances
+      WHERE student_id = $1 AND status IN ${LIVE} AND NOT cancel_at_period_end`, [pc.student_id]);
+  if (ins && ins.payer_id !== pc.new_payer_id) {
+    await insuranceWontRenew(client, ins, 'payer_changed', [ins.payer_id, pc.new_payer_id]);
+  }
+  return true;
+}
+
+const paidChange = async (client, column, value) => (await client.query(
+  `SELECT id FROM payer_changes WHERE ${column} = $1 AND status = 'paid'`, [value])).rows[0];
+
+// Renovación de la antigua sin traspaso (no pagó a tiempo): caducado, sin cron.
+async function expirePayerChange(client, row, periodStart) {
+  const { rows: [pc] } = await client.query(
+    `SELECT * FROM payer_changes WHERE subscription_id = $1 AND status IN ('requested', 'paid') AND starts_at <= $2
+     FOR UPDATE`, [row.id, periodStart]);
+  if (pc) await markExpired(client, pc, pc.stripe_subscription_id);
+}
+
+// Caducado. Una sucesora que no llegó a sustituir a la antigua (Checkout tardío, o se le quitó la baja) se descarta:
+// si no, cobraría al nuevo pagador sin fila local. Se guarda para que un replay del Checkout no repita nada.
+async function markExpired(client, pc, successorId) {
+  const refunded = successorId ? await discardSuccessor(successorId) : 0;
+  await client.query(
+    `UPDATE payer_changes SET status = 'expired', stripe_subscription_id = $2, updated_at = now() WHERE id = $1`,
+    [pc.id, successorId]);
+  await notice(client, {
+    action: 'notice.payer_change_expired', actorId: pc.old_payer_id, type: 'payer_change', resourceId: pc.id,
+    recipients: [...(await admins(client)), pc.old_payer_id, pc.new_payer_id], student_id: pc.student_id, refunded,
+  });
+}
+
 // --- Cambios de estado: renovación, gracia (past_due), impagada, baja ---
 
 async function onSubscriptionChange(client, obj) {
@@ -144,6 +255,9 @@ async function onSubscriptionChange(client, obj) {
     if (!rowCount) return;
     throw new Error(`estado de Stripe sin mapear: ${sub.status} (${sub.id})`);
   }
+  // Sucesora de un cambio de pagador pagado: su primer evento de D hace el traspaso, que crea su fila.
+  const succ = await paidChange(client, 'stripe_subscription_id', sub.id);
+  if (succ) await transferPayer(client, succ);
   const item = sub.items.data[0];
   const { rows: [row] } = await client.query(
     `UPDATE subscriptions s SET status = $2, current_period_start = $3, current_period_end = $4,
@@ -157,6 +271,13 @@ async function onSubscriptionChange(client, obj) {
   // El cambio de disciplina no cambia plan_id: su espejo en la metadata no se aplica aquí (ADR 0007).
   if (sub.metadata.plan_id && sub.metadata.plan_id !== row.plan_id) await applyPlan(client, row, sub);
   await syncSchedule(client, sub);
+  // Fin de la antigua con el cambio de pagador pagado: traspaso antes de revoke_coverage. Si renueva, el cambio caduca.
+  if (status === 'cancelled') {
+    const pc = await paidChange(client, 'subscription_id', row.id);
+    if (pc) await transferPayer(client, pc);
+  } else {
+    await expirePayerChange(client, row, ts(item.current_period_start));
+  }
   // Pérdida de cobertura (CONTEXT § Reservas). En gracia (past_due) no se pierde nada.
   if (!IN_FORCE.includes(status)) await client.query(`SELECT revoke_coverage($1)`, [row.student_id]);
   if (status === 'unpaid' && row.was !== 'unpaid') {
@@ -305,6 +426,11 @@ async function syncInvoice(client, invoiceId) {
     await onInsuranceChange(client, await stripe.subscriptions.retrieve(subId));
     s = await owner();
   }
+  // Recibo de una sucesora sin fila (B11): primer evento de D, hace el traspaso.
+  if (!s) {
+    const pc = await paidChange(client, 'stripe_subscription_id', subId);
+    if (pc && await transferPayer(client, pc)) s = await owner();
+  }
   if (!s) return null; // el de la cuota lo guarda checkout.session.completed
   const err = inv.payments?.data?.map((p) => p.payment.payment_intent?.last_payment_error?.message).find(Boolean);
   const period = inv.lines.data[0]?.period;
@@ -319,7 +445,7 @@ async function syncInvoice(client, invoiceId) {
        attempt_count = EXCLUDED.attempt_count, next_payment_attempt = EXCLUDED.next_payment_attempt,
        last_payment_error = COALESCE(EXCLUDED.last_payment_error, invoices.last_payment_error),
        hosted_invoice_url = EXCLUDED.hosted_invoice_url, invoice_pdf = EXCLUDED.invoice_pdf
-     RETURNING id, payer_id, insurance_id, next_payment_attempt, last_payment_error`,
+     RETURNING id, payer_id, insurance_id, attempt_count, next_payment_attempt, last_payment_error`,
     [s.student_id, s.payer_id, s.kind === 'subscription' ? s.id : null, inv.id, inv.status, inv.currency, inv.amount_due, inv.amount_paid,
       ts(inv.status_transitions?.paid_at), inv.attempt_count, ts(inv.next_payment_attempt), err ?? null,
       inv.hosted_invoice_url, inv.invoice_pdf, ts(period?.start), ts(period?.end), s.kind === 'insurance' ? s.id : null]);
@@ -329,11 +455,12 @@ async function syncInvoice(client, invoiceId) {
 async function onInvoice(client, obj, event) {
   const row = await syncInvoice(client, obj.id);
   // Cobro fallido: no quita acceso (la suscripción pasa a past_due); aviso solo al pagador, nunca al hijo.
+  // Solo el primer intento (B11): los reintentos no avisan y, si se agotan, avisa el paso a unpaid (2 emails, no 9).
   // Primer cobro del seguro: el pagador está en pantalla (3DS o rechazo); si no llega a pagarse, avisa la caducidad.
   // Prorrateo de una subida (B10.5): quien la pide está en pantalla (402) y el recibo se anula.
   const onScreen = (row?.insurance_id && row.billing_reason === 'subscription_create')
     || row?.billing_reason === 'subscription_update';
-  if (row && event.type === 'invoice.payment_failed' && !onScreen) {
+  if (row && event.type === 'invoice.payment_failed' && !onScreen && row.attempt_count === 1) {
     await notice(client, {
       action: 'notice.payment_failed', actorId: row.payer_id, type: 'invoice', resourceId: row.id,
       recipients: [row.payer_id], next_payment_attempt: row.next_payment_attempt, error: row.last_payment_error,

@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { servicePool, closePools } from '../src/config/database.js';
 import { withRls } from '../src/db/rls.js';
-import { stripe } from '../src/config/stripe.js';
+import { stripe, STRIPE_STATEMENT_DESCRIPTOR } from '../src/config/stripe.js';
 import { createPlan, updatePlan } from '../src/services/catalog.js';
 import {
   createCheckout, createPortalSession, contractInsurance, getInsurance, updateInsuranceSettings, listOverduePayers,
-  changePlan, changeDiscipline, getSubscription, updateDisciplineChangeSettings,
+  changePlan, changeDiscipline, getSubscription, updateDisciplineChangeSettings, cancelInsurance,
+  requestPayerChange, cancelPayerChange, getPayerChange, payerChangeCheckout, cancelScheduledChange,
 } from '../src/services/billing.js';
 
 const sp = async (c, fn) => { // savepoint: un error SQL no aborta el resto de la transacción
@@ -25,6 +26,7 @@ async function run(name, fn) {
 const people = {
   admin: 'admin', prof: 'profesor', alu: 'alumno', other: 'alumno', tutor: 'tutor', child: 'alumno', child2: 'alumno',
   pc: 'alumno', child3: 'alumno', tutor2: 'tutor', // B10.5
+  child4: 'alumno', tutor3: 'tutor', tutor4: 'tutor', // B11: child4 lo paga tutor3; tutor4, también vinculado, lo pedirá
 };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 for (const [k, role] of Object.entries(people)) {
@@ -32,8 +34,8 @@ for (const [k, role] of Object.entries(people)) {
     [U[k], `${k}-bill`, k.startsWith('child') ? '2016-05-05' : null]);
   await servicePool.query(`INSERT INTO user_roles (user_id, role) VALUES ($1, $2)`, [U[k], role]);
 }
-await servicePool.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2), ($1, $3), ($1, $4), ($5, $4)`,
-  [U.tutor, U.child, U.child2, U.child3, U.tutor2]);
+await servicePool.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2), ($1, $3), ($1, $4), ($5, $4), ($6, $7), ($8, $7)`,
+  [U.tutor, U.child, U.child2, U.child3, U.tutor2, U.tutor3, U.child4, U.tutor4]);
 
 const disc = (await servicePool.query(
   `INSERT INTO disciplines (name) VALUES ('T-Bill-A') RETURNING id`)).rows[0].id;
@@ -225,6 +227,7 @@ try {
     const p = await stripe.prices.retrieve(old);
     assert.deepEqual([p.unit_amount, p.currency, p.recurring.interval, p.tax_behavior, p.metadata.bracket],
       [4000, 'eur', 'year', 'inclusive', 'adult']);
+    assert.equal((await stripe.products.retrieve(p.product)).statement_descriptor, STRIPE_STATEMENT_DESCRIPTOR ?? null);
     await insuranceAdmin({ price_adult_cents: 4500 });
     assert.equal((await stripe.prices.retrieve(old)).active, false);
     assert.equal((await stripe.prices.retrieve(await priceOf('adult'))).unit_amount, 4500);
@@ -298,6 +301,7 @@ try {
     assert.deepEqual(
       [price.unit_amount, price.currency, price.recurring.interval, price.tax_behavior, price.active, price.product.name],
       [2500, 'eur', 'month', 'inclusive', true, synced.name]);
+    assert.equal(price.product.statement_descriptor, STRIPE_STATEMENT_DESCRIPTOR ?? null, 'descriptor del extracto (B11)');
     // Suscriptor real en Stripe con tarjeta de prueba.
     const customer = await stripe.customers.create({
       payment_method: 'pm_card_visa', invoice_settings: { default_payment_method: 'pm_card_visa' } });
@@ -514,6 +518,174 @@ try {
     await fails(disc$('tutor', 'child3', disc, discB), 409, 'subscription_not_in_force');
     await setSub('child3', `status = 'active'`);
   });
+
+  // B11: baja del seguro. Tabla de estados contra seguros reales; el void de los open y el webhook, en test:webhook.
+  await run('baja del seguro: tabla de estados, sin reembolso, aviso a los dos pagadores y risk_cover', async () => {
+    const { rows: [{ v: insPrice }] } = await servicePool.query(
+      `SELECT value #>> '{}' v FROM academy_settings WHERE key = 'insurance_stripe_price_minor'`);
+    const mkIns = async (student, payer, status, stripeId) => (await servicePool.query(
+      `INSERT INTO insurances (student_id, payer_id, status, bracket, stripe_subscription_id)
+       VALUES ($1, $2, $3, 'minor', $4) RETURNING id`, [student, payer, status, stripeId])).rows[0].id;
+    const cancel$ = (id, atPeriodEnd) => withRls({ uid: U.admin, role: 'admin' },
+      (c) => cancelInsurance(c, { id, atPeriodEnd, actorId: U.admin }));
+    await fails(cancel$(crypto.randomUUID(), false), 404, 'insurance_not_found');
+    const gone = await mkIns(U.child2, U.tutor, 'cancelled', `sub_test_${crypto.randomUUID()}`);
+    for (const end of [true, false]) await fails(cancel$(gone, end), 409, 'insurance_cancelled');
+    // Primer año sin pagar.
+    const badCus = await stripe.customers.create({ payment_method: 'pm_card_chargeCustomerFail',
+      invoice_settings: { default_payment_method: 'pm_card_chargeCustomerFail' } });
+    const inc = await stripe.subscriptions.create({ customer: badCus.id, items: [{ price: insPrice }], payment_behavior: 'default_incomplete' });
+    stripeSubs.push(inc.id);
+    const incId = await mkIns(U.other, U.other, 'incomplete', inc.id);
+    for (const end of [true, false]) await fails(cancel$(incId, end), 409, 'insurance_not_live');
+
+    // Seguro de child3 pagado por tutor2; la suscripción la paga tutor.
+    const cus = await stripe.customers.create({ payment_method: 'pm_card_visa', invoice_settings: { default_payment_method: 'pm_card_visa' } });
+    const live = await stripe.subscriptions.create({ customer: cus.id, items: [{ price: insPrice }] });
+    stripeSubs.push(live.id);
+    const id = await mkIns(U.child3, U.tutor2, 'active', live.id);
+    const end = await cancel$(id, true);
+    assert.deepEqual([end.id, end.stripe_status, end.ends_at.getTime(), end.risk_cover],
+      [id, 'active', live.items.data[0].current_period_end * 1000, false]);
+    await fails(cancel$(id, true), 409, 'insurance_cancel_scheduled');
+    await signWaiver(U.child3, U.tutor);
+    const now = await cancel$(id, false); // ya no renueva → la inmediata sí
+    assert.deepEqual([now.stripe_status, now.risk_cover, now.ends_at <= new Date()], ['canceled', true, true]);
+    // Repetida antes del webhook (fila local aún active): Stripe manda.
+    await fails(cancel$(id, false), 409, 'insurance_cancelled');
+    assert.equal((await stripe.customers.retrieve(cus.id)).balance, 0, 'sin prorrateo: ningún saldo a favor');
+    const { rows } = await servicePool.query(
+      `SELECT action, changes FROM audit_log WHERE resource_id = $1 ORDER BY created_at`, [id]);
+    assert.deepEqual(rows.map((r) => r.action), ['insurance.cancel_at_period_end', 'notice.insurance_cancelled',
+      'insurance.cancel_now', 'notice.insurance_cancelled']);
+    assert.deepEqual([rows[1].changes.recipients, rows[1].changes.voided, rows[3].changes.voided], [[U.tutor2, U.tutor], 0, 0]);
+  });
+
+  // B11: cambio de pagador. child4 (menor) lo paga tutor3 con una suscripción real; tutor4 es el nuevo pagador.
+  // Pagar, traspaso y caducidad, en test:webhook.
+  const c4Cus = await stripe.customers.create({ payment_method: 'pm_card_visa', invoice_settings: { default_payment_method: 'pm_card_visa' } });
+  const c4Stripe = await stripe.subscriptions.create({ customer: c4Cus.id, items: [{ price: pcPrice }],
+    metadata: { student_id: U.child4, payer_id: U.tutor3, plan_id: pc.one.id, discipline_ids: String(disc) } });
+  stripeSubs.push(c4Stripe.id);
+  await mkSub('child4', U.child4, U.tutor3, pc.one.id, c4Stripe.id, [disc]);
+  const D = c4Stripe.items.data[0].current_period_end * 1000;
+  const request$ = (payerId) => asUser('admin', (c) => requestPayerChange(c, { id: sub.child4, payerId, actorId: U.admin }));
+  const cancelPc$ = () => asUser('admin', (c) => cancelPayerChange(c, { id: sub.child4, actorId: U.admin }));
+  const pcRow = async (id) => (await servicePool.query(`SELECT * FROM payer_changes WHERE id = $1`, [id])).rows[0];
+  const noticesOf = async (action, resourceId) => (await servicePool.query(
+    `SELECT changes FROM audit_log WHERE action = $1 AND resource_id = $2 ORDER BY created_at`, [action, resourceId])).rows.map((r) => r.changes);
+  // Stripe al releer, con cambios simulados (pending update, fin de periodo inminente).
+  const patchedSub = async (subId, patch, fn) => {
+    const { retrieve } = stripe.subscriptions;
+    stripe.subscriptions.retrieve = async (...a) => {
+      const st = await retrieve.apply(stripe.subscriptions, a);
+      return a[0] === subId ? patch(st) : st;
+    };
+    try { await fn(); } finally { stripe.subscriptions.retrieve = retrieve; }
+  };
+  let change1;
+
+  await run('cambio de pagador: validaciones (payer_id, perfil, mismo pagador, los tres invalid_payer, estado, Stripe)', async () => {
+    await fails(request$('x'), 400, 'invalid_field');
+    await fails(request$(crypto.randomUUID()), 404, 'profile_not_found');
+    await fails(request$(U.tutor3), 409, 'same_payer');
+    await fails(request$(U.other), 409, 'invalid_payer'); // adulto no vinculado al menor
+    await fails(request$(U.child4), 409, 'invalid_payer'); // el propio menor
+    await fails(asUser('admin', (c) => requestPayerChange(c, { id: sub.pc, payerId: U.tutor, actorId: U.admin })),
+      409, 'invalid_payer'); // un adulto se paga a sí mismo
+    await setSub('child4', `cancel_at_period_end = true`);
+    await fails(request$(U.tutor4), 409, 'cancel_scheduled');
+    await setSub('child4', `cancel_at_period_end = false, status = 'past_due'`);
+    await fails(request$(U.tutor4), 409, 'subscription_not_active');
+    await setSub('child4', `status = 'active'`);
+    await patchedSub(c4Stripe.id, (st) => ({ ...st, pending_update: { expires_at: 1 } }),
+      () => fails(request$(U.tutor4), 409, 'upgrade_pending'));
+    await patchedSub(c4Stripe.id, (st) => ({ ...st, items: { data: [{ ...st.items.data[0], current_period_end: Math.floor(Date.now() / 1000) + 7000 }] } }),
+      () => fails(request$(U.tutor4), 409, 'period_ending_soon'));
+    assert.equal((await servicePool.query(`SELECT 1 FROM payer_changes WHERE subscription_id = $1`, [sub.child4])).rowCount, 0);
+  });
+
+  await run('cambio de pagador: pedido con D = fin de periodo, fecha límite D − 1 h, plan y disciplinas actuales y aviso', async () => {
+    const r = await withRls({ uid: U.admin, role: 'admin' }, (c) =>
+      requestPayerChange(c, { id: sub.child4, payerId: U.tutor4, actorId: U.admin }));
+    change1 = r.body;
+    assert.equal(r.status, 201);
+    assert.deepEqual([change1.status, change1.new_payer_id, change1.plan_id, change1.discipline_ids, change1.starts_at.getTime(),
+      change1.deadline.getTime()], ['requested', U.tutor4, pc.one.id, [disc], D, D - 3600_000]);
+    const [n] = await noticesOf('notice.payer_change_requested', change1.id);
+    assert.deepEqual([n.recipients, n.student_id, new Date(n.expires_at).getTime()], [[U.tutor4], U.child4, D - 3600_000]);
+    const [a] = await noticesOf('subscription.payer_change_request', sub.child4);
+    assert.equal(a.payer_change_id, change1.id);
+    const got = await asUser('tutor3', (c) => getSubscription(c, { studentId: U.child4 }));
+    assert.deepEqual([got.payer_change.id, got.payer_change.status, got.payer_change.new_payer_id], [change1.id, 'requested', U.tutor4]);
+    assert.equal((await asUser('child4', (c) => getSubscription(c, { studentId: U.child4 }))).payer_change, null, 'el alumno no lo ve (RLS)');
+  });
+
+  await run('cambio de pagador pendiente: congela cambio de plan (subida y bajada), anular la bajada y cambio de disciplina', async () => {
+    const plan4$ = (planId, ids) => asUser('admin', (c) => changePlan(c, { id: sub.child4, actorId: U.admin, isAdmin: true, planId, disciplineIds: ids }));
+    await fails(plan4$(pc.two.id, [disc, discB]), 409, 'payer_change_pending');
+    await fails(plan4$(coOne.id, [disc]), 409, 'payer_change_pending');
+    await fails(asUser('tutor3', (c) => cancelScheduledChange(c, { id: sub.child4, actorId: U.tutor3, isAdmin: false })),
+      409, 'payer_change_pending');
+    await fails(disc$('tutor4', 'child4', disc, discD), 409, 'payer_change_pending'); // un tutor que no paga, tampoco
+  });
+
+  await run('cambio de pagador: GET para el antiguo, el nuevo y el admin; checkout solo el nuevo y vinculado', async () => {
+    for (const who of ['tutor3', 'tutor4', 'admin']) {
+      const got = await asUser(who, (c) => getPayerChange(c, { id: change1.id }));
+      assert.deepEqual([got.status, got.student.id, got.plan.id, got.price_cents, got.disciplines.map((d) => d.id), got.starts_at.getTime()],
+        ['requested', U.child4, pc.one.id, 2000, [disc], D], who);
+    }
+    for (const who of ['tutor', 'child4']) {
+      await fails(asUser(who, (c) => getPayerChange(c, { id: change1.id })), 404, 'payer_change_not_found');
+    }
+    const checkout$ = (who) => asUser(who, (c) => payerChangeCheckout(c, { id: change1.id, payerId: U[who] }));
+    await fails(checkout$('tutor3'), 403, 'not_new_payer');
+    const { url } = await checkout$('tutor4');
+    assert.match(url, /^https:\/\/checkout\.stripe\.com\//);
+    const { checkout_session_id: cs } = await pcRow(change1.id);
+    const session = await stripe.checkout.sessions.retrieve(cs);
+    assert.deepEqual([session.mode, session.customer, session.amount_total, session.metadata.payer_change_id],
+      ['subscription', await customerOf(U.tutor4), 0, change1.id], '0 € hoy (anchor = D, sin prorrateo)');
+    // Tutor desvinculado antes de pagar.
+    await servicePool.query(`DELETE FROM guardianships WHERE tutor_id = $1 AND minor_id = $2`, [U.tutor4, U.child4]);
+    await fails(checkout$('tutor4'), 403, 'not_new_payer');
+    await servicePool.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [U.tutor4, U.child4]);
+    // Pasada la fecha límite: expired para el GET y sin Checkout.
+    await servicePool.query(`UPDATE payer_changes SET deadline = now() - interval '1 minute' WHERE id = $1`, [change1.id]);
+    assert.equal((await asUser('tutor4', (c) => getPayerChange(c, { id: change1.id }))).status, 'expired');
+    await fails(checkout$('tutor4'), 409, 'payer_change_expired');
+    await servicePool.query(`UPDATE payer_changes SET deadline = $2 WHERE id = $1`, [change1.id, change1.deadline]);
+  });
+
+  await run('cambio de pagador: otro pedido sustituye al requested (Checkout caducado y aviso); DELETE en cada estado', async () => {
+    const { checkout_session_id: cs } = await pcRow(change1.id);
+    const r = await request$(U.tutor4);
+    assert.deepEqual([(await pcRow(change1.id)).status, (await pcRow(change1.id)).cancel_reason], ['cancelled', 'replaced']);
+    assert.equal((await stripe.checkout.sessions.retrieve(cs)).status, 'expired');
+    assert.deepEqual((await noticesOf('notice.payer_change_cancelled', change1.id)).map((n) => [n.recipients, n.reason]),
+      [[[U.tutor4], 'replaced']]);
+    await fails(asUser('tutor4', (c) => payerChangeCheckout(c, { id: change1.id, payerId: U.tutor4 })), 409, 'payer_change_cancelled');
+    // paid: ni se anula ni se sustituye.
+    await servicePool.query(`UPDATE payer_changes SET status = 'paid' WHERE id = $1`, [r.body.id]);
+    await fails(cancelPc$(), 409, 'payer_change_paid');
+    await fails(request$(U.tutor4), 409, 'payer_change_paid');
+    await fails(asUser('tutor4', (c) => payerChangeCheckout(c, { id: r.body.id, payerId: U.tutor4 })), 409, 'payer_change_paid');
+    await servicePool.query(`UPDATE payer_changes SET status = 'requested' WHERE id = $1`, [r.body.id]);
+    await withRls({ uid: U.admin, role: 'admin' }, (c) => cancelPayerChange(c, { id: sub.child4, actorId: U.admin }));
+    assert.deepEqual([(await pcRow(r.body.id)).status, (await pcRow(r.body.id)).cancel_reason], ['cancelled', 'admin']);
+    assert.deepEqual((await noticesOf('notice.payer_change_cancelled', r.body.id)).map((n) => n.reason), ['admin']);
+    assert.equal((await noticesOf('subscription.payer_change_cancel', sub.child4)).length, 1);
+    await fails(cancelPc$(), 404, 'no_payer_change');
+  });
+
+  await run('cambio de pagador con una bajada programada: la sucesora nace con el plan y las disciplinas de la bajada', async () => {
+    assert.equal((await asUser('tutor3', (c) => changePlan(c, {
+      id: sub.child4, actorId: U.tutor3, isAdmin: false, planId: coOne.id, disciplineIds: [discK] }))).status, 202);
+    const r = await request$(U.tutor4);
+    assert.deepEqual([r.body.plan_id, r.body.discipline_ids], [coOne.id, [discK]]);
+    await withRls({ uid: U.admin, role: 'admin' }, (c) => cancelPayerChange(c, { id: sub.child4, actorId: U.admin }));
+  });
 } finally {
   if (stripeSub) await stripe.subscriptions.cancel(stripeSub.id);
   for (const id of stripeSubs) await stripe.subscriptions.cancel(id).catch(() => {});
@@ -543,6 +715,8 @@ try {
   await servicePool.query(`DELETE FROM audit_log WHERE resource_id IN (SELECT id::text FROM bookings WHERE session_id = ANY($1::uuid[]))`, [pcSessions]);
   await servicePool.query(`DELETE FROM bookings WHERE session_id = ANY($1::uuid[])`, [pcSessions]);
   await servicePool.query(`DELETE FROM class_sessions WHERE id = ANY($1::uuid[])`, [pcSessions]);
+  await servicePool.query(`DELETE FROM audit_log WHERE resource_type = 'payer_change' AND actor_id = ANY($1::uuid[])`, [Object.values(U)]);
+  await servicePool.query(`DELETE FROM payer_changes WHERE subscription_id = ANY($1::uuid[])`, [Object.values(sub)]);
   await servicePool.query(`DELETE FROM subscription_disciplines WHERE subscription_id = ANY($1::uuid[])`, [Object.values(sub)]);
   await servicePool.query(`DELETE FROM invoices WHERE id = $1`, [inv]);
   await servicePool.query(`DELETE FROM subscriptions WHERE id = ANY($1::uuid[])`, [Object.values(sub)]);
@@ -550,7 +724,7 @@ try {
   for (const p of co) await servicePool.query(`DELETE FROM plan_disciplines WHERE plan_id = $1`, [p.id]);
   await servicePool.query(`DELETE FROM plans WHERE id = ANY($1::bigint[])`, [co.map((p) => p.id)]);
   await servicePool.query(`DELETE FROM disciplines WHERE id = ANY($1::bigint[])`, [[disc, discK, discB, discD].filter(Boolean)]);
-  await servicePool.query(`DELETE FROM guardianships WHERE tutor_id = ANY($1::uuid[])`, [[U.tutor, U.tutor2]]);
+  await servicePool.query(`DELETE FROM guardianships WHERE tutor_id = ANY($1::uuid[])`, [[U.tutor, U.tutor2, U.tutor3, U.tutor4]]);
   await servicePool.query(`DELETE FROM profiles WHERE id = ANY($1::uuid[])`, [Object.values(U)]);
   await closePools();
 }

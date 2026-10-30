@@ -1,6 +1,6 @@
 // src/services/catalog.js
 import crypto from 'node:crypto';
-import { stripe } from '../config/stripe.js';
+import { stripe, STRIPE_STATEMENT_DESCRIPTOR } from '../config/stripe.js';
 import { httpError } from '../lib/errors.js';
 
 const ID_RE = /^\d{1,18}$/;
@@ -182,7 +182,9 @@ export async function syncPlanToStripe(client, plan, before) {
 
   if (!oldPrice) {
     if (plan.price_cents === 0) return;
-    const product = await stripe.products.create({ name: plan.name, metadata: { plan_id: plan.id } });
+    const product = await stripe.products.create({
+      name: plan.name, metadata: { plan_id: plan.id }, statement_descriptor: STRIPE_STATEMENT_DESCRIPTOR,
+    });
     newPrice = (await createPrice(product.id, plan)).id;
   } else {
     const { product } = await stripe.prices.retrieve(oldPrice);

@@ -39,6 +39,11 @@ const [inv] = await q(
 const [ins] = await q(
   `INSERT INTO insurances (student_id, payer_id, status, bracket, stripe_subscription_id, current_period_end)
    VALUES ($1, $2, 'active', 'minor', $3, '2027-03-01T12:00:00Z') RETURNING id`, [U.child, U.tutor, `sub_ins_${U.child}`]);
+// Cambio de pagador (B11): de tutor (antiguo) a payer (nuevo), al plan Plata desde el 1 de diciembre.
+const [pc] = await q(
+  `INSERT INTO payer_changes (subscription_id, student_id, old_payer_id, new_payer_id, plan_id, starts_at, deadline, created_by)
+   VALUES ($1, $2, $3, $4, $5, '2026-12-01T10:00:00Z', '2026-12-01T09:00:00Z', $3) RETURNING id`,
+  [sub.id, U.child, U.tutor, U.payer, planB.id]);
 
 // Transporte falso: guarda lo enviado; `fail` decide si lanza.
 const outbox = [];
@@ -136,6 +141,32 @@ try {
     assert.deepEqual((await deliveries(r2)).map((d) => d.status), ['failed']);
   });
 
+  const pcNotice = { type: 'payer_change', resourceId: pc.id, student_id: U.child };
+  await run('cambio de pagador: textos del nuevo pagador, reembolso y entregas sin admins', async () => {
+    outbox.length = 0;
+    const ids = [];
+    for (const [action, extra] of [
+      ['notice.payer_change_paid', { from_plan_id: planB.id, plan_id: planB.id }],
+      ['notice.payer_change_expired', { refunded: 2000 }],
+      ['notice.payer_change_cancelled', { reason: 'admin', refunded: 0 }],
+      ['notice.payer_change_cancelled', { reason: 'expired', refunded: 2000 }],
+    ]) {
+      ids.push(await emit(action, { ...pcNotice, ...extra, resourceId: pc.id }, [U.admin, U.tutor, U.payer]));
+    }
+    assert.deepEqual((await q(
+      `SELECT DISTINCT d.recipient_id FROM notice_deliveries d JOIN audit_log a ON a.id = d.audit_id
+        WHERE a.resource_id = $1 ORDER BY 1`, [pc.id])).map((r) => r.recipient_id), [U.tutor, U.payer].sort());
+    await send();
+    const toNew = outbox.filter((e) => e.to === `payer-${U.payer}@notices.test`).map((e) => e.text);
+    assert.equal(toNew.length, 4);
+    assert.match(toNew[0], /^Hola, Ana Pagadora:[^]*Desde el 1 de diciembre de 2026 pagarás 20,00\s€ al mes/);
+    assert.doesNotMatch(toNew[0], /programado/, 'mismo plan: sin bajada trasladada');
+    assert.match(toNew[1], /enlace ya no vale[^]*devuelto 20,00\s€/);
+    assert.match(toNew[2], /la academia lo ha anulado[^]*No se te cobrará nada/);
+    assert.match(toNew[3], /el plazo para pagarlo ya había terminado[^]*devuelto 20,00\s€/);
+    for (const t of toNew) assert.doesNotMatch(t, /undefined|null|NaN/);
+  });
+
   await run('skipped: más de 24 h, expires_at pasado o pagador sin email; no se envía', async () => {
     outbox.length = 0;
     const old = await emit('notice.checkout_payment_failed', { student_id: U.child });
@@ -157,7 +188,7 @@ try {
     assert.equal(outbox.length, 1);
   });
 
-  await run('las 11 plantillas: asunto, alumno, enlace, texto y HTML; sin fecha de nacimiento ni edad', async () => {
+  await run('las 16 plantillas: asunto, alumno, enlace, texto y HTML; sin fecha de nacimiento ni edad', async () => {
     outbox.length = 0;
     const hosted = 'https://invoice.stripe.com/i/acct_test/test_123';
     const billing = `${APP_URL}/billing`;
@@ -173,6 +204,12 @@ try {
       ['notice.subscription_unpaid', { student_id: U.child, plan_id: planA.id, amount_cents: 4000, hosted_invoice_url: hosted }, hosted, /40,00\s€/],
       ['notice.insurance_unpaid', { type: 'insurance', resourceId: ins.id, student_id: U.child, amount_cents: 3500, hosted_invoice_url: hosted }, hosted],
       ['notice.subscription_cancelled', { student_id: U.child, plan_id: planA.id, ends_at: '2026-12-01T00:00:00Z', discarded_plan_id: planB.id }, billing, /1 de diciembre de 2026.*\n*.*T-Not Plata/],
+      ['notice.insurance_cancelled', { type: 'insurance', resourceId: ins.id, student_id: U.child, ends_at: '2026-10-01T00:00:00Z', voided: 1 }, billing, /efectiva desde hoy[^]*anulado[^]*waiver/],
+      // B11, al pagador antiguo (tutor); los textos del nuevo, en el test siguiente.
+      ['notice.payer_change_requested', { ...pcNotice, plan_id: planB.id, starts_at: '2026-12-01T10:00:00Z', deadline: '2026-12-01T09:00:00Z' }, `${billing}/payer-changes/${pc.id}`, /20,00\s€ al mes[^]*1 de diciembre de 2026/],
+      ['notice.payer_change_paid', { ...pcNotice, from_plan_id: planA.id, plan_id: planB.id }, billing, /Ana Pagadora[^]*1 de diciembre de 2026[^]*T-Not Plata que estaba programado/],
+      ['notice.payer_change_expired', { ...pcNotice, refunded: 0 }, billing, /sigues pagando tú/],
+      ['notice.payer_change_cancelled', { ...pcNotice, reason: 'subscription_cancelled', refunded: 0 }, billing, /se ha dado de baja/],
     ];
     for (const [action, extra] of cases) await emit(action, extra);
     await send();
@@ -196,6 +233,7 @@ try {
   await q(`UPDATE notice_deliveries SET next_attempt_at = next_attempt_at - interval '100 years' WHERE id = ANY($1::uuid[])`, [parked]);
   const ids = Object.values(U);
   await q(`DELETE FROM audit_log WHERE actor_id = ANY($1::uuid[])`, [ids]); // CASCADE a notice_deliveries
+  await q(`DELETE FROM payer_changes WHERE student_id = $1`, [U.child]);
   await q(`DELETE FROM invoices WHERE student_id = $1`, [U.child]);
   await q(`DELETE FROM insurances WHERE student_id = $1`, [U.child]);
   await q(`DELETE FROM subscriptions WHERE student_id = $1`, [U.child]);
