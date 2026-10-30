@@ -44,6 +44,8 @@ const people = {
 };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 const ids = Object.values(U);
+const CALLED = ['can_be_public', 'public_disciplines', 'public_achievements', 'covers', 'student_achievements',
+  'student_present'];
 const ALL_FLAGS = { bio: true, social_links: true, disciplines: true, member_since: true };
 for (const [k, [role, isPublic, birth, creds]] of Object.entries(people)) {
   // is_public = true en el hijo, el tutor y el admin: forzado por SQL, la vista debe ignorarlo.
@@ -111,11 +113,11 @@ try {
   console.error = (...a) => (String(a[0]).startsWith('[error]') || String(a[0]).startsWith('Error:') ? null : realError(...a));
 
   // ---------- Vista ----------
-  await run('public_profiles tiene exactamente las 7 columnas; app_user solo lee las vistas', async () => {
+  await run('public_profiles tiene exactamente las 8 columnas; app_user solo lee las vistas', async () => {
     const { rows } = await servicePool.query(
       `SELECT column_name FROM information_schema.columns WHERE table_name = 'public_profiles' ORDER BY ordinal_position`);
     assert.deepEqual(rows.map((r) => r.column_name),
-      ['id', 'display_name', 'role', 'bio', 'social_links', 'disciplines', 'member_since']);
+      ['id', 'display_name', 'role', 'bio', 'social_links', 'disciplines', 'member_since', 'achievements']);
     const { rows: [p] } = await servicePool.query(
       `SELECT has_table_privilege('app_user', 'public_profiles', 'INSERT, UPDATE, DELETE') AS pw,
               has_table_privilege('app_user', 'trainer_names', 'INSERT, UPDATE, DELETE') AS tw,
@@ -140,16 +142,17 @@ try {
     } finally {
       await migrator.end();
     }
-    // Las funciones de la vista (y covers, que llama public_disciplines) se saltan la RLS: tampoco tocan la salud.
+    // Las funciones de la vista (y las que llaman: covers, student_achievements, student_present) se saltan la RLS:
+    // tampoco tocan la salud.
     // view_routine_usage solo lista funciones del rol conectado: son de service_role.
     const { rows: fns } = await servicePool.query(
       `SELECT array_agg(r.routine_name::text ORDER BY r.routine_name) AS f
          FROM information_schema.view_routine_usage u JOIN information_schema.routines r USING (specific_name)
         WHERE u.table_name IN ('public_profiles', 'trainer_names')`);
-    assert.deepEqual(fns[0].f, ['can_be_public', 'public_disciplines']);
+    assert.deepEqual(fns[0].f, ['can_be_public', 'public_achievements', 'public_disciplines']);
     const { rows: bodies } = await servicePool.query(
-      `SELECT proname, prosrc FROM pg_proc WHERE proname IN ('can_be_public', 'public_disciplines', 'covers')`);
-    assert.equal(bodies.length, 3);
+      `SELECT proname, prosrc FROM pg_proc WHERE proname = ANY($1)`, [CALLED]);
+    assert.equal(bodies.length, CALLED.length);
     for (const b of bodies) assert.ok(!/student_health/i.test(b.prosrc), b.proname);
   });
   await run('sin app.current_user_id, 0 filas (también en trainer_names)', async () => {
@@ -275,17 +278,18 @@ try {
       await as(c, U.aluPriv, 'alumno');
       assert.equal((await getMyProfile(c, U.aluPriv)).eligible, true);
     });
-    await run('visible_fields se fusiona con lo guardado; los 4 flags siempre presentes', async () => {
+    await run('visible_fields se fusiona con lo guardado; los 6 flags siempre presentes', async () => {
       await sp(c, async () => {
         await as(c, U.aluPriv, 'alumno');
         await c.query(`UPDATE profiles SET visible_fields = NULL WHERE id = $1`, [U.aluPriv]);
           assert.deepEqual((await getMyProfile(c, U.aluPriv)).visible_fields,
-            { bio: false, social_links: false, disciplines: false, member_since: false });
+            { bio: false, social_links: false, disciplines: false, member_since: false, ranking: false, achievements: false });
           await updateMyProfile(c, U.aluPriv, { visible_fields: { bio: true } });
           const me = await updateMyProfile(c, U.aluPriv, { is_public: true, visible_fields: { member_since: true } });
           assert.deepEqual(me, {
             is_public: true, eligible: true, bio: `bio de ${tag}-aluPriv`, social_links: { web: 'https://example.com' },
-            visible_fields: { bio: true, social_links: false, disciplines: false, member_since: true },
+            visible_fields: { bio: true, social_links: false, disciplines: false, member_since: true, ranking: false,
+              achievements: false },
           });
           await as(c, U.aluOther, 'alumno');
           assert.deepEqual(Object.keys(await getPublicProfile(c, U.aluPriv)).sort(),

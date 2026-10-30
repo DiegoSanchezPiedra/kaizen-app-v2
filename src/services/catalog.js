@@ -42,6 +42,7 @@ const DISCIPLINE_SPEC = {
   name: [isName, 'name requerido (≤100)', true],
   minors_only: [isBool, 'minors_only debe ser booleano'],
   is_active: [isBool, 'is_active debe ser booleano'],
+  is_open: [isBool, 'is_open debe ser booleano'],
 };
 const PLAN_SPEC = {
   name: [isName, 'name requerido (≤100)', true],
@@ -82,14 +83,14 @@ export function updateSql(table, id, data) {
 
 export async function listDisciplines(client) {
   const { rows } = await client.query(
-    `SELECT id, name, minors_only, is_active FROM disciplines ORDER BY name`
+    `SELECT id, name, minors_only, is_active, is_open FROM disciplines ORDER BY name`
   );
   return rows;
 }
 
-async function getDiscipline(client, id) {
+async function getDiscipline(client, id, { lock = false } = {}) {
   const { rows: [d] } = await client.query(
-    `SELECT id, name, minors_only, is_active FROM disciplines WHERE id = $1`, [id]
+    `SELECT id, name, minors_only, is_active, is_open FROM disciplines WHERE id = $1${lock ? ' FOR UPDATE' : ''}`, [id]
   );
   if (!d) throw httpError(404, 'discipline_not_found', 'Disciplina no encontrada');
   return d;
@@ -102,11 +103,25 @@ export async function createDiscipline(client, body) {
   return getDiscipline(client, id);
 }
 
+// Disciplina abierta (B14): no se elige, así que no se marca con elegidas vigentes (también en una bajada
+// programada); al desmarcarla, quien tenía reservas futuras en ella y ya no la cubre las pierde.
 export async function updateDiscipline(client, { id, body, actorId }) {
   const data = validate(body, DISCIPLINE_SPEC, true);
+  const before = await getDiscipline(client, id, { lock: true });
+  if (data.is_open && !before.is_open) {
+    const { rowCount } = await client.query(
+      `SELECT 1 FROM subscriptions s
+        WHERE s.status = ANY($2)
+          AND (EXISTS (SELECT 1 FROM subscription_disciplines sd WHERE sd.subscription_id = s.id AND sd.discipline_id = $1)
+               OR $1 = ANY(s.scheduled_discipline_ids))
+        LIMIT 1`, [id, LIVE]);
+    if (rowCount) throw httpError(409, 'discipline_in_use', 'Hay suscripciones que tienen elegida esta disciplina');
+  }
   const [sql, params] = updateSql('disciplines', id, data);
-  const { rowCount } = await guardUnique(() => client.query(sql, params));
-  if (!rowCount) throw httpError(404, 'discipline_not_found', 'Disciplina no encontrada');
+  await guardUnique(() => client.query(sql, params));
+  if (before.is_open && data.is_open === false) {
+    await client.query(`SELECT revoke_open_discipline($1)`, [id]);
+  }
   await audit(client, actorId, 'discipline.update', id, data);
   return getDiscipline(client, id);
 }

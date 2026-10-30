@@ -18,6 +18,7 @@ import adminCheckinRouter from './routes/admin/checkin.js';
 import adminBillingRouter from './routes/admin/billing.js';
 import adminProfilesRouter from './routes/admin/profiles.js';
 import profilesRouter from './routes/profiles.js';
+import rankingsRouter from './routes/rankings.js';
 import tabletRouter from './routes/tablet.js';
 import checkinRouter from './routes/checkin.js';
 import billingRouter from './routes/billing.js';
@@ -60,6 +61,7 @@ app.use('/billing', billingRouter);
 app.use('/sessions', sessionsRouter); // antes que attendanceRouter: su requireRole cierra todo /sessions
 app.use('/sessions', attendanceRouter);
 app.use('/profiles', profilesRouter);
+app.use('/rankings', rankingsRouter);
 app.use('/', catalogRouter);
 app.use(notFound);
 app.use(errorHandler);

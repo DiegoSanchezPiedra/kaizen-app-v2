@@ -60,6 +60,7 @@ PostgreSQL en VPS con RLS habilitado y FORCE ROW LEVEL SECURITY en todas las tab
 | id | bigint PK |
 | name | text UNIQUE |
 | is_active | boolean |
+| is_open | boolean NOT NULL DEFAULT false (disciplina abierta, B14) |
 
 ### plans
 | Columna | Tipo |
@@ -177,17 +178,6 @@ Restricción: `UNIQUE (session_id, student_id)`.
 `events`: id, title, description, starts_at, ends_at, capacity, price_cents, location.
 `event_registrations`: id, event_id, student_id, payment_status.
 Índice: `(event_id)`, `(student_id)`.
-
-### activity_feed
-| Columna | Tipo |
-|---|---|
-| id | uuid PK |
-| student_id | uuid FK |
-| activity_type | text |
-| description | text |
-| shared_at | timestamptz |
-
-Índice: `(student_id, shared_at DESC)`.
 
 ### webhook_events
 | Columna | Tipo |

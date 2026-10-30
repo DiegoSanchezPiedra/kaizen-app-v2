@@ -3,11 +3,13 @@
 import { httpError } from '../lib/errors.js';
 import { invalid, audit } from './catalog.js';
 
-export const VISIBLE_FIELDS = ['bio', 'social_links', 'disciplines', 'member_since'];
+// B14: ranking no es columna de la ficha (decide salir en los rankings); achievements, NULL si no se enseña.
+export const VISIBLE_FIELDS = ['bio', 'social_links', 'disciplines', 'member_since', 'ranking', 'achievements'];
 export const SOCIAL_NETWORKS = ['instagram', 'tiktok', 'youtube', 'web'];
 const ROLES = ['alumno', 'profesor'];
 const ID_RE = /^\d{1,18}$/;
-const CARD = `SELECT id, display_name, role, bio, social_links, disciplines, member_since FROM public_profiles`;
+const CARD = `SELECT id, display_name, role, bio, social_links, disciplines, member_since, achievements
+                FROM public_profiles`;
 
 const notFound = () => httpError(404, 'profile_not_found', 'Perfil no encontrado');
 // Un campo oculto no aparece (la vista lo da NULL).
@@ -45,7 +47,7 @@ export async function getPublicProfile(client, id) {
   return card(row);
 }
 
-/** Lo guardado del propio perfil, con `eligible` (can_be_public, la regla de la vista) y los 4 flags siempre presentes. */
+/** Lo guardado del propio perfil, con `eligible` (can_be_public, la regla de la vista) y los 6 flags siempre presentes. */
 export async function getMyProfile(client, id) {
   const { rows: [row] } = await client.query(
     `SELECT COALESCE(is_public, false) AS is_public, can_be_public(id) AS eligible, visible_fields, bio, social_links

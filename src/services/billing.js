@@ -68,7 +68,7 @@ async function validateOrder(client, { studentId, planId, disciplineIds = [] }) 
   }
   if (ids.length) {
     const { rows } = await client.query(
-      `SELECT id, minors_only FROM disciplines WHERE id = ANY($1::bigint[]) AND is_active`, [ids]);
+      `SELECT id, minors_only FROM disciplines WHERE id = ANY($1::bigint[]) AND is_active AND NOT is_open`, [ids]);
     const ok = new Map(rows.map((d) => [d.id, d]));
     const bad = ids.filter((id) => !ok.has(id) || (plan.eligible.length && !plan.eligible.includes(id))
       || (adult && ok.get(id).minors_only));

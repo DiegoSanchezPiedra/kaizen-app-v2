@@ -376,10 +376,10 @@ Migración `005_agreement_documents.js`: tabla `agreement_documents` (ciclo borr
 
 **Nuevo modelo (decidido el 2026-10-27, sin implementar):** el tutor se registra, crea a sus hijos (perfiles **sin credenciales**) y gestiona todo por ellos: perfil, ficha de salud, acuerdos, cuota, reservas, eventos y avisos. Se reescribe `006` en el sitio (no hay nada desplegado). Se conserva casi todo el esquema (`birth_date`, `guardianships`, `signed_by`) y se añaden `create_child` (SQL `SECURITY DEFINER`), el helper RLS `is_guardian_of`, políticas de tutor en `student_health_info` y `profiles`, y `GET/POST /me/children` + `PATCH /me/children/:id`. El registro propio exige ≥ 18. El rol `tutor` firma su propio `data_protection`. Decisiones D1–D16 en §5 "Cuenta familiar"; tabla mantener/refactorizar/borrar en `PLAN_FAMILIA.md` §4. **Va antes de B5.**
 
-### B5–B13 — IMPLEMENTADOS · B10.7 y B14–B20 — PENDIENTES
+### B5–B14 — IMPLEMENTADOS · B10.7 y B15–B20 — PENDIENTES
 Estado al 2026-10-30 (detalle, decisiones y pendientes de cada bloque en `plan-de-bloques.md`):
-- **Implementados, con commit y tests verdes**: B5 catálogo, B6 clases, sesiones y calendario del alumno (migración `018`, `test:calendar`), B7 reservas, B8 asistencia, B9 check-in QR, B10 Stripe base, B10.1 recibos, B10.2 morosos, B10.3 seguro, B10.5 cambio de plan y de disciplina, B10.6 emails de billing, B11 baja del seguro y cambio de pagador, B13 perfiles públicos, directorio y lectura de `profiles` (migración `017`, `test:profiles`).
-- **Pendientes**: B10.7 migración de los clientes de maat (al pasar a producción) y B14–B20. Siguiente en orden: **B14**.
+- **Implementados, con commit y tests verdes**: B5 catálogo, B6 clases, sesiones y calendario del alumno (migración `018`, `test:calendar`), B7 reservas, B8 asistencia, B9 check-in QR, B10 Stripe base, B10.1 recibos, B10.2 morosos, B10.3 seguro, B10.5 cambio de plan y de disciplina, B10.6 emails de billing, B11 baja del seguro y cambio de pagador, B13 perfiles públicos, directorio y lectura de `profiles` (migración `017`, `test:profiles`), B14 racha, horas, badges, ranking mensual opt-in y disciplina abierta (migración `019`, `test:progress`).
+- **Pendientes**: B10.7 migración de los clientes de maat (al pasar a producción) y B15–B20. Siguiente en orden: **B15**.
 - B12 eliminado (absorbido por B4.5 y B10.3).
 
 ---
@@ -566,7 +566,6 @@ Owner de todas las tablas: `migrator`. **RLS activo con `FORCE` en las 8 tablas 
 |---|---|---|
 | `academy_settings` | configuración | parámetros globales (PK `key text`, `value jsonb`) — **RLS Fase 1** |
 | `academy_stats_daily` | agregación | stats diarias de academia (B16) |
-| `activity_feed` | social | sin uso; **B14 diseñado la borra** (no hay feed) |
 | `agreement_documents` | legal | documentos legales versionados (B4.5.1) |
 | `attendance` | operativa | asistencia a sesiones (B8) |
 | `audit_log` | auditoría | **RLS Fase 1, append-only** |
@@ -574,7 +573,7 @@ Owner de todas las tablas: `migrator`. **RLS activo con `FORCE` en las 8 tablas 
 | `bookings` | operativa | reservas (B7) |
 | `cash_payments` | pagos | vacía, reservada para futuro |
 | `class_sessions` | operativa | sesiones de clase (B6) |
-| `disciplines` | catálogo | disciplinas (B5) |
+| `disciplines` | catálogo | disciplinas (B5); `is_open` = disciplina abierta (B14) |
 | `event_registrations` | eventos | inscripciones a eventos |
 | `events` | eventos | eventos especiales |
 | `invoices` | pagos | facturas (ampliar en B10.1) |
@@ -592,6 +591,10 @@ Owner de todas las tablas: `migrator`. **RLS activo con `FORCE` en las 8 tablas 
 | `user_mfa` | auth | secretos TOTP admin — **RLS Fase 1** |
 | `user_roles` | auth | roles por usuario — **RLS Fase 1** |
 | `webhook_events` | pagos | idempotencia webhooks Stripe (B10) |
+
+`activity_feed` (001) se borró en B14 (`019`): no hay feed.
+
+**Funciones de B14** (`019`, `SECURITY DEFINER`, owner `service_role`): `student_progress`, `public_achievements`, `monthly_ranking` y `revoke_open_discipline` (exige admin), con `EXECUTE` para `app_user`; internas `student_present` (fuente única de los presentes que cuentan), `month_hours` y `student_achievements`. `covers` cubre además las abiertas; `public_disciplines` y `change_discipline` las excluyen. La vista `public_profiles` gana la columna `achievements`.
 
 ### `profiles` (identidad pública)
 id uuid NOT NULL (PK) ← sin default; la app genera

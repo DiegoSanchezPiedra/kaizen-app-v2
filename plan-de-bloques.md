@@ -58,7 +58,7 @@
 | B11 | Baja del seguro y cambio de pagador | B10.5, B10.3, B10.6 | IMPLEMENTADO |
 | B12 | ~~Validación final waiver/consentimientos en checkout~~ | — | ELIMINADO (absorbido por B4.5 y B10.3) |
 | B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 | IMPLEMENTADO |
-| B14 | Racha, horas, badges, ranking mensual opt-in y disciplina abierta | B8, B13 | Diseñado |
+| B14 | Racha, horas, badges, ranking mensual opt-in y disciplina abierta | B8, B13 | IMPLEMENTADO |
 | B15 | Push (`push_subscriptions`, envío) | B2 | Pendiente |
 | B16 | Agregaciones de informes + cron nocturno | B8 | Pendiente |
 | B17 | Endpoints de informes | B16 | Pendiente |
@@ -1060,7 +1060,7 @@
   - `bio` y `display_name` no se filtran por contenido: lo resuelve el admin despublicando.
   - Riesgo residual aceptado (ADR 0010): el profesor lee a nivel SQL la fila entera de los alumnos de sus sesiones.
 
-### B14 — Racha, horas, badges, ranking mensual opt-in y disciplina abierta — Diseñado
+### B14 — Racha, horas, badges, ranking mensual opt-in y disciplina abierta — IMPLEMENTADO
 - **Objetivo**: gamificación básica sobre la asistencia: racha semanal, horas entrenadas, badges y un ranking mensual por disciplina con opt-in; y la **disciplina abierta** (el sparring), que las horas necesitan y hoy no cabe en el modelo. Términos en `CONTEXT.md` («Racha y logros», «Disciplina abierta», «Cubrir», «Campos visibles»). Sin ADR: nada es difícil de deshacer (calcular al leer admite una caché después sin cambiar la API, y el opt-in sigue el ADR 0010).
 - **Choques con lo existente** (detectados en el diseño, 2026-10-30):
   - `student_stats_daily` (001) asume agregados nocturnos con `streak_weeks`, pero B14 lo calcula todo al leer y no depende de B16. B14 no la usa; B16 decide su forma (y quitar `streak_weeks`).
@@ -1146,13 +1146,38 @@
   - avisos al perder o ganar un badge;
   - UI (B18), incluido dejar claro que el ranking es «entre quienes participan».
 - **Checklist de cierre**:
-  - [ ] Migración `019`: `activity_feed` borrada, `is_open` + `covers()`, funciones de progreso y ranking, `public_profiles` con `achievements`.
-  - [ ] Racha, horas y badges calculados al leer en hora de Madrid, con las reglas de arriba.
-  - [ ] Ranking mensual por disciplina, solo opt-in elegible; **un hijo nunca aparece**, ni con los flags forzados por SQL.
-  - [ ] Privado solo para el propio alumno, sus tutores y el admin.
-  - [ ] Disciplina abierta: cubierta para todos, no elegible, 409 y `revoke_coverage` al desmarcar.
-  - [ ] `public_profiles` sigue sin depender de `student_health_info` (test de dependencias).
-  - [ ] Tests (`test:progress` y regresión).
+  - [x] Migración `019`: `activity_feed` borrada, `is_open` + `covers()`, funciones de progreso y ranking, `public_profiles` con `achievements`.
+  - [x] Racha, horas y badges calculados al leer en hora de Madrid, con las reglas de arriba.
+  - [x] Ranking mensual por disciplina, solo opt-in elegible; **un hijo nunca aparece**, ni con los flags forzados por SQL.
+  - [x] Privado solo para el propio alumno, sus tutores y el admin.
+  - [x] Disciplina abierta: cubierta para todos, no elegible, 409 y `revoke_coverage` al desmarcar.
+  - [x] `public_profiles` sigue sin depender de `student_health_info` (test de dependencias).
+  - [x] Tests (`test:progress` y regresión).
+- **Implementación** (migración `019`, 2026-10-30):
+  - **`019`**:
+    - `DROP TABLE activity_feed` (el `down` la recrea como en 001, con su índice y su FK).
+    - `disciplines.is_open`; `covers()` con `CREATE OR REPLACE` (la de 012 + `d.is_open OR`, dentro del mismo filtro de «solo menores»); `public_disciplines` con `NOT d.is_open`.
+    - `change_discipline` se reescribe sobre su definición actual (`pg_get_functiondef` + `replace` de la condición del destino, `NOT d.is_open`) en vez de copiar la función de 014 entera. Si no encuentra el texto exacto, la migración falla; el `down` hace el cambio inverso.
+    - Funciones `SECURITY DEFINER` (owner `service_role`). Internas, sin `EXECUTE` para `app_user`: `student_present` (los presentes que cuentan, exige `app.current_user_id`), `month_hours` (horas del mes por disciplina no abierta, con la regla de la abierta) y `student_achievements` (racha y badges). Así la regla de horas y la de racha viven una sola vez: `student_progress` y `monthly_ranking` usan `month_hours`, y `student_progress` y `public_achievements` usan `student_achievements`. Con `EXECUTE` para `app_user`: `student_progress`, `public_achievements`, `monthly_ranking` y `revoke_open_discipline`.
+    - Racha: semanas `date_trunc('week', starts_at AT TIME ZONE 'Europe/Madrid')` desde la del primer presente hasta la actual; cada una suma, se salta o rompe; cada ruptura abre un tramo y `n` cuenta las que suman dentro de él. `best` = el mayor `n`, `current` = el `n` de la última semana. Los de racha toman el lunes 00:00 de Madrid de la semana en que `n` llega al umbral; los de horas, la suma acumulada por `starts_at`. El `shortcut:` del salto está en la función.
+    - Horas redondeadas a un decimal (`round(…, 1)`) en el ranking y también en el progreso privado (decidido 2026-10-30). El ranking ordena y empata sobre el valor redondeado, el que se ve.
+    - `monthly_ranking` (decidido 2026-10-30): la RLS de `disciplines` oculta las desactivadas a quien no es admin, así que la función devuelve también el nombre de la disciplina, en cada fila y, sin participantes, en una fila sin alumno (`LEFT JOIN`). Lanza `ranking_not_found` si no existe o es abierta. Sin sesión, 0 filas.
+    - `revoke_open_discipline(discipline)`: exige admin (`42501` `not_allowed`) y llama a `revoke_coverage` por cada alumno con reservas o esperas futuras en ella. Corre en la misma transacción que el `UPDATE`, así que `covers` ya ve la disciplina desmarcada. `app_user` sigue sin `EXECUTE` sobre `revoke_coverage`.
+    - `public_profiles` se recrea (un `CREATE OR REPLACE` no puede quitar la columna en el `down`) con `achievements` = `public_achievements(id)` y `REVOKE`/`GRANT` como en 017.
+    - Con su `down` (probado up → down → up).
+  - **Servicio** (`services/progress.js`, con `client`): `getProgress` (`NULL` → 403 `not_guardian`) y `getRanking` (`month` `YYYY-MM` → 400 `invalid_field`; paginación como el directorio; una sola consulta sobre `monthly_ranking` con `total` y la página).
+  - **B13**: `VISIBLE_FIELDS` con `ranking` y `achievements`; la ficha selecciona `achievements` y `card()` la borra si es `NULL` (como los otros opcionales).
+  - **B5 / B10.5**: `is_open` en `DISCIPLINE_SPEC` y en las lecturas del catálogo (también el público). `updateDiscipline` bloquea la fila y, al marcarla abierta, da 409 `discipline_in_use` si alguna suscripción viva (`active`, `past_due`, `unpaid`) la tiene elegida **o en una bajada programada** (`scheduled_discipline_ids`); al desmarcarla llama a `revoke_open_discipline`. `validateOrder` filtra `NOT is_open`.
+  - **Rutas**: `GET /me/progress` (`profile_id` con `validateSubject`, como el resto de `/me`) y `routes/rankings.js` (`requireAuth`, `invalid_id` por `router.param`).
+  - **Tests**:
+    - `test:progress` (20): todos los casos de Tests. Las reglas se prueban en una transacción de `servicePool` que se deshace al final; dentro se cancelan las sesiones ajenas, porque la racha mira toda la academia. El corte del lunes se prueba con domingo 23:30 y lunes 00:30 de Madrid en los dos cambios de hora (son el mismo domingo en UTC). La privacidad, la ficha y el ranking de una disciplina desactivada (por la RLS) van por HTTP con fixtures confirmados que se borran al acabar.
+    - `test:profiles` ajustado: 8 columnas, funciones `can_be_public`, `public_achievements` y `public_disciplines`, y ninguna de las que llaman (`covers`, `student_achievements`, `student_present`) menciona `student_health_info`; 6 flags.
+    - Regresión con la API parada: `test:progress` 20, `test:profiles` 25, `test:bookings` 18, `test:billing` 38, `test:webhook` 35, `test:catalog` 10, `test:classes` 12, `test:calendar` 15, `test:attendance` 12, `test:checkin` 8, `test:rls` 22 y `test:minors` 14, todos OK (Stripe en sandbox). `npm run lint` sin errores.
+    - Contra la API real (`npm run dev`, JWT firmados, fixtures borrados al acabar): `GET /me/progress` (200, y 403 `not_guardian` para otro alumno), `GET /rankings/:id` (200, 400 con `month=2026-13`, 401 sin token) y la ficha pública con `achievements`, todo como en el diseño.
+- **Pendiente**:
+  - Carrera aceptada: si el admin marca una disciplina abierta mientras vive un checkout (o una bajada programada en Stripe) que la elige, el webhook la escribe igualmente en `subscription_disciplines` (no revalida). El alumno ocupa un hueco con algo que ya cubre, y nada lo avisa: lo corrige un cambio de disciplina.
+  - Una abierta en `plan_disciplines` se ignora para cubrir, pero `checkEligible` (B5) la sigue contando entre las elegibles de un plan.
+  - Los `id` de disciplina salen como número dentro del `jsonb` (`hours.disciplines`, como `public_disciplines` en B13) y como texto en `discipline.id` del ranking (como el resto del catálogo).
 
 ### B15 — Push (`push_subscriptions`, envío) — Pendiente
 - **Objetivo**: notificaciones push.

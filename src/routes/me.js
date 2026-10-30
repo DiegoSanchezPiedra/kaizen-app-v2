@@ -14,6 +14,7 @@ import {
 } from '../services/profile.js';
 import { signAgreement } from '../services/agreements.js';
 import { getMyProfile, updateMyProfile, VISIBLE_FIELDS, SOCIAL_NETWORKS } from '../services/profiles.js';
+import { getProgress } from '../services/progress.js';
 import { isValidPastDate } from '../services/auth.js';
 
 const router = Router();
@@ -227,6 +228,18 @@ router.patch(
   requireAuth,
   validateProfile,
   withRlsContext(async (req, client) => updateMyProfile(client, req.user.id, req.body ?? {}))
+);
+
+// ------------------------------------------------------------
+// GET /me/progress?profile_id=&month=YYYY-MM (B14): racha, badges y horas del mes por disciplina.
+// Del propio alumno, de un hijo (tutor vinculado) o de cualquiera (admin); si no, 403 not_guardian.
+// ------------------------------------------------------------
+router.get(
+  '/progress',
+  requireAuth,
+  validateSubject,
+  withRlsContext(async (req, client) =>
+    getProgress(client, { studentId: req.query.profile_id ?? req.user.id, month: req.query.month }))
 );
 
 export default router;
