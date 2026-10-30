@@ -4,6 +4,7 @@ import { servicePool } from '../config/database.js';
 import { stripe, STRIPE_PORTAL_CONFIGURATION_ID, APP_URL } from '../config/stripe.js';
 import { httpError } from '../lib/errors.js';
 import { parseId, invalid, audit } from './catalog.js';
+import { notice } from './notices.js';
 
 const LIVE = `('active', 'past_due', 'unpaid')`;
 // Estados de Stripe tal cual (CONTEXT § Suscripción); canceled / incomplete_expired → cancelled.
@@ -145,7 +146,7 @@ export async function createPortalSession(client, payerId) {
  */
 export async function cancelSubscription(client, { id, atPeriodEnd, actorId }) {
   const { rows: [s] } = await client.query(
-    `SELECT stripe_subscription_id, status, student_id, payer_id FROM subscriptions WHERE id = $1`, [id]);
+    `SELECT stripe_subscription_id, status, student_id, payer_id, plan_id FROM subscriptions WHERE id = $1`, [id]);
   if (!s) throw httpError(404, 'subscription_not_found', 'Suscripción no encontrada');
   // Stripe manda: entre la baja y su webhook la fila local aún no dice cancelled.
   const current = s.status === 'cancelled'
@@ -155,28 +156,18 @@ export async function cancelSubscription(client, { id, atPeriodEnd, actorId }) {
   }
   await audit(client, actorId, atPeriodEnd ? 'subscription.cancel_at_period_end' : 'subscription.cancel_now', id, {});
   // Con un Schedule adjunto Stripe no deja tocar la cancelación (B10.5): se libera y la bajada programada se descarta.
-  if (current.schedule) {
-    const pending = pendingPhase(current.schedule);
-    await stripe.subscriptionSchedules.release(current.schedule.id);
-    if (pending) {
-      await notice(client, {
-        action: 'notice.scheduled_change_discarded', actorId, type: 'subscription', resourceId: id,
-        recipients: [s.payer_id], student_id: s.student_id, plan_id: pending.metadata.plan_id,
-      });
-    }
-  }
+  const pending = pendingPhase(current.schedule);
+  if (current.schedule) await stripe.subscriptionSchedules.release(current.schedule.id);
   const sub = atPeriodEnd
     ? await stripe.subscriptions.update(s.stripe_subscription_id, { cancel_at_period_end: true })
     : await stripe.subscriptions.cancel(s.stripe_subscription_id);
+  // servicePool tras Stripe: la baja ya no se deshace aunque la ruta haga rollback (y app_user no escribe entregas).
+  await notice(servicePool, {
+    action: 'notice.subscription_cancelled', actorId, type: 'subscription', resourceId: id,
+    recipients: [s.payer_id], student_id: s.student_id, plan_id: s.plan_id,
+    ends_at: ts(sub.cancel_at ?? sub.ended_at), discarded_plan_id: pending?.metadata.plan_id ?? null,
+  });
   return { id, stripe_status: sub.status, cancel_at_period_end: sub.cancel_at_period_end };
-}
-
-// Aviso pendiente de envío (B15), como booking_notice (009).
-export async function notice(db, { action, actorId, type, resourceId, recipients, ...extra }) {
-  await db.query(
-    `INSERT INTO audit_log (id, actor_id, action, resource_type, resource_id, changes)
-     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)`,
-    [actorId, action, type, resourceId, { ...extra, recipients }]);
 }
 
 // --- Cambio de plan y de disciplina (B10.5; CONTEXT § Suscripción; ADR 0007) ---
@@ -254,7 +245,8 @@ async function applyPlanNow(s, current, plan, metadata, isAdmin) {
     // servicePool: el aviso sobrevive al rollback del 409.
     await notice(servicePool, {
       action: 'notice.upgrade_requires_action', actorId: s.payer_id, type: 'subscription', resourceId: s.id,
-      recipients: [s.payer_id], student_id: s.student_id, plan_id: plan.id, hosted_invoice_url: inv.hosted_invoice_url,
+      recipients: [s.payer_id], student_id: s.student_id, from_plan_id: s.plan_id, plan_id: plan.id,
+      amount_cents: inv.amount_due, hosted_invoice_url: inv.hosted_invoice_url, expires_at: ts(sub.pending_update.expires_at),
     });
     throw httpError(409, 'requires_payer_action', 'El banco pide autenticación al pagador; se le ha avisado');
   }
@@ -450,7 +442,8 @@ export async function updateInsuranceSettings(client, body, actorId) {
         `SELECT id, student_id, payer_id, stripe_subscription_id FROM insurances
           WHERE status IN ${LIVE} AND NOT cancel_at_period_end`);
       // shortcut: secuencial dentro de la petición, como el cambio de precio de un plan; con cientos de seguros, a un job.
-      for (const i of rows) await insuranceWontRenew(client, i, 'disabled');
+      // servicePool tras Stripe, como la baja admin: app_user no escribe entregas.
+      for (const i of rows) await insuranceWontRenew(servicePool, i, 'disabled');
     }
   }
   const r = await insuranceSettings(client);

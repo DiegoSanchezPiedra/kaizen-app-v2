@@ -3,8 +3,9 @@
 import { servicePool } from '../config/database.js';
 import { stripe } from '../config/stripe.js';
 import {
-  STATUS, ts, idOf, notice, insuranceSettings, insuranceWontRenew, upsertInsurance, startInsurance, pendingPhase,
+  STATUS, ts, idOf, insuranceSettings, insuranceWontRenew, upsertInsurance, startInsurance, pendingPhase,
 } from './billing.js';
+import { notice } from './notices.js';
 
 const IN_FORCE = ['active', 'past_due'];
 const LIVE = `('active', 'past_due', 'unpaid')`;
@@ -145,9 +146,10 @@ async function onSubscriptionChange(client, obj) {
   }
   const item = sub.items.data[0];
   const { rows: [row] } = await client.query(
-    `UPDATE subscriptions SET status = $2, current_period_start = $3, current_period_end = $4,
-                              cancel_at_period_end = $5, cancelled_at = $6
-      WHERE stripe_subscription_id = $1 RETURNING id, student_id, payer_id, plan_id`,
+    `UPDATE subscriptions s SET status = $2, current_period_start = $3, current_period_end = $4,
+                                cancel_at_period_end = $5, cancelled_at = $6
+       FROM (SELECT id, status FROM subscriptions WHERE stripe_subscription_id = $1 FOR UPDATE) was
+      WHERE s.id = was.id RETURNING s.id, s.student_id, s.payer_id, s.plan_id, was.status AS was`,
     [sub.id, status, ts(item.current_period_start), ts(item.current_period_end),
       sub.cancel_at_period_end, ts(sub.ended_at)]);
   if (!row) return; // nace en checkout.session.completed (o perdió la carrera)
@@ -157,6 +159,9 @@ async function onSubscriptionChange(client, obj) {
   await syncSchedule(client, sub);
   // Pérdida de cobertura (CONTEXT § Reservas). En gracia (past_due) no se pierde nada.
   if (!IN_FORCE.includes(status)) await client.query(`SELECT revoke_coverage($1)`, [row.student_id]);
+  if (status === 'unpaid' && row.was !== 'unpaid') {
+    await unpaidNotice(client, 'subscription', row, sub, { plan_id: row.plan_id });
+  }
   // Baja sin otra suscripción viva: el seguro sigue hasta el final de su año y no renueva (CONTEXT § Seguro).
   if (status === 'cancelled') {
     const { rows: [ins] } = await client.query(
@@ -218,6 +223,16 @@ async function onSchedule(client, obj) {
   await syncSchedule(client, await stripe.subscriptions.retrieve(subId));
 }
 
+// Impagada (B10.6): solo en la transición a unpaid, no en cada evento. El pagador paga el recibo open en Stripe.
+async function unpaidNotice(client, kind, row, sub, extra = {}) {
+  const inv = await stripe.invoices.retrieve(idOf(sub.latest_invoice));
+  await notice(client, {
+    action: `notice.${kind}_unpaid`, actorId: row.payer_id, type: kind,
+    resourceId: row.id, recipients: [row.payer_id], student_id: row.student_id, ...extra,
+    amount_cents: inv.amount_due, hosted_invoice_url: inv.hosted_invoice_url,
+  });
+}
+
 // Seguro (B10.3). Sin revoke_coverage: perder la cobertura de riesgo impide reservar pero no cancela reservas.
 async function onInsuranceChange(client, sub) {
   const payer = await payerOf(client, sub.customer);
@@ -233,6 +248,9 @@ async function onInsuranceChange(client, sub) {
       action: 'notice.insurance_not_paid', actorId: payer, type: 'insurance', resourceId: row.id,
       recipients: [payer], student_id: row.student_id, reason: 'not_paid',
     });
+  }
+  if (STATUS[sub.status] === 'unpaid' && was?.status !== 'unpaid') {
+    await unpaidNotice(client, 'insurance', row, sub);
   }
 }
 

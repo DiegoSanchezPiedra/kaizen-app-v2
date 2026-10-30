@@ -88,11 +88,11 @@ STRIPE_SECRET_KEY=...
 STRIPE_WEBHOOK_SECRET=...
 
 B10.6:
-EMAIL_TRANSPORT=log            # log | resend
+EMAIL_TRANSPORT=log            # log | resend; src/config/email.js valida al arrancar
 RESEND_API_KEY=...             # obligatoria con resend
-EMAIL_FROM=Kaizen <avisos@mail.<dominio>>
-EMAIL_REPLY_TO=...             # buzón de la academia
-EMAIL_LOG_PATH=./storage/mail.log
+EMAIL_FROM="Kaizen <onboarding@resend.dev>"   # remitente de pruebas; en producción Kaizen <avisos@mail.<dominio>>
+EMAIL_REPLY_TO=...             # buzón de la academia (opcional; el pie lo da como contacto)
+EMAIL_LOG_PATH=./storage/emails.log
 
 text
 
@@ -573,6 +573,7 @@ Owner de todas las tablas: `migrator`. **RLS activo con `FORCE` en las 8 tablas 
 | `event_registrations` | eventos | inscripciones a eventos |
 | `events` | eventos | eventos especiales |
 | `invoices` | pagos | facturas (ampliar en B10.1) |
+| `notice_deliveries` | notificaciones | entregas de los avisos (outbox, B10.6, ADR 0008); solo `servicePool` |
 | `pgmigrations` | sistema | control de migraciones |
 | `plan_disciplines` | catálogo | relación plan ↔ disciplina (B5) |
 | `plans` | catálogo | planes de suscripción (B5) |

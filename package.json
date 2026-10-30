@@ -21,6 +21,7 @@
     "test:checkin": "dotenv -e .env -- node scripts/test-checkin.js",
     "test:billing": "dotenv -e .env -- node scripts/test-billing.js",
     "test:webhook": "dotenv -e .env -- node scripts/test-webhook.js",
+    "test:notices": "dotenv -e .env -- node scripts/test-notices.js",
     "extend-horizon": "dotenv -e .env -- node scripts/extend-horizon.js",
     "sync-stripe-plans": "dotenv -e .env -- node scripts/sync-stripe-plans.js",
     "stripe-portal-config": "dotenv -e .env -- node scripts/stripe-portal-config.js",

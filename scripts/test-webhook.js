@@ -23,6 +23,7 @@ const q = async (sql, params) => (await servicePool.query(sql, params)).rows;
 const people = {
   admin: 'admin', prof: 'profesor', alu: 'alumno', tutor: 'tutor', child: 'alumno', ins: 'alumno', ins2: 'alumno',
   pc: 'alumno', pc2: 'alumno', // B10.5
+  unp: 'alumno', // B10.6
 };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 for (const [k, role] of Object.entries(people)) {
@@ -83,6 +84,18 @@ const localIns = async (student) => (await q(`SELECT * FROM insurances WHERE stu
 const noticeOf = async (action, resourceId) =>
   (await q(`SELECT changes FROM audit_log WHERE action = $1 AND resource_id = $2 ORDER BY created_at`, [action, resourceId]))
     .map((r) => r.changes);
+const deliveriesOf = (action, resourceId) => q(
+  `SELECT d.recipient_id, d.channel FROM notice_deliveries d JOIN audit_log a ON a.id = d.audit_id
+    WHERE a.action = $1 AND a.resource_id = $2`, [action, resourceId]);
+// Stripe pasa a unpaid al agotar los reintentos (ajuste de la cuenta); aquí se simula el estado al releer.
+const asUnpaid = async (subId, fn) => {
+  const { retrieve } = stripe.subscriptions;
+  stripe.subscriptions.retrieve = async (...a) => {
+    const s = await retrieve.apply(stripe.subscriptions, a);
+    return a[0] === subId ? { ...s, status: 'unpaid' } : s;
+  };
+  try { await fn(); } finally { stripe.subscriptions.retrieve = retrieve; }
+};
 
 let sub1, raceSub, sess;
 const extraPlans = [];
@@ -209,7 +222,12 @@ try {
     await assert.rejects(admin((c) => cancelSubscription(c, { id: crypto.randomUUID(), atPeriodEnd: false, actorId: U.admin })),
       (e) => e.status === 404);
     const actions = (await q(`SELECT action FROM audit_log WHERE resource_id = $1 ORDER BY created_at`, [id])).map((r) => r.action);
-    assert.deepEqual(actions, ['subscription.cancel_at_period_end', 'subscription.cancel_now']);
+    assert.deepEqual(actions, ['subscription.cancel_at_period_end', 'notice.subscription_cancelled',
+      'subscription.cancel_now', 'notice.subscription_cancelled']);
+    // B10.6: aviso al pagador con la fecha de fin (fin de periodo o ahora), sin bajada descartada.
+    const [atEnd, now] = await noticeOf('notice.subscription_cancelled', id);
+    assert.deepEqual([atEnd.recipients, atEnd.discarded_plan_id], [[U.alu], null]);
+    assert.ok(new Date(atEnd.ends_at) > new Date(Date.now() + 86400_000) && new Date(now.ends_at) <= new Date());
   });
 
   let insCuota, ins;
@@ -381,7 +399,11 @@ try {
       const [n] = await noticeOf('notice.upgrade_requires_action', pcRow.id);
       assert.deepEqual([n.recipients, n.plan_id], [[U.pc], top.id]);
       assert.match(n.hosted_invoice_url, /^https:\/\//);
-      assert.ok((await stripe.subscriptions.retrieve(pcSub.id)).pending_update, 'sigue pendiente del pago');
+      const { pending_update: pu } = await stripe.subscriptions.retrieve(pcSub.id);
+      assert.ok(pu, 'sigue pendiente del pago');
+      // B10.6: el email muestra la fecha límite y el importe.
+      assert.deepEqual([new Date(n.expires_at).getTime(), n.from_plan_id, n.amount_cents > 0], [pu.expires_at * 1000, (await localSub(pcSub.id)).plan_id, true]);
+      assert.deepEqual(await deliveriesOf('notice.upgrade_requires_action', pcRow.id), [{ recipient_id: U.pc, channel: 'email' }]);
       // Una bajada sustituye la subida a medias (Stripe no deja tocar el Schedule con un pending update).
       assert.equal((await change('pc', pcRow.id, down.id, [disc])).status, 202);
       const st = await stripe.subscriptions.retrieve(pcSub.id, { expand: ['latest_invoice'] });
@@ -486,8 +508,12 @@ try {
     const end = await asAdmin((c) => cancelSubscription(c, { id: pcRow.id, atPeriodEnd: true, actorId: U.admin }));
     assert.deepEqual([end.stripe_status, end.cancel_at_period_end], ['active', true]);
     assert.equal((await stripe.subscriptionSchedules.retrieve(schedule)).status, 'released');
-    const [n] = await noticeOf('notice.scheduled_change_discarded', pcRow.id);
-    assert.deepEqual([n.recipients, n.plan_id], [[U.pc], same.id]);
+    // B10.6: subscription_cancelled sustituye a scheduled_change_discarded.
+    assert.deepEqual(await noticeOf('notice.scheduled_change_discarded', pcRow.id), []);
+    const [n] = await noticeOf('notice.subscription_cancelled', pcRow.id);
+    assert.deepEqual([n.recipients, n.plan_id, n.discarded_plan_id], [[U.pc], down.id, same.id]);
+    assert.equal(new Date(n.ends_at).getTime(), (await stripe.subscriptions.retrieve(pcSub.id)).cancel_at * 1000);
+    assert.deepEqual(await deliveriesOf('notice.subscription_cancelled', pcRow.id), [{ recipient_id: U.pc, channel: 'email' }]);
     await updated(pcSub.id);
     const row = await localSub(pcSub.id);
     assert.deepEqual([row.cancel_at_period_end, row.stripe_schedule_id, row.scheduled_plan_id], [true, null, null]);
@@ -508,6 +534,44 @@ try {
     await updated(s.id);
     assert.equal((await localSub(s.id)).plan_id, down.id);
     assert.ok((await stripe.customers.retrieve(cus)).balance < 0, 'saldo a favor, sin reembolso');
+  });
+
+  // --- B10.6: avisos nuevos ---
+  await run('impagada: subscription_unpaid con el recibo y su entrega, solo en la transición a unpaid', async () => {
+    const cus = await customer('unp', 'pm_card_visa');
+    const s = await paidSub(cus, 'unp', 'unp');
+    await handleEvent(completed(s));
+    const row = await localSub(s.id);
+    await asUnpaid(s.id, async () => {
+      await updated(s.id);
+      await updated(s.id); // otro evento ya en unpaid: sin aviso nuevo
+    });
+    assert.equal((await localSub(s.id)).status, 'unpaid');
+    const ns = await noticeOf('notice.subscription_unpaid', row.id);
+    assert.equal(ns.length, 1);
+    const inv = await stripe.invoices.retrieve(s.latest_invoice);
+    assert.deepEqual([ns[0].recipients, ns[0].plan_id, ns[0].amount_cents], [[U.unp], plan.id, inv.amount_due]);
+    assert.match(ns[0].hosted_invoice_url, /^https:\/\/invoice\.stripe\.com\//); // el token cambia en cada lectura
+    assert.deepEqual(await deliveriesOf('notice.subscription_unpaid', row.id), [{ recipient_id: U.unp, channel: 'email' }]);
+    // Vuelve a active (pagó) y otra vez a unpaid: es otra transición.
+    await updated(s.id);
+    await asUnpaid(s.id, () => updated(s.id));
+    assert.equal((await noticeOf('notice.subscription_unpaid', row.id)).length, 2);
+  });
+
+  await run('seguro impagado: insurance_unpaid con el recibo y su entrega, solo en la transición', async () => {
+    const i = await localIns('ins');
+    const subId = i.stripe_subscription_id;
+    const ev = () => handleEvent(evt('customer.subscription.updated', { id: subId, object: 'subscription' }));
+    await asUnpaid(subId, async () => { await ev(); await ev(); });
+    assert.equal((await localIns('ins')).status, 'unpaid');
+    const [n, again] = await noticeOf('notice.insurance_unpaid', i.id);
+    assert.equal(again, undefined);
+    assert.deepEqual([n.recipients, n.student_id], [[U.ins], U.ins]);
+    assert.match(n.hosted_invoice_url, /^https:\/\//);
+    assert.deepEqual(await deliveriesOf('notice.insurance_unpaid', i.id), [{ recipient_id: U.ins, channel: 'email' }]);
+    await ev();
+    assert.equal((await localIns('ins')).status, 'active');
   });
 } finally {
   server.close();

@@ -19,6 +19,7 @@ import tabletRouter from './routes/tablet.js';
 import checkinRouter from './routes/checkin.js';
 import billingRouter from './routes/billing.js';
 import webhooksRouter from './routes/webhooks.js';
+import { startNoticeWorker } from './services/notices.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -60,12 +61,14 @@ app.use(errorHandler);
 const server = app.listen(PORT, () => {
   console.log(`[kaizen] escuchando en http://127.0.0.1:${PORT}`);
 });
+const stopNoticeWorker = startNoticeWorker(); // avisos por email (B10.6, ADR 0008)
 
 // Cierre limpio
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => {
     console.log(`[kaizen] ${sig} recibido, cerrando…`);
     server.close();
+    await stopNoticeWorker();
     await closePools();
     process.exit(0);
   });

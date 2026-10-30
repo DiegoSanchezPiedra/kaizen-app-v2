@@ -53,7 +53,7 @@
 | B10.2 | Endpoint admin morosos y "en gracia" por pagador | B10.1, B10.3 | IMPLEMENTADO |
 | B10.3 | Seguro y cobertura de riesgo (seguro anual o `waiver`) | B10.1 | Implementado |
 | B10.5 | Upgrade/downgrade + cambio de disciplina | B10 | IMPLEMENTADO |
-| B10.6 | Emails transaccionales de billing (al pagador) | B10.1, B10.3, B10.5 | Diseñado |
+| B10.6 | Emails transaccionales de billing (al pagador) | B10.1, B10.3, B10.5 | IMPLEMENTADO |
 | B11 | Baja admin de suscripciones y seguro + cambio de pagador | B10.5, B10.3 | Pendiente |
 | B12 | ~~Validación final waiver/consentimientos en checkout~~ | — | ELIMINADO (absorbido por B4.5 y B10.3) |
 | B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 | Pendiente |
@@ -493,7 +493,7 @@
   - [x] Seguro intacto.
   - [x] Tests y E2E con Stripe CLI.
 
-### B10.6 — Emails transaccionales de billing (al pagador) — Diseñado
+### B10.6 — Emails transaccionales de billing (al pagador) — IMPLEMENTADO
 - **Objetivo**: entregar por email al pagador los avisos de facturación que ya se crean (`notice.*` en `audit_log`) y los que faltaban (impagada, baja). Términos en `CONTEXT.md` («Avisos»), decisión en ADR 0008.
 - **Reglas** (decididas 2026-10-30):
   - **Qué va por email**: 11 avisos de facturación, solo al pagador:
@@ -585,15 +585,59 @@
   - aviso de baja del seguro (B11);
   - otros idiomas (ver B18);
   - verificación del dominio real (producción).
+- **Implementación** (migración `015`):
+  - **`015`**: `notice_deliveries` como en el paso 1. `audit_id` y `recipient_id` con `ON DELETE CASCADE` (los scripts de test borran avisos y perfiles; en producción `app_user` no borra ninguno). `REVOKE ALL` a `app_user`.
+  - **Configuración** (`src/config/email.js`): falla al arrancar si `EMAIL_TRANSPORT` no es `log` / `resend` o si falta `RESEND_API_KEY` con `resend`. Por defecto `EMAIL_FROM` = `Kaizen <onboarding@resend.dev>` y `EMAIL_LOG_PATH` = `./storage/emails.log` (ignorado por `*.log`).
+  - **`services/email.js`**: `send({ to, subject, text, html, idempotencyKey })`.
+    - `resend`: `POST /emails` por `fetch` (timeout 15 s), con `Idempotency-Key` y `reply_to` si hay `EMAIL_REPLY_TO`.
+    - `log`: consola + fichero.
+    - Los errores llevan `transient`: red, 429 y 5xx sí; el resto de 4xx no.
+  - **`services/notices.js`**:
+    - `CHANNELS`: las 11 acciones → `['email']`; el resto (reservas, `stripe_risk`) sin canal.
+    - `notice()`: CTE `INSERT audit_log … RETURNING id` + `INSERT notice_deliveries` por destinatario y canal, sin los que tienen rol `admin`, con `ON CONFLICT DO NOTHING` (destinatarios repetidos).
+    - `compose(db, entrega)`: pagador (`auth_credentials.email`), alumno, recibo (importe y plan), fin del seguro y nombres de los planes, leídos al enviar. Sin email → `null`.
+    - 11 plantillas: `mail()` común (saludo, párrafos, un botón, pie de servicio LSSI con el contacto de `EMAIL_REPLY_TO`), texto plano y HTML con los datos del usuario escapados. Importes y fechas en `es-ES`, hora de `Europe/Madrid`. `turns_18` → «cambio de tramo de edad». `payment_failed` no lleva el motivo del rechazo (Stripe lo da en inglés).
+    - `sendPending(db, transport)`: lote de 20 con `FOR UPDATE OF d SKIP LOCKED` en una transacción. Compone con el pool (un error de SQL no aborta la de los bloqueos). Caducado (`now() > LEAST(created_at + 24 h, expires_at)`) → `skipped` `stale`; sin email → `skipped` `no_email`. Transitorio → `pending` a 1, 5, 30, 120 o 360 min; tras el 6.º intento, o con un error permanente o desconocido, `failed` con `last_error`.
+    - `startNoticeWorker()`: cada 30 s, y sigue sin esperar mientras salgan lotes llenos. Devuelve la función que lo para y espera al lote en curso; `index.js` la llama al cerrar, antes de `closePools`.
+  - **Emisores**:
+    - `notice()` se importa de `notices.js` en `billing.js` y `stripeWebhook.js`.
+    - `onSubscriptionChange`: el `UPDATE` devuelve el estado anterior (`FROM (SELECT … FOR UPDATE) was`). Solo en la transición a `unpaid`: `notice.subscription_unpaid` con `plan_id`, `amount_cents` y `hosted_invoice_url` de `latest_invoice`. `onInsuranceChange`, igual con `notice.insurance_unpaid` (`unpaidNotice`).
+    - `cancelSubscription`: `notice.subscription_cancelled` en toda baja admin, con `plan_id`, `ends_at` (`cancel_at` o `ended_at` de Stripe) y `discarded_plan_id`. `scheduled_change_discarded` ya no se crea.
+    - `applyPlanNow`: `upgrade_requires_action` lleva además `from_plan_id`, `amount_cents` y `expires_at` (`pending_update.expires_at`).
+  - **Choque con el diseño** (decidido 2026-10-30): la baja admin y desactivar el seguro (`insuranceWontRenew` desde `updateInsuranceSettings`) corren en la transacción de `app_user`, que no escribe entregas. Esos dos avisos se escriben con `servicePool` en *autocommit*, justo después de la llamada a Stripe, como `upgrade_requires_action`: el aviso va con el efecto en Stripe, que no se deshace.
+  - **Stripe**: emails de cliente apagados en el sandbox `kaizen-app-testing`: Subscriptions and emails (3DS y recordatorios, renovaciones, tarjetas a punto de caducar, fin de prueba, recordatorio de recibo impagado), Revenue recovery → Emails (cobro fallido) y Customer emails (pagos correctos y reembolsos).
+  - **Tests**:
+    - `test:notices` (nuevo), con transporte falso y sin Stripe. Aparca las entregas pendientes ajenas y las restaura. Cubre:
+      - entregas por acción, sin admins y sin duplicados;
+      - aviso y entrega en una sentencia (rollback);
+      - destinatario el tutor pagador y nunca el hijo;
+      - `Idempotency-Key` = id de la entrega;
+      - dos workers a la vez;
+      - reintentos (1/5/30/120/360 min y `failed`), error permanente y desconocido;
+      - `skipped` por 24 h, por `expires_at` y sin email;
+      - las 11 plantillas (enlace, escapado, sin fecha de nacimiento, edad ni «de el» / «a el»).
+    - `test:webhook`: `subscription_unpaid` / `insurance_unpaid` solo en la transición, con su entrega; baja admin → `subscription_cancelled` (fin de periodo y ahora), sin `scheduled_change_discarded`; `expires_at`, importe y entrega en `upgrade_requires_action`. Sigue sin `payment_failed` con el pagador en pantalla. El paso a `unpaid` se simula al releer la suscripción (como la fase de B10.5).
+    - Regresión: `test:billing`, `test:bookings` y `test:minors`.
+    - Con `npm run dev` y `stripe listen` en marcha, los eventos reales del sandbox se cruzan con las simulaciones y el worker se lleva entregas del test: los tests se pasan con la API parada.
+- **E2E** (2026-10-30, sandbox `kaizen-app-testing`, `stripe listen --all-snapshot` + Chrome):
+  - **Subida del admin con 3DS**: `409 requires_payer_action` → el worker de `npm run dev` deja el email en `storage/emails.log` al primer intento, con el enlace, la fecha límite y 15,00 € → pago con 3DS en la página del recibo → el webhook aplica el plan (318 → 319). En Stripe, el recibo `subscription_update` queda `paid` y el `pending_update` desaparece.
+  - **Arreglo salido del E2E**: las plantillas decían «de el plan» / «a el plan». Ahora dicen «del» / «al», y `test:notices` lo comprueba.
+  - **Envío real con Resend** (remitente de pruebas a la cuenta propia): dos llamadas con la misma `Idempotency-Key` → el mismo id y un solo email. La misma clave con otro contenido → 409, que se trata como permanente. Aspecto correcto en Gmail y en el móvil.
+  - Datos del E2E borrados después (base de desarrollo, suscripción y cliente del sandbox, planes archivados).
+- **Pendiente**:
+  - **Producción**: verificar el dominio en Resend (SPF, DKIM, DMARC `p=none` → `quarantine`), `EMAIL_FROM` = `Kaizen <avisos@mail.<dominio>>`, `EMAIL_REPLY_TO` y apuntar Resend (EE. UU., DPA y SCC) en el registro de actividades. Apagar los mismos emails de cliente en la cuenta de producción (B10.7).
+  - Si se cae el proceso entre el envío y la marca y el email recompuesto cambia (por ejemplo, el nombre del plan), el reintento recibe un 409 de Resend y la entrega queda `failed`, aunque el email salió.
+  - Un aviso emitido con `servicePool` en *autocommit* (baja admin, desactivar el seguro, `upgrade_requires_action`) se queda aunque la ruta haga rollback después.
+  - El worker mantiene la transacción abierta mientras envía el lote (hasta 20 × 15 s en el peor caso).
 - **Checklist de cierre**:
-  - [ ] Migración `015` (`notice_deliveries`, sin acceso para `app_user`).
-  - [ ] `notice()` crea aviso y entregas en una sentencia; mapa acción → canales; sin admins.
-  - [ ] Avisos nuevos `subscription_unpaid`, `insurance_unpaid` y `subscription_cancelled`; `scheduled_change_discarded` retirado.
-  - [ ] Worker con `SKIP LOCKED`, reintentos, caducidad (24 h / `expires_at`) e `Idempotency-Key`.
-  - [ ] 11 plantillas en español con datos mínimos.
-  - [ ] Proveedor configurado en `.env` (`log` por defecto, `resend` probado una vez).
-  - [ ] Emails de cliente de Stripe apagados en el sandbox.
-  - [ ] Tests (`test:notices`, regresión de `test:webhook`) y E2E del 3DS del admin desde el enlace.
+  - [x] Migración `015` (`notice_deliveries`, sin acceso para `app_user`).
+  - [x] `notice()` crea aviso y entregas en una sentencia; mapa acción → canales; sin admins.
+  - [x] Avisos nuevos `subscription_unpaid`, `insurance_unpaid` y `subscription_cancelled`; `scheduled_change_discarded` retirado.
+  - [x] Worker con `SKIP LOCKED`, reintentos, caducidad (24 h / `expires_at`) e `Idempotency-Key`.
+  - [x] 11 plantillas en español con datos mínimos.
+  - [x] Proveedor configurado en `.env` (`log` por defecto, `resend` probado una vez).
+  - [x] Emails de cliente de Stripe apagados en el sandbox.
+  - [x] Tests (`test:notices`, regresión de `test:webhook`) y E2E del 3DS del admin desde el enlace.
 
 ### B10.7 — Migración de los clientes de maat — Pendiente (al pasar a producción)
 - **Contexto**: la cuenta de Stripe de producción hoy la usa maat, con clientes pagando. Hasta el paso a producción Kaizen trabaja solo con el sandbox; la cuenta real no se conecta antes.

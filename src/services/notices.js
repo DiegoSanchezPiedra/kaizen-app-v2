@@ -1,0 +1,225 @@
+// src/services/notices.js — avisos y su entrega (B10.6; CONTEXT § Avisos; ADR 0008).
+// notice() escribe el aviso en audit_log y sus entregas en notice_deliveries en una sentencia (outbox).
+// El worker de la API las envía: compone el email al enviar, con el aviso y los datos actuales.
+import { servicePool } from '../config/database.js';
+import { APP_URL } from '../config/stripe.js';
+import { EMAIL_REPLY_TO } from '../config/email.js';
+import { send } from './email.js';
+
+// Acción → canales. Los avisos de facturación van por email al pagador; los de reservas (booking_notice, SQL)
+// no tienen canal hasta B15 (push). stripe_risk solo va a admins, que nunca reciben entregas.
+const CHANNELS = Object.fromEntries([
+  'payment_failed', 'checkout_payment_failed', 'checkout_race_refunded',
+  'insurance_not_paid', 'insurance_renewal', 'insurance_wont_renew',
+  'plan_downgraded', 'upgrade_requires_action',
+  'subscription_unpaid', 'insurance_unpaid', 'subscription_cancelled',
+].map((a) => [`notice.${a}`, ['email']]));
+
+/** Aviso + una entrega por destinatario no admin y canal, en una sentencia (también en autocommit). */
+export async function notice(db, { action, actorId, type, resourceId, recipients, ...extra }) {
+  await db.query(
+    `WITH a AS (
+       INSERT INTO audit_log (id, actor_id, action, resource_type, resource_id, changes)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5) RETURNING id)
+     INSERT INTO notice_deliveries (audit_id, recipient_id, channel)
+     SELECT a.id, r, ch FROM a, unnest($6::uuid[]) r, unnest($7::text[]) ch
+      WHERE NOT EXISTS (SELECT 1 FROM user_roles WHERE user_id = r AND role = 'admin')
+     ON CONFLICT DO NOTHING`,
+    [actorId, action, type, resourceId, { ...extra, recipients }, recipients, CHANNELS[action] ?? []]);
+}
+
+// --- Plantillas (solo español). Datos mínimos: nunca salud, edad, fecha de nacimiento ni tarjeta ---
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const eur = (cents) => (cents / 100).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+const TZ = 'Europe/Madrid';
+const day = (d) => new Date(d).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric', timeZone: TZ });
+const moment = (d) => new Date(d).toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: TZ });
+const BILLING = `${APP_URL}/billing`;
+
+// Esqueleto común: saludo, párrafos, un enlace y el pie de email de servicio (LSSI art. 21: sin baja).
+function mail(subject, d, paragraphs, [label, url] = ['Ir a facturación', BILLING]) {
+  const hello = d.payer ? `Hola, ${d.payer}:` : 'Hola:';
+  const contact = EMAIL_REPLY_TO ? `escribe a ${EMAIL_REPLY_TO}` : 'contesta a este email';
+  const footer = 'Este es un email de servicio sobre tus pagos en Kaizen: no se puede dar de baja mientras tengas '
+    + `pagos con la academia. Para cualquier duda, ${contact}.`;
+  const text = [hello, ...paragraphs, `${label}: ${url}`, '--', footer].join('\n\n');
+  const html = `<!doctype html><html lang="es"><body style="margin:0;padding:24px;background:#f4f4f5;font-family:Arial,sans-serif;color:#18181b">
+<div style="max-width:560px;margin:0 auto;background:#fff;border-radius:8px;padding:24px;line-height:1.5">
+<p>${esc(hello)}</p>
+${paragraphs.map((p) => `<p>${esc(p)}</p>`).join('\n')}
+<p><a href="${esc(url)}" style="display:inline-block;background:#18181b;color:#fff;text-decoration:none;padding:10px 16px;border-radius:6px">${esc(label)}</a></p>
+<p style="font-size:12px;color:#71717a">${esc(footer)}</p>
+</div></body></html>`;
+  return { subject, text, html };
+}
+
+const plan = (d, key) => d.plans[d.c[key]] ?? '';
+const WONT_RENEW = {
+  disabled: 'la academia ha dejado de ofrecer el seguro',
+  subscription_cancelled: 'ya no hay una suscripción activa',
+  payer_changed: 'la suscripción la paga ahora otra persona',
+  turns_18: 'hay un cambio de tramo de edad', // nunca la edad ni la fecha
+};
+
+// d = { c: changes, payer, student, plans: { id: nombre }, invoice, insurance_end }
+const TEMPLATES = {
+  'notice.payment_failed': (d) => mail(`No hemos podido cobrar el recibo de ${d.student}`, d, [
+    `El cobro de ${eur(d.invoice.amount_due_cents)} ${d.invoice.plan ? `del plan ${d.invoice.plan}` : 'del seguro'} `
+      + `de ${d.student} no se ha podido realizar.`,
+    d.c.next_payment_attempt
+      ? `Lo volveremos a intentar el ${day(d.c.next_payment_attempt)}. Si hace falta, cambia la tarjeta antes desde la app.`
+      : 'No habrá más intentos automáticos. Cambia la tarjeta o paga el recibo desde la app.',
+  ]),
+  'notice.checkout_payment_failed': (d) => mail(`No se ha completado el pago de la suscripción de ${d.student}`, d, [
+    `El pago de la suscripción de ${d.student} no se ha completado, así que la suscripción no se ha activado.`,
+    'Puedes volver a intentarlo desde la app.',
+  ]),
+  'notice.checkout_race_refunded': (d) => mail(`Te hemos devuelto un pago duplicado de ${d.student}`, d, [
+    `Se completaron dos pagos de suscripción para ${d.student} a la vez. Hemos mantenido la primera suscripción, `
+      + 'cancelado la segunda y devuelto su importe.',
+    'El reembolso puede tardar unos días en aparecer en tu cuenta.',
+  ]),
+  'notice.insurance_not_paid': (d) => mail(`El seguro de ${d.student} no está activo`, d, [
+    d.c.reason === 'not_paid'
+      ? `El primer año del seguro de ${d.student} no llegó a pagarse, así que el seguro no está activo.`
+      : `No se ha podido contratar el seguro de ${d.student}. La suscripción sigue activa.`,
+    'Sin seguro ni waiver firmado no se pueden reservar clases. Puedes contratarlo o firmar el waiver desde la app.',
+  ]),
+  'notice.insurance_renewal': (d) => mail(`El seguro de ${d.student} se renueva el ${day(d.c.renews_at)}`, d, [
+    `El seguro de ${d.student} se renovará el ${day(d.c.renews_at)} por ${eur(d.c.amount_cents)} al año, `
+      + 'con la tarjeta de tu suscripción.',
+  ]),
+  'notice.insurance_wont_renew': (d) => mail(`El seguro de ${d.student} no se renovará`, d, [
+    `El seguro de ${d.student} seguirá vigente${d.insurance_end ? ` hasta el ${day(d.insurance_end)}` : ''} `
+      + `y no se renovará porque ${WONT_RENEW[d.c.reason] ?? 'ha cambiado su situación'}.`,
+  ]),
+  'notice.plan_downgraded': (d) => mail(`Cambio de plan de ${d.student} aplicado`, d, [
+    `${d.student} ha pasado del plan ${plan(d, 'from_plan_id')} al plan ${plan(d, 'to_plan_id')}.`,
+    'Las reservas de disciplinas que el nuevo plan no cubre se han cancelado.',
+  ]),
+  'notice.upgrade_requires_action': (d) => mail(`Confirma el pago del cambio de plan de ${d.student}`, d, [
+    `La academia ha pedido cambiar a ${d.student} del plan ${plan(d, 'from_plan_id')} al plan ${plan(d, 'plan_id')}. `
+      + `Tu banco pide que confirmes el pago de ${eur(d.c.amount_cents)} (la diferencia de este periodo).`,
+    `Confírmalo antes del ${moment(d.c.expires_at)}. Si no, el plan no cambia y no se cobra nada.`,
+  ], ['Confirmar el pago', d.c.hosted_invoice_url]),
+  'notice.subscription_unpaid': (d) => mail(`La suscripción de ${d.student} está impagada`, d, [
+    `No hemos podido cobrar ${eur(d.c.amount_cents)} del plan ${plan(d, 'plan_id')} de ${d.student} tras varios intentos.`,
+    `Mientras siga impagada, ${d.student} no puede reservar clases y sus reservas futuras se han cancelado. `
+      + 'Al pagar el recibo vuelve a estar activa.',
+  ], ['Pagar el recibo', d.c.hosted_invoice_url]),
+  'notice.insurance_unpaid': (d) => mail(`El seguro de ${d.student} está impagado`, d, [
+    `No hemos podido cobrar ${eur(d.c.amount_cents)} del seguro de ${d.student} tras varios intentos.`,
+    'Mientras siga impagado, el seguro no cubre al alumno. Al pagar el recibo vuelve a estar activo.',
+  ], ['Pagar el recibo', d.c.hosted_invoice_url]),
+  'notice.subscription_cancelled': (d) => mail(`Baja de la suscripción de ${d.student}`, d, [
+    `La academia ha dado de baja la suscripción de ${d.student} (plan ${plan(d, 'plan_id')}). `
+      + (new Date(d.c.ends_at) > new Date() ? `Seguirá activa hasta el ${day(d.c.ends_at)}.` : 'La baja es efectiva desde hoy.'),
+    ...(d.c.discarded_plan_id ? [`El cambio al plan ${plan(d, 'discarded_plan_id')} que estaba programado queda anulado.`] : []),
+  ]),
+};
+
+const PLAN_KEYS = ['plan_id', 'from_plan_id', 'to_plan_id', 'discarded_plan_id'];
+
+/** Email de una entrega con los datos actuales, o null si el destinatario no tiene email. */
+export async function compose(db, { recipient_id: to, action, resource_type: type, resource_id: resId, changes: c }) {
+  const { rows: [r] } = await db.query(
+    `SELECT pr.display_name AS payer, ac.email, st.display_name AS student, i.current_period_end AS insurance_end,
+            CASE WHEN v.id IS NOT NULL THEN jsonb_build_object('amount_due_cents', v.amount_due_cents, 'plan', pl.name) END
+              AS invoice
+       FROM profiles pr LEFT JOIN auth_credentials ac ON ac.profile_id = pr.id
+       LEFT JOIN invoices v ON $3 = 'invoice' AND v.id::text = $4
+       LEFT JOIN subscriptions s ON s.id = v.subscription_id LEFT JOIN plans pl ON pl.id = s.plan_id
+       LEFT JOIN insurances i ON $3 = 'insurance' AND i.id::text = $4
+       LEFT JOIN profiles st ON st.id = COALESCE($2::uuid, v.student_id)
+      WHERE pr.id = $1`, [to, c.student_id ?? null, type, resId]);
+  // Aunque email_verified = false: es la única dirección del pagador (plan B10.6).
+  if (!r?.email) return null;
+  const ids = PLAN_KEYS.map((k) => c[k]).filter(Boolean);
+  const { rows: plans } = await db.query(`SELECT id::text, name FROM plans WHERE id = ANY($1::bigint[])`, [ids]);
+  const msg = TEMPLATES[action]({ ...r, student: r.student ?? 'el alumno', c, plans: Object.fromEntries(plans.map((p) => [p.id, p.name])) });
+  return { to: r.email, ...msg };
+}
+
+// --- Worker ---
+
+const BATCH = 20;
+const RETRY_MIN = [1, 5, 30, 120, 360]; // tras el 6.º intento fallido, failed
+
+const mark = (client, id, { status, attempts, retryMin = 0, messageId = null, error = null }) => client.query(
+  `UPDATE notice_deliveries SET status = $2, attempts = $3, next_attempt_at = now() + $4 * interval '1 minute',
+                                sent_at = CASE WHEN $2 = 'sent' THEN now() END, provider_message_id = $5, last_error = $6
+    WHERE id = $1`, [id, status, attempts, retryMin, messageId, error]);
+
+/**
+ * Un lote del worker: entregas pendientes y vencidas, bloqueadas con SKIP LOCKED (dos workers no se pisan).
+ * Caducado (24 h desde el aviso o su expires_at, lo que sea antes) o sin email → skipped.
+ * @returns {Promise<number>} entregas tratadas
+ */
+export async function sendPending(db = servicePool, transport = send) {
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT d.id, d.recipient_id, d.attempts, a.action, a.resource_type, a.resource_id, a.changes,
+              now() > LEAST(a.created_at + interval '24 hours', (a.changes->>'expires_at')::timestamptz) AS stale
+         FROM notice_deliveries d JOIN audit_log a ON a.id = d.audit_id
+        WHERE d.status = 'pending' AND d.next_attempt_at <= now()
+        ORDER BY d.next_attempt_at LIMIT ${BATCH} FOR UPDATE OF d SKIP LOCKED`);
+    for (const d of rows) {
+      const attempts = d.attempts + 1;
+      if (d.stale) {
+        await mark(client, d.id, { status: 'skipped', attempts: d.attempts, error: 'stale' });
+        continue;
+      }
+      try {
+        // Con el pool: un error de SQL al componer no aborta la transacción de los bloqueos.
+        const email = await compose(db, d);
+        if (!email) {
+          await mark(client, d.id, { status: 'skipped', attempts: d.attempts, error: 'no_email' });
+          continue;
+        }
+        const { id } = await transport({ ...email, idempotencyKey: d.id });
+        await mark(client, d.id, { status: 'sent', attempts, messageId: id });
+      } catch (err) {
+        const retry = err.transient && RETRY_MIN[d.attempts];
+        await mark(client, d.id, retry
+          ? { status: 'pending', attempts, retryMin: retry, error: err.message }
+          : { status: 'failed', attempts, error: err.message });
+      }
+    }
+    await client.query('COMMIT');
+    return rows.length;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+const EVERY_MS = 30_000;
+
+/** Worker en el proceso de la API (ADR 0008). Devuelve la función que lo para y espera al lote en curso. */
+export function startNoticeWorker() {
+  let stopped = false;
+  let timer;
+  let running = Promise.resolve();
+  const tick = async () => {
+    running = (async () => {
+      try {
+        while (!stopped && (await sendPending()) === BATCH); // con cola, sin esperar al siguiente tick
+      } catch (err) {
+        console.error('[notices] worker:', err.message);
+      }
+    })();
+    await running;
+    if (!stopped) timer = setTimeout(tick, EVERY_MS);
+  };
+  timer = setTimeout(tick, 0);
+  return async () => {
+    stopped = true;
+    clearTimeout(timer);
+    await running;
+  };
+}
