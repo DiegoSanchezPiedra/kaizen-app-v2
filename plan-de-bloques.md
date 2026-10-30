@@ -46,6 +46,7 @@
 | B5 | CRUD disciplinas, planes y disciplinas elegibles (`plan_disciplines`) (admin) | B3, B4.6 | IMPLEMENTADO |
 | B6 | Clases + sesiones (CRUD admin, generación a 1 año, vista profesor, calendario) | B5 | IMPLEMENTADO |
 | B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | IMPLEMENTADO |
+| B7.1 | Cambio de clase y ajuste de sesión sobre las reservas (promoción, exención de tardía, aviso) | B7, B15 | Pendiente |
 | B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | IMPLEMENTADO |
 | B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | IMPLEMENTADO |
 | B10 | Stripe base (checkout, portal, webhook idempotente) | B4.5, B7 | IMPLEMENTADO |
@@ -261,7 +262,7 @@
 - **Entregable**: RLS en `bookings`; función `create_booking` con `FOR UPDATE`; endpoints de reserva/cancelación; middleware `requireCompleteProfile` (B4.5) montado.
 - **Reglas de dominio**: fijadas en `CONTEXT.md` § Reservas (grill-with-docs, sin ADR).
 - **Implementación** (migración `009`): la lógica vive en funciones `SECURITY DEFINER` (owner `service_role`): `book_session`, `cancel_booking`, `cancel_session_bookings` (públicas) y `covers`, `promote_waitlist` (internas). `app_user` solo lee `bookings`. Aforo: `FOR UPDATE` de la sesión; solape: `pg_advisory_xact_lock` por alumno. Enum `booking_cancel_reason`; `academy_settings`: `booking_window_days` = 14, `cancellation_notice_minutes` = 60. Se crea `subscription_disciplines` (solo tabla; flujos en B10.5). Avisos: filas `notice.*` en `audit_log` con `changes.recipients` (se entregan por el outbox de B10.6, ADR 0008; los de reservas, por push en B15). Se corrige el `UNIQUE` de 001, que era total y no parcial. Endpoints: `GET /bookings`, `POST /bookings`, `POST /bookings/:id/cancel`.
-- **Pendiente**: la subida de aforo (ajuste de sesión) y el cambio de clase deben llamar a `promote_waitlist` y eximir de cancelación tardía, y el cambio de clase debe avisar a los afectados (`CONTEXT.md`; con `booking_notice`, que desde B15 ya va por push); la promoción no vuelve a comprobar el perfil completo. Hecho en B10.5: el cambio de disciplina.
+- **Pendiente**: la subida de aforo (ajuste de sesión) y el cambio de clase deben llamar a `promote_waitlist` y eximir de cancelación tardía, y el cambio de clase debe avisar a los afectados (**B7.1**); la promoción no vuelve a comprobar el perfil completo. Hecho en B10.5: el cambio de disciplina.
 - **Fuera de alcance**: pago (B10), asistencia (B8).
 - **Checklist de cierre**:
   - [x] RLS en `bookings`.
@@ -269,6 +270,16 @@
   - [x] Lista de espera funciona (promoción, salto por solape, `no_coverage`).
   - [x] `requireCompleteProfile` (B4.5) bloquea reservas con `403 profile_incomplete`.
   - [x] Tests de concurrencia + rol (`npm run test:bookings`).
+
+### B7.1 — Cambio de clase y ajuste de sesión sobre las reservas — Pendiente
+- **Objetivo**: cumplir lo que `CONTEXT.md` ya promete y B7 dejó pendiente: tras un cambio de clase (o un ajuste de sesión que cambia la hora o sube el aforo), las reservas siguen a su sesión, **se avisa a los afectados**, pueden cancelar sin que cuente como tardía y, si hay plazas nuevas, se promociona la lista de espera.
+- **Por qué tras B15**: el aviso es un `booking_notice` más (push o email de respaldo, agrupado y caducado al empezar la sesión, ADR 0011). Se separó de B15 porque el aviso solo, sin la exención, diría algo que el sistema no cumple.
+- **A decidir en su diseño**: qué cambios avisan (hora, día, profesor, lugar, aforo), cómo se guarda la exención (por reserva o por cambio) y hasta cuándo vale.
+- **Checklist de cierre**:
+  - [ ] Cambio de clase y ajuste de sesión: aviso a los afectados por `booking_notice`.
+  - [ ] Cancelación sin tardía tras el cambio.
+  - [ ] Subida de aforo y cambio de clase llaman a `promote_waitlist`.
+  - [ ] Tests.
 
 ### B8 — Asistencia manual (`register_attendance`, auditoría) — IMPLEMENTADO
 - **Estado** (verificado el 2026-10-30: commit en el historial y tests verdes: `4703047`, `test:attendance` 12 OK).
@@ -1185,7 +1196,7 @@
   - La checklist pedía push de «pago fallido», pero `CONTEXT.md` dice que los avisos de facturación van siempre por email. **Gana `CONTEXT.md`**: la facturación sigue solo por email (B10.6) y el mapa `CHANNELS` de JS no cambia.
   - Este bloque y `PLAN_FAMILIA.md` (§ 6) incluían el aviso «cumple 18, debe reclamar su perfil», pero no existe el flujo de reclamar el perfil (aplazado desde B4.6) y el aviso necesita un disparador por fecha (un cron). **Se aplaza** al bloque que cree ese flujo.
   - B14 dejó el push de logros para B15: obliga a comparar `student_progress` antes y después de cada marca, y una corrección quita un badge ya avisado. **Pasa a `MEJORAS.md`** (5.3).
-  - `CONTEXT.md` dice que el cambio de clase avisa al alumno, pero ese aviso no existe (como la promoción y la exención de cancelación tardía, pendientes desde B7). **Queda pendiente** con ellos, fuera de B15.
+  - `CONTEXT.md` dice que el cambio de clase avisa al alumno, pero ese aviso no existe (como la promoción y la exención de cancelación tardía, pendientes desde B7). **Queda pendiente** con ellos, en un bloque propio (**B7.1**).
   - `push_subscriptions` (001): sin RLS, `app_user` con `arwd`, `user_id` sin FK y `endpoint` sin `UNIQUE`. Está vacía: **se rehace**.
   - No hay logout en el servidor (JWT sin estado): dar de baja un dispositivo es cosa del cliente (B18).
   - El aviso de re-firma tampoco existía: se crea aquí.
@@ -1259,7 +1270,7 @@
   - push de los avisos de facturación (solo email);
   - push al admin y al profesor;
   - aviso «cumple 18, reclama tu perfil» (bloque del flujo de reclamar el perfil);
-  - aviso de cambio de clase (pendiente de B7);
+  - aviso de cambio de clase (B7.1);
   - push de logros (`MEJORAS.md` 5.3);
   - preferencias de avisos;
   - Service Worker, pedir permiso y baja al cerrar sesión (B18);
@@ -1302,6 +1313,7 @@
   - [ ] Instalable.
   - [ ] Offline básico.
   - [ ] **Aviso de re-firma pendiente al alumno** (B4.5.1) visible en la PWA.
+  - [ ] **Push (B15, ADR 0011)**: pedir permiso y `POST /me/push-subscriptions`; al cerrar sesión, `DELETE /me/push-subscriptions` **antes** de borrar el token (si no, el móvil sigue recibiendo los avisos del usuario anterior); al abrir, comparar la clave de `GET /push/vapid-public-key` y volver a suscribirse si cambió; el Service Worker muestra la notificación con su `tag` y abre su `url`. Prueba manual en Chrome de un push real.
   - [ ] Build reproducible (`npm run build:frontend` o equivalente, a decidir aquí).
   - [ ] **Decidir i18n antes de empezar el frontend** (hoy solo español, también los avisos de B10.6): añadirlo después obliga a repasar cada pantalla.
 
