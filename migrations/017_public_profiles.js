@@ -15,29 +15,34 @@ const ELIGIBLE = `r.role IN ('alumno', 'profesor') AND (${ADULT})
   AND EXISTS (SELECT 1 FROM auth_credentials a WHERE a.profile_id = p.id)`;
 const SHOWN = (field) => `COALESCE((p.visible_fields->>'${field}')::boolean, false)`;
 
-// covers() (012) en línea para un adulto: app_user no tiene EXECUTE de covers y una función
-// dentro de una vista se comprueba con el rol que consulta, no con el owner.
-const STUDENT_DISCIPLINES = `
-  SELECT d.id, d.name FROM disciplines d
-   WHERE d.is_active AND NOT d.minors_only
-     AND EXISTS (
-       SELECT 1 FROM subscriptions s JOIN plans pl ON pl.id = s.plan_id
-        WHERE s.student_id = p.id AND s.status IN ('active', 'past_due') AND NOT pl.minors_only
-          AND CASE WHEN pl.max_disciplines IS NULL
-                   THEN NOT EXISTS (SELECT 1 FROM plan_disciplines pd WHERE pd.plan_id = pl.id)
-                     OR EXISTS (SELECT 1 FROM plan_disciplines pd WHERE pd.plan_id = pl.id AND pd.discipline_id = d.id)
-                   ELSE EXISTS (SELECT 1 FROM subscription_disciplines sd
-                                 WHERE sd.subscription_id = s.id AND sd.discipline_id = d.id)
-              END)`;
-// Clases no retiradas como profesor habitual (sin sustituciones ni sesiones sueltas).
-const TRAINER_DISCIPLINES = `
-  SELECT d.id, d.name FROM disciplines d
-   WHERE EXISTS (SELECT 1 FROM classes c
-                  WHERE c.trainer_id = p.id AND c.discipline_id = d.id
-                    AND (c.ends_on IS NULL OR c.ends_on >= (now() AT TIME ZONE 'Europe/Madrid')::date))`;
-const AS_JSON = (sql) =>
-  `(SELECT COALESCE(jsonb_agg(jsonb_build_object('id', x.id, 'name', x.name) ORDER BY x.name, x.id), '[]')
-      FROM (${sql}) x)`;
+// Fuente única de la regla y de las disciplinas: la vista y getMyProfile las usan. app_user ejecuta las funciones
+// (una función en una vista se comprueba con el rol que consulta), así que se guardan solas: solo responden sobre
+// uno mismo o sobre lo que la vista ya enseña.
+const PUBLIC_FNS = ['can_be_public(uuid)', 'public_disciplines(uuid)'];
+const FUNCTIONS = `
+  CREATE FUNCTION can_be_public(p_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+      SELECT EXISTS (SELECT 1 FROM profiles p JOIN user_roles r ON r.user_id = p.id
+                      WHERE ${AUTHED} AND p.id = p_id AND (p.id = ${UID} OR p.is_public) AND ${ELIGIBLE})
+    $$;
+
+  -- Alumno: las disciplinas que cubre su suscripción en vigor (covers, 012). Profesor: las de sus clases
+  -- no retiradas como profesor habitual (sin sustituciones ni sesiones sueltas). NULL si no las enseña.
+  CREATE FUNCTION public_disciplines(p_id uuid) RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+      SELECT COALESCE(jsonb_agg(jsonb_build_object('id', d.id, 'name', d.name) ORDER BY d.name, d.id)
+                        FILTER (WHERE d.id IS NOT NULL), '[]')
+        FROM profiles p JOIN user_roles r ON r.user_id = p.id
+        LEFT JOIN disciplines d ON CASE r.role
+          WHEN 'alumno' THEN covers(p.id, d.id)
+          ELSE EXISTS (SELECT 1 FROM classes c
+                        WHERE c.trainer_id = p.id AND c.discipline_id = d.id
+                          AND (c.ends_on IS NULL OR c.ends_on >= (now() AT TIME ZONE 'Europe/Madrid')::date))
+        END
+       WHERE p.id = p_id AND p.is_public AND ${SHOWN('disciplines')} AND can_be_public(p.id)
+       GROUP BY p.id
+    $$;
+`;
 
 // Owner service_role (BYPASSRLS): la vista se salta la RLS por diseño, así que solo SELECT para app_user
 // (los permisos por defecto le darían también escritura, y trainer_names es actualizable).
@@ -47,6 +52,12 @@ const viewGrants = (name) => `
   GRANT SELECT ON ${name} TO app_user;`;
 
 export const up = (pgm) => {
+  pgm.sql(FUNCTIONS);
+  for (const fn of PUBLIC_FNS) {
+    pgm.sql(`ALTER FUNCTION ${fn} OWNER TO service_role;
+             REVOKE ALL ON FUNCTION ${fn} FROM PUBLIC;
+             GRANT EXECUTE ON FUNCTION ${fn} TO app_user;`);
+  }
   pgm.sql(`
     CREATE FUNCTION teaches_student(p_id uuid) RETURNS boolean
       LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
@@ -79,13 +90,11 @@ export const up = (pgm) => {
       SELECT p.id, p.display_name, r.role,
              CASE WHEN ${SHOWN('bio')} THEN p.bio END AS bio,
              CASE WHEN ${SHOWN('social_links')} THEN p.social_links END AS social_links,
-             CASE WHEN ${SHOWN('disciplines')} THEN
-               CASE r.role WHEN 'alumno' THEN ${AS_JSON(STUDENT_DISCIPLINES)} ELSE ${AS_JSON(TRAINER_DISCIPLINES)} END
-             END AS disciplines,
+             CASE WHEN ${SHOWN('disciplines')} THEN public_disciplines(p.id) END AS disciplines,
              CASE WHEN ${SHOWN('member_since')} THEN to_char(p.created_at AT TIME ZONE 'Europe/Madrid', 'YYYY-MM') END
                AS member_since
         FROM profiles p JOIN user_roles r ON r.user_id = p.id
-       WHERE ${AUTHED} AND p.is_public AND ${ELIGIBLE};
+       WHERE ${AUTHED} AND p.is_public AND can_be_public(p.id);
     ${viewGrants('public_profiles')}
 
     -- Nombre del profesor de una sesión, público o no (parte del horario, no una ficha).
@@ -98,7 +107,7 @@ export const up = (pgm) => {
   // Por si acaso (no debería haber ninguno): nadie no elegible queda público.
   pgm.sql(`SET LOCAL ROLE service_role;
     UPDATE profiles p SET is_public = false
-     WHERE p.is_public AND NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = p.id AND ${ELIGIBLE});
+     WHERE p.is_public AND NOT can_be_public(p.id);
     RESET ROLE;`);
 };
 
@@ -125,4 +134,5 @@ export const down = (pgm) => {
 
     DROP FUNCTION teaches_student(uuid);
   `);
+  for (const fn of [...PUBLIC_FNS].reverse()) pgm.sql(`DROP FUNCTION ${fn};`);
 };

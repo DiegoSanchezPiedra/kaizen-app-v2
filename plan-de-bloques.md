@@ -1008,12 +1008,16 @@
     - `member_since` = `created_at` en hora de Madrid, `YYYY-MM`. `disciplines` ordenadas por nombre.
     - Datos: el `UPDATE` de los no elegibles corre como `service_role` (el migrator no salta la `FORCE` RLS). No había ninguno.
     - Con su `down` (probado up → down → up).
-  - **Decidido 2026-10-30 — `covers()` en línea en la vista**: `covers` solo la ejecuta `service_role`, y una función dentro de una vista se comprueba con el rol que consulta, no con el owner. Darle `EXECUTE` a `app_user` dejaría preguntar si cualquier alumno tiene cobertura. La vista repite la lógica de `covers` (012) para un adulto (en vigor = `active` / `past_due`, disciplina activa, sin `minors_only` de disciplina ni de plan, plan de N por `subscription_disciplines` y de «todas» por sus elegibles o cualquiera). Por eso dependen de ella `subscriptions`, `plans`, `plan_disciplines` y `subscription_disciplines`, como preveía la lista del test. **Si cambia `covers`, hay que cambiar también la vista.**
+  - **Decidido 2026-10-30 — fuente única con dos funciones** (al cerrar el bloque, para no duplicar reglas): `covers` solo la ejecuta `service_role`, y una función dentro de una vista se comprueba con el rol que consulta (probado: «permission denied for function covers»). Darle `EXECUTE` a `app_user` dejaría preguntar si cualquier alumno tiene cobertura. La primera versión repetía `covers` y la regla de quién puede ser público dentro de la vista y en `getMyProfile`. Ahora hay dos funciones `SECURITY DEFINER` (owner `service_role`, `EXECUTE` para `app_user`) que se guardan solas:
+    - `can_be_public(id)`: la regla (alumno o profesor, adulto, con `auth_credentials`). Solo responde con sesión, y sobre uno mismo o un perfil `is_public`, así que no revela nada que la vista no enseñe. La usan la vista, `getMyProfile` y el `UPDATE` de datos.
+    - `public_disciplines(id)`: llama a `covers` (alumno) o mira sus clases no retiradas (profesor). Da `NULL` si el perfil no es público, no puede serlo o no enseña sus disciplinas.
+    - La vista ya solo depende de `profiles` y `user_roles` (tablas) y de esas dos funciones. El test de dependencias comprueba además, con `view_routine_usage`, que sus funciones son exactamente esas dos, y que ni ellas ni `covers` mencionan `student_health_info`.
+    - Se reescribió `017` en el sitio (no hay nada desplegado). Para bajar la versión aplicada en desarrollo hicieron falta dos funciones de relleno.
   - **Paso 2 (`user_roles` del profesor)**: ningún camino con el `client` del profesor lee `user_roles` ajenos. `notice()` solo se llama desde el webhook y `billing.js` (alumno, tutor, admin o `servicePool`); `classes.js` lo lee en un servicio de admin; el login, con `servicePool`. Las funciones SQL que leen `user_roles` son `SECURITY DEFINER`. La lista de asistencia del profesor lee `profiles` de alumnos con reserva, que entran en `teaches_student`.
   - **Servicio** (`services/profiles.js`), siempre con `client`:
     - `listPublicProfiles`: paginación como `listOverduePayers`, `total` con un `count` aparte; `q` con `%`, `_` y `\` escapados; `role` fuera de `alumno` / `profesor`, `discipline_id` no numérico o `q` que no es un texto de 100 caracteres como mucho → 400 `invalid_field`. `discipline_id` filtra con `disciplines @> [{ id }]` sobre la vista.
     - `getPublicProfile`: los 4 campos opcionales que la vista da `NULL` se borran de la ficha (tampoco sale una `bio` visible pero vacía).
-    - `getMyProfile`: `eligible` con la misma regla que la vista, leída por la RLS del dueño (su fila, su rol y su `auth_credentials`).
+    - `getMyProfile`: `eligible` = `can_be_public(id)`, la misma regla que la vista.
     - `updateMyProfile`: un solo `UPDATE`, con `visible_fields` fusionado en SQL (`||`). Una clave ausente no cambia nada; `null` en `bio` / `social_links` borra.
     - `unpublishProfile`: `FOR UPDATE` de la fila y `audit_log` `profile.unpublish` solo si estaba publicado (repetir no deja otra fila).
   - **Rutas**: `routes/profiles.js` (`requireAuth`, `invalid_id` por `router.param`), `GET`/`PATCH /me/profile` en `routes/me.js` (validación fuera de la transacción; un campo desconocido, también `profile_id`, → 400 `invalid_field`; URL con `URL.canParse`) y `routes/admin/profiles.js` (`requireRole('admin')`).
@@ -1023,8 +1027,9 @@
     - También: `app_user` sin escritura en las vistas, una suscripción `cancelled` no da disciplinas, `%` literal en `q`, y `PATCH` que borra `bio` / `social_links`.
     - `test-rls.js`: «alumno A ve perfiles públicos» pasa a «NO ve en `profiles` un perfil público ajeno», y «profesor ve perfiles de alumnos» a «solo los de sus sesiones» (A no ha reservado; los casos con reservas, en `test:profiles`).
     - Regresión con la API parada: `test:profiles` 25, `test:rls` 22, `test:attendance` 12, `test:minors` 14, `test:bookings` 18 y `test:checkin` 8, todos OK.
+    - Contra la API real (`npm run dev`, JWT firmados, fixtures borrados al acabar): `GET`/`PATCH /me/profile` (200 y 400), directorio con `q`, ficha con el campo oculto ausente, 404 igual para no público, 400 `invalid_pagination`, despublicar 403 / 200 y 401 sin token, todo como en el diseño.
+  - **Lint**: `.eslintrc.json` (`eslint:recommended`, ESLint 8 ya instalado, sin dependencias nuevas); `npm run lint` cubre ahora `src`, `scripts` y `migrations`, y pasa sin errores.
 - **Pendiente**:
-  - La regla de quién puede ser público está escrita dos veces (la vista y `getMyProfile`), y la de `covers`, dos (la función y la vista).
   - `bio` y `display_name` no se filtran por contenido: lo resuelve el admin despublicando.
   - Riesgo residual aceptado (ADR 0010): el profesor lee a nivel SQL la fila entera de los alumnos de sus sesiones.
 

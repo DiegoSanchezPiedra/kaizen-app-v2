@@ -45,16 +45,11 @@ export async function getPublicProfile(client, id) {
   return card(row);
 }
 
-/** Lo guardado del propio perfil, con `eligible` (puede ser público) y los 4 flags siempre presentes. */
+/** Lo guardado del propio perfil, con `eligible` (can_be_public, la regla de la vista) y los 4 flags siempre presentes. */
 export async function getMyProfile(client, id) {
   const { rows: [row] } = await client.query(
-    `SELECT COALESCE(p.is_public, false) AS is_public,
-            COALESCE(r.role IN ('alumno', 'profesor'), false)
-              AND (p.birth_date IS NULL OR p.birth_date <= CURRENT_DATE - interval '18 years')
-              AND EXISTS (SELECT 1 FROM auth_credentials a WHERE a.profile_id = p.id) AS eligible,
-            p.visible_fields, p.bio, p.social_links
-       FROM profiles p LEFT JOIN user_roles r ON r.user_id = p.id
-      WHERE p.id = $1`, [id]);
+    `SELECT COALESCE(is_public, false) AS is_public, can_be_public(id) AS eligible, visible_fields, bio, social_links
+       FROM profiles WHERE id = $1`, [id]);
   if (!row) throw notFound();
   const flags = Object.fromEntries(VISIBLE_FIELDS.map((k) => [k, row.visible_fields?.[k] === true]));
   return { ...row, visible_fields: flags };

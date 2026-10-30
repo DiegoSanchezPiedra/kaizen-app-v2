@@ -140,6 +140,17 @@ try {
     } finally {
       await migrator.end();
     }
+    // Las funciones de la vista (y covers, que llama public_disciplines) se saltan la RLS: tampoco tocan la salud.
+    // view_routine_usage solo lista funciones del rol conectado: son de service_role.
+    const { rows: fns } = await servicePool.query(
+      `SELECT array_agg(r.routine_name::text ORDER BY r.routine_name) AS f
+         FROM information_schema.view_routine_usage u JOIN information_schema.routines r USING (specific_name)
+        WHERE u.table_name IN ('public_profiles', 'trainer_names')`);
+    assert.deepEqual(fns[0].f, ['can_be_public', 'public_disciplines']);
+    const { rows: bodies } = await servicePool.query(
+      `SELECT proname, prosrc FROM pg_proc WHERE proname IN ('can_be_public', 'public_disciplines', 'covers')`);
+    assert.equal(bodies.length, 3);
+    for (const b of bodies) assert.ok(!/student_health/i.test(b.prosrc), b.proname);
   });
   await run('sin app.current_user_id, 0 filas (también en trainer_names)', async () => {
     const c = await appPool.connect();
