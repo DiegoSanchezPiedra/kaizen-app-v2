@@ -188,7 +188,21 @@ const AGREEMENT_NAMES = {
   rights_of_image: 'la autorización de derechos de imagen',
 };
 
-// g = { student, sessions: [{ discipline, starts_at }] } o { c: changes } (re-firma) → { title, body }
+// Cambio que afecta a la sesión (B7.1): qué cambió, en este orden, con el valor que ayuda a decidir.
+const CHANGE_ORDER = ['starts_at', 'duration_min', 'trainer_id'];
+const hm = (min) => (min < 60 ? `${min} min`
+  : `${Math.floor(min / 60)} h${min % 60 ? ` ${String(min % 60).padStart(2, '0')}` : ''}`);
+const CHANGED = {
+  starts_at: (s) => `la hora (antes ${when(s.changes.previous_starts_at)})`,
+  duration_min: (s) => `la duración (ahora ${hm(s.duration_min)})`,
+  trainer_id: (s) => `el profesor (ahora ${s.trainer})`,
+};
+const CHANGED_NAMES = { starts_at: 'la hora', duration_min: 'la duración', trainer_id: 'el profesor' };
+const and = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} y ${xs.at(-1)}` : xs[0]);
+const changedFields = (g) => CHANGE_ORDER.filter((f) => g.sessions.some((s) => s.changes.fields?.includes(f)));
+
+// g = { student, sessions: [{ discipline, starts_at, duration_min, trainer, changes }] } o { c: changes } (re-firma)
+// → { title, body }
 const SERVICE = {
   'notice.no_coverage': (g) => ({
     title: g.sessions.length === 1 ? 'Reserva cancelada' : 'Reservas canceladas',
@@ -208,23 +222,41 @@ const SERVICE = {
       ? `${label(g.sessions[0])} (${g.student}): ha quedado una plaza libre y la reserva está confirmada`
       : `${g.student} tiene plaza en ${g.sessions.length} sesiones de su lista de espera`,
   }),
+  'notice.session_changed': (g) => {
+    const fields = changedFields(g);
+    if (g.sessions.length === 1) {
+      const [s] = g.sessions;
+      return {
+        title: 'Sesión cambiada',
+        body: `${label(s)} (${g.student}): ha cambiado ${and(fields.map((f) => CHANGED[f](s)))}. `
+          + 'Si ya no te viene bien, puedes cancelar sin que cuente como tardía',
+      };
+    }
+    return {
+      title: 'Sesiones cambiadas',
+      body: `Han cambiado ${g.sessions.length} sesiones de ${g.sessions[0].discipline} de ${g.student} `
+        + `(${and(fields.map((f) => CHANGED_NAMES[f]))}). Si ya no te vienen bien, puedes cancelarlas sin que cuente como tardía`,
+    };
+  },
   'notice.agreement_published': (g) => ({
     title: 'Nueva versión de un acuerdo',
     body: `Hay una versión nueva de ${AGREEMENT_NAMES[g.c.type]}. Fírmala para seguir reservando.`,
   }),
 };
 
-// Las reservas del grupo de la entrega (misma acción, alumno y transacción; ver booking_notice en 020).
-// Por el id del aviso y no por created_at: un Date de JS pierde los microsegundos.
+// Las reservas del grupo de la entrega (misma acción, alumno y transacción; ver booking_notice en 020), sin las
+// sesiones que ya han empezado (B7.1). Por el id del aviso y no por created_at: un Date de JS pierde los microsegundos.
+// El profesor sale de profiles: trainer_names exige sesión y el worker no la tiene.
 async function bookingGroup(db, { audit_id: id }) {
   const { rows } = await db.query(
-    `SELECT st.display_name AS student, d.name AS discipline, x.starts_at
+    `SELECT st.display_name AS student, d.name AS discipline, x.starts_at, x.duration_min, tr.display_name AS trainer,
+            a.changes
        FROM audit_log a0 JOIN audit_log a ON a.created_at = a0.created_at AND a.resource_type = 'booking'
                                          AND a.action = a0.action AND a.changes->>'student_id' = a0.changes->>'student_id'
        JOIN bookings b ON b.id::text = a.resource_id
        JOIN class_sessions x ON x.id = b.session_id JOIN disciplines d ON d.id = x.discipline_id
-       JOIN profiles st ON st.id = b.student_id
-      WHERE a0.id = $1
+       JOIN profiles st ON st.id = b.student_id JOIN profiles tr ON tr.id = x.trainer_id
+      WHERE a0.id = $1 AND x.starts_at > now()
       ORDER BY x.starts_at, a.id`, [id]);
   return { student: rows[0]?.student ?? 'el alumno', sessions: rows };
 }
@@ -314,7 +346,7 @@ async function deliverPush(client, db, d, attempts, transport) {
 
 /**
  * Un lote del worker: entregas pendientes y vencidas, bloqueadas con SKIP LOCKED (dos workers no se pisan).
- * Caducado (24 h desde el aviso o su expires_at, lo que sea antes; en uno agrupado, la sesión más próxima)
+ * Caducado (24 h desde el aviso o su expires_at, lo que sea antes; en uno agrupado, su última sesión, B7.1)
  * o sin email → skipped. El TTL del push es lo que le queda hasta caducar.
  * @returns {Promise<number>} entregas tratadas
  */
@@ -330,7 +362,7 @@ export async function sendPending(db = servicePool, transport = send, pushTransp
                 WHERE d.status = 'pending' AND d.next_attempt_at <= now()
                 ORDER BY d.next_attempt_at LIMIT ${BATCH} FOR UPDATE OF d SKIP LOCKED) d,
          LATERAL (SELECT LEAST(d.created_at + interval '24 hours', CASE WHEN d.resource_type = 'booking'
-                    THEN (SELECT min((g.changes->>'expires_at')::timestamptz) FROM audit_log g
+                    THEN (SELECT max((g.changes->>'expires_at')::timestamptz) FROM audit_log g
                            WHERE g.created_at = d.created_at AND g.resource_type = 'booking'
                              AND g.action = d.action AND g.changes->>'student_id' = d.changes->>'student_id')
                     ELSE (d.changes->>'expires_at')::timestamptz END) AS expires) x`);

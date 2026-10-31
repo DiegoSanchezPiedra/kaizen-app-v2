@@ -284,8 +284,8 @@ try {
     const p = decrypt(d1, got(d1)[0].body);
     assert.equal(p.title, 'Reservas canceladas');
     assert.equal(p.body, 'Se han cancelado 3 reservas de Nico Grupo: ya no las cubre su suscripción');
-    // TTL: hasta la sesión más próxima (20 h).
-    assert.ok(Number(got(d1)[0].headers.ttl) <= 72_000);
+    // TTL: hasta la última sesión del grupo (5 días, B7.1), con el tope de 24 h desde el aviso; no hasta la de 20 h.
+    assert.ok(Number(got(d1)[0].headers.ttl) > 72_000 && Number(got(d1)[0].headers.ttl) <= 86_400);
     assert.equal(outbox.length, 1);
     assert.equal(outbox[0].subject, 'Reservas canceladas de Nico Grupo');
     assert.equal((outbox[0].text.match(/^· /gm) ?? []).length, 3);

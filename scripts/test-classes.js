@@ -65,9 +65,15 @@ try {
       const near = await createClass(c, { body: { ...base, trainer_id: prof2, weekday: 2 }, actorId: admin });
       assert.ok(near.sessions_created >= 52);
     });
-    await run('PATCH: solo location', async () => {
-      assert.equal((await updateClass(c, { id: cls.id, body: { location: 'tatami 2' }, actorId: admin })).location, 'tatami 2');
-      await rejects(updateClass(c, { id: cls.id, body: { capacity: 5 }, actorId: admin }), 409, 'not_supported_yet');
+    await run('PATCH: cambio de clase (location llega a las sesiones generadas); disciplina y día → 409', async () => {
+      const r = await updateClass(c, { id: cls.id, body: { location: 'tatami 2' } });
+      assert.equal(r.class.location, 'tatami 2');
+      const { rows: [n] } = await c.query(
+        `SELECT count(*) FILTER (WHERE location = 'tatami 2')::int moved, count(*) FILTER (WHERE starts_at > now())::int future
+           FROM class_sessions WHERE class_id = $1`, [cls.id]);
+      assert.deepEqual([r.sessions_changed, n.moved], [n.future, n.future]);
+      await rejects(updateClass(c, { id: cls.id, body: { weekday: 2 } }), 409, 'not_supported');
+      await rejects(updateClass(c, { id: cls.id, body: { discipline_id: String(disc.id) } }), 409, 'not_supported');
     });
     await run('retirar: cancela desde la fecha y conserva lo anterior', async () => {
       const { rows: [{ d }] } = await c.query(`SELECT to_char(CURRENT_DATE + 14, 'YYYY-MM-DD') d`);

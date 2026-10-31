@@ -1,25 +1,13 @@
 // src/services/classes.js — CRUD admin de clases (horario semanal).
 import { httpError } from '../lib/errors.js';
 import { validate, invalid, insertSql, audit, parseId } from './catalog.js';
-import { generateSessions } from './sessions.js';
+import {
+  generateSessions, getHorizonDays, assertTrainer, callChange, CLASS_SPEC, isDate, today, addDays,
+} from './sessions.js';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const isDate = (v) => typeof v === 'string' && DATE_RE.test(v) && !Number.isNaN(Date.parse(v));
-const isInt = (min, max) => (v) => Number.isInteger(v) && v >= min && v <= max;
-
-const CLASS_SPEC = {
-  discipline_id: [(v) => typeof v === 'string' && /^\d{1,18}$/.test(v), 'discipline_id inválido', true],
-  trainer_id: [(v) => typeof v === 'string' && UUID_RE.test(v), 'trainer_id inválido', true],
-  weekday: [isInt(1, 7), 'weekday entero 1 (lunes) – 7 (domingo)', true],
-  start_time: [(v) => typeof v === 'string' && TIME_RE.test(v), 'start_time debe ser HH:MM', true],
-  duration_min: [isInt(1, 1440), 'duration_min entero 1–1440', true],
-  capacity: [isInt(1, 10000), 'capacity entero ≥ 1', true],
-  location: [(v) => typeof v === 'string' && v.length <= 100, 'location ≤100'],
-  starts_on: [isDate, 'starts_on debe ser YYYY-MM-DD'],
-  ends_on: [isDate, 'ends_on debe ser YYYY-MM-DD'],
-};
+// Lo que admite un cambio de clase; la disciplina y el día, no (se retira y se crea otra).
+const CHANGE_SPEC = Object.fromEntries(
+  ['trainer_id', 'start_time', 'duration_min', 'capacity', 'location'].map((k) => [k, CLASS_SPEC[k]]));
 
 const CLASS_SELECT = `
   SELECT c.id, c.discipline_id, d.name AS discipline_name, c.trainer_id, p.display_name AS trainer_name,
@@ -50,10 +38,7 @@ export async function createClass(client, { body, actorId }) {
 
   const { rows: [disc] } = await client.query(`SELECT is_active FROM disciplines WHERE id = $1`, [data.discipline_id]);
   if (!disc?.is_active) throw invalid('discipline_id', 'Disciplina inexistente o inactiva');
-  const { rowCount } = await client.query(
-    `SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'profesor'`, [data.trainer_id]
-  );
-  if (!rowCount) throw invalid('trainer_id', 'El perfil no es profesor');
+  await assertTrainer(client, data.trainer_id);
 
   const [sql, params] = insertSql('classes', data);
   const { rows: [{ id }] } = await client.query(sql, params);
@@ -67,18 +52,23 @@ export async function createClass(client, { body, actorId }) {
   return { ...(await getClass(client, id)), sessions_created: sessions };
 }
 
-// shortcut: hasta B7 solo se edita `location` (afecta a sesiones futuras generadas, no a las ya creadas);
-// horario, profesor y aforo exigen el «cambio de clase» con propagación.
-export async function updateClass(client, { id, body, actorId }) {
-  const unsupported = Object.keys(body).filter((k) => k !== 'location');
-  if (unsupported.length) {
-    throw httpError(409, 'not_supported_yet', 'Solo se puede editar location por ahora', { fields: unsupported });
+// Cambio de clase (CONTEXT, B7.1) desde `from` (día de Madrid; por defecto hoy, nunca pasado ni más allá del
+// horizonte). Las reglas sobre las sesiones y las reservas viven en change_class (021).
+export async function updateClass(client, { id, body }) {
+  const fixed = ['discipline_id', 'weekday'].filter((k) => body[k] !== undefined);
+  if (fixed.length) {
+    throw httpError(409, 'not_supported', 'La disciplina y el día no se cambian: retira la clase y crea otra', { fields: fixed });
   }
-  const data = validate(body, { location: CLASS_SPEC.location }, true);
-  const { rowCount } = await client.query(`UPDATE classes SET location = $2 WHERE id = $1`, [id, data.location]);
-  if (!rowCount) throw httpError(404, 'class_not_found', 'Clase no encontrada');
-  await audit(client, actorId, 'class.update', id, data);
-  return getClass(client, id);
+  if (!Object.keys(CHANGE_SPEC).some((k) => body[k] !== undefined)) throw invalid('body', 'Nada que cambiar');
+  const data = validate(body, CHANGE_SPEC, true);
+  const t = today();
+  const from = body.from ?? t;
+  if (!isDate(from) || from < t || from > addDays(t, await getHorizonDays(client))) {
+    throw invalid('from', 'from debe ser YYYY-MM-DD, desde hoy y como mucho hoy + horizonte');
+  }
+  if (data.trainer_id) await assertTrainer(client, data.trainer_id);
+  const counts = await callChange(client, `SELECT change_class($1, $2, $3) AS r`, [id, from, data]);
+  return { class: await getClass(client, id), ...counts };
 }
 
 // Retirar: la clase acaba el día anterior a `date` (por defecto hoy) y se cancelan sus sesiones desde esa fecha.

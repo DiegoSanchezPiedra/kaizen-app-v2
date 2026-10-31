@@ -1,11 +1,38 @@
-// src/services/sessions.js — generación de sesiones a partir de clases (ADR 0004) vista del profesor y calendario.
+// src/services/sessions.js — generación de sesiones a partir de clases (ADR 0004), ajuste de sesión (B7.1), vista del profesor y calendario.
 import { httpError } from '../lib/errors.js';
 import { listChildren } from './profile.js';
+import { validate, invalid } from './catalog.js';
 
 const TZ = 'Europe/Madrid';
 const DEFAULT_HORIZON_DAYS = 365;
 export const MAX_RANGE_DAYS = 92;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})$/;
+export const isDate = (v) => typeof v === 'string' && DATE_RE.test(v) && !Number.isNaN(Date.parse(v));
+const isInt = (min, max) => (v) => Number.isInteger(v) && v >= min && v <= max;
+
+// Campos de una clase (services/classes.js); el ajuste de sesión usa los suyos.
+export const CLASS_SPEC = {
+  discipline_id: [(v) => typeof v === 'string' && /^\d{1,18}$/.test(v), 'discipline_id inválido', true],
+  trainer_id: [(v) => typeof v === 'string' && UUID_RE.test(v), 'trainer_id inválido', true],
+  weekday: [isInt(1, 7), 'weekday entero 1 (lunes) – 7 (domingo)', true],
+  start_time: [(v) => typeof v === 'string' && TIME_RE.test(v), 'start_time debe ser HH:MM', true],
+  duration_min: [isInt(1, 1440), 'duration_min entero 1–1440', true],
+  capacity: [isInt(1, 10000), 'capacity entero ≥ 1', true],
+  location: [(v) => typeof v === 'string' && v.length <= 100, 'location ≤100'],
+  starts_on: [isDate, 'starts_on debe ser YYYY-MM-DD'],
+  ends_on: [isDate, 'ends_on debe ser YYYY-MM-DD'],
+};
+const SESSION_SPEC = {
+  trainer_id: CLASS_SPEC.trainer_id,
+  starts_at: [(v) => typeof v === 'string' && ISO_RE.test(v) && Date.parse(v) > Date.now(),
+    'starts_at debe ser una fecha ISO futura con zona horaria'],
+  duration_min: CLASS_SPEC.duration_min,
+  capacity: CLASS_SPEC.capacity,
+  location: CLASS_SPEC.location,
+};
 
 export async function getHorizonDays(client) {
   const { rows: [r] } = await client.query(`SELECT value #>> '{}' AS v FROM academy_settings WHERE key = 'horizon_days'`);
@@ -13,24 +40,27 @@ export async function getHorizonDays(client) {
   return Number.isInteger(n) && n > 0 ? n : DEFAULT_HORIZON_DAYS;
 }
 
-// Idempotente: reejecutarla solo añade lo que falta (UNIQUE class_id, starts_at). Devuelve las sesiones creadas.
+// Idempotente: solo añade los días posteriores a la última sesión de la clase (UNIQUE class_id, slot). Un cambio de
+// hora desde una fecha futura deja antes de ella sesiones con la hora anterior: regenerar esos días las duplicaría.
+// FOR SHARE: espera a un cambio de clase en curso y genera con sus valores. Devuelve las sesiones creadas.
 // La hora de la clase es hora local de Madrid, por lo que el cambio de horario se resuelve en SQL.
 export async function generateSessions(client, classId) {
   const horizon = await getHorizonDays(client);
   const { rowCount } = await client.query(
-    `WITH c AS (SELECT * FROM classes WHERE id = $1),
-          today AS (SELECT (now() AT TIME ZONE '${TZ}')::date AS d)
-     INSERT INTO class_sessions (class_id, discipline_id, trainer_id, starts_at, ends_at,
+    `WITH c AS (SELECT * FROM classes WHERE id = $1 FOR SHARE),
+          today AS (SELECT (now() AT TIME ZONE '${TZ}')::date AS d),
+          last AS (SELECT (max(slot) AT TIME ZONE '${TZ}')::date AS d FROM class_sessions WHERE class_id = $1)
+     INSERT INTO class_sessions (class_id, discipline_id, trainer_id, starts_at, slot, ends_at,
                                  duration_min, capacity, location, status)
-     SELECT c.id, c.discipline_id, c.trainer_id, s.ts, s.ts + c.duration_min * interval '1 minute',
+     SELECT c.id, c.discipline_id, c.trainer_id, s.ts, s.ts, s.ts + c.duration_min * interval '1 minute',
             c.duration_min, c.capacity, c.location, 'scheduled'
-       FROM c, today,
-            generate_series(greatest(c.starts_on, today.d),
+       FROM c, today, last,
+            generate_series(greatest(c.starts_on, today.d, last.d + 1),
                             least(coalesce(c.ends_on, today.d + $2::int), today.d + $2::int),
                             interval '1 day') AS g(day),
             LATERAL (SELECT (g.day::date + c.start_time) AT TIME ZONE '${TZ}' AS ts) s
       WHERE extract(isodow FROM g.day) = c.weekday
-     ON CONFLICT (class_id, starts_at) WHERE class_id IS NOT NULL DO NOTHING`,
+     ON CONFLICT (class_id, slot) WHERE class_id IS NOT NULL DO NOTHING`,
     [classId, horizon]
   );
   return rowCount;
@@ -51,6 +81,50 @@ export async function extendHorizon(client) {
     }
   }
   return result;
+}
+
+export async function assertTrainer(client, id) {
+  const { rowCount } = await client.query(`SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'profesor'`, [id]);
+  if (!rowCount) throw invalid('trainer_id', 'El perfil no es profesor');
+}
+
+const CHANGE_ERRORS = {
+  not_allowed: [403, 'Solo el admin cambia clases y sesiones'],
+  class_not_found: [404, 'Clase no encontrada'],
+  session_not_found: [404, 'Sesión no encontrada'],
+  session_not_adjustable: [409, 'La sesión está cancelada o ya ha empezado'],
+  capacity_below_bookings: [409, 'El aforo quedaría por debajo de las reservas confirmadas'],
+};
+
+// change_class / adjust_session (021) → { sessions_changed, notified, promoted }, con sus errores en HTTP.
+// El de aforo trae { sessions, fits_from } en el DETAIL.
+export async function callChange(client, sql, params) {
+  try {
+    const { rows: [{ r }] } = await client.query(sql, params);
+    return r;
+  } catch (err) {
+    const known = (err.code === 'P0001' || err.code === '42501') && CHANGE_ERRORS[err.message];
+    if (known) throw httpError(known[0], err.message, known[1], err.detail ? JSON.parse(err.detail) : undefined);
+    if (err.code === '23P01') throw httpError(409, 'trainer_overlap', 'El profesor ya imparte otra sesión a esa hora');
+    // Promociones cruzadas entre sesiones pueden bloquearse mutuamente (como en services/bookings.js).
+    if (err.code === '40P01') throw httpError(409, 'booking_conflict_retry', 'Operación concurrente, vuelve a intentarlo');
+    throw err;
+  }
+}
+
+const SESSION_SELECT = `
+  SELECT id, class_id, discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, location, status,
+         slot, adjusted_fields, changed_at
+    FROM class_sessions`;
+
+// Ajuste de sesión (CONTEXT, B7.1): sustituto, inicio (también otro día), duración, aforo y lugar.
+export async function adjustSession(client, { id, body }) {
+  if (!Object.keys(SESSION_SPEC).some((k) => body[k] !== undefined)) throw invalid('body', 'Nada que ajustar');
+  const data = validate(body, SESSION_SPEC, true);
+  if (data.trainer_id) await assertTrainer(client, data.trainer_id);
+  const counts = await callChange(client, `SELECT adjust_session($1, $2) AS r`, [id, data]);
+  const { rows: [session] } = await client.query(`${SESSION_SELECT} WHERE id = $1`, [id]);
+  return { session, ...counts };
 }
 
 export function dateParam(v, field) {
@@ -91,8 +165,8 @@ export async function getTrainerSession(client, trainerId, id) {
   return s;
 }
 
-const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: TZ });
-const addDays = (d, n) => new Date(Date.parse(d) + n * 864e5).toISOString().slice(0, 10);
+export const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: TZ });
+export const addDays = (d, n) => new Date(Date.parse(d) + n * 864e5).toISOString().slice(0, 10);
 
 // Calendario (CONTEXT § Clases y sesiones): todas las sesiones que deja ver la RLS, con la cobertura y la
 // reserva activa de cada sujeto. Sujetos: el alumno; los hijos vigentes del tutor; el alumno de `profile_id` (admin).
