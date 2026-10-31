@@ -36,7 +36,8 @@ export async function createClass(client, { body, actorId }) {
   const data = validate(body, CLASS_SPEC, false);
   if (data.ends_on && data.ends_on < (data.starts_on ?? data.ends_on)) throw invalid('ends_on', 'ends_on anterior a starts_on');
 
-  const { rows: [disc] } = await client.query(`SELECT is_active FROM disciplines WHERE id = $1`, [data.discipline_id]);
+  // FOR SHARE: desactivar la disciplina a la vez espera a esta clase (y la retira) o esta ve la disciplina inactiva.
+  const { rows: [disc] } = await client.query(`SELECT is_active FROM disciplines WHERE id = $1 FOR SHARE`, [data.discipline_id]);
   if (!disc?.is_active) throw invalid('discipline_id', 'Disciplina inexistente o inactiva');
   await assertTrainer(client, data.trainer_id);
 

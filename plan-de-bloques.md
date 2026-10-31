@@ -535,7 +535,6 @@
     - **El tope del horizonte de `retire_class` lo pone solo `retireClass` (JS)**; en SQL, `invalid_date` es solo la fecha pasada. Desactivar una disciplina retira desde `greatest(hoy, starts_on)`, que puede caer más allá del horizonte en una clase que empieza lejos.
     - **Desactivar una disciplina retira las clases con `ends_on IS NULL OR ends_on >= greatest(hoy, starts_on)`**, no `>= hoy`: una clase ya retirada antes de empezar (`ends_on = starts_on − 1`, en el futuro) pasaría el filtro y daría `already_retired`.
     - **La respuesta de `PATCH /admin/disciplines/:id` lleva los recuentos dentro de `discipline`** (`{ discipline: { …, retired_classes, cancelled_sessions } }`), como `retire` los lleva dentro de `class`. `cancelled_sessions` son todas las sesiones canceladas: las de sus clases más las sueltas.
-    - **`updateDiscipline` llama a `retire_class` y `cancel_session` con `client.query` y no con `callChange`**: `services/sessions.js` importa `catalog.js` y sería un ciclo. Si otra transacción retira la clase o cancela la suelta entre la lista y la llamada, sale un 500 y no se aplica nada (shortcut en el código).
     - **`session.reset.fields` guarda los campos que de verdad se deshicieron** (los que estaban ajustados), no los pedidos.
     - **`sessions_changed` de un cambio de clase cuenta también las sesiones en las que solo cambian los `class_*`** (un campo ajustado): consecuencia de incluirlos en la comprobación de «sin cambios» de `apply_session_change`, como pide el diseño.
   - **`022`**:
@@ -559,6 +558,9 @@
 
     `npm run lint` sin errores.
   - **Prueba manual** (`PUSH_TRANSPORT=log`, API real con `node src/index.js`): alumna con dispositivo de push y una reserva en una sesión suelta. `POST /admin/sessions/:id/cancel` con un JWT de admin respondió `notified: 1`, `cancelled_bookings: 1`; el worker escribió en `storage/push.log` `{ title: 'Sesión cancelada', body: 'BJJ Fundamentos B61, lun, 2 nov, 20:00 (Lucía Manual): la academia ha cancelado la sesión', url: …/bookings, tag }`. `POST /admin/sessions/:id/restore` respondió `notified: 1` y el worker escribió `{ title: 'Sesión recuperada', body: 'BJJ Fundamentos B61, lun, 2 nov, 20:00 (Lucía Manual): la academia ha recuperado la sesión. Si quieres ir, vuelve a reservar', … }`. Las dos entregas, `push` `sent`.
+  - **Riesgos cerrados tras la primera implementación** (2026-10-31), con su test (`test:session-cancel`, ahora 18 casos), comprobado que falla con el código anterior:
+    - **`updateDiscipline` con `callChange`**: llamaba a `retire_class` y `cancel_session` con `client.query` para no importar `services/sessions.js`, que importa `catalog.js`. El ciclo de imports no rompe: `callChange` solo se usa al llamar. Si otra transacción retira la clase o cancela la suelta entre la lista y la llamada, ahora sale su 409 (`already_retired`, `session_cancelled`) en vez de un 500; nada se aplica, como antes.
+    - **`createClass` lee la disciplina `FOR SHARE`**, como `createSession`: una clase creada mientras se desactiva su disciplina espera y da 400 `invalid_field`. Antes se creaba con la disciplina ya inactiva y se escapaba de la retirada.
 - **Checklist de cierre**:
   - [x] Migración `022`: columnas del motivo y `class_*`, `change_class` y `apply_session_change` recreadas, `cancel_session_row`, `cancel_session`, `restore_session`, `reset_session` y `retire_class`; `cancel_session_bookings` retirada y `UPDATE` revocado; `down` probado.
   - [x] Sesión suelta con sus validaciones.

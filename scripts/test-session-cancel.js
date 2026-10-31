@@ -630,6 +630,46 @@ try {
     assert.deepEqual([(await sessionRow(s.id)).capacity, (await sessionRow(s.id)).adjusted_fields], [7, []]);
   });
 
+  // B tiene `text` sin confirmar; A (servicio con el client RLS) debe esperarla; B confirma y se devuelve el final de A.
+  const whileHeld = async (text, params, fn) => {
+    const b = await appPool.connect();
+    try {
+      await b.query('BEGIN');
+      await b.query(`SELECT set_config('app.current_user_id', $1, true), set_config('app.current_role', 'admin', true)`, [admin]);
+      await b.query(text, params);
+      let pidA;
+      const pA = settle(asAdmin(async (c) => { pidA = await pidOf(c); return fn(c); }));
+      while (!pidA) await new Promise((r) => setTimeout(r, 10));
+      const waited = await waitLocked(pidA);
+      await b.query('COMMIT');
+      return { waited, ...(await pA) };
+    } finally {
+      await b.query('ROLLBACK').catch(() => {});
+      b.release();
+    }
+  };
+  await run('concurrencia: crear una clase mientras se desactiva su disciplina espera y da 400; una clase retirada a mitad → 409', async () => {
+    const d = await discipline('Judo');
+    const t = await person('profesor');
+    const body = { discipline_id: String(d.id), trainer_id: t, weekday: dow(day(1)), start_time: '19:00',
+      duration_min: 60, capacity: 5, ends_on: day(8) };
+    const r1 = await whileHeld(`UPDATE disciplines SET is_active = false WHERE id = $1`, [d.id],
+      (c) => createClass(c, { body, actorId: admin }));
+    assert.ok(r1.waited, 'la clase espera a la desactivación');
+    assert.deepEqual([r1.e?.status, r1.e?.code], [400, 'invalid_field']);
+    assert.equal((await q(`SELECT 1 FROM classes WHERE discipline_id = $1`, [d.id])).length, 0);
+
+    // La disciplina se desactiva mientras otra transacción retira una de sus clases: la ve en la lista, espera la clase
+    // y la encuentra retirada → 409 (no un 500), sin aplicar nada.
+    const d2 = await discipline('Judo2');
+    const k = await mkClass({ weeks: 2, d: d2 });
+    const r2 = await whileHeld(`SELECT retire_class($1, CURRENT_DATE)`, [k.id],
+      (c) => updateDiscipline(c, { id: String(d2.id), body: { is_active: false }, actorId: admin }));
+    assert.ok(r2.waited);
+    assert.deepEqual([r2.e?.status, r2.e?.code], [409, 'already_retired']);
+    assert.equal((await q(`SELECT is_active FROM disciplines WHERE id = $1`, [d2.id]))[0].is_active, true);
+  });
+
   // --- Permisos ---
   await run('permisos: alumno, tutor y profesor → 42501; cancel_session_row interna; cancel_session_bookings retirada; sin UPDATE', async () => {
     const k = await mkClass({ weeks: 1 });

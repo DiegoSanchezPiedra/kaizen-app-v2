@@ -2,6 +2,7 @@
 import crypto from 'node:crypto';
 import { stripe, STRIPE_STATEMENT_DESCRIPTOR } from '../config/stripe.js';
 import { httpError } from '../lib/errors.js';
+import { callChange } from './sessions.js';
 
 const ID_RE = /^\d{1,18}$/;
 const BILLING_PERIODS = ['monthly'];
@@ -138,17 +139,17 @@ async function retireDiscipline(client, id) {
                FROM classes WHERE discipline_id = $1) c
       WHERE ends_on IS NULL OR ends_on >= d
       ORDER BY id`, [id]);
-  // shortcut: sin callChange (services/sessions.js importa este módulo: sería un ciclo), una clase retirada o una suelta
-  // cancelada por otra transacción entre la lista y la llamada da 500 y nada se aplica; usar callChange si se rompe el ciclo.
+  // Ciclo de imports con services/sessions.js: callChange solo se usa al llamar, nunca al cargar el módulo.
+  // Una clase retirada o una suelta cancelada por otra transacción entre la lista y la llamada → su 409; nada se aplica.
   let cancelled = 0;
   for (const c of classes) {
-    cancelled += (await client.query(`SELECT retire_class($1, $2) AS r`, [c.id, c.d])).rows[0].r.cancelled_sessions;
+    cancelled += (await callChange(client, `SELECT retire_class($1, $2) AS r`, [c.id, c.d])).cancelled_sessions;
   }
   const { rows: loose } = await client.query(
     `SELECT id FROM class_sessions
       WHERE discipline_id = $1 AND class_id IS NULL AND status = 'scheduled' AND starts_at > now()
       ORDER BY id`, [id]);
-  for (const s of loose) await client.query(`SELECT cancel_session($1, NULL)`, [s.id]);
+  for (const s of loose) await callChange(client, `SELECT cancel_session($1, NULL) AS r`, [s.id]);
   return { retired_classes: classes.length, cancelled_sessions: cancelled + loose.length };
 }
 
