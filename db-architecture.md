@@ -241,7 +241,8 @@ Una fila por día con el estado de las suscripciones; no cambia nunca y un día 
 - `attendance`: alumno lee las suyas; profesor inserta/edita en sus sesiones; admin todas.
 - `subscriptions`, `invoices`, `cash_payments`: alumno lee las suyas; profesor ninguna; admin todas. Escritura solo service_role y admin vía RPC.
 - `class_sessions`: lectura para authenticated; escritura solo admin.
+- `disciplines`: las activas para cualquier autenticado y todas para el admin (007); el suscriptor, las de su suscripción viva (012); el profesor, también las de sus sesiones aunque estén desactivadas (`disciplines_select_trainer`, `024`, B17).
 - `user_mfa`: solo el propio usuario y service_role.
 - `audit_log`: solo admin lectura; escritura solo service_role.
-- `academy_stats_daily`: solo el admin lee (lleva dinero); el profesor y el alumno, nada. Sin escritura para `app_user`: la escribe `snapshot_academy_stats` (sin `EXECUTE` para `app_user`) con `servicePool`.
+- `academy_stats_daily`: solo el admin lee (lleva dinero, también en `/admin/reports/subscriptions`); el profesor y el alumno, nada. Sin escritura para `app_user`: la escribe `snapshot_academy_stats` (sin `EXECUTE` para `app_user`) con `servicePool`.
 - `webhook_events`: solo service_role.

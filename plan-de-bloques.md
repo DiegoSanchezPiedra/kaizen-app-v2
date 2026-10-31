@@ -63,7 +63,7 @@
 | B14 | Racha, horas, badges, ranking mensual opt-in y disciplina abierta | B8, B13 | CERRADO |
 | B15 | Push (`push_subscriptions`, envío) | B2, B10.6 | CERRADO |
 | B16 | Foto diaria de suscripciones + tareas nocturnas | B6, B10, B11 | CERRADO |
-| B17 | Endpoints de informes | B16 | Diseñado |
+| B17 | Endpoints de informes | B16 | CERRADO |
 | B18 | PWA (manifest, Service Worker) | B13 | Pendiente |
 | B19 | Panel admin (métricas, usuarios, auditoría, morosos) | B11, B17, B10.2 | Pendiente |
 | B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos | Pendiente |
@@ -1705,7 +1705,7 @@
   - [x] Datos correctos para un día de prueba (prueba manual).
   - [x] Tests (`test:nightly` y regresión).
 
-### B17 — Endpoints de informes — Diseñado
+### B17 — Endpoints de informes — CERRADO
 - **Objetivo**: endpoints de informes para admin y profesor, sobre la foto diaria de B16 (`academy_stats_daily`) y sobre `class_sessions`, `bookings` y `attendance`, calculados al leer (ADR 0012). Términos en `CONTEXT.md` § Informes («Informe», «Foto diaria», «Alta» y «baja», «Ingreso mensual recurrente», «Ocupación») y § Asistencia («Sin registrar»).
 - **Desde B16** (2026-10-31): qué informes hay; los endpoints se diseñan aquí.
   - **Admin**:
@@ -1785,12 +1785,24 @@
   - desglose de la foto por plan o por disciplina, cohortes y retención (B16);
   - exportar a CSV;
   - eventos (no son sesiones).
+- **Implementación** (migración `024`, 2026-10-31):
+  - **Desviaciones del diseño, decididas al implementar (2026-10-31)**:
+    - **`trainer.name` puede ir a `null` en `by=class` del profesor**: la RLS de `profiles` (017) no le deja leer el nombre de otro profesor, así que en una clase en la que sustituye y cuyo habitual es otro, sale `{ id, name: null }`. No se amplía la RLS (no hacía falta para el informe); el admin ve el nombre.
+    - **`absent` = reserva sin presente de una lista cerrada**, no «`attendance.status = 'absent'`». Con datos normales es lo mismo (al cerrar, toda reserva sin presente pasa a falta) y garantiza `present + absent + unrecorded = booked` aunque falte una fila de asistencia.
+    - **`by=class` y `students` devuelven también `limit` y `offset`**, como el resto de listas paginadas. Con un `offset` más allá del final, `total` se cuenta aparte (la ventana no tiene filas).
+    - **`days_in_month`** = los días con foto posible: el mes entero en el pasado, hasta ayer en el en curso y 0 en un mes futuro (el diseño no decía el futuro).
+    - **Rangos por defecto con uno solo de los extremos**: `sessions` y `students`, `to` = `from` (y `from` = el mes en curso); `subscriptions?group=day`, `from` = `to` − 29.
+  - **`024`**: `disciplines_select_trainer`, permisiva, sin tocar `services/sessions.js` (`listTrainerSessions` y `getTrainerSession` vuelven a ver esas sesiones solo con la política). Efecto colateral aceptado: `GET /disciplines` le lista al profesor también las disciplinas desactivadas de sus sesiones, con `is_active: false`, igual que `disciplines_select_subscribed` (012) hace con el suscriptor. Probada up → down → up.
+  - **`src/services/reports.js`**: SQL normal por el `client` RLS; nada de `servicePool` ni funciones nuevas. Sesiones que cuentan: `status = 'scheduled'`, `ends_at <= now()` y `starts_at` en `[from-01, to-01 + 1 mes)` de Madrid. Cifras por sesión con un `LATERAL` sobre `bookings` ⟕ `attendance` (por `booking_id`) y agregadas por grupo y mes; los meses salen con `generate_series` (huecos a cero). La foto por día es `generate_series` ⟕ `academy_stats_daily`; por mes, la última foto con un `LATERAL … ORDER BY date DESC LIMIT 1` y la suma de altas y bajas.
+  - **Rutas**: `src/routes/admin/reports.js` en `/admin/reports` (`requireAuth`, `requireRole('admin')`) y `GET /professor/reports/sessions` en `routes/professor.js`, las dos con la misma `getSessionStats`.
+  - **Tests** (`test:reports`, 14 casos): las reglas llaman al servicio en una transacción de `servicePool` que se deshace, cada caso con sus disciplinas (filtradas con `discipline_id`) y la foto en días de 2020. Los permisos van por HTTP como `app_user` con fixtures confirmados que se borran al acabar. Sin la `024` fallan los dos casos del profesor (`/professor/reports/sessions`, `/professor/sessions` y `/professor/sessions/:id` sin la disciplina desactivada). Comprobado a mano que detectan los fallos, rompiendo una regla cada vez: contar las canceladas (fallan 2), días UTC (1), media de porcentajes (1), tardías en `booked` (1), la primera foto del mes en vez de la última (1) y rellenar los huecos con la foto anterior (1).
+  - **Regresión**: `test:rls`, `test:classes`, `test:calendar`, `test:attendance`, `test:progress` y `test:nightly` en verde; `npm run lint` sin errores.
 - **Checklist de cierre**:
-  - [ ] Migración `024`: el profesor ve las disciplinas de sus sesiones.
-  - [ ] `/admin/reports/subscriptions` (día y mes, huecos a `null`), `/admin/reports/sessions`, `/admin/reports/students` y `/professor/reports/sessions`.
-  - [ ] Paginados donde la lista crece con alumnos o clases (`by=class`, `students`); las series, acotadas por rango.
-  - [ ] RLS correcta: lectura por el `client` RLS, el profesor solo sus sesiones y sin foto ni alumnos.
-  - [ ] Tests (`test:reports` y regresión).
+  - [x] Migración `024`: el profesor ve las disciplinas de sus sesiones.
+  - [x] `/admin/reports/subscriptions` (día y mes, huecos a `null`), `/admin/reports/sessions`, `/admin/reports/students` y `/professor/reports/sessions`.
+  - [x] Paginados donde la lista crece con alumnos o clases (`by=class`, `students`); las series, acotadas por rango.
+  - [x] RLS correcta: lectura por el `client` RLS, el profesor solo sus sesiones y sin foto ni alumnos.
+  - [x] Tests (`test:reports` y regresión).
 
 ### B18 — PWA (manifest, Service Worker) — Pendiente
 - **Objetivo**: frontend PWA.

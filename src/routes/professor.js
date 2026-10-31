@@ -4,6 +4,7 @@ import { requireAuth, requireRole, withRlsContext } from '../middleware/auth.js'
 import { httpError } from '../lib/errors.js';
 import { listTrainerSessions, getTrainerSession } from '../services/sessions.js';
 import { getSessionHealth } from '../services/attendance.js';
+import { getSessionStats } from '../services/reports.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -23,5 +24,7 @@ router.get('/sessions/:id', withRlsContext(async (req, client) => ({
 router.get('/sessions/:id/health', withRlsContext(async (req, client) => ({
   students: await getSessionHealth(client, req.params.id),
 })));
+// GET /professor/reports/sessions → como /admin/reports/sessions; la RLS deja solo sus sesiones (B17)
+router.get('/reports/sessions', withRlsContext((req, client) => getSessionStats(client, req.query)));
 
 export default router;
