@@ -1695,13 +1695,14 @@
   - **`scripts/nightly.js`**: `extendHorizon(servicePool)` (también falla si alguna clase sale en `failed`) y después la foto, cada una en su `try`. `--date` va tal cual a SQL: un formato malo o una fecha que no es ayer ni hoy es un error de la foto (código 1). `extend-horizon.js` se queda para lanzarlo a mano.
   - **Tests** (`test:nightly`, 8 casos): las reglas, en una transacción de `servicePool` que se deshace (se borran las fotos de ayer y hoy, y se comparan los recuentos con los de antes de los fixtures). El job, los permisos y la concurrencia usan una foto confirmada de un día libre (hoy o ayer), que se borra al acabar. El job corre `scripts/nightly.js` como proceso aparte, con una clase que choca con una sesión suelta de su profesor; extiende de verdad el horizonte del resto de clases de la base. Comprobado a mano que los tests detectan los fallos: con días UTC, sin excluir traspasos, con el MRR de las impagadas, sin comprobar la fecha y sin `ON CONFLICT` (todo a la vez) fallan 6 de los 8; los permisos no dependen de eso. El de altas y bajas se reforzó porque con días UTC pasaba por casualidad, y ahora falla solo con ese cambio.
   - **Regresión**: `test:classes`, `test:billing`, `test:webhook` (Stripe sandbox), `test:rls` y `test:progress` en verde; `npm run lint` sin errores.
+  - **Prueba manual** (2026-10-31, crontab local con `CRON_TZ=Europe/Madrid`, el `PATH` de nvm y la línea a las 15:44; el sistema ya está en Europe/Madrid): el cron lanzó `npm run nightly` y el log dio `sesiones creadas: 0; clases con error: 0` y `foto 2026-10-30: creada`. La fila (`active` 6, `past_due` 0, `unpaid` 0, altas 0, bajas 0, `mrr_cents` 8000) coincide con un `SELECT` a mano sobre `subscriptions` y `plans` (6 activas, ninguna alta ni baja ese día, ningún traspaso). Relanzado a mano: `foto 2026-10-30: ya existía` y la fila igual. Las tablas se consultan como `service_role`: `migrator` ve 0 filas por el RLS `FORCE`. Queda la ejecución real de las 03:00.
 - **Checklist de cierre**:
   - [x] Migración `023`: `student_stats_daily` borrada, `academy_stats_daily` rehecha con RLS `FORCE` y solo lectura del admin, `snapshot_academy_stats` sin `EXECUTE` para `app_user`.
   - [x] Foto de D−1: recuentos por estado, altas y bajas sin traspasos, MRR de las que están en vigor.
   - [x] Idempotente (relanzar, dos a la vez); un día saltado queda en hueco; `--date` solo ayer u hoy.
   - [x] `npm run nightly` lanza `extend-horizon` y la foto, independientes, con código de salida.
   - [ ] Job corre a las 03:00 (Europe/Madrid) desde el crontab, documentado en `scripts/README.md`.
-  - [ ] Datos correctos para un día de prueba (prueba manual).
+  - [x] Datos correctos para un día de prueba (prueba manual).
   - [x] Tests (`test:nightly` y regresión).
 
 ### B17 — Endpoints de informes — Pendiente
