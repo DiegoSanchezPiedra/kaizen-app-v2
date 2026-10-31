@@ -385,10 +385,11 @@ Migración `005_agreement_documents.js`: tabla `agreement_documents` (ciclo borr
 
 **Nuevo modelo (decidido el 2026-10-27, sin implementar):** el tutor se registra, crea a sus hijos (perfiles **sin credenciales**) y gestiona todo por ellos: perfil, ficha de salud, acuerdos, cuota, reservas, eventos y avisos. Se reescribe `006` en el sitio (no hay nada desplegado). Se conserva casi todo el esquema (`birth_date`, `guardianships`, `signed_by`) y se añaden `create_child` (SQL `SECURITY DEFINER`), el helper RLS `is_guardian_of`, políticas de tutor en `student_health_info` y `profiles`, y `GET/POST /me/children` + `PATCH /me/children/:id`. El registro propio exige ≥ 18. El rol `tutor` firma su propio `data_protection`. Decisiones D1–D16 en §5 "Cuenta familiar"; tabla mantener/refactorizar/borrar en `PLAN_FAMILIA.md` §4. **Va antes de B5.**
 
-### B5–B16, B7.1 y B6.1 — CERRADOS · B10.7 y B17–B20 — PENDIENTES
+### B5–B16, B7.1 y B6.1 — CERRADOS · B17 — DISEÑADO · B10.7 y B18–B20 — PENDIENTES
 Estado al 2026-10-31 (detalle, decisiones y pendientes de cada bloque en `plan-de-bloques.md`):
 - **Cerrados el 2026-10-31** (checklist cumplida y tests verdes; cada «Pendiente» que quedaba tiene destino: B10.7, B18, B20 o `MEJORAS.md` § 6, o es un riesgo aceptado): B5 catálogo, B6 clases, sesiones y calendario del alumno (migración `018`, `test:calendar`), B7 reservas, B8 asistencia, B9 check-in QR, B10 Stripe base, B10.1 recibos, B10.2 morosos, B10.3 seguro, B10.5 cambio de plan y de disciplina, B10.6 emails de billing, B11 baja del seguro y cambio de pagador, B13 perfiles públicos, directorio y lectura de `profiles` (migración `017`, `test:profiles`), B14 racha, horas, badges, ranking mensual opt-in y disciplina abierta (migración `019`, `test:progress`), B15 push de reservas y re-firma con email de respaldo (migración `020`, `test:push`), B7.1 cambio de clase y ajuste de sesión sobre las reservas (migración `021`, `test:session-changes`; `PATCH /admin/classes/:id` y `PATCH /admin/sessions/:id`), B6.1 sesiones sueltas, cancelar y recuperar una sesión, cancelación retroactiva, deshacer un ajuste y desactivar una disciplina (migración `022`, `test:session-cancel`; `POST /admin/sessions` y `/admin/sessions/:id/{cancel,restore,reset}`), B16 foto diaria de las suscripciones y tareas nocturnas (migración `023`, `test:nightly`; `npm run nightly` desde el cron del sistema a las 03:00 de Madrid).
-- **Pendientes**: B10.7 migración de los clientes de maat (al pasar a producción) y B17–B20. Siguiente en orden: **B17**.
+- **Diseñado el 2026-10-31** (sin implementar; diseño en `plan-de-bloques.md` § B17): B17 endpoints de informes. Lectura por el `client` RLS sin funciones nuevas: `/admin/reports/subscriptions` (foto por día y por mes, huecos a `null`), `/admin/reports/sessions` y `/professor/reports/sessions` (misma consulta; ocupación y asistencia de las sesiones celebradas, por disciplina o por clase y mes), `/admin/reports/students` (paginado). El profesor solo ve cifras de sus sesiones. Migración `024`: el profesor ve las disciplinas desactivadas de sus sesiones. Implementación con Opus medio.
+- **Pendientes**: B10.7 migración de los clientes de maat (al pasar a producción) y B18–B20. Siguiente en orden: **implementar B17**.
 - B12 eliminado (absorbido por B4.5 y B10.3).
 
 ---
@@ -557,7 +558,7 @@ Notación: `uid = current_setting('app.current_user_id', true)::uuid`, `role = c
    - QR rotativo de prueba de presencia; sin `session_id` (la sesión sale de la reserva, ver CONTEXT.md).
    - Ventana de check-in configurable (default 30 min antes, 10 min después).
 5. Perfiles públicos con flags granulares (`visible_fields jsonb`).
-6. Informes con tablas de agregación nocturna.
+6. Informes: solo la foto diaria de las suscripciones se agrega por la noche (B16, ADR 0012); la ocupación y la asistencia se calculan al leer (B17).
 7. Upgrade: prorrateo inmediato (`always_invoice` + `pending_if_incomplete`), disciplinas al instante.
 8. Downgrade: sin reembolso, al final del periodo (Subscription Schedule 2 fases), disciplinas al transicionar.
 9. Consentimientos: seguro/waiver, protección de datos, derechos de imagen (todos obligatorios, versionados, B4.5). Menores requieren tutor (futuro).
@@ -811,7 +812,7 @@ text
 
 ## 8. Pendientes inmediatos
 
-B4.5 está cerrado: el fix de la vista `student_health_professor_view` quedó sin objeto, porque B8 (`010`) la sustituyó por `professor_session_health`. Siguiente bloque: **B17**.
+B4.5 está cerrado: el fix de la vista `student_health_professor_view` quedó sin objeto, porque B8 (`010`) la sustituyó por `professor_session_health`. Siguiente bloque: **implementar B17** (diseñado).
 
 **Pendientes heredados:**
 
