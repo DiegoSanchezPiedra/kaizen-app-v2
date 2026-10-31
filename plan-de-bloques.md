@@ -364,8 +364,9 @@
     - Duración: «45 min», «1 h», «1 h 30», «1 h 05».
     - Con varias sesiones, los campos del texto son la unión de los del grupo, en el orden hora, duración, profesor. Si del grupo solo queda una sesión sin empezar, sale el texto de una.
     - `sendPending` caduca por el `max` del `expires_at` del grupo (antes el `min`), con el tope de 24 h de B10.6.
-  - **Tests** (`test:session-changes`, 20 casos): los de la lista de arriba, y además:
+  - **Tests** (`test:session-changes`, 22 casos): los de la lista de arriba, y además:
     - el cambio de hora desde una fecha futura sin duplicar en la generación (la desviación);
+    - la caducidad con el inicio actual y la retirada por `slot` (riesgos cerrados, abajo);
     - los 409 de aforo y de `not_supported` por HTTP;
     - que solo `change_class` y `adjust_session` tienen `EXECUTE` para `app_user`.
 
@@ -374,17 +375,17 @@
     - sin `FOR SHARE`, la generación crea la sesión a la hora antigua y su test falla.
   - **Regresión**: `test:calendar` y `test:profiles` insertaban sesiones con `class_id` y sin `slot`, que el nuevo `CHECK` rechaza: sus fixtures ponen ahora `slot`. `test:push` comprobaba el TTL hasta la sesión más próxima: ahora va hasta la última, con el tope de 24 h.
   - **Regresión verde**:
-    - las de § Tests: `test:session-changes` 20, `test:classes` 12, `test:bookings` 18, `test:calendar` 15, `test:attendance` 12, `test:checkin` 8, `test:push` 9, `test:notices` 9, `test:billing` 38, `test:progress` 20 y `test:rls` 22;
+    - las de § Tests: `test:session-changes` 22, `test:classes` 12, `test:bookings` 18, `test:calendar` 15, `test:attendance` 12, `test:checkin` 8, `test:push` 9, `test:notices` 9, `test:billing` 38, `test:progress` 20 y `test:rls` 22;
     - además: `test:profiles` 25, `test:webhook` 35 (Stripe sandbox), `test:agreements` 7, `test:minors` 14, `test:catalog` 10 y `test:mfa` 13.
 
     `npm run lint` sin errores.
   - **Prueba manual** (`PUSH_TRANSPORT=log`, API real con `npm run dev`):
     - Alumno con dispositivo de push y dos reservas en una clase de dos sesiones. `PATCH /admin/classes/:id` `{ start_time: '20:30' }` con un JWT de admin respondió `notified: 2`, `sessions_changed: 2`.
     - El worker dejó **una** entrega `push` `sent` y escribió en `storage/push.log` un solo payload: `{ title: 'Sesiones cambiadas', body: 'Han cambiado 2 sesiones de BJJ Fundamentos manual de Lucía Manual (la hora). Si ya no te vienen bien, puedes cancelarlas sin que cuente como tardía', url: …/bookings, tag }`, con `TTL 86378s`.
-- **Pendiente**:
-  - `expires_at` se guarda al crear el aviso. Si un cambio posterior mueve la sesión, el aviso anterior caduca con el inicio antiguo.
-  - Si la última sesión de un grupo empieza entre la comprobación de caducidad y la composición del mensaje (milisegundos), el grupo queda vacío y la entrega acaba `failed` en vez de `skipped`.
-  - `retireClass` sigue cancelando por `starts_at >= fecha`, no por `slot`: una sesión ajustada a otro día puede quedar a un lado distinto de la fecha que su `slot`. Se revisa con la cancelación de sesiones (B6.1).
+  - **Riesgos cerrados tras la primera implementación** (2026-10-31), cada uno con su test, comprobado que falla con el código anterior:
+    - **Caducidad con el inicio actual**: `sendPending` calcula la caducidad de un aviso de reservas con el `max(starts_at)` actual de las sesiones del grupo, no con el `expires_at` guardado. Antes, si un cambio posterior movía la sesión, el aviso anterior caducaba con el inicio antiguo. `expires_at` se sigue guardando en `changes`.
+    - **Grupo vacío al componer**: si la última sesión empieza entre la comprobación de caducidad y la composición, `composeService` lanza un error `stale` y la entrega queda `skipped` (`stale`), no `failed`.
+    - **`retireClass` por `slot`**: cancela las sesiones con `slot` desde la fecha, como el cambio de clase y la generación (`ends_on` = fecha − 1). Una sesión ajustada a otro día sigue el día que le tocaba.
 - **Checklist de cierre**:
   - [x] Migración `021`: `slot` con su `UNIQUE`, `changed_at`, `change_class`, `adjust_session` y `cancel_booking` con la exención; `down` probado.
   - [x] Cambio de clase desde una fecha (profesor, hora, duración, aforo, lugar) respetando los ajustes; la disciplina y el día, 409.

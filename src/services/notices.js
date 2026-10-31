@@ -264,6 +264,8 @@ async function bookingGroup(db, { audit_id: id }) {
 async function composeService(db, d) {
   const isBooking = d.resource_type === 'booking';
   const g = isBooking ? await bookingGroup(db, d) : { c: d.changes };
+  // Su última sesión empezó después de comprobar la caducidad: caducado, no fallido.
+  if (isBooking && !g.sessions.length) throw Object.assign(new Error('stale'), { stale: true });
   const { title, body } = SERVICE[d.action](g);
   const url = isBooking ? BOOKINGS : AGREEMENTS_URL;
   if (d.channel === 'push') return { title, body, url, tag: d.audit_id };
@@ -346,8 +348,9 @@ async function deliverPush(client, db, d, attempts, transport) {
 
 /**
  * Un lote del worker: entregas pendientes y vencidas, bloqueadas con SKIP LOCKED (dos workers no se pisan).
- * Caducado (24 h desde el aviso o su expires_at, lo que sea antes; en uno agrupado, su última sesión, B7.1)
- * o sin email → skipped. El TTL del push es lo que le queda hasta caducar.
+ * Caducado (24 h desde el aviso o su expires_at, lo que sea antes) o sin email → skipped. Un aviso de reservas
+ * caduca al empezar la última sesión de su grupo, con su inicio actual: un cambio posterior puede haberla movido (B7.1).
+ * El TTL del push es lo que le queda hasta caducar.
  * @returns {Promise<number>} entregas tratadas
  */
 export async function sendPending(db = servicePool, transport = send, pushTransport = sendPush) {
@@ -362,7 +365,8 @@ export async function sendPending(db = servicePool, transport = send, pushTransp
                 WHERE d.status = 'pending' AND d.next_attempt_at <= now()
                 ORDER BY d.next_attempt_at LIMIT ${BATCH} FOR UPDATE OF d SKIP LOCKED) d,
          LATERAL (SELECT LEAST(d.created_at + interval '24 hours', CASE WHEN d.resource_type = 'booking'
-                    THEN (SELECT max((g.changes->>'expires_at')::timestamptz) FROM audit_log g
+                    THEN (SELECT max(cs.starts_at) FROM audit_log g
+                            JOIN bookings b ON b.id::text = g.resource_id JOIN class_sessions cs ON cs.id = b.session_id
                            WHERE g.created_at = d.created_at AND g.resource_type = 'booking'
                              AND g.action = d.action AND g.changes->>'student_id' = d.changes->>'student_id')
                     ELSE (d.changes->>'expires_at')::timestamptz END) AS expires) x`);
@@ -386,6 +390,10 @@ export async function sendPending(db = servicePool, transport = send, pushTransp
         const { id } = await transport({ ...email, idempotencyKey: d.id });
         await mark(client, d.id, { status: 'sent', attempts, messageId: id });
       } catch (err) {
+        if (err.stale) {
+          await mark(client, d.id, { status: 'skipped', attempts: d.attempts, error: 'stale' });
+          continue;
+        }
         const retry = err.transient && RETRY_MIN[d.attempts];
         await mark(client, d.id, retry
           ? { status: 'pending', attempts, retryMin: retry, error: err.message }

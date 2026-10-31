@@ -12,10 +12,10 @@ import { signToken } from '../src/services/jwt.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import adminClassesRouter from '../src/routes/admin/classes.js';
 import adminSessionsRouter from '../src/routes/admin/sessions.js';
-import { createClass, updateClass } from '../src/services/classes.js';
+import { createClass, updateClass, retireClass } from '../src/services/classes.js';
 import { adjustSession, generateSessions } from '../src/services/sessions.js';
 import { cancelBooking } from '../src/services/bookings.js';
-import { sendPending } from '../src/services/notices.js';
+import { sendPending, compose } from '../src/services/notices.js';
 
 let failed = 0;
 async function run(name, fn) {
@@ -419,12 +419,9 @@ try {
     const ep = await device(alu);
     for (const s of k.s) await bk(s.id, alu);
     await change(k.id, { trainer_id: await person('profesor') });
-    // Simula que pasa el tiempo: la primera sesión (y lo que guardó su aviso) ya ha empezado.
-    const [first] = await changedNotices([k.s[0].id]);
+    // Simula que pasa el tiempo: la primera sesión ya ha empezado.
     await q(`UPDATE class_sessions SET starts_at = now() - interval '5 min', ends_at = now() + interval '55 min'
               WHERE id = $1`, [k.s[0].id]);
-    await q(`UPDATE audit_log SET changes = jsonb_set(changes, '{expires_at}', to_jsonb(now() - interval '5 min'))
-              WHERE id = $1`, [first.id]);
     await drain();
     const [p] = pushTo(ep);
     assert.equal(p.title, 'Sesión cambiada');
@@ -435,11 +432,45 @@ try {
     for (const s of k2.s) await bk(s.id, alu);
     await change(k2.id, { duration_min: 45 });
     const group = await changedNotices(k2.s.map((s) => s.id));
-    await q(`UPDATE audit_log SET changes = jsonb_set(changes, '{expires_at}', to_jsonb(now() - interval '1 min'))
-              WHERE id = ANY($1::uuid[])`, [group.map((g) => g.id)]);
+    for (const [i, s] of k2.s.entries()) { // las dos ya han empezado (sin solaparse: mismo profesor)
+      await q(`UPDATE class_sessions SET starts_at = now() - $2 * interval '2 hours', ends_at = now() - $2 * interval '2 hours'
+                + interval '45 min' WHERE id = $1`, [s.id, i + 1]);
+    }
+    // La carrera del worker: si la última empieza entre la comprobación de caducidad y la composición → stale.
+    const [lead] = await q(`SELECT d.*, a.action, a.resource_type, a.changes FROM notice_deliveries d
+                              JOIN audit_log a ON a.id = d.audit_id WHERE d.audit_id = ANY($1::uuid[])`,
+    [group.map((g) => g.id)]);
+    await assert.rejects(compose(servicePool, lead), (e) => e.stale === true);
     await drain();
     assert.equal(pushTo(ep).length, 0);
     assert.deepEqual((await deliveriesOf(group.map((g) => g.id))).map((d) => [d.status, d.last_error]), [['skipped', 'stale']]);
+  });
+
+  await run('avisos: la caducidad usa el inicio actual de la sesión, no el que guardó el aviso', async () => {
+    const k = await mkClass({ weeks: 1 });
+    const alu = await student();
+    const ep = await device(alu);
+    await bk(k.s[0].id, alu);
+    await change(k.id, { trainer_id: await person('profesor') });
+    const [n1] = await changedNotices([k.s[0].id]);
+    await adjust(k.s[0].id, { starts_at: new Date(+k.s[0].starts_at + 864e5).toISOString() });
+    // Pasa el inicio que guardó el primer aviso; la sesión ya no empieza entonces.
+    await q(`UPDATE audit_log SET changes = jsonb_set(changes, '{expires_at}', to_jsonb(now() - interval '1 min'))
+              WHERE id = $1`, [n1.id]);
+    await drain();
+    assert.deepEqual((await deliveriesOf([n1.id])).map((d) => d.status), ['sent']);
+    assert.equal(pushTo(ep).length, 2);
+  });
+
+  await run('retirar una clase va por slot: una sesión ajustada a otro día sigue el día que le tocaba', async () => {
+    const k = await mkClass({ weeks: 3 });
+    const [s0, s1, s2] = k.s;
+    await adjust(s0.id, { starts_at: new Date(+s0.starts_at + 9 * 864e5).toISOString() }); // después de la fecha
+    await adjust(s1.id, { starts_at: new Date(+s1.starts_at - 3 * 864e5).toISOString() }); // antes de la fecha
+    const r = await asAdmin((c) => retireClass(c, { id: k.id, date: madridDay(s1.slot), actorId: admin }));
+    assert.equal(r.cancelled_sessions, 2);
+    assert.deepEqual((await Promise.all([s0, s1, s2].map((s) => sessionRow(s.id)))).map((s) => s.status),
+      ['scheduled', 'cancelled', 'cancelled']);
   });
 
   // --- Exención de cancelación tardía ---

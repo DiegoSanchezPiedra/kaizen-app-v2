@@ -72,6 +72,7 @@ export async function updateClass(client, { id, body }) {
 }
 
 // Retirar: la clase acaba el día anterior a `date` (por defecto hoy) y se cancelan sus sesiones desde esa fecha.
+// Por slot, como el cambio de clase y la generación: una sesión ajustada a otro día sigue el día que le tocaba.
 export async function retireClass(client, { id, date, actorId }) {
   if (date !== undefined && !isDate(date)) throw invalid('date', 'date debe ser YYYY-MM-DD');
   const { rows: [c] } = await client.query(
@@ -88,7 +89,7 @@ export async function retireClass(client, { id, date, actorId }) {
   const { rowCount, rows } = await client.query(
     `UPDATE class_sessions SET status = 'cancelled'
       WHERE class_id = $1 AND status = 'scheduled'
-        AND starts_at >= $2::date::timestamp AT TIME ZONE 'Europe/Madrid'
+        AND slot >= $2::date::timestamp AT TIME ZONE 'Europe/Madrid'
       RETURNING id`,
     [id, c.d]
   );
