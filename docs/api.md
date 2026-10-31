@@ -17,7 +17,7 @@
   numérico mal formado), `404 not_found` (ruta inexistente).
 - **Perfil completo** (`requireCompleteProfile`): reservar, contratar y el Checkout del cambio de pagador fallan con
   `403 profile_incomplete { missing: [...] }` si al sujeto (y al tutor que actúa por un hijo) le falta algo.
-  `missing` usa `display_name`, `health_info`, `emergency_contact` y `agreement:<tipo>`. La UI lo evita mirando antes
+  `missing` usa `display_name`, `health_info`, `emergency_contact`, `data_protection` y `rights_of_image` (el `waiver` no: cuenta en `risk_cover`). La UI lo evita mirando antes
   `GET /me/profile-status`.
 - **`profile_id`**: en las rutas de alumno y tutor, el hijo por el que actúa el tutor. Sin él, el sujeto es quien llama.
   El hijo **no tiene credenciales** (ADR 0002): nunca inicia sesión.
@@ -67,9 +67,9 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 | `POST /me/health` | alumno, tutor | `{ profile_id?, injuries?, conditions?, previous_experience?, previous_discipline?, medication?, allergies?, emergency_contact_name?, emergency_contact_phone? }` (strings o null) | `{ health }`. `no_fields`, `invalid_field_type`, `403 not_guardian` |
 | `GET /agreements/:type/current` | cualquiera | `type`: `waiver`, `data_protection`, `rights_of_image` | el PDF (`X-Agreement-Version`). `404 no_current_document` |
 | `POST /me/agreements` | alumno, tutor | `{ type, version, profile_id? }` (`version` = la vigente) | `{ agreement }`. `409 agreement_already_signed`, `invalid_version`, `403 not_allowed_to_sign` |
-| `GET /me/children` | tutor | — | `{ children: [{ id, display_name, birth_date, pending_claim }] }` (`pending_claim`: cumplió 18, solo lectura) |
-| `POST /me/children` | tutor | `{ display_name, birth_date }` | `201 { child }`. `child_must_be_minor`, `invalid_birth_date` |
-| `PATCH /me/children/:id` | tutor | `{ display_name?, birth_date? }` | `{ child }`. `child_not_found` |
+| `GET /me/children` | cualquiera (un alumno también puede tener hijos) | — | `{ children: [{ id, display_name, birth_date, pending_claim }] }` (`pending_claim`: cumplió 18, solo lectura) |
+| `POST /me/children` | cualquier adulto | `{ display_name, birth_date }` | `201 { child }`. `child_must_be_minor`, `invalid_birth_date` |
+| `PATCH /me/children/:id` | cualquiera (su tutor) | `{ display_name?, birth_date? }` | `{ child }`. `child_not_found` |
 | `GET /me/profile` | cualquiera | — | `{ is_public, eligible, visible_fields, bio, social_links }` |
 | `PATCH /me/profile` | cualquiera | `{ is_public?, visible_fields?, bio? (≤500), social_links? (https) }` | igual. `403 not_eligible` |
 | `GET /me/progress?profile_id=&month=YYYY-MM` | alumno, tutor (hijo), admin | — | `{ streak: { current, best }, badges: [{ code, earned_at }], hours: { month, disciplines: [{ id, name, hours }] } }` |

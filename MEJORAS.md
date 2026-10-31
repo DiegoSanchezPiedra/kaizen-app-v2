@@ -184,3 +184,14 @@ Una sola sesión inicial (antes de cerrar B4.5) debería fijar el vocabulario tr
 
 ### 6.7 Cambio de precio con un cambio de pagador `paid` — **Impacto: Bajo (riesgo aceptado)**
 - Pendiente de B11. La sincronización de precios no ve la suscripción sucesora (no tiene fila hasta el traspaso): el primer cobro en D va al precio viejo; el traspaso la alinea para los siguientes, sin prorrateo.
+
+## Sección 7: Pendientes que salieron del diseño de B18 (2026-11-01)
+
+### 7.1 Cuenta: verificar el email y cambiar el email o la contraseña — **Impacto: Medio (mejora futura)**
+- Fuera de B18. Hoy el email no se verifica al registrarse y, con sesión, no se puede cambiar ni el email ni la contraseña (solo recuperarla, B18.0). Cambiar el email exige verificar el nuevo; cambiar la contraseña, pedir la actual.
+
+### 7.2 Quién es el pagador, en la API — **Impacto: Bajo**
+- `GET /billing/subscription` no dice si quien la mira es el pagador: la UI de B18 muestra el estado del cobro a todos los que ven la suscripción y, si el Portal responde `404 no_billing_account`, «lo gestiona quien paga la cuota». Un `is_payer` en la respuesta lo dejaría claro.
+
+### 7.3 Primera firma o re-firma — **Impacto: Bajo**
+- `missing` no distingue un acuerdo nunca firmado de uno con versión nueva: la UI usa el mismo texto. Si hace falta decir «hay una versión nueva», la API tendría que dar la última versión firmada.

@@ -64,7 +64,7 @@
 | B15 | Push (`push_subscriptions`, envío) | B2, B10.6 | CERRADO |
 | B16 | Foto diaria de suscripciones + tareas nocturnas | B6, B10, B11 | CERRADO |
 | B17 | Endpoints de informes | B16 | CERRADO |
-| B18 | PWA (manifest, Service Worker) | B13 | Pendiente |
+| B18 | Frontend PWA (alumno, tutor, profesor, tablet; sub-bloques B18.0–B18.6) | B13, B15, B17 | Pendiente (diseñado) |
 | B19 | Panel admin (métricas, usuarios, auditoría, morosos) | B11, B17, B10.2 | Pendiente |
 | B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos | Pendiente |
 
@@ -1804,17 +1804,67 @@
   - [x] RLS correcta: lectura por el `client` RLS, el profesor solo sus sesiones y sin foto ni alumnos.
   - [x] Tests (`test:reports` y regresión).
 
-### B18 — PWA (manifest, Service Worker) — Pendiente
-- **Objetivo**: frontend PWA.
-- **Entregable**: `manifest.json`, Service Worker, build del frontend.
-- **Fuera de alcance**: backend (sin cambios).
+### B18 — Frontend PWA (alumno, tutor, profesor, tablet) — Pendiente (diseñado)
+- **Objetivo**: el primer frontend: una PWA instalable para el alumno, el tutor (que actúa por sus hijos), el profesor y la tablet, contra la API existente (`docs/api.md`). El panel admin es de B19. Términos en `CONTEXT.md` (nuevo: «Selector de sujeto»).
+- **Diseño técnico** (fase 1, 2026-11-01). Decisiones difíciles de revertir: ADR 0013 (stack y `/api`), 0014 (sesión) y 0015 (caché y offline). Pantallas y estados para Claude Design en `docs/pantallas-b18.md`. La fase visual (Claude Design, con Mobbin, el logo y la web de la academia y coss ui) va en paralelo con B18.0: primero el sistema de diseño (único para B18 y B19) y las pantallas de login, que necesita B18.1; después, las de cada sub-bloque.
+- **Se apoya en**: toda la API (B2–B17), el push (B15, ADR 0011), los avisos con `APP_URL` (`services/notices.js`: `/bookings`, `/agreements`), las vueltas de Stripe (`/billing*`), el SSE de la tablet (B9), `is_guardian_of` y `listChildren` (B4.6), `profile_missing` y `has_risk_cover` (B4.5, B10.3), `send` (`services/email.js`) y el `servicePool` de login como única excepción (`services/auth.js`).
+- **Choques con lo existente** (detectados en el diseño, 2026-11-01):
+  - **Las rutas del frontend chocan con las de la API**: el backend enlaza a `/billing`, `/bookings` y `/agreements`, que también son rutas de la API montadas en la raíz. **Nginx sirve la API bajo `/api/` quitando el prefijo** (ADR 0013); el backend no cambia. La URL del webhook de Stripe pasa a `/api/webhooks/stripe` (hoy, solo el sandbox).
+  - **`EventSource` no envía cabeceras** y el SSE de la tablet exige `Authorization: Device`: se lee con `fetch` y un `ReadableStream`.
+  - **Un alumno con hijos no ve a sus hijos en el calendario**: `/me/children` no exige el rol tutor (un alumno adulto puede crear hijos, como dice `CONTEXT.md`), pero `listCalendar` solo toma a los hijos como sujetos con el rol `tutor` y reserva `profile_id` al admin (`400`). El resto de rutas con `profile_id` (`/bookings`, `/checkin`, `/billing/*`, `/me/progress`, `/me/*`) ya va por `is_guardian_of` y la RLS, sin mirar el rol. **Se arregla en B18.0.**
+  - **Huecos de la API que bloquean pantallas** (no estaban todos en «Huecos conocidos»): no hay `GET /me/health` (la ficha solo se escribe: el formulario no puede enseñar lo ya rellenado); ni `/auth/me` ni `/me/profile` dan o cambian el propio `display_name` ni el email; el alta con Google deja `birth_date` vacía (y `display_name` si Google no da `name`, con lo que el perfil queda incompleto sin salida) y no hay forma de guardarlas; y no se puede recuperar la contraseña. **Entran en B18.0.**
+  - **`docs/api.md` decía `agreement:<tipo>` en `missing`**: son `data_protection` y `rights_of_image` (el `waiver` cuenta en `risk_cover`). Y `/me/children` no es solo del tutor. Corregido.
+  - **La API no dice quién es el pagador** ni distingue una primera firma de una re-firma: la UI lo rodea (`docs/pantallas-b18.md`).
+- **Reglas** (decididas 2026-11-01):
+  - **Stack** (ADR 0013): React + Vite + TypeScript, React Router, TanStack Query (sin librería de estado global), Tailwind CSS v4 + coss ui (Base UI; los componentes se copian con `npx shadcn@latest add @coss/…`). En `frontend/` con su propio `package.json`, sin workspaces. `npm run build:frontend` = `npm --prefix frontend ci && npm --prefix frontend run build`. Sin SSR.
+  - **Servir** (ADR 0013): un dominio. Nginx: `/api/` → `proxy_pass http://127.0.0.1:3000/;` (quita el prefijo), `proxy_buffering off` en `/api/tablet/`, y el resto desde `frontend/dist` con `try_files $uri /index.html`. El proxy de Vite hace lo mismo en desarrollo. Sin CORS.
+  - **i18n**: solo español, sin librería. Centralizados solo el mapa `code → texto` de los errores (el `message` de la API nunca se enseña) y el formato con `Intl` `es-ES` y `timeZone: 'Europe/Madrid'` siempre; los céntimos como euros. `<html lang="es">`.
+  - **Sesión** (ADR 0014): el JWT en `localStorage`; CSP estricta en Nginx (`default-src 'self'`; `script-src 'self' https://accounts.google.com https://js.stripe.com`; `frame-src https://accounts.google.com https://js.stripe.com https://hooks.stripe.com`; `connect-src 'self'`; sin inline) y `Referrer-Policy: same-origin` (el token de recuperación va en la URL); nunca `dangerouslySetInnerHTML`. El `device_token` de la tablet, también en `localStorage` con su propia clave.
+  - **Login**: una pantalla para todos los roles: email y contraseña, Google Identity Services (`id_token` → `POST /auth/google`) y, con `mfa_required`, el paso del código (TOTP o de recuperación); el `mfa_token` solo en memoria, y `invalid_mfa_token` vuelve al paso 1. Errores por `code` (`invalid_credentials`, `invalid_google_token`, `link_required`, `minor_cannot_register`…). Cada rol va a su inicio; el admin, a una pantalla de espera hasta B19 (configurar el MFA es de B19). Si había una ruta pendiente, se vuelve a ella.
+  - **Cerrar sesión** (ADR 0014), en orden: (1) `getSubscription()` y, si hay, `DELETE /me/push-subscriptions`; (2) `unsubscribe()`; (3) borrar el token; (4) `queryClient.clear()`; (5) `/login`. Si (1) falla se sigue. Un `401 invalid_token|missing_token` o un `exp` vencido al abrir (leído sin verificar) hacen (2)–(5) con «tu sesión ha caducado». El evento `storage` cierra todas las pestañas. Sin refresh ni aviso de «caduca pronto».
+  - **Caché y offline** (ADR 0015): el Service Worker (`vite-plugin-pwa`, `injectManifest`, `sw.ts` propio) solo precachea el esqueleto y no intercepta `/api/*`; Nginx pone `Cache-Control: no-store` en `/api/`; TanStack Query solo en memoria. Offline: «sin conexión» y reintentar, sin escrituras en cola. Versión nueva: aviso «actualizar», nunca activación sola.
+  - **Push** (ADR 0011): solo alumno y tutor. El permiso se pide desde una tarjeta con botón (Inicio y Cuenta), nunca al abrir; en iOS sin instalar, cómo instalar; denegado, «te avisaremos por email»; `503 push_disabled`, nada. Al abrir con sesión y permiso: `getSubscription()`; si existe, se compara su `applicationServerKey` con `GET /push/vapid-public-key` (distinta → `unsubscribe()` y suscribir) y se hace `POST` (upsert que reafirma de quién es); si no existe, no se suscribe solo (vuelve la tarjeta). El Service Worker muestra `title` y `body` del backend con `tag` y el icono de la academia, sin añadir nada; al tocarla, enfoca una ventana abierta y navega a su `url`, o abre una. `pushsubscriptionchange`: nada (sin token); se resincroniza al abrir.
+  - **Selector de sujeto** (`CONTEXT.md`): en las pantallas con `profile_id`. Un tutor (rol), entre sus hijos; un alumno con hijos, él y ellos; sin `pending_claim`. La pantalla envía siempre el `profile_id` del sujeto activo y pinta la respuesta plana. Vive en memoria y en la URL (`?para=<id>`), nunca en `localStorage`. El check-in no lo usa.
+  - **Profesor**: `GET /professor/sessions/:id/health` queda auditado: solo se pide al tocar «Ver fichas de salud» (sesión de hoy no cancelada), con `gcTime: 0` y sin refetch al enfocar; desaparece al salir.
+  - **Tablet**: la misma app en `/tablet`, sin login de usuario. SSE con `fetch` (lector propio de `feed` y `revoked`, sin dependencia), reconexión con espera creciente de 1 s a 30 s. El QR (`qrcode`) se oculta si pasan `expires_in` segundos sin `feed`. `revoked` o `401` borran el token. Screen Wake Lock si existe.
+  - **UI**: las de `docs/pantallas-b18.md` (solo español; nunca salud, edad ni fecha de nacimiento fuera de la ficha, las fichas del día del profesor y la fecha de nacimiento en «Mis datos» y en un hijo; un hijo nunca en Comunidad; móvil primero, 44 px, AA; Dragon Ball como inspiración, sin su propiedad intelectual).
+  - **Dependencias** del frontend: las del stack, `vite-plugin-pwa`, `qrcode`, una librería para leer el QR con la cámara (`qr-scanner` o `@zxing/browser`, se elige en B18.2: `BarcodeDetector` no existe en Safari de iOS), Stripe.js (3DS) y Vitest. Ninguna más sin decidirlo.
+- **Sub-bloques** (en orden; cada uno en su chat, con su checklist):
+  - **B18.0 — Huecos de backend** (Opus, medio; no necesita el diseño visual):
+    - `GET /me` → `{ id, role, display_name, email, birth_date, has_password }` (por el `client` RLS: `auth_credentials_select_self_or_admin` ya deja leer la propia fila).
+    - `PATCH /me` `{ display_name?, birth_date? }`: `display_name` no vacío; `birth_date` solo si está vacía (`409 birth_date_already_set`) y de un adulto (`400 minor_cannot_register`, `invalid_birth_date`).
+    - `GET /me/health?profile_id=` → `{ health }` o `{ health: null }`, del propio perfil o de un hijo (`403 not_guardian`); los mismos campos que escribe `POST /me/health`.
+    - **Recuperar contraseña** (migración `025`): tabla `password_resets (id, profile_id, token_hash, expires_at, used_at, created_at)` sin acceso para `app_user`, y funciones `SECURITY DEFINER` (owner `service_role`) para crear y consumir, de modo que el `servicePool` de login siga siendo la única excepción. `POST /auth/password/forgot { email }` → siempre `204` (no revela si existe); si existe, token aleatorio de 32 bytes, guardado solo su SHA-256, 1 h, un solo uso, que anula los anteriores del perfil; el email (`${APP_URL}/reset-password?token=…`) se envía con `send` directamente, no por el outbox (que compone después y obligaría a guardar el token en claro). `POST /auth/password/reset { token, password }` → `204`; `400 invalid_reset_token` (caducado, usado o inexistente), `weak_password`. Un perfil solo con Google puede así ponerse contraseña. El rate limit, en B20.
+    - **Calendario**: `GET /sessions/calendar` acepta `profile_id` de quien sea tutor de ese perfil (alumno o tutor, `is_guardian_of`) y responde plano para ese sujeto; si no lo es, `403 not_guardian`. Sin `profile_id`, como hoy.
+    - `docs/api.md` (rutas nuevas, quitar los huecos resueltos), `contexto-proyecto.md` y `db-architecture.md` (`025`).
+  - **B18.1 — Base y sesión** (Opus, medio): `frontend/` (Vite, React, TS, Tailwind v4, coss ui con el sistema de diseño), router y layouts por rol, cliente de la API (`/api`, errores por `code`, `401`, `booking_conflict_retry`), mapa de errores y formato de fechas e importes, login (con MFA y Google), registro, recuperar contraseña, sesión y cierre (con los pasos del push, que sin Service Worker no hacen nada), selector de sujeto, pantalla de espera del admin, `build:frontend` y `deploy/nginx.conf` (`/api/`, `try_files`, `proxy_buffering off`, CSP, `Referrer-Policy`, `no-store`).
+  - **B18.2 — Alumno y tutor** (Sonnet, alto): Completar perfil, Inicio, Calendario, Reservas y check-in, Progreso y Comunidad, Cuenta (mis datos, perfil público, hijos, ficha de salud, acuerdos).
+  - **B18.3 — Cuota** (Opus, medio: Stripe): `/billing` entero (contratar con la cobertura, subir y bajar de plan, cambiar de disciplina, seguro con 3DS, Portal, `success` con reintentos, `cancel`, cambio de pagador).
+  - **B18.4 — Profesor** (Sonnet, alto): sesiones, lista, cierre, corrección, fichas de salud, informes.
+  - **B18.5 — Tablet** (Sonnet, alto): vinculación, lector del SSE, QR, estados, wake lock.
+  - **B18.6 — PWA y push** (Opus, medio): manifest e iconos, Service Worker (precaché, aviso de versión nueva), tarjeta y permiso, comparar la clave VAPID, `push` y `notificationclick`, prueba manual de un push real.
+- **Tests**:
+  - **B18.0** (`test:account`, nuevo; como `app_user` por HTTP): `GET`/`PATCH /me` (nombre vacío, `birth_date` ya puesta, menor); `GET /me/health` propio, de un hijo y de un perfil ajeno (`403`); recuperar contraseña: `204` con un email inexistente, el token vale una vez, caduca, el anterior queda anulado al pedir otro, se guarda solo el hash, y la contraseña nueva entra por `/auth/login`; un alumno con un hijo pide el calendario con `profile_id` del hijo y ve `covered` y `booking` planos (**falla hoy**), y con un `profile_id` ajeno, `403`. Regresión: `test:rls`, `test:calendar`, `test:minors`, `test:mfa`, `test:bookings`; `npm run lint`.
+  - **Frontend** (Vitest, solo lógica): el lector del SSE (eventos partidos entre trozos, `revoked`), el mapa de errores (un `code` desconocido cae en el genérico), leer `exp` del JWT, el orden del cierre de sesión con el push simulado (y que sigue si el `DELETE` falla) y el formato de fechas e importes en Madrid (una sesión a las 23:30 del 31 en un navegador en UTC).
+  - **Pantallas**: checklist manual por sub-bloque contra la API local con los estados de `docs/pantallas-b18.md`. En cada sub-bloque, `typecheck`, `lint` y `build:frontend` sin errores.
+  - El E2E con navegador (Playwright), en B20.
+- **Fuera de alcance**:
+  - el panel admin y sus huecos (usuarios, ficha de alumno, `GET` de los ajustes, `audit_log`, entregas fallidas, cambios de pagador caducados, lista de sesiones del admin) y configurar el MFA (B19);
+  - verificar el email, cambiar el email o la contraseña con sesión (→ `MEJORAS.md`);
+  - reclamar el perfil al cumplir 18 (bloque propio; la UI lo muestra en solo lectura);
+  - plazas libres de una sesión (la RLS no deja contar reservas ajenas), historial de recibos (lo da el Portal), eventos;
+  - otros idiomas, cachear datos offline, cola de escrituras, cookie `httpOnly` (→ B20 si hace falta);
+  - rate limiting y E2E (B20).
 - **Checklist de cierre**:
-  - [ ] Instalable.
-  - [ ] Offline básico.
-  - [ ] **Aviso de re-firma pendiente al alumno** (B4.5.1) visible en la PWA.
-  - [ ] **Push (B15, ADR 0011)**: pedir permiso y `POST /me/push-subscriptions`; al cerrar sesión, `DELETE /me/push-subscriptions` **antes** de borrar el token (si no, el móvil sigue recibiendo los avisos del usuario anterior); al abrir, comparar la clave de `GET /push/vapid-public-key` y volver a suscribirse si cambió; el Service Worker muestra la notificación con su `tag` y abre su `url`. Prueba manual en Chrome de un push real.
-  - [ ] Build reproducible (`npm run build:frontend` o equivalente, a decidir aquí).
-  - [ ] **Decidir i18n antes de empezar el frontend** (hoy solo español, también los avisos de B10.6): añadirlo después obliga a repasar cada pantalla.
+  - [ ] B18.0: `GET`/`PATCH /me`, `GET /me/health`, recuperar contraseña (`025`) y `profile_id` del tutor en el calendario, con `test:account` y la regresión.
+  - [ ] B18.1: login (email, Google, MFA), registro, recuperar contraseña, cierre de sesión en orden, selector de sujeto, `build:frontend` reproducible y `deploy/nginx.conf` con `/api/`, CSP y `no-store`.
+  - [ ] B18.2: pantallas del alumno y del tutor con sus estados, incluido el **aviso de acuerdo pendiente (re-firma)** visible en Inicio y en `/agreements`.
+  - [ ] B18.3: cuota completa, con 3DS y la vuelta de Stripe.
+  - [ ] B18.4: pantallas del profesor; las fichas de salud solo al tocar y sin caché.
+  - [ ] B18.5: tablet vinculada, con QR que se oculta sin conexión y revocación.
+  - [ ] B18.6: instalable (Android e iOS); offline básico (abre y muestra «sin conexión»); push: permiso, `POST`, comparar la clave VAPID al abrir, `DELETE` antes de borrar el token, notificación con su `tag` que abre su `url`; prueba manual en Chrome de un push real.
+  - [ ] i18n decidido: solo español (hecho en el diseño).
+  - [ ] Tests de Vitest de la lógica; `typecheck`, `lint` y `build:frontend` en verde.
 
 ### B19 — Panel admin (métricas, usuarios, auditoría, morosos) — Pendiente
 - **Objetivo**: panel admin con métricas, usuarios, auditoría y morosos.
