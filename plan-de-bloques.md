@@ -406,7 +406,11 @@
   - **En una sesión pasada, `cancel_session_bookings` crea avisos que nacen caducados** (`expires_at` = inicio): filas y entregas que el worker deja `skipped`. La retroactiva **no avisa**.
   - **Desactivar una disciplina no retira sus clases ni cancela sus sueltas**, aunque `CONTEXT.md` lo dice: `updateDiscipline` solo cambia `is_active`. Sus sesiones siguen programadas sin que nadie pueda reservarlas (`covers` exige disciplina activa) y la lista de espera se vacía con `no_coverage`. **Entra en B6.1.**
   - `CONTEXT.md` decía «se puede deshacer mientras la sesión no haya pasado»: **se precisa** a «no ha empezado» (después ya no se reserva).
-  - `class_sessions` no guarda el valor de su clase en cada fecha, salvo `slot`. **Deshacer un ajuste usa lo que dice hoy la clase** (ver Reglas).
+  - `class_sessions` no guarda lo que dice su clase para ella, salvo `slot`: con solo la fila de la clase, tras un cambio de clase desde una fecha futura, deshacer el ajuste de una sesión anterior a esa fecha tomaría el valor nuevo y no el de sus vecinas. **Se añaden `class_trainer_id`, `class_duration_min`, `class_capacity` y `class_location`**, como `slot` (ver Reglas).
+  - **Fixtures que se rompen** (decidido arreglarlos en B6.1):
+    - el `REVOKE UPDATE` rompe `test-classes.js:98` y `:112` (esperan `rowCount 0`; ahora, `permission denied`) y `test-attendance.js:170` y `:196-197`;
+    - el `CHECK` de `cancelled_at` rompe los que cancelan sin `cancelled_at`, también con `servicePool`: `test-progress.js:89`, `:121` y `:165`, `test-session-changes.js:178` y `:295`, y los helpers que insertan sesiones con `status 'cancelled'` (`test-calendar`, `test-bookings`, `test-attendance`);
+    - los que insertan sesiones con `class_id` necesitan los `class_*`, como pasó con `slot` en B7.1.
   - Después de esto, el `UPDATE` de `class_sessions` para `app_user` ya no lo usa ninguna ruta: **se revoca** y se borra la política `class_sessions_update_admin`, para que toda escritura sobre una sesión existente pase por funciones, como en `bookings`. El `INSERT` se queda (generación y sueltas).
 - **Reglas** (decididas 2026-10-31):
   - **Sesión suelta** (`createSession`):
@@ -429,13 +433,17 @@
     - Vuelve con los valores que tiene: los que escribió un cambio de clase mientras estaba cancelada ya son los vigentes (B7.1 los actualizaba para esto). No toca `changed_at` ni promociona: no queda ninguna reserva. Las reservas no vuelven.
     - **Aviso `notice.session_restored`** a cada reserva o espera anulada **por esa cancelación** (`cancel_reason = 'session_cancelled'` y `cancelled_at` = el `cancelled_at` de la sesión), al alumno o a sus tutores, sin el admin. Título «Sesión recuperada». Texto: «BJJ Fundamentos, mié, 5 nov, 18:30 (Lucía): la academia ha recuperado la sesión. Si quieres ir, vuelve a reservar». `url` a `APP_URL/bookings`. Caduca al inicio, como todo aviso de reservas. Solo español; nunca salud, edad ni fecha de nacimiento.
   - **Deshacer un ajuste** (`reset_session(p_session, p_fields)`):
-    - Por campo: `trainer_id`, `starts_at`, `duration_min`, `capacity` y `location`. El campo sale de `adjusted_fields` y toma lo que dice **hoy** su clase (`classes.trainer_id`, `duration_min`, `capacity`, `location`). `starts_at` vuelve a `slot`.
-    - Límite aceptado: tras un cambio de clase desde una fecha futura, una sesión ajustada anterior a esa fecha toma el valor nuevo de la clase y no el que tienen sus vecinas. Para evitarlo habría que guardar por sesión el valor de clase de cada campo, como `slot`.
+    - Por campo: `trainer_id`, `starts_at`, `duration_min`, `capacity` y `location`. El campo sale de `adjusted_fields` y toma **lo que dice su clase para esa sesión**: `class_trainer_id`, `class_duration_min`, `class_capacity` o `class_location`; `starts_at` vuelve a `slot`.
     - `starts_at` con el `slot` ya pasado → 409 `slot_passed` (la sesión empezaría en el pasado).
     - Solo sesiones programadas que no han empezado (409 `session_not_adjustable`) y de una clase (409 `loose_session`).
     - Un campo que no está ajustado no hace nada (idempotente).
     - El resto lo hace `apply_session_change`: si cambia el inicio, la duración o el profesor, es un **cambio que afecta a la sesión** (`changed_at`, `notice.session_changed` y exención de tardía, B7.1); si sube el aforo, promoción. Aforo todo o nada: por debajo de las confirmadas, 409 `capacity_below_bookings` con `{ sessions }`, sin cambios. El `EXCLUDE` → 409 `trainer_overlap`.
     - `sessions_changed` es 1 también si solo sale el campo de `adjusted_fields` sin que cambie el valor: la sesión vuelve a seguir a su clase.
+  - **Valores de clase de la sesión** (`class_trainer_id`, `class_duration_min`, `class_capacity`, `class_location`): lo que dice su clase para esa sesión, como `slot` para el inicio. NULL en una suelta (`CHECK`: con `class_id`, los tres primeros `NOT NULL`; sin `class_id`, los cuatro NULL).
+    - Los escribe `generateSessions`, con los valores de la clase.
+    - Los escribe `change_class`, en **todas** las sesiones afectadas (`slot >= from`, sin empezar, también las canceladas) y **también en los campos ajustados**, que en los valores de la sesión no toca.
+    - `adjust_session` y `reset_session` no los tocan nunca, y en una sesión empezada no cambian.
+    - No se exponen en la API (`SESSION_SELECT` no los devuelve): los añadirá la UI del admin (B19) si los necesita.
   - **Retirar una clase** (`retire_class(p_class, p_date)`, sustituye al `UPDATE` de `retireClass`):
     - `date` por defecto hoy, nunca pasada y como mucho hoy + horizonte (400 `invalid_field`). Se mantienen 409 `already_retired` y 400 por fecha anterior al inicio de la clase.
     - `ends_on` = `date − 1`. Cancela las sesiones programadas con `slot >= date` (día de Madrid) que **no han empezado**, con `cancel_session_row` (con aviso).
@@ -452,11 +460,11 @@
     | `retire_class` | — | `FOR UPDATE` | `FOR UPDATE` por id | — |
     | `cancel_session` | — | — | `FOR UPDATE` | — (no comprueba solapes) |
     | `restore_session` | `FOR SHARE` (activa) | `FOR SHARE` (`ends_on`) | `FOR UPDATE` | — |
-    | `reset_session` | — | `FOR SHARE` (sus valores) | `FOR UPDATE` | `promote_waitlist` |
+    | `reset_session` | — | — (lee los `class_*` de la sesión) | `FOR UPDATE` | `promote_waitlist` |
     | Crear una suelta | `FOR SHARE` | — | `INSERT` | — |
 
     `class_id` y `discipline_id` de una sesión nunca cambian: se leen sin bloqueo para saber qué bloquear, y la sesión se relee ya bloqueada (una que otra transacción canceló mientras se esperaba se salta o da su 409).
-  - **Concurrencia**: `book_session`, `cancel_booking`, `attendance_session` (pasar lista, cerrar, corregir) y `check_in` bloquean primero la sesión, así que ante una cancelación esperan y luego reciben `session_not_bookable`, la reserva ya anulada o `session_cancelled`. Una suelta creada a la vez que se desactiva su disciplina, o una sesión recuperada a la vez que se retira su clase, espera a la otra y ve el valor confirmado.
+  - **Concurrencia**: `book_session`, `cancel_booking`, `attendance_session` (pasar lista, cerrar, corregir) y `check_in` bloquean primero la sesión, así que ante una cancelación esperan y luego reciben `session_not_bookable`, la reserva ya anulada o `session_cancelled`. Una suelta creada a la vez que se desactiva su disciplina, o una sesión recuperada a la vez que se retira su clase, espera a la otra y ve el valor confirmado. `reset_session` y `change_class` a la vez no se interbloquean (el deshacer solo bloquea su sesión) y aciertan en los dos órdenes: si el deshacer va primero, el cambio de clase pisa el campo ya no ajustado; si va después, lee los `class_*` nuevos.
   - **Auditoría** (en SQL, con el actor de `app.current_user_id`, salvo `session.create`, que va por `audit()`):
     - `session.create`: los campos;
     - `session.cancel`: `{ note, retroactive, cancelled_bookings, notified, attendance }`;
@@ -469,6 +477,8 @@
 - **Pasos**:
   1. **Migración `022`**:
      - `class_sessions`: `cancelled_at timestamptz`, `cancelled_by uuid` (FK `profiles`, `ON DELETE SET NULL`), `cancel_note text` (`CHECK char_length ≤ 500`). Backfill de las canceladas existentes, `cancelled_at = now()`, como `service_role` (RLS `FORCE`, como en 021). Después, `CHECK ((status = 'cancelled') = (cancelled_at IS NOT NULL))`. Las del backfill no avisan al recuperarse, porque `cancelled_at` no coincide con sus reservas; además son de clases retiradas y no se pueden recuperar.
+     - `class_sessions`: `class_trainer_id uuid` (FK `profiles`, `RESTRICT`, como `trainer_id`), `class_duration_min integer`, `class_capacity integer`, `class_location text`, con su `CHECK`. Backfill como `service_role`: en cada campo, el valor de la sesión si no está en `adjusted_fields`; si lo está, el actual de la clase. Solo puede ser impreciso en sesiones de desarrollo ajustadas antes de 022 con un cambio de clase de fecha futura: no hay datos de producción (B10.7).
+     - `change_class` con `CREATE OR REPLACE`: además escribe los `class_*` de cada sesión afectada (los cuatro, ajustados o no) cuando el patch trae el campo. `apply_session_change` los incluye en su `UPDATE` y en su comprobación de «sin cambios». El `down` vuelve a las de 021.
      - `cancel_session_row(s class_sessions, p_note text) RETURNS jsonb`, **interna**: la sesión ya está bloqueada. Hace el `status`, los campos del motivo y las reservas y esperas con `session_cancelled`, con `booking_notice(id, 'notice.session_cancelled')` solo si `s.starts_at > now()`. Toma la instantánea, borra las asistencias y vacía `attendance_closed_*`. Devuelve `{ cancelled_bookings, notified, attendance }`.
      - Públicas (`SECURITY DEFINER`, owner `service_role`, `REVOKE` de `PUBLIC`, `EXECUTE` para `app_user`; exigen admin), que devuelven `jsonb`. Errores con `RAISE` y el código como mensaje, como en 021:
        - `cancel_session(uuid, text)`: `{ retroactive, cancelled_bookings, notified }`. Errores: `session_not_found`, `session_cancelled` y `note_required`.
@@ -478,6 +488,7 @@
      - `DROP FUNCTION cancel_session_bookings`. `REVOKE UPDATE ON class_sessions FROM app_user` y `DROP POLICY class_sessions_update_admin`.
      - Con su `down` (probado up → down → up): recrea la `cancel_session_bookings` de 010, la política y el `GRANT UPDATE`, y borra columnas y funciones.
   2. **`services/sessions.js`**:
+     - `generateSessions`: los `class_*` en el `INSERT`, con los valores de la clase;
      - `createSession(client, { body, actorId })`;
      - `cancelSession(client, { id, body })`: `note` string recortada, ≤ 500;
      - `restoreSession(client, { id })`;
@@ -504,26 +515,27 @@
   - **Cancelar**: reservas y esperas anuladas con `session_cancelled`; un aviso por alumno, a los tutores de un hijo, sin el admin; `note` opcional y nunca en el texto del aviso; `cancelled_at/_by/note`; ya cancelada → 409; tras cancelar, `book_session` → `session_not_bookable`; libera el `EXCLUDE` del profesor.
   - **Retroactiva**: sesión en curso y sesión pasada con la lista cerrada (presentes y faltas): sin nota → 400; con nota, asistencias borradas, `attendance_closed_at` NULL, instantánea en `session.cancel`, sin avisos ni entregas; `student_progress` pierde las horas, la racha y el badge que daba esa sesión; la semana sin otra sesión celebrada pasa a saltarse; `monthly_ranking` baja; no se recupera (409 `session_started`).
   - **Recuperar**: vuelve a `scheduled` sin reservas; aviso `session_restored` solo a las anuladas por esa cancelación (no a quien canceló antes por su cuenta, ni a las de una cancelación anterior de la misma sesión); valores escritos por un cambio de clase mientras estaba cancelada; `class_retired`, `discipline_inactive`, `session_not_cancelled` y `session_started` → 409; profesor con otra sesión a esa hora → 409 `trainer_overlap`.
-  - **Deshacer un ajuste**: cada campo vuelve a la clase y sale de `adjusted_fields`; un cambio de clase posterior ya lo pisa; `starts_at` vuelve a `slot`; `slot` pasado → 409; profesor o hora distintos → `session_changed` y exención de tardía; aforo menor que las confirmadas → 409 sin cambios; aforo mayor → promoción; campo no ajustado → `sessions_changed: 0`; campo desconocido o `fields` vacío → 400; sesión cancelada o empezada → 409.
+  - **Valores de clase**: la generación los rellena; un cambio de clase los escribe también en los campos ajustados y en las canceladas, pero no en las empezadas; una suelta los tiene NULL; el `CHECK` rechaza una sesión de clase sin ellos.
+  - **Deshacer un ajuste**: cada campo vuelve a la clase y sale de `adjusted_fields`; tras un cambio de aforo desde una fecha futura, una sesión ajustada anterior a esa fecha vuelve al aforo de sus vecinas y no al nuevo; un cambio de clase posterior ya lo pisa; `starts_at` vuelve a `slot`; `slot` pasado → 409; profesor o hora distintos → `session_changed` y exención de tardía; aforo menor que las confirmadas → 409 sin cambios; aforo mayor → promoción; campo no ajustado → `sessions_changed: 0`; campo desconocido o `fields` vacío → 400; sesión cancelada o empezada → 409.
   - **Retirar**: `date` pasada → 400; retirar hoy con la sesión de hoy empezada la conserva (con su asistencia); las demás desde `date`, canceladas con aviso.
   - **Desactivar una disciplina**: retira sus clases (también una que aún no ha empezado), cancela sus sueltas futuras, conserva la de hoy ya empezada, avisos agrupados por alumno; volver a activarla no recupera nada.
-  - **Concurrencia** (dos conexiones y `pg_locks`, como `test:session-changes`): `cancel_session` y `book_session` a la vez, sin reserva confirmada en una sesión cancelada; `restore_session` y `retire_class` de su clase a la vez, sin una sesión programada después del `ends_on`; `reset_session` y `change_class` a la vez, sin interbloqueo.
+  - **Concurrencia** (dos conexiones y `pg_locks`, como `test:session-changes`): `cancel_session` y `book_session` a la vez, sin reserva confirmada en una sesión cancelada; `restore_session` y `retire_class` de su clase a la vez, sin una sesión programada después del `ends_on`; `reset_session` y `change_class` a la vez, sin interbloqueo y con el valor correcto en los dos órdenes.
   - **Permisos**: alumno, tutor y profesor → `42501` en SQL y 403 por HTTP (express en memoria); 401 sin sesión; `cancel_session_row` sin `EXECUTE` para `app_user`; `cancel_session_bookings` ya no existe; `UPDATE class_sessions` como admin `app_user` → `permission denied`.
-  - **Regresión**: `test:attendance` (su caso de cancelación retroactiva pasa a `cancel_session`), `test:bookings` (retirar una clase), `test:classes`, `test:session-changes`, `test:calendar`, `test:checkin`, `test:push`, `test:notices`, `test:progress`, `test:catalog`, `test:billing` y `test:rls`. Los fixtures que hacen `UPDATE class_sessions` como `app_user` pasan a `servicePool` o a las funciones. `npm run lint` sin errores.
+  - **Regresión**: `test:attendance` (su caso de cancelación retroactiva pasa a `cancel_session`), `test:bookings` (retirar una clase), `test:classes`, `test:session-changes`, `test:calendar`, `test:checkin`, `test:push`, `test:notices`, `test:progress`, `test:catalog`, `test:billing` y `test:rls`. Los fixtures de § Choques: los que hacen `UPDATE class_sessions` como `app_user` pasan a `servicePool` o a las funciones; los que cancelan, con `cancelled_at`; los que insertan sesiones de clase, con los `class_*`. Antes de cerrar, `grep` de `UPDATE class_sessions` y de `INSERT INTO class_sessions` en `scripts/` por si hay más. `npm run lint` sin errores.
   - **Manual**: con `PUSH_TRANSPORT=log`, cancelar y recuperar una sesión con una reserva y ver los dos payloads en `storage/push.log`.
 - **Fuera de alcance**:
   - recuperar una sesión de una clase retirada, o deshacer la retirada de una clase (se crea una suelta o una clase nueva);
   - recuperar una cancelación retroactiva;
-  - guardar por sesión el valor de clase de cada campo (límite de deshacer un ajuste);
   - el recálculo de agregados de B16 tras una cancelación retroactiva de un mes ya agregado (**B16** lo tendrá en cuenta);
   - aviso al profesor que pierde o recupera una sesión (el profesor no recibe avisos);
   - UI del admin (B19).
 - **Checklist de cierre**:
-  - [ ] Migración `022`: columnas del motivo, `cancel_session_row`, `cancel_session`, `restore_session`, `reset_session` y `retire_class`; `cancel_session_bookings` retirada y `UPDATE` revocado; `down` probado.
+  - [ ] Migración `022`: columnas del motivo y `class_*`, `change_class` y `apply_session_change` recreadas, `cancel_session_row`, `cancel_session`, `restore_session`, `reset_session` y `retire_class`; `cancel_session_bookings` retirada y `UPDATE` revocado; `down` probado.
   - [ ] Sesión suelta con sus validaciones.
   - [ ] Cancelar una sesión con aviso; cancelación retroactiva con motivo, sin aviso y con la instantánea de la asistencia.
   - [ ] Recuperar una sesión con aviso `session_restored`; 409 por clase retirada, disciplina inactiva y solape.
-  - [ ] Deshacer un ajuste por campo, con aviso, exención y aforo como en B7.1.
+  - [ ] Valores de clase por sesión (`class_*`) escritos por la generación y el cambio de clase.
+  - [ ] Deshacer un ajuste por campo, a lo que dice su clase para esa sesión, con aviso, exención y aforo como en B7.1.
   - [ ] Retirar una clase sin tocar el pasado; desactivar una disciplina retira sus clases y cancela sus sueltas.
   - [ ] Orden de bloqueos disciplina → clase → sesiones → alumnos.
   - [ ] Tests (`test:session-cancel` y regresión) y prueba manual con `PUSH_TRANSPORT=log`.
