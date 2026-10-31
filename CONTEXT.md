@@ -219,6 +219,15 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 - **Directorio**: la lista de los perfiles públicos de la academia, ordenada por nombre. Se busca por nombre y se filtra por papel y por disciplina, pero un filtro solo mira lo que cada perfil enseña: quien oculta sus disciplinas no aparece al filtrar por disciplina. Un perfil que no es público no se distingue de uno que no existe.
 - **Qué se ve de un perfil que no es público**: todo, el propio perfil, sus tutores (el de un hijo) y el admin. El profesor, solo el nombre de los alumnos que han reservado alguna de sus sesiones. El nombre del profesor de una sesión lo ve cualquiera con sesión iniciada, sea público o no: es parte del horario, no una ficha.
 
+## Informes
+
+- **Informe**: vista agregada de la actividad de la academia para el admin o el profesor. El profesor solo ve las sesiones que imparte y nunca nada de dinero. Ningún informe enseña salud, edad ni fecha de nacimiento.
+- **Foto diaria**: el estado de las suscripciones al cierre de cada día (cuántas activas, en periodo de gracia e impagadas, altas, bajas e ingreso mensual recurrente). Se toma una vez por la noche y no cambia nunca después: es lo que había ese día. Un día sin foto es un hueco («sin dato»); no se rellena después.
+  Lo demás (asistencia, ocupación, horas) no se fotografía: se calcula siempre sobre los datos actuales, así que una corrección o una cancelación retroactiva cambian también los informes pasados.
+- **Alta** y **baja** (en informes): una suscripción que se contrata o que termina (ver «Baja»). Un traspaso no es ni una baja ni un alta: la cobertura sigue.
+- **Ingreso mensual recurrente** (MRR): la suma de los precios de las suscripciones en vigor. Las impagadas no suman, ni el seguro.
+- **Ocupación**: plazas reservadas entre el aforo de las sesiones celebradas. Una reserva que acabó en falta ocupa igual; quién vino lo mide la asistencia.
+
 ## Avisos
 
 - **Aviso**: comunicación a uno o varios perfiles (sus **destinatarios**) de algo que les afecta: un cobro fallido, una reserva cancelada, una renovación… Queda registrado aunque no llegue a enviarse.
