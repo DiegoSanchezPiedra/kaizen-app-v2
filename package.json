@@ -27,6 +27,7 @@
     "test:progress": "dotenv -e .env -- node scripts/test-progress.js",
     "test:push": "dotenv -e .env -- node scripts/test-push.js",
     "test:session-changes": "dotenv -e .env -- node scripts/test-session-changes.js",
+    "test:session-cancel": "dotenv -e .env -- node scripts/test-session-cancel.js",
     "extend-horizon": "dotenv -e .env -- node scripts/extend-horizon.js",
     "sync-stripe-plans": "dotenv -e .env -- node scripts/sync-stripe-plans.js",
     "stripe-portal-config": "dotenv -e .env -- node scripts/stripe-portal-config.js",

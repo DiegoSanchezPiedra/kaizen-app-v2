@@ -43,8 +43,9 @@ const disc = (await servicePool.query(
 // Sesión a `offset` de ahora, 60 min. «today» empieza hace 5 min: falla si se ejecuta entre 00:00 y 00:05 de Madrid.
 async function session(trainer, offset, status = 'scheduled') {
   const { rows: [s] } = await servicePool.query(
-    `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status)
-     VALUES ($1, $2, now() + $3::interval, now() + $3::interval + interval '60 min', 60, 10, $4) RETURNING id`,
+    `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status, cancelled_at)
+     VALUES ($1, $2, now() + $3::interval, now() + $3::interval + interval '60 min', 60, 10, $4::session_status,
+             CASE WHEN $4::session_status = 'cancelled' THEN now() END) RETURNING id`,
     [disc, U[trainer], offset, status]);
   return s.id;
 }
@@ -54,6 +55,7 @@ const S = {
   tomorrow: await session('prof1', '1 day'),
   cancelled: await session('prof1', '-10 min', 'cancelled'),
   retro: await session('prof2', '-3 hours'),
+  closed: await session('prof1', '-50 hours'),
 };
 // Reservas directas: book_session no reserva sesiones empezadas.
 async function booking(s, k, status = 'confirmed') {
@@ -66,6 +68,14 @@ for (const k of ['alu1', 'alu2', 'child']) await booking('today', k);
 await booking('today', 'alu3', 'waitlisted');
 await booking('today', 'alu4', 'cancelled');
 for (const s of ['yesterday', 'tomorrow', 'cancelled', 'retro']) await booking(s, 'alu1');
+// Lista cerrada hace 49 h, fuera del plazo de corrección del profesor (app_user ya no hace UPDATE de class_sessions).
+await booking('closed', 'child');
+await servicePool.query(
+  `INSERT INTO attendance (session_id, student_id, booking_id, status, method, recorded_by)
+   SELECT session_id, student_id, id, 'absent', 'manual', $2 FROM bookings WHERE session_id = $1`, [S.closed, U.prof1]);
+await servicePool.query(
+  `UPDATE class_sessions SET attendance_closed_at = now() - interval '49 hours', attendance_closed_by = $2 WHERE id = $1`,
+  [S.closed, U.prof1]);
 
 const audits = async (c, action, sessionId) => {
   await as(c, U.admin, 'admin');
@@ -166,16 +176,14 @@ try {
       assert.deepEqual(log[0].changes, { student_id: U.alu2, from: 'absent', to: 'present', reason: 'llegó tarde' });
     });
     await run('plazo de corrección: el profesor fuera de plazo no corrige; el admin siempre', async () => {
-      await as(c, U.admin, 'admin');
-      await c.query(`UPDATE class_sessions SET attendance_closed_at = now() - interval '49 hours' WHERE id = $1`, [S.today]);
       await as(c, U.prof1, 'profesor');
-      await rejects(c, () => correct(c, 'today', 'child', 'present', 'x'), 403, 'correction_window_expired');
+      await rejects(c, () => correct(c, 'closed', 'child', 'present', 'x'), 403, 'correction_window_expired');
       await as(c, U.admin, 'admin');
-      assert.equal((await correct(c, 'today', 'child', 'present', 'aviso del tutor')).corrected_by, U.admin);
+      assert.equal((await correct(c, 'closed', 'child', 'present', 'aviso del tutor')).corrected_by, U.admin);
       await as(c, U.admin, 'admin');
       await c.query(`UPDATE academy_settings SET value = '72' WHERE key = 'attendance_correction_hours'`);
       await as(c, U.prof1, 'profesor');
-      assert.equal((await correct(c, 'today', 'child', 'absent', 'error del tutor')).status, 'absent');
+      assert.equal((await correct(c, 'closed', 'child', 'absent', 'error del tutor')).status, 'absent');
     });
     await run('RLS: alumno ve solo lo suyo, tutor lo del hijo; nadie escribe directo', async () => {
       await as(c, U.alu1, 'alumno');
@@ -193,8 +201,7 @@ try {
       await mark(c, 'retro', 'alu1', true);
       await closeAttendance(c, S.retro);
       await as(c, U.admin, 'admin');
-      await c.query(`UPDATE class_sessions SET status = 'cancelled' WHERE id = $1`, [S.retro]);
-      await c.query(`SELECT cancel_session_bookings($1)`, [S.retro]);
+      await c.query(`SELECT cancel_session($1, 'no se dio')`, [S.retro]);
       assert.deepEqual(await statusOf(c, 'retro'), {});
       const { rows: [s] } = await c.query(`SELECT attendance_closed_at FROM class_sessions WHERE id = $1`, [S.retro]);
       assert.equal(s.attendance_closed_at, null);

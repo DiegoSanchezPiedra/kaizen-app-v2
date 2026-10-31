@@ -113,8 +113,10 @@ async function looseSession(startsAt, { capacity = 5, trainer, minutes = 60 } = 
 }
 // Sesión de una clase ya empezada (hoy, hace 10 min), con su slot.
 const startedSession = async (k) => (await q(
-  `INSERT INTO class_sessions (class_id, discipline_id, trainer_id, starts_at, slot, ends_at, duration_min, capacity, status)
-   VALUES ($1, $2, $3, now() - interval '10 min', now() - interval '10 min', now() + interval '50 min', 60, 5, 'scheduled')
+  `INSERT INTO class_sessions (class_id, discipline_id, trainer_id, starts_at, slot, ends_at, duration_min, capacity, status,
+                               class_trainer_id, class_duration_min, class_capacity)
+   VALUES ($1, $2, $3, now() - interval '10 min', now() - interval '10 min', now() + interval '50 min', 60, 5, 'scheduled',
+           $3, 60, 5)
    RETURNING *`, [k.id, disc.id, k.trainer]))[0];
 async function bk(sessionId, studentId, status = 'confirmed') {
   const [b] = await q(`INSERT INTO bookings (session_id, student_id, booked_by, status) VALUES ($1, $2, $2, $3) RETURNING id`,
@@ -175,7 +177,7 @@ try {
     const k = await mkClass({ weeks: 4 });
     const [s0, s1, s2, s3] = k.s;
     const [p2, p3] = [await person('profesor'), await person('profesor')];
-    await q(`UPDATE class_sessions SET status = 'cancelled' WHERE id = $1`, [s2.id]); // también las canceladas
+    await q(`UPDATE class_sessions SET status = 'cancelled', cancelled_at = now() WHERE id = $1`, [s2.id]); // también las canceladas
     await adjust(s3.id, { trainer_id: p3 });
     const r = await change(k.id, { from: madridDay(s1.slot), start_time: '20:30', duration_min: 90, trainer_id: p2,
       capacity: 8, location: 'tatami 3' });
@@ -221,8 +223,9 @@ try {
     const ins = [];
     for (const d of [summer, winter]) {
       ins.push((await q(
-        `INSERT INTO class_sessions (class_id, discipline_id, trainer_id, starts_at, slot, ends_at, duration_min, capacity, status)
-         SELECT $1, $2, $3, t, t, t + interval '60 min', 60, 5, 'scheduled'
+        `INSERT INTO class_sessions (class_id, discipline_id, trainer_id, starts_at, slot, ends_at, duration_min, capacity, status,
+                                     class_trainer_id, class_duration_min, class_capacity)
+         SELECT $1, $2, $3, t, t, t + interval '60 min', 60, 5, 'scheduled', $3, 60, 5
            FROM (SELECT ($4::date + time '19:00') AT TIME ZONE '${TZ}' AS t) x RETURNING id`,
         [k.id, disc.id, k.trainer, d]))[0].id);
     }
@@ -292,7 +295,7 @@ try {
     const k = await mkClass({ weeks: 2 });
     const sx = await startedSession(k);
     await rejects(adjust(sx.id, { capacity: 9 }), 409, 'session_not_adjustable');
-    await q(`UPDATE class_sessions SET status = 'cancelled' WHERE id = $1`, [k.s[1].id]);
+    await q(`UPDATE class_sessions SET status = 'cancelled', cancelled_at = now() WHERE id = $1`, [k.s[1].id]);
     await rejects(adjust(k.s[1].id, { capacity: 9 }), 409, 'session_not_adjustable');
     await rejects(adjust(crypto.randomUUID(), { capacity: 9 }), 404, 'session_not_found');
     const l = await looseSession(inMin(3 * 24 * 60));

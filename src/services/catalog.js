@@ -123,7 +123,33 @@ export async function updateDiscipline(client, { id, body, actorId }) {
     await client.query(`SELECT revoke_open_discipline($1)`, [id]);
   }
   await audit(client, actorId, 'discipline.update', id, data);
+  if (before.is_active && data.is_active === false) {
+    return { ...(await getDiscipline(client, id)), ...(await retireDiscipline(client, id)) };
+  }
   return getDiscipline(client, id);
+}
+
+// Desactivar una disciplina (CONTEXT, B6.1): retira hoy sus clases (la que aún no ha empezado, antes de empezar) y
+// cancela sus sueltas que no han empezado, en orden de id (disciplina → clase → sesiones; la disciplina ya bloqueada).
+async function retireDiscipline(client, id) {
+  const { rows: classes } = await client.query(
+    `SELECT id, to_char(d, 'YYYY-MM-DD') AS d
+       FROM (SELECT id, ends_on, greatest((now() AT TIME ZONE 'Europe/Madrid')::date, starts_on) AS d
+               FROM classes WHERE discipline_id = $1) c
+      WHERE ends_on IS NULL OR ends_on >= d
+      ORDER BY id`, [id]);
+  // shortcut: sin callChange (services/sessions.js importa este módulo: sería un ciclo), una clase retirada o una suelta
+  // cancelada por otra transacción entre la lista y la llamada da 500 y nada se aplica; usar callChange si se rompe el ciclo.
+  let cancelled = 0;
+  for (const c of classes) {
+    cancelled += (await client.query(`SELECT retire_class($1, $2) AS r`, [c.id, c.d])).rows[0].r.cancelled_sessions;
+  }
+  const { rows: loose } = await client.query(
+    `SELECT id FROM class_sessions
+      WHERE discipline_id = $1 AND class_id IS NULL AND status = 'scheduled' AND starts_at > now()
+      ORDER BY id`, [id]);
+  for (const s of loose) await client.query(`SELECT cancel_session($1, NULL)`, [s.id]);
+  return { retired_classes: classes.length, cancelled_sessions: cancelled + loose.length };
 }
 
 // --- Planes ---

@@ -216,6 +216,11 @@ const SERVICE = {
     title: g.sessions.length === 1 ? 'Sesión cancelada' : 'Sesiones canceladas',
     body: one(g, 'la academia ha cancelado la sesión', 'la academia ha cancelado las sesiones'),
   }),
+  // Siempre una sesión: se recupera una por transacción, y un alumno solo tiene una reserva activa en cada sesión.
+  'notice.session_restored': (g) => ({
+    title: 'Sesión recuperada',
+    body: `${label(g.sessions[0])} (${g.student}): la academia ha recuperado la sesión. Si quieres ir, vuelve a reservar`,
+  }),
   'notice.booking_promoted': (g) => ({
     title: 'Tienes plaza',
     body: g.sessions.length === 1

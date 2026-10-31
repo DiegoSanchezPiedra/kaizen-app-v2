@@ -85,9 +85,12 @@ const klass = async (trainer, disc, endsOn = null) => (await servicePool.query(
    VALUES ($1, $2, 1, '18:00', 60, 10, CURRENT_DATE - 30, $3) RETURNING id`, [disc, U[trainer], endsOn])).rows[0].id;
 const K = { a: await klass('prof1', D.A), c: await klass('prof1', D.C, yearsAgo(0.01)), b: await klass('prof2', D.B) };
 const session = async (classId, disc, trainer, offset) => (await servicePool.query(
-  `INSERT INTO class_sessions (class_id, discipline_id, trainer_id, starts_at, slot, ends_at, duration_min, capacity, status)
+  `INSERT INTO class_sessions (class_id, discipline_id, trainer_id, starts_at, slot, ends_at, duration_min, capacity, status,
+                               class_trainer_id, class_duration_min, class_capacity)
    VALUES ($1, $2, $3, now() + $4::interval, CASE WHEN $1::uuid IS NOT NULL THEN now() + $4::interval END,
-           now() + $4::interval + interval '60 min', 60, 10, 'scheduled') RETURNING id`,
+           now() + $4::interval + interval '60 min', 60, 10, 'scheduled',
+           CASE WHEN $1::uuid IS NOT NULL THEN $3::uuid END, CASE WHEN $1::uuid IS NOT NULL THEN 60 END,
+           CASE WHEN $1::uuid IS NOT NULL THEN 10 END) RETURNING id`,
   [classId, disc, U[trainer], offset])).rows[0].id;
 const S = { future: await session(K.a, D.A, 'prof1', '2 days'), pastSub: await session(K.b, D.B, 'prof1', '-7 days') };
 await servicePool.query(

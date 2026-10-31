@@ -21,7 +21,7 @@ router.post('/classes', withRlsContext(async (req, client) => ({
 // Cambio de clase (B7.1) → { class, sessions_changed, notified, promoted }.
 router.patch('/classes/:id', withRlsContext((req, client) => updateClass(client, { id: req.params.id, body: req.body ?? {} })));
 router.post('/classes/:id/retire', withRlsContext(async (req, client) => ({
-  class: await retireClass(client, { id: req.params.id, date: req.body?.date, actorId: req.user.id }),
+  class: await retireClass(client, { id: req.params.id, date: req.body?.date }),
 })));
 
 export default router;

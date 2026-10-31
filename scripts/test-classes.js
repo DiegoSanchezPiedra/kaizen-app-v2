@@ -80,11 +80,11 @@ try {
       const before = (await c.query(
         `SELECT count(*)::int n FROM class_sessions WHERE class_id=$1 AND starts_at < $2::date::timestamp AT TIME ZONE 'Europe/Madrid'`,
         [cls.id, d])).rows[0].n;
-      const r = await retireClass(c, { id: cls.id, date: d, actorId: admin });
+      const r = await retireClass(c, { id: cls.id, date: d });
       assert.equal(r.cancelled_sessions + before, cls.sessions_created);
       const { rows: [{ n }] } = await c.query(`SELECT count(*)::int n FROM class_sessions WHERE class_id=$1 AND status='scheduled'`, [cls.id]);
       assert.equal(n, before);
-      await rejects(retireClass(c, { id: cls.id, date: d, actorId: admin }), 409, 'already_retired');
+      await sp(c, () => rejects(retireClass(c, { id: cls.id, date: d }), 409, 'already_retired')); // el error es de SQL
       assert.equal(await generateSessions(c, cls.id), 0); // no regenera tras retirar
     });
 
@@ -95,7 +95,7 @@ try {
       const { rows } = await c.query(`SELECT DISTINCT trainer_id FROM class_sessions`);
       assert.deepEqual(rows.map((r) => r.trainer_id), [prof1]); // RLS, sin filtro explícito
       await rejects(getTrainerSession(c, prof1, crypto.randomUUID()), 404, 'session_not_found');
-      assert.equal((await c.query(`UPDATE class_sessions SET capacity = 1`)).rowCount, 0);
+      await sp(c, () => assert.rejects(c.query(`UPDATE class_sessions SET capacity = 1`), /permission denied/));
       await sp(c, () => assert.rejects(c.query(`DELETE FROM class_sessions`), /permission denied/));
     });
     await run('rango > 92 días se ignora (devuelve vacío)', async () => {
@@ -109,7 +109,7 @@ try {
       assert.ok((await c.query(`SELECT 1 FROM classes`)).rowCount >= 2);
       await sp(c, () => assert.rejects(c.query(`INSERT INTO classes (discipline_id, trainer_id, weekday, start_time, duration_min, capacity)
         VALUES ($1,$2,1,'10:00',60,5)`, [disc.id, prof1]), /row-level security/));
-      assert.equal((await c.query(`UPDATE class_sessions SET capacity = 1`)).rowCount, 0);
+      await sp(c, () => assert.rejects(c.query(`UPDATE class_sessions SET capacity = 1`), /permission denied/));
     });
     await run('sin sesión (uid NULL) no ve nada', async () => {
       await c.query(`SELECT set_config('app.current_user_id', NULL, true)`);

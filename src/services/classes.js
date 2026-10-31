@@ -71,30 +71,15 @@ export async function updateClass(client, { id, body }) {
   return { class: await getClass(client, id), ...counts };
 }
 
-// Retirar: la clase acaba el día anterior a `date` (por defecto hoy) y se cancelan sus sesiones desde esa fecha.
-// Por slot, como el cambio de clase y la generación: una sesión ajustada a otro día sigue el día que le tocaba.
-export async function retireClass(client, { id, date, actorId }) {
-  if (date !== undefined && !isDate(date)) throw invalid('date', 'date debe ser YYYY-MM-DD');
-  const { rows: [c] } = await client.query(
-    `SELECT to_char(d, 'YYYY-MM-DD') AS d,
-            (ends_on IS NOT NULL AND ends_on <= d - 1) AS already,
-            (d - 1 < starts_on - 1) AS before_start
-       FROM (SELECT starts_on, ends_on, COALESCE($2::date, (now() AT TIME ZONE 'Europe/Madrid')::date) AS d
-               FROM classes WHERE id = $1 FOR UPDATE) x`, [id, date ?? null]
-  );
-  if (!c) throw httpError(404, 'class_not_found', 'Clase no encontrada');
-  if (c.already) throw httpError(409, 'already_retired', 'La clase ya termina antes de esa fecha');
-  if (c.before_start) throw invalid('date', 'date anterior al inicio de la clase');
-  await client.query(`UPDATE classes SET ends_on = $2::date - 1 WHERE id = $1`, [id, c.d]);
-  const { rowCount, rows } = await client.query(
-    `UPDATE class_sessions SET status = 'cancelled'
-      WHERE class_id = $1 AND status = 'scheduled'
-        AND slot >= $2::date::timestamp AT TIME ZONE 'Europe/Madrid'
-      RETURNING id`,
-    [id, c.d]
-  );
-  // Cancelar una sesión anula sus reservas y esperas con aviso (CONTEXT).
-  await client.query(`SELECT cancel_session_bookings(id) FROM unnest($1::uuid[]) id`, [rows.map((r) => r.id)]);
-  await audit(client, actorId, 'class.retire', id, { from: c.d, cancelled_sessions: rowCount });
-  return { ...(await getClass(client, id)), cancelled_sessions: rowCount };
+// Retirar (CONTEXT): la clase acaba el día anterior a `date` (por defecto hoy, nunca pasado ni más allá del horizonte)
+// y retire_class (022) cancela, con aviso, sus sesiones con slot desde esa fecha que no han empezado.
+export async function retireClass(client, { id, date }) {
+  if (date !== undefined) {
+    const t = today();
+    if (!isDate(date) || date < t || date > addDays(t, await getHorizonDays(client))) {
+      throw invalid('date', 'date debe ser YYYY-MM-DD, desde hoy y como mucho hoy + horizonte');
+    }
+  }
+  const { cancelled_sessions } = await callChange(client, `SELECT retire_class($1, $2) AS r`, [id, date ?? null]);
+  return { ...(await getClass(client, id)), cancelled_sessions };
 }

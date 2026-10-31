@@ -83,8 +83,9 @@ await servicePool.query(`INSERT INTO subscription_disciplines VALUES ($1, $2)`, 
 // Sesión a `offset` de ahora (intervalo SQL), 60 min.
 async function session(key, trainer, offset, { capacity = 5, d = disc.A, status = 'scheduled' } = {}) {
   const { rows: [s] } = await servicePool.query(
-    `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status)
-     VALUES ($1, $2, now() + $3::interval, now() + $3::interval + interval '60 min', 60, $4, $5) RETURNING id`,
+    `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status, cancelled_at)
+     VALUES ($1, $2, now() + $3::interval, now() + $3::interval + interval '60 min', 60, $4, $5::session_status,
+             CASE WHEN $5::session_status = 'cancelled' THEN now() END) RETURNING id`,
     [d, U[trainer], offset, capacity, status]);
   return s.id;
 }

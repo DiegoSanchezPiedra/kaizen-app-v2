@@ -58,9 +58,13 @@ const classB = (await servicePool.query(
   `INSERT INTO classes (discipline_id, trainer_id, weekday, start_time, duration_min, capacity)
    VALUES ($1, $2, 1, '18:00', 60, 10) RETURNING id`, [D.B, U.prof1])).rows[0].id;
 const session = async (disc, trainer, offset, status = 'scheduled', classId = null) => (await servicePool.query(
-  `INSERT INTO class_sessions (class_id, discipline_id, trainer_id, starts_at, slot, ends_at, duration_min, capacity, location, status)
+  `INSERT INTO class_sessions (class_id, discipline_id, trainer_id, starts_at, slot, ends_at, duration_min, capacity, location, status,
+                               cancelled_at, class_trainer_id, class_duration_min, class_capacity, class_location)
    VALUES ($1, $2, $3, now() + $4::interval, CASE WHEN $1::uuid IS NOT NULL THEN now() + $4::interval END,
-           now() + $4::interval + interval '60 min', 60, 10, 'tatami 1', $5) RETURNING id`,
+           now() + $4::interval + interval '60 min', 60, 10, 'tatami 1', $5::session_status,
+           CASE WHEN $5::session_status = 'cancelled' THEN now() END,
+           CASE WHEN $1::uuid IS NOT NULL THEN $3::uuid END, CASE WHEN $1::uuid IS NOT NULL THEN 60 END,
+           CASE WHEN $1::uuid IS NOT NULL THEN 10 END, CASE WHEN $1::uuid IS NOT NULL THEN 'tatami 1' END) RETURNING id`,
   [classId, disc, U[trainer], offset, status])).rows[0].id;
 const S = {
   a: await session(D.A, 'prof1', '2 days'),

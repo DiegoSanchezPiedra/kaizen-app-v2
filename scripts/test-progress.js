@@ -86,7 +86,7 @@ const as = (uid, role) =>
 const F = fixtures(c);
 try {
   await c.query('BEGIN');
-  await c.query(`UPDATE class_sessions SET status = 'cancelled' WHERE status = 'scheduled'`);
+  await c.query(`UPDATE class_sessions SET status = 'cancelled', cancelled_at = now() WHERE status = 'scheduled'`);
   const admin = await F.person('admin');
   const X = await F.discipline('X');
   const Y = await F.discipline('Y');
@@ -118,7 +118,7 @@ try {
     const s = await F.person('alumno');
     for (const k of [4, 3, 1]) await F.attend(s, X, wk(k));
     await F.session(X, `${wk(2)} + interval '2 hours'`, 60); // sesión cancelada: no cuenta como celebrada
-    await c.query(`UPDATE class_sessions SET status = 'cancelled' WHERE starts_at = ${wk(2)} + interval '2 hours'`);
+    await c.query(`UPDATE class_sessions SET status = 'cancelled', cancelled_at = now() WHERE starts_at = ${wk(2)} + interval '2 hours'`);
     assert.deepEqual(await streak(s), { current: 3, best: 3 });
   }));
   await run('racha: la semana en curso sin presente no la rompe', () => sp(async () => {
@@ -162,7 +162,7 @@ try {
     await c.query(`UPDATE attendance SET status = 'absent' WHERE session_id = $1`, [S[2]]);
     assert.deepEqual(await streak(s), { current: 1, best: 1 });
     await c.query(`UPDATE attendance SET status = 'present' WHERE session_id = $1`, [S[2]]);
-    await c.query(`UPDATE class_sessions SET status = 'cancelled' WHERE id = $1`, [S[1]]);
+    await c.query(`UPDATE class_sessions SET status = 'cancelled', cancelled_at = now() WHERE id = $1`, [S[1]]);
     assert.deepEqual(await streak(s), { current: 2, best: 2 }); // la semana 1 ya no tiene sesiones: se salta
   }));
 
