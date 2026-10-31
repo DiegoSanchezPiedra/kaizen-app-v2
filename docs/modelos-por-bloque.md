@@ -1,6 +1,6 @@
 # Modelo y effort por bloque
 
-> Guía para elegir modelo de Claude y nivel de *effort* en cada chat de trabajo. Recomendación del 2026-10-30, tras B11.
+> Guía para elegir modelo de Claude y nivel de *effort* en cada chat de trabajo. Recomendación del 2026-10-30, tras B11. Revisada el 2026-10-31, tras B16: B17 sube a Opus en el diseño y el frontend se diseña en Claude Design.
 > Es orientativa: si un bloque se complica (aparece dinero, RLS o datos de menores), se sube.
 
 ## Regla general
@@ -23,16 +23,21 @@ Qué lo baja: especificación cerrada en el plan, código que sigue un patrón y
 
 | Bloque | Diseño (grill) | Implementación | Por qué |
 |---|---|---|---|
-| **B6** — calendario del alumno (lo que falta) | — (sin diseño nuevo) | Sonnet, medio | Lectura sobre sesiones y reservas que ya existen. |
 | **B10.7** — migración de los clientes de maat | Opus, **xhigh** | Opus, **alto** | Cuenta de producción de un tercero con clientes pagando, dinero real y ajustes de toda la cuenta (reintentos, emails, descriptor). Un error no se deshace. |
-| **B13** — perfiles públicos y directorio | Opus, alto | Opus, medio | Privacidad: los hijos nunca son públicos, la salud no puede filtrarse y hay que decidir qué ve el profesor. Es RLS pura. |
-| **B14** — racha, horas, badges, ranking opt-in y disciplina abierta | Opus, medio | Opus, medio | Diseñado: toca `covers()` (reservas y cobros), amplía la vista pública `public_profiles`, añade funciones `SECURITY DEFINER` que leen asistencia de menores, y las reglas de semana y mes dependen de la hora de Madrid. |
-| **B15** — push | Opus, alto | Opus, **alto** | Diseñado: se engancha al outbox (ADR 0008, 0011) y a `booking_notice` en SQL; RLS con traspaso del dispositivo por una función `SECURITY DEFINER`, SSRF (endpoint del cliente) y destinatarios de la re-firma con menores. Toca seguridad, así que sube. |
-| **B16** — agregaciones de informes y cron nocturno | Opus, medio | Sonnet, alto | SQL de agregación con rendimiento e idempotencia del cron; lógica sencilla pero fácil de equivocar en los bordes (zonas horarias, días sin datos). |
-| **B17** — endpoints de informes | Sonnet, medio | Sonnet, medio | Lectura sobre B16; solo hay que cuidar quién ve qué. |
-| **B18** — PWA (manifest, Service Worker) | Sonnet, medio | Sonnet, medio | Estándar web; la caché del Service Worker es la única parte delicada. |
-| **B19** — panel admin | Opus, alto | Sonnet, alto | Bloque grande que junta todo (morosos, entregas fallidas, auditoría, cambios de pagador caducados). El diseño decide qué entra; la implementación es mayormente de lectura. |
+| **B17** — endpoints de informes | Opus, medio | Sonnet, medio | Revisado tras B16 (2026-10-31): no es solo leer la foto. Decide qué ve el profesor (sus sesiones y sustituciones, nada de dinero, ¿nombres de alumnos?), si lee por RLS o por funciones `SECURITY DEFINER`, la asistencia de menores y los bordes de la ocupación (canceladas, retroactivas, sueltas, huecos, hora de Madrid). Con el plan cerrado, implementarlo es lectura con tests. |
+| **B18** — frontend PWA (alumno, tutor, profesor, tablet) | Técnico: Opus, alto. Visual: Claude Design (ver abajo) | Opus, medio (sesión, push, Service Worker); Sonnet, alto (pantallas) | Es el primer frontend: decide el stack, el build, dónde vive el token, el i18n y la caché del Service Worker (no debe cachear respuestas con datos de otro usuario ni de salud). Un error aquí se repite en todas las pantallas. Muy grande: conviene partirlo en el diseño (base y sesión, alumno y tutor, profesor, tablet). |
+| **B19** — panel admin | Técnico: Opus, alto. Visual: Claude Design, con el sistema de diseño de B18 | Sonnet, alto; Opus, medio en la gestión de usuarios y roles | Bloque grande que junta todo (morosos, entregas fallidas, auditoría, cambios de pagador caducados, documentos legales, informes de B17). El diseño decide qué entra; casi todo es lectura, pero cambiar roles y perfiles es escritura con permisos. |
 | **B20** — hardening | Opus, **xhigh** para la auditoría de RLS y seguridad | Opus, alto (rate limiting); Sonnet, medio (backups) | Es la revisión de todo lo anterior: conviene la máxima profundidad en la parte de seguridad. |
+
+Cerrados (ya no hace falta elegir): B6, B13, B14, B15 y B16.
+
+## Frontend con Claude Design
+
+El frontend (B18, B19) se diseña visualmente en Claude Design y se trae a Claude Code por su MCP y sus skills. Cada bloque con pantallas tiene tres fases, cada una en su chat:
+
+1. **Técnico** (Claude Code, grill; modelo de la tabla): qué pantallas hay, qué endpoint usa cada una, estados (cargando, vacío, error, sin permiso, perfil incompleto, sin cobertura) y lo que no se ve (token, push, caché). Sale en `plan-de-bloques.md`, como el resto.
+2. **Visual** (Claude Design): primero un **sistema de diseño** único para toda la app (antes de B18), y después las pantallas del bloque con él. Se le pasa la lista de pantallas y estados de la fase 1, y las reglas que también valen en la UI: solo español, nada de salud, edad ni fecha de nacimiento fuera de donde ya se permite, y el push en pantalla de bloqueo sin datos sensibles.
+3. **Implementación** (Claude Code, modelo de la tabla): lee el diseño por el MCP y lo implementa contra la API existente. Si el diseño pide un dato que la API no da, se para y se decide en la fase 1 (no se añade un endpoint improvisado).
 
 ## Cómo usarlo
 
