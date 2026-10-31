@@ -1755,7 +1755,7 @@
   - `GET /admin/reports/students?from&to&discipline_id&limit&offset` → `{ from, to, rows: [{ id, name, bookings, present, absent, unrecorded, late }], total, limit, offset }`: totales del rango, sin meses. Sale quien tiene en el rango alguna reserva `confirmed` o alguna `late` en una sesión que cuenta; `discipline_id` filtra por la disciplina de la sesión. Por nombre y después `id`. Sin horas ni racha (están en B14).
   - `GET /professor/reports/sessions?by=discipline|class&from&to&discipline_id[&limit&offset]`: la misma función y la misma forma que el admin; la RLS deja solo sus sesiones. En `by=class` le salen las clases en que dio alguna sesión, también como sustituto, aunque el habitual sea otro.
 - **Pasos**:
-  1. **Migración `024`**: política `disciplines_select_trainer` en `disciplines` (`FOR SELECT TO app_user USING (ROLE = 'profesor' AND EXISTS (SELECT 1 FROM class_sessions s WHERE s.discipline_id = disciplines.id AND s.trainer_id = UID))`), permisiva junto a las de 007 y 012. Con su `down`.
+  1. **Migración `024`**: política `disciplines_select_trainer` en `disciplines` (`FOR SELECT TO app_user USING (ROLE = 'profesor' AND EXISTS (SELECT 1 FROM class_sessions s WHERE s.discipline_id = disciplines.id AND s.trainer_id = UID))`), permisiva junto a las de 007 y 012. Con su `down`. **Sin tocar `services/sessions.js`**: `listTrainerSessions` y `getTrainerSession` hacen `JOIN disciplines` por el `client` RLS y vuelven a ver esas sesiones solo con la política. El calendario (`listCalendar`) no lo usa el profesor y su nota «aceptado, B6» (la de los alumnos) no cambia. Si al implementar hace falta tocar el código de esas dos funciones, es una **desviación del diseño**: se anota en la «Implementación» de B17 con el motivo.
   2. **`src/services/reports.js`**: `getSubscriptionStats`, `getSessionStats` (admin y profesor) y `getStudentStats`, con la validación de rangos y paginación de arriba (reutiliza `dateParam`, `MAX_RANGE_DAYS` y el patrón de `profiles.js`). Los meses y días con `generate_series` en Madrid, para que los huecos salgan.
   3. **`src/routes/admin/reports.js`** (`requireAuth`, `requireRole('admin')`), montado en `/admin/reports` en `src/index.js`; `GET /reports/sessions` en `src/routes/professor.js`.
   4. **`package.json`**: `test:reports`.
@@ -1774,7 +1774,7 @@
   - **Validación**: `invalid_range` (`to < from`, 13 meses, 93 días, 25 meses), `invalid_field` (formato, `group`, `by`), `invalid_pagination`.
   - **Permisos** (como `app_user`, por HTTP):
     - el profesor solo ve sus sesiones: las de otro profesor no cuentan, y una sesión en la que lo sustituyen deja de ser suya y pasa a la del sustituto;
-    - el profesor ve el nombre de la disciplina desactivada de una sesión suya pasada, también en `/professor/sessions`, y no ve las disciplinas desactivadas sin sesiones suyas;
+    - el profesor ve el nombre de la disciplina desactivada de una sesión suya pasada en `/professor/reports/sessions`, `GET /professor/sessions` y `GET /professor/sessions/:id` (que antes de la `024` no la devolvían: el test falla sin la migración), y no ve las disciplinas desactivadas sin sesiones suyas;
     - profesor, alumno y tutor → `403` en `/admin/reports/*`; alumno, tutor y admin → `403` en `/professor/reports/*`;
     - `services/reports.js` no menciona `student_health_info`, `birth_date` ni `servicePool` (comprobación sobre el fuente).
   - **Regresión**: `test:rls`, `test:classes`, `test:calendar`, `test:attendance`, `test:progress` y `test:nightly`. `npm run lint` sin errores.
