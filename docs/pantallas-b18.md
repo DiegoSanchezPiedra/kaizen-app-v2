@@ -9,7 +9,8 @@
 
 - **Componentes**: coss ui (`coss.com/ui`, sobre Base UI, Tailwind CSS v4). Diseñar con sus componentes; su
   documentación para asistentes está en `coss.com/ui/llms.txt`. El sistema de diseño se traduce a sus tokens de CSS.
-- **Referencias**: Mobbin (por su MCP), el logo y la web de la academia.
+- **Referencias**: el logo y la web de la academia, y los ejemplos de coss ui.
+- **Movimiento y acabado**: la skill `emil-design-eng` (`npx skills add https://github.com/emilkowalski/skills --skill emil-design-eng`), en Claude Design y después al implementar. Animaciones del día a día cortas y sobrias; las más expresivas, solo en los momentos de «nivel de poder» (subir la racha, conseguir un badge). Siempre con `prefers-reduced-motion`.
 - **Estilo**: base, el logo y la web de la academia. Inspiración Dragon Ball: energía, colores intensos, tipografía con
   fuerza, la racha y los badges como «nivel de poder». **Nunca** personajes, logos ni tipografías de la franquicia.
 - **Primero el sistema de diseño** (único para B18 y B19) y las pantallas de login (las necesita B18.1); después,
