@@ -46,7 +46,8 @@
 | B5 | CRUD disciplinas, planes y disciplinas elegibles (`plan_disciplines`) (admin) | B3, B4.6 | IMPLEMENTADO |
 | B6 | Clases + sesiones (CRUD admin, generación a 1 año, vista profesor, calendario) | B5 | IMPLEMENTADO |
 | B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | IMPLEMENTADO |
-| B7.1 | Cambio de clase y ajuste de sesión sobre las reservas (promoción, exención de tardía, aviso) | B7, B15 | Pendiente |
+| B7.1 | Cambio de clase y ajuste de sesión sobre las reservas (promoción, exención de tardía, aviso) | B7, B15 | Diseñado |
+| B6.1 | Sesiones sueltas y cancelación de una sesión (cancelar, deshacer, retroactiva, deshacer un ajuste) | B7.1 | Pendiente |
 | B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | IMPLEMENTADO |
 | B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | IMPLEMENTADO |
 | B10 | Stripe base (checkout, portal, webhook idempotente) | B4.5, B7 | IMPLEMENTADO |
@@ -226,7 +227,7 @@
 - **Nota**: `session_status.completed` sobra: «celebrada» se calcula por la hora (ver `CONTEXT.md`). El enum queda en `scheduled | cancelled`.
 - **Checklist de cierre**:
   - [x] RLS en `class_sessions`.
-  - [x] CRUD admin + listado por disciplina/fecha.
+  - [x] CRUD admin de clases + listado por disciplina/fecha (el ajuste de sesión, en B7.1; cancelar una sesión y las sueltas, en B6.1).
   - [x] Calendario del alumno, del tutor y del admin, con la cobertura por sujeto.
   - [x] Tests por rol.
 - **Implementación del calendario** (migración `018`, 2026-10-30):
@@ -262,7 +263,7 @@
 - **Entregable**: RLS en `bookings`; función `create_booking` con `FOR UPDATE`; endpoints de reserva/cancelación; middleware `requireCompleteProfile` (B4.5) montado.
 - **Reglas de dominio**: fijadas en `CONTEXT.md` § Reservas (grill-with-docs, sin ADR).
 - **Implementación** (migración `009`): la lógica vive en funciones `SECURITY DEFINER` (owner `service_role`): `book_session`, `cancel_booking`, `cancel_session_bookings` (públicas) y `covers`, `promote_waitlist` (internas). `app_user` solo lee `bookings`. Aforo: `FOR UPDATE` de la sesión; solape: `pg_advisory_xact_lock` por alumno. Enum `booking_cancel_reason`; `academy_settings`: `booking_window_days` = 14, `cancellation_notice_minutes` = 60. Se crea `subscription_disciplines` (solo tabla; flujos en B10.5). Avisos: filas `notice.*` en `audit_log` con `changes.recipients` (se entregan por el outbox de B10.6, ADR 0008; los de reservas, por push en B15). Se corrige el `UNIQUE` de 001, que era total y no parcial. Endpoints: `GET /bookings`, `POST /bookings`, `POST /bookings/:id/cancel`.
-- **Pendiente**: la subida de aforo (ajuste de sesión) y el cambio de clase deben llamar a `promote_waitlist` y eximir de cancelación tardía, y el cambio de clase debe avisar a los afectados (**B7.1**); la promoción no vuelve a comprobar el perfil completo. Hecho en B10.5: el cambio de disciplina.
+- **Pendiente**: la subida de aforo (ajuste de sesión) y el cambio de clase deben llamar a `promote_waitlist` y eximir de cancelación tardía, y el cambio de clase debe avisar a los afectados (**B7.1**, diseñado); la promoción no vuelve a comprobar el perfil completo. Hecho en B10.5: el cambio de disciplina.
 - **Fuera de alcance**: pago (B10), asistencia (B8).
 - **Checklist de cierre**:
   - [x] RLS en `bookings`.
@@ -271,15 +272,90 @@
   - [x] `requireCompleteProfile` (B4.5) bloquea reservas con `403 profile_incomplete`.
   - [x] Tests de concurrencia + rol (`npm run test:bookings`).
 
-### B7.1 — Cambio de clase y ajuste de sesión sobre las reservas — Pendiente
-- **Objetivo**: cumplir lo que `CONTEXT.md` ya promete y B7 dejó pendiente: tras un cambio de clase (o un ajuste de sesión que cambia la hora o sube el aforo), las reservas siguen a su sesión, **se avisa a los afectados**, pueden cancelar sin que cuente como tardía y, si hay plazas nuevas, se promociona la lista de espera.
-- **Por qué tras B15**: el aviso es un `booking_notice` más (push o email de respaldo, agrupado y caducado al empezar la sesión, ADR 0011). Se separó de B15 porque el aviso solo, sin la exención, diría algo que el sistema no cumple.
-- **A decidir en su diseño**: qué cambios avisan (hora, día, profesor, lugar, aforo), cómo se guarda la exención (por reserva o por cambio) y hasta cuándo vale.
+### B7.1 — Cambio de clase y ajuste de sesión sobre las reservas — Diseñado
+- **Objetivo**: cumplir lo que `CONTEXT.md` ya promete y B7 dejó pendiente. Un admin cambia una clase desde una fecha o ajusta una sesión concreta; las reservas siguen a su sesión; ante un **cambio que afecta a la sesión** (inicio, duración o profesor) se avisa a los afectados, que pueden cancelar sin que cuente como tardía; y si hay plazas nuevas, se promociona la lista de espera. Términos en `CONTEXT.md` (§ Clases y sesiones, § Reservas y § Avisos), y el modelo, en ADR 0004.
+- **Por qué tras B15**: el aviso es un `booking_notice` más (push o email de respaldo, agrupado, ADR 0011). Se separó de B15 porque el aviso solo, sin la exención, diría algo que el sistema no cumple.
+- **Choques con lo existente** (detectados en el diseño, 2026-10-31):
+  - **Ni el cambio de clase ni el ajuste de sesión existen.** `updateClass` solo edita `location` (shortcut «hasta B7»), y no hay ninguna ruta ni función que ajuste una sesión. La checklist de B6 marcaba «CRUD admin» como hecho, pero solo existe el de clases. **B7.1 construye las dos operaciones** además de sus efectos sobre las reservas.
+  - Tampoco existe cancelar una sesión concreta (`cancel_session_bookings` solo la llama `retireClass`), ni deshacerlo, ni la cancelación retroactiva por la API, ni las sesiones sueltas. **Pasan a un bloque nuevo, B6.1.**
+  - `generateSessions` es idempotente por `UNIQUE (class_id, starts_at)`: si un ajuste mueve una sesión, la extensión diaria volvería a crear el hueco original. **Se añade `slot`** (ver Reglas).
+  - `generateSessions` lee la clase sin bloquearla: la extensión diaria, a la vez que un cambio de clase, podría generar la última sesión con los valores anteriores. **Se bloquea la clase con `FOR SHARE`.**
+  - B15 hace caducar un aviso agrupado al empezar su sesión **más próxima**: en un cambio de clase de 40 sesiones cuya primera empieza en 20 minutos, un worker que se retrase perdería el aviso de las 39 restantes. **Cambia para todos los avisos de reservas**: el grupo caduca al empezar su **última** sesión y solo cuenta las que no han empezado (`CONTEXT.md` § Aviso de reservas).
+  - `CONTEXT.md` § Solape de reservas decía que un alumno no puede tener dos reservas solapadas, pero un cambio de hora puede dejárselas. **Se matiza**: no puede *reservar* ni ser promocionado a una que se solape; el cambio no se impide ni cancela ninguna.
+  - El shortcut de `change_discipline` (014, orden alumno → sesión) **no se toca**: B7.1 usa el orden de `book_session` (sesión → alumno) y no lo empeora.
+- **Reglas** (decididas 2026-10-31):
+  - **Cambio de clase** (`change_class`):
+    - Campos: profesor habitual, hora (`start_time`), duración, aforo y lugar. La disciplina y el día de la semana, no (409 `not_supported`: «retira la clase y crea otra»).
+    - Fecha `from`: por defecto hoy (Madrid), nunca pasada, como mucho hoy + horizonte (si no, 400 `invalid_field`). La fila de la clase se actualiza; las sesiones afectadas son las de la clase con `slot >= from` (día de Madrid) que no han empezado, también las canceladas (sin avisos ni promoción, por si B6.1 las reactiva).
+    - En cada sesión se cambian los campos que no estén en su `adjusted_fields`. `location` ahora también se propaga a las sesiones ya generadas.
+    - Nueva hora: `slot` = `(día de Madrid del slot + start_time) AT TIME ZONE 'Europe/Madrid'` en **todas** las afectadas; `starts_at` = `slot` solo si `starts_at` no está ajustado. `ends_at` = `starts_at + duration_min` siempre que cambie uno de los dos.
+    - El profesor debe tener rol `profesor` (400 `invalid_field`, como `createClass`). El solape del profesor lo impide la restricción `EXCLUDE` (409 `trainer_overlap`).
+  - **Ajuste de sesión** (`adjust_session`):
+    - Campos: profesor (sustituto), inicio (`starts_at`, fecha y hora libres, también otro día), duración, aforo y lugar. Cada campo cambiado entra en `adjusted_fields` y ya no lo pisa un cambio de clase. Vale también para una sesión suelta.
+    - Sesión empezada o cancelada → 409 `session_not_adjustable`. Nuevo inicio no futuro → 400 `invalid_field`. `slot` no cambia.
+  - **`slot`** (`class_sessions`): el inicio que le corresponde según su clase; `NULL` en una sesión suelta. Sustituye a `starts_at` en el `UNIQUE` de la generación: `UNIQUE (class_id, slot) WHERE class_id IS NOT NULL`. Solo lo cambian la generación y el cambio de hora de la clase.
+  - **Aforo**: nunca por debajo de las reservas confirmadas (`CONTEXT.md`, ADR 0004). Todo o nada: 409 `capacity_below_bookings` con `{ sessions: [{ id, starts_at, confirmed }] }` y, en el cambio de clase, `fits_from` (el día siguiente a la última sesión que no cabe, si cae dentro del horizonte). Si sube, `promote_waitlist` en esa sesión (solo programadas).
+  - **Cambio que afecta a la sesión**: en una sesión programada, cuando `starts_at`, `duration_min` o `trainer_id` **cambian de valor** (un sustituto igual al profesor actual no cuenta). Lugar y aforo no afectan.
+    - Pone `class_sessions.changed_at = now()` (cada cambio lo sobreescribe).
+    - Avisa a cada reserva activa, confirmada **o en espera**, creada antes del cambio: `booking_notice(id, 'notice.session_changed')`, al alumno o a todos sus tutores, sin el admin (actor) ni el profesor (ADR 0011).
+  - **Exención de cancelación tardía**: `cancel_booking` no la marca `late` si `was.created_at < s.changed_at` (la reserva, o su entrada en espera, es anterior al último cambio). Vale hasta el inicio, que es cuando se cierra la cancelación; el motivo es `student`. Quien reserva después del cambio no queda exento. Se suma a la exención del promocionado dentro de plazo (B7).
+  - **Solape de reservas**: el cambio no se impide ni cancela nada si deja a un alumno con dos reservas confirmadas solapadas; el aviso le deja elegir. `has_overlapping_booking` sigue frenando reservas y promociones.
+  - **Orden de bloqueos**: clase (`FOR UPDATE`) → **todas** las sesiones afectadas (`SELECT … FOR UPDATE ORDER BY id`) → por cada sesión: aforo, cambio, avisos y `promote_waitlist` (que bloquea alumnos con `lock_student`). Es el orden de `book_session` y `cancel_booking`: nunca se espera una sesión con un alumno bloqueado, y dos cambios a la vez bloquean en el mismo orden. El ajuste es el caso de una sola sesión.
+  - **Aviso `notice.session_changed`**:
+    - `changes` (además de lo de `booking_notice`): `fields` (los cambiados, de `starts_at`, `duration_min` y `trainer_id`) y `previous_starts_at`.
+    - Título: «Sesión cambiada» / «Sesiones cambiadas».
+    - Una: «BJJ Fundamentos, mié, 5 nov, 18:30 (Lucía): ha cambiado la hora (antes lun, 3 nov, 19:00). Si ya no te viene bien, puedes cancelar sin que cuente como tardía». Profesor: «ha cambiado el profesor (ahora Carlos)», con el nombre de `trainer_names`. Duración: «ha cambiado la duración (ahora 1 h 30)». Varios campos se juntan con «y».
+    - Varias (agrupado por alumno y transacción): «Han cambiado 8 sesiones de BJJ Fundamentos de Lucía (la hora y el profesor). Si ya no te vienen bien, puedes cancelarlas sin que cuente como tardía». El email de respaldo lista cada sesión con su fecha nueva.
+    - Misma frase para confirmadas y en espera («cancelar» vale para salir de la espera). Solo español; nunca salud, edad ni fecha de nacimiento. `url` a `APP_URL/bookings`.
+  - **Caducidad de los avisos de reservas** (cambia la de B15, para todos): un aviso agrupado caduca al empezar su **última** sesión; el TTL del push cuenta hasta entonces; el mensaje solo cuenta y lista las sesiones que aún no han empezado. Con una sola reserva no cambia nada.
+  - **Concurrencia con la generación**: `generateSessions` lee la clase con `FOR SHARE`, así espera al cambio en curso (o el cambio a ella) y genera con los valores confirmados.
+  - **Auditoría**: `class.change` (`from`, el patch y `{ sessions_changed, notified, promoted }`) y `session.adjust` (antes y después de cada campo cambiado), en `audit_log`.
+- **Pasos**:
+  1. **Migración `021`**:
+     - `class_sessions`: `slot timestamptz` (`slot = starts_at` en las filas con `class_id`) y `changed_at timestamptz`. Se borra `class_sessions_class_start_key` y se crea `class_sessions_class_slot_key` `UNIQUE (class_id, slot) WHERE class_id IS NOT NULL`. `CHECK ((class_id IS NULL) = (slot IS NULL))`.
+     - `change_class(p_class uuid, p_from date, p_patch jsonb)` y `adjust_session(p_session uuid, p_patch jsonb)`: `SECURITY DEFINER`, owner `service_role`, `EXECUTE` para `app_user`; exigen admin (`42501` `not_allowed`). Devuelven `jsonb` `{ sessions_changed, notified, promoted }`. Errores con `RAISE` y el código como mensaje (como `book_session`); el de aforo lleva `sessions` y `fits_from` en el `DETAIL` (JSON).
+     - `cancel_booking` con `CREATE OR REPLACE`: la exención por `changed_at` (quita su shortcut).
+     - Con su `down` (probado up → down → up): el `down` restaura `cancel_booking` de 009 y el `UNIQUE` por `starts_at` (falla si dos sesiones de una clase comparten `starts_at` tras un ajuste).
+  2. **`services/sessions.js`**: `generateSessions` con `FOR SHARE` en el CTE de la clase, `slot` en el `INSERT` y `ON CONFLICT (class_id, slot)`. `adjustSession(client, { id, body, actorId })`: valida (`starts_at` ISO futuro, el resto como `CLASS_SPEC`; el profesor con rol `profesor`), llama a `adjust_session` y traduce los errores (`23P01` → 409 `trainer_overlap`).
+  3. **`services/classes.js`**: `updateClass` (sin el shortcut) valida `from` y los campos de `CLASS_SPEC` (`discipline_id`/`weekday` → 409 `not_supported`), comprueba el profesor y llama a `change_class`. Devuelve la clase y los recuentos.
+  4. **`services/notices.js`**: `SERVICE['notice.session_changed']` (textos de arriba); `bookingGroup` devuelve también el profesor y `changes` de cada fila y descarta las sesiones empezadas; `sendPending` caduca y calcula el TTL por la última sesión del grupo.
+  5. **Rutas**:
+     - `PATCH /admin/classes/:id` `{ from?, trainer_id?, start_time?, duration_min?, capacity?, location? }` → `{ class, sessions_changed, notified, promoted }`.
+     - `PATCH /admin/sessions/:id` `{ trainer_id?, starts_at?, duration_min?, capacity?, location? }` → `{ session, sessions_changed, notified, promoted }`, en `routes/admin/sessions.js` (nuevo; `requireAuth`, `requireRole('admin')`, `withRlsContext`).
+     - Body vacío → 400 `invalid_field`. Siempre con el `client` RLS, nunca `servicePool`.
+  6. **Docs**: `contexto-proyecto.md` §6 (`slot`, `changed_at`, funciones de `021`) y rutas nuevas.
+- **Tests** (`test:session-changes`, nuevo; `test:classes` cambia su caso «PATCH: solo location»):
+  - **Cambio de clase**: hora, duración, profesor, aforo y lugar desde una fecha; respeta `adjusted_fields`; lo pasado y lo empezado no cambian; cambio de hora en el paso de horario de verano a invierno; `discipline_id` o `weekday` → 409; `from` pasado o más allá del horizonte → 400; profesor sin rol → 400; solape del profesor → 409 sin cambiar nada.
+  - **Ajuste**: mover a otro día y ejecutar `generateSessions` sin que vuelva a crear el hueco (`slot`); cambio de hora de la clase después del ajuste (`slot` cambia, `starts_at` no); sesión empezada o cancelada → 409; sesión suelta.
+  - **Aforo**: bajada por debajo de las confirmadas → 409 con `sessions` y `fits_from`, sin cambios; subida → promoción por orden de llegada, con el salto por solape y `no_coverage`.
+  - **Avisos**: solo si el valor cambia (sustituto igual o solo lugar/aforo, sin aviso); confirmadas y en espera; tutores de un hijo; sin el admin; un aviso por alumno con N sesiones; texto con hora anterior y nombre del profesor; sin fecha de nacimiento ni edad; grupo con la primera sesión ya empezada: se envía y no la lista; caduca al empezar la última.
+  - **Exención**: reserva anterior al cambio cancelada fuera de plazo → `student`; reserva posterior → `late`; dos cambios seguidos; promocionado tras el cambio (estaba en espera antes) → `student`.
+  - **Solape**: tras un cambio de hora, dos reservas solapadas sin error; la promoción sigue saltando por solape.
+  - **Concurrencia**: `change_class` y `book_session` a la vez (dos conexiones) sin interbloqueo ni aforo superado; `generateSessions` a la vez que un cambio de clase genera con los valores nuevos.
+  - **Permisos**: alumno, tutor y profesor → `42501` en SQL y 403 por HTTP (express en memoria, como `test:calendar`); 401 sin sesión.
+  - **Regresión**: `test:classes`, `test:bookings`, `test:calendar`, `test:attendance`, `test:checkin`, `test:push`, `test:notices`, `test:billing`, `test:progress` y `test:rls`; `npm run lint` sin errores.
+  - **Manual**: con `PUSH_TRANSPORT=log`, cambiar la hora de una clase con dos reservas de un alumno y ver un solo payload agrupado en `storage/push.log`.
+- **Fuera de alcance**:
+  - cambiar la disciplina o el día de una clase (se retira y se crea otra);
+  - sesiones sueltas, cancelar una sesión y deshacerlo, cancelación retroactiva por la API y deshacer un ajuste (**B6.1**);
+  - el orden de bloqueos de `change_discipline` y la promoción tras el cambio de disciplina (shortcut de 014);
+  - aviso al profesor que pierde o recibe una sesión (el profesor no recibe avisos);
+  - plazas libres en el calendario (Pendiente de B6);
+  - UI del admin (B19).
 - **Checklist de cierre**:
-  - [ ] Cambio de clase y ajuste de sesión: aviso a los afectados por `booking_notice`.
-  - [ ] Cancelación sin tardía tras el cambio.
-  - [ ] Subida de aforo y cambio de clase llaman a `promote_waitlist`.
-  - [ ] Tests.
+  - [ ] Migración `021`: `slot` con su `UNIQUE`, `changed_at`, `change_class`, `adjust_session` y `cancel_booking` con la exención; `down` probado.
+  - [ ] Cambio de clase desde una fecha (profesor, hora, duración, aforo, lugar) respetando los ajustes; la disciplina y el día, 409.
+  - [ ] Ajuste de sesión (sustituto, inicio, duración, aforo, lugar) sin que la generación duplique el hueco.
+  - [ ] Aforo: bajada por debajo de las reservas, 409 con `fits_from`; subida, promoción.
+  - [ ] Aviso `session_changed` a confirmadas y en espera, agrupado, solo si cambia inicio, duración o profesor.
+  - [ ] Cancelación sin tardía para las reservas anteriores al cambio.
+  - [ ] Caducidad de los avisos agrupados por la última sesión.
+  - [ ] Orden de bloqueos clase → sesiones → alumnos; `generateSessions` con `FOR SHARE`.
+  - [ ] Tests (`test:session-changes` y regresión) y prueba manual con `PUSH_TRANSPORT=log`.
+
+### B6.1 — Sesiones sueltas y cancelación de una sesión — Pendiente
+- **Objetivo**: lo que falta de B6 para el admin (detectado en el diseño de B7.1, 2026-10-31): crear sesiones sueltas, cancelar una sesión concreta y deshacerlo (las reservas no vuelven, `CONTEXT.md`), la cancelación retroactiva con motivo por la API y deshacer un ajuste de sesión (devolver un campo a lo que dice su clase).
+- **Se apoya en**: `cancel_session_bookings` (009/010), `adjust_session` y `slot` (B7.1).
 
 ### B8 — Asistencia manual (`register_attendance`, auditoría) — IMPLEMENTADO
 - **Estado** (verificado el 2026-10-30: commit en el historial y tests verdes: `4703047`, `test:attendance` 12 OK).
@@ -1303,6 +1379,7 @@
 - **Pendiente**:
   - Push real en Chrome con el Service Worker (B18).
   - El formato de fecha corta sale como lo da `es-ES` («mar, 3 nov, 19:00»), con comas, y no como el ejemplo del diseño («mar 3 nov 19:00»).
+  - B7.1 cambia la caducidad de los avisos agrupados: el grupo caduca al empezar su **última** sesión (no la más próxima) y solo cuenta las que no han empezado.
 - **Checklist de cierre**:
   - [x] Migración `020`: `push_subscriptions` rehecha con RLS `FORCE`, `channel` con `push`, `save_push_subscription`, `enqueue_notice`, `booking_notice` y `agreement_notice`.
   - [x] Alta y baja de dispositivos de push (alumno y tutor), con traspaso del `endpoint` y la lista cerrada de hosts.
