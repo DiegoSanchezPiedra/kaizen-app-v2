@@ -161,3 +161,26 @@ Una sola sesión inicial (antes de cerrar B4.5) debería fijar el vocabulario tr
 
 ### 5.3 Push de logros — **Impacto: Bajo (mejora futura)**
 - Avisar al conseguir un badge (B15 lo dejó fuera). Obliga a comparar `student_progress` antes y después de cada marca de asistencia, y una corrección o una cancelación retroactiva puede quitar un badge ya avisado. Si se hace, sería un aviso más por push (ADR 0011) al alumno o a sus tutores.
+
+## Sección 6: Pendientes sin bloque, reasignados al cerrar B5–B15 (2026-10-31)
+
+### 6.1 Plazas libres en el calendario — **Impacto: Medio (mejora futura)**
+- Pendiente de B6. `bookings_select` no deja a un alumno contar las reservas ajenas: haría falta una función `SECURITY DEFINER` que devuelva solo el número de confirmadas por sesión.
+
+### 6.2 Check-in de varios hijos en una petición — **Impacto: Bajo**
+- Pendiente de B9. Hoy un tutor con dos hijos en la misma sesión hace un check-in por hijo.
+
+### 6.3 Plan que pasa de 0 € a precio — **Impacto: Bajo**
+- Pendiente de B10. La sincronización crea otro Product en Stripe en vez de reutilizar el del plan.
+
+### 6.4 Reactivar el seguro — **Impacto: Bajo (bug conocido)**
+- Pendiente de B10.3. Reactivar el seguro no deshace los `cancel_at_period_end` que puso la desactivación: los seguros vivos siguen sin renovarse.
+
+### 6.5 `checkEligible` y las disciplinas abiertas — **Impacto: Bajo (bug conocido)**
+- Pendiente de B14. Una disciplina abierta en `plan_disciplines` se ignora para cubrir, pero `checkEligible` (B5) la sigue contando entre las elegibles de un plan.
+
+### 6.6 Reintento de un email recompuesto — **Impacto: Bajo (riesgo aceptado)**
+- Pendiente de B10.6. Si el proceso cae entre el envío y la marca y el email recompuesto cambia (p. ej. el nombre del plan), Resend responde 409 al reintento y la entrega queda `failed` aunque el email salió.
+
+### 6.7 Cambio de precio con un cambio de pagador `paid` — **Impacto: Bajo (riesgo aceptado)**
+- Pendiente de B11. La sincronización de precios no ve la suscripción sucesora (no tiene fila hasta el traspaso): el primer cobro en D va al precio viejo; el traspaso la alinea para los siguientes, sin prorrateo.

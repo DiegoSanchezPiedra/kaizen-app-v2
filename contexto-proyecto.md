@@ -305,7 +305,7 @@ MFA TOTP admin: setup + activate + verify (login en dos pasos con `mfa_token`), 
 
 **Repo Git:** commit `feat(B4): MFA TOTP admin (setup/activate/verify, recovery codes, AES-256-GCM) + fix withRlsContext`.
 
-### B4.5 — IMPLEMENTADO
+### B4.5 — CERRADO (verificado de nuevo el 2026-10-31, también por HTTP)
 > 2026-10-30: el fix del owner de la vista está aplicado (`test:rls` 22 OK) y el bloque tiene commit (`65bd98b`). Lo de abajo es el registro de entonces.
 `student_health_info` (1:1) + `user_agreements` (3 tipos obligatorios, versionados) + helper `requireCompleteProfile` + endpoints `/me/*` + `GET /agreements/:type/current`. **Todo implementado y verificado excepto el test de la vista del profesor**, que falla por owner incorrecto. Ver §8 para el fix exacto.
 
@@ -377,17 +377,17 @@ MFA TOTP admin: setup + activate + verify (login en dos pasos con `mfa_token`), 
 5. `npm run test:rls` → esperado **22 OK, 0 FAIL** (o **24 OK** si se añaden los 2 tests opcionales de alumno/admin sobre la vista).
 6. Commit `feat(B4.5): student_health_info + user_agreements + requireCompleteProfile`.
 
-### B4.5.1 — IMPLEMENTADO (commit `672d870`; la verificación HTTP manual no consta)
+### B4.5.1 — CERRADO (commit `672d870`; verificación HTTP manual end-to-end el 2026-10-31)
 Migración `005_agreement_documents.js`: tabla `agreement_documents` (ciclo borrador → publicado → retirado, índice único parcial de una vigente por tipo, RLS, sin DELETE) y `UNIQUE(user_id)` en `user_roles` (ADR `docs/adr/0001-rol-unico-por-perfil.md`). `getCurrentVersions` lee de BD; `src/config/agreements.js` solo exporta `AGREEMENT_TYPES` y `VERSION_RE`. Endpoints admin en `src/routes/admin/agreements.js`: `GET /admin/agreements/documents`, `POST /admin/agreements/documents?type=&version=` (**cuerpo crudo `application/pdf`, ≤ 10 MB, sin multipart ni dependencia nueva**), `POST /admin/agreements/documents/:id/publish` (retira la vigente anterior y audita). `GET /agreements/:type/current` sirve el PDF. Sin `retireDocument`: se retira solo al publicar otro. Un tipo sin documento vigente cuenta como no firmado, así que **ningún alumno tiene el perfil completo hasta que un admin publique los 3 tipos**. Test: `npm run test:agreements`.
 
-### B4.6 — IMPLEMENTADO (nuevo modelo de Cuenta Familiar, commit `920772c`; plan en `PLAN_FAMILIA.md`)
+### B4.6 — CERRADO (nuevo modelo de Cuenta Familiar, commit `920772c`; plan en `PLAN_FAMILIA.md`; HTTP de firmas verificado el 2026-10-31)
 **Primera versión (commit `bc4685d`, sustituida):** migración `006_minors_guardians.js` (`profiles.birth_date`, rol `tutor`, `guardianships` creada solo por admin, `user_agreements.signed_by` + RLS de firma por representación), `birthDate` obligatoria en `POST /auth/register`, `profile_id` opcional en `POST /me/agreements`, `getProfileStatus` menor/adulto, `scripts/test-minors.js`. Modelaba al menor **con login propio**.
 
 **Nuevo modelo (decidido el 2026-10-27, sin implementar):** el tutor se registra, crea a sus hijos (perfiles **sin credenciales**) y gestiona todo por ellos: perfil, ficha de salud, acuerdos, cuota, reservas, eventos y avisos. Se reescribe `006` en el sitio (no hay nada desplegado). Se conserva casi todo el esquema (`birth_date`, `guardianships`, `signed_by`) y se añaden `create_child` (SQL `SECURITY DEFINER`), el helper RLS `is_guardian_of`, políticas de tutor en `student_health_info` y `profiles`, y `GET/POST /me/children` + `PATCH /me/children/:id`. El registro propio exige ≥ 18. El rol `tutor` firma su propio `data_protection`. Decisiones D1–D16 en §5 "Cuenta familiar"; tabla mantener/refactorizar/borrar en `PLAN_FAMILIA.md` §4. **Va antes de B5.**
 
-### B5–B15 y B7.1 — IMPLEMENTADOS · B6.1, B10.7 y B16–B20 — PENDIENTES
+### B5–B15 y B7.1 — CERRADOS · B6.1, B10.7 y B16–B20 — PENDIENTES
 Estado al 2026-10-31 (detalle, decisiones y pendientes de cada bloque en `plan-de-bloques.md`):
-- **Implementados, con commit y tests verdes**: B5 catálogo, B6 clases, sesiones y calendario del alumno (migración `018`, `test:calendar`), B7 reservas, B8 asistencia, B9 check-in QR, B10 Stripe base, B10.1 recibos, B10.2 morosos, B10.3 seguro, B10.5 cambio de plan y de disciplina, B10.6 emails de billing, B11 baja del seguro y cambio de pagador, B13 perfiles públicos, directorio y lectura de `profiles` (migración `017`, `test:profiles`), B14 racha, horas, badges, ranking mensual opt-in y disciplina abierta (migración `019`, `test:progress`), B15 push de reservas y re-firma con email de respaldo (migración `020`, `test:push`), B7.1 cambio de clase y ajuste de sesión sobre las reservas (migración `021`, `test:session-changes`; `PATCH /admin/classes/:id` y `PATCH /admin/sessions/:id`).
+- **Cerrados el 2026-10-31** (checklist cumplida y tests verdes; cada «Pendiente» que quedaba tiene destino: B10.7, B18, B20 o `MEJORAS.md` § 6, o es un riesgo aceptado): B5 catálogo, B6 clases, sesiones y calendario del alumno (migración `018`, `test:calendar`), B7 reservas, B8 asistencia, B9 check-in QR, B10 Stripe base, B10.1 recibos, B10.2 morosos, B10.3 seguro, B10.5 cambio de plan y de disciplina, B10.6 emails de billing, B11 baja del seguro y cambio de pagador, B13 perfiles públicos, directorio y lectura de `profiles` (migración `017`, `test:profiles`), B14 racha, horas, badges, ranking mensual opt-in y disciplina abierta (migración `019`, `test:progress`), B15 push de reservas y re-firma con email de respaldo (migración `020`, `test:push`), B7.1 cambio de clase y ajuste de sesión sobre las reservas (migración `021`, `test:session-changes`; `PATCH /admin/classes/:id` y `PATCH /admin/sessions/:id`).
 - **Pendientes**: B6.1 sesiones sueltas y cancelación de una sesión, B10.7 migración de los clientes de maat (al pasar a producción) y B16–B20. Siguiente en orden: **B6.1**.
 - B12 eliminado (absorbido por B4.5 y B10.3).
 
@@ -740,11 +740,9 @@ created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
 
 text
 
-### `invoices` (a ampliar en B10.1)
+### `invoices` (B10.1, B10.3)
 
-<!-- PENDIENTE: pegar salida de `\d invoices` para rellenar columnas actuales.
-     En B10.1 se añadirán: stripe_invoice_id, status, attempt_count,
-     next_payment_attempt, last_payment_error, hosted_invoice_url. -->
+Columnas (`\d invoices`, 2026-10-31): `id uuid`, `student_id uuid NOT NULL` → `profiles` `CASCADE`, `payer_id uuid NOT NULL` → `profiles`, `subscription_id uuid` → `subscriptions` `SET NULL`, `insurance_id uuid` → `insurances`, `stripe_invoice_id text NOT NULL UNIQUE`, `status text` (`draft`, `open`, `paid`, `uncollectible` o `void`), `amount_due_cents`, `amount_paid_cents`, `currency`, `paid_at`, `period_start`, `period_end`, `attempt_count integer NOT NULL`, `next_payment_attempt`, `last_payment_error text`, `hosted_invoice_url`, `invoice_pdf`. `invoices_owner_check`: exactamente uno de `subscription_id` e `insurance_id`. RLS de lectura (alumno, tutor, pagador y admin); escribe solo el webhook.
 
 ---
 
@@ -808,28 +806,16 @@ text
 
 ---
 
-## 8. Pendientes inmediatos (B4.5 — fix + cierre)
+## 8. Pendientes inmediatos
 
-**Fix para cerrar B4.5:**
+B4.5 está cerrado: el fix de la vista `student_health_professor_view` quedó sin objeto, porque B8 (`010`) la sustituyó por `professor_session_health`. Siguiente bloque: **B6.1**.
 
-- [ ] **Cambiar owner de la vista** en `migrations/004_student_health_and_agreements.js`: `ALTER VIEW student_health_professor_view OWNER TO migrator;` → `ALTER VIEW student_health_professor_view OWNER TO service_role;`. Actualizar el comentario encima de la vista: `SECURITY DEFINER` con owner `service_role` (`BYPASSRLS`) es lo que permite que la vista devuelva filas; `migrator` es `NOBYPASSRLS` y con `FORCE ROW LEVEL SECURITY` en la tabla base, la vista devolvía 0 filas.
-- [ ] **Reaplicar la migración**: `npm run migrate:down` → `npm run migrate`.
-- [ ] **Reiniciar el servidor** (riesgo §9).
-- [ ] **`npm run test:rls`** → esperado **22 OK, 0 FAIL** (o **24 OK** si se añaden los 2 tests opcionales abajo).
-- [ ] **Commit** `feat(B4.5): student_health_info + user_agreements + requireCompleteProfile`.
-- [ ] **Cierre formal**: mover B4.5 a CERRADO en §4, actualizar §5 con la decisión corregida del owner (ya está en §5 de este documento), actualizar §9 con riesgos cerrados.
-
-**Tests opcionales (recomendados) para blindar la vista:**
-
-- [ ] `B4.5 — alumno NO ve la vista student_health_professor_view`: con `withCtx({ uid: ids.a, role: 'alumno' })`, `SELECT * FROM student_health_professor_view` → 0 filas (el `WHERE` filtra por `'profesor'`).
-- [ ] `B4.5 — admin NO ve la vista student_health_professor_view`: con `withCtx({ uid: ids.admin, role: 'admin' })`, `SELECT * FROM student_health_professor_view` → 0 filas (el `WHERE` filtra por `'profesor'`).
-
-**Pendientes heredados (no bloquean B4.5):**
+**Pendientes heredados:**
 
 - [ ] **Probar caso `409 link_required`** de `/auth/google` con cuenta real (heredado de B2). Probar en B20 con staging.
-- [ ] **Confirmar enums `sub_status` y `payment_method`** (antes de B10).
-- [ ] **Pegar `\d invoices`** para rellenar §6 antes de B10.1.
-- [ ] **Limpiar datos de prueba** huérfanos en local: `repro-*@test.local`, `b3-check-*@test.local`, `mfa-test-*@test.local`, `admin-mfa-manual@test.local`. Opcional.
+- [x] **Confirmar enums `sub_status` y `payment_method`**: resuelto en B10 (`012`: estados de Stripe tal cual más `unpaid`; `grace_period` y `pending_cash` sin uso).
+- [x] **`\d invoices`** en §6: rellenado el 2026-10-31.
+- [ ] **Limpiar datos de prueba** huérfanos en local: `repro-*@test.local`, `b3-check-*@test.local`, `mfa-test-*@test.local`, `admin-mfa-manual@test.local` (quedan 2 el 2026-10-31). Opcional.
 
 ---
 

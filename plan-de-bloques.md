@@ -40,28 +40,28 @@
 | B2 | Auth base (local + Google OIDC) + JWT + `SET LOCAL` | B1 | CERRADO |
 | B3 | RLS Fase 1 + tests por rol | B2 | CERRADO |
 | B4 | MFA TOTP admin | B2 | CERRADO |
-| B4.5 | `student_health_info` + `user_agreements` + bloqueo backend | B2 | IMPLEMENTADO |
-| B4.5.1 | Gestión documental admin (`agreement_documents`, storage, subida) | B4.5 | IMPLEMENTADO |
-| B4.6 | Cuenta familiar: el tutor crea y gestiona hijos sin credenciales (`PLAN_FAMILIA.md`) | B4.5.1 | IMPLEMENTADO |
-| B5 | CRUD disciplinas, planes y disciplinas elegibles (`plan_disciplines`) (admin) | B3, B4.6 | IMPLEMENTADO |
-| B6 | Clases + sesiones (CRUD admin, generación a 1 año, vista profesor, calendario) | B5 | IMPLEMENTADO |
-| B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | IMPLEMENTADO |
-| B7.1 | Cambio de clase y ajuste de sesión sobre las reservas (promoción, exención de tardía, aviso) | B7, B15 | IMPLEMENTADO |
+| B4.5 | `student_health_info` + `user_agreements` + bloqueo backend | B2 | CERRADO |
+| B4.5.1 | Gestión documental admin (`agreement_documents`, storage, subida) | B4.5 | CERRADO |
+| B4.6 | Cuenta familiar: el tutor crea y gestiona hijos sin credenciales (`PLAN_FAMILIA.md`) | B4.5.1 | CERRADO |
+| B5 | CRUD disciplinas, planes y disciplinas elegibles (`plan_disciplines`) (admin) | B3, B4.6 | CERRADO |
+| B6 | Clases + sesiones (CRUD admin, generación a 1 año, vista profesor, calendario) | B5 | CERRADO |
+| B7 | Reservas (`create_booking`, `FOR UPDATE`, lista de espera) | B6, B4.5 | CERRADO |
+| B7.1 | Cambio de clase y ajuste de sesión sobre las reservas (promoción, exención de tardía, aviso) | B7, B15 | CERRADO |
 | B6.1 | Sesiones sueltas y cancelación de una sesión (cancelar, deshacer, retroactiva, deshacer un ajuste) | B7.1 | Pendiente |
-| B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | IMPLEMENTADO |
-| B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | IMPLEMENTADO |
-| B10 | Stripe base (checkout, portal, webhook idempotente) | B4.5, B7 | IMPLEMENTADO |
-| B10.1 | Modelo Stripe en `invoices` + webhook `invoice.payment_failed` | B10 | IMPLEMENTADO |
-| B10.2 | Endpoint admin morosos y "en gracia" por pagador | B10.1, B10.3 | IMPLEMENTADO |
-| B10.3 | Seguro y cobertura de riesgo (seguro anual o `waiver`) | B10.1 | IMPLEMENTADO |
-| B10.5 | Upgrade/downgrade + cambio de disciplina | B10 | IMPLEMENTADO |
-| B10.6 | Emails transaccionales de billing (al pagador) | B10.1, B10.3, B10.5 | IMPLEMENTADO |
+| B8 | Asistencia manual (`register_attendance`, auditoría) | B7 | CERRADO |
+| B9 | QR dinámico (`device_tokens`, SSE, check-in) | B8 | CERRADO |
+| B10 | Stripe base (checkout, portal, webhook idempotente) | B4.5, B7 | CERRADO |
+| B10.1 | Modelo Stripe en `invoices` + webhook `invoice.payment_failed` | B10 | CERRADO |
+| B10.2 | Endpoint admin morosos y "en gracia" por pagador | B10.1, B10.3 | CERRADO |
+| B10.3 | Seguro y cobertura de riesgo (seguro anual o `waiver`) | B10.1 | CERRADO |
+| B10.5 | Upgrade/downgrade + cambio de disciplina | B10 | CERRADO |
+| B10.6 | Emails transaccionales de billing (al pagador) | B10.1, B10.3, B10.5 | CERRADO |
 | B10.7 | Migración de los clientes de maat | B10–B11 | Pendiente (al pasar a producción) |
-| B11 | Baja del seguro y cambio de pagador | B10.5, B10.3, B10.6 | IMPLEMENTADO |
+| B11 | Baja del seguro y cambio de pagador | B10.5, B10.3, B10.6 | CERRADO |
 | B12 | ~~Validación final waiver/consentimientos en checkout~~ | — | ELIMINADO (absorbido por B4.5 y B10.3) |
-| B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 | IMPLEMENTADO |
-| B14 | Racha, horas, badges, ranking mensual opt-in y disciplina abierta | B8, B13 | IMPLEMENTADO |
-| B15 | Push (`push_subscriptions`, envío) | B2, B10.6 | IMPLEMENTADO |
+| B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 | CERRADO |
+| B14 | Racha, horas, badges, ranking mensual opt-in y disciplina abierta | B8, B13 | CERRADO |
+| B15 | Push (`push_subscriptions`, envío) | B2, B10.6 | CERRADO |
 | B16 | Agregaciones de informes + cron nocturno | B8 | Pendiente |
 | B17 | Endpoints de informes | B16 | Pendiente |
 | B18 | PWA (manifest, Service Worker) | B13 | Pendiente |
@@ -127,7 +127,7 @@
   - [x] `npm run test:mfa` → 13/13 `OK`, exit 0.
   - [x] Verificación HTTP end-to-end del flujo completo (1a–1i): login → `mfa_required` → `/auth/mfa/verify` con TOTP → token final → `/auth/me` con `mfa_enabled: true`; recovery code válido una vez y rechazado en el reintento; `mfa_token` rechazado por `requireAuth`.
 
-### B4.5 — `student_health_info` + `user_agreements` + bloqueo backend — IMPLEMENTADO
+### B4.5 — `student_health_info` + `user_agreements` + bloqueo backend — CERRADO
 - **Estado** (verificado el 2026-10-30: commit en el historial y tests verdes: `65bd98b`, `test:rls` 22 OK). La checklist de abajo no se marcó en su día; detalle en `contexto-proyecto.md` §4.
 - **Objetivo**: onboarding de salud y consentimientos; bloquear reservas/checkout hasta que estén completos. Versiones vigentes hardcodeadas en config (B4.5.1 las moverá a BD).
 - **Entregable**:
@@ -140,22 +140,22 @@
   - Tests por rol en `scripts/test-rls.js`.
 - **Fuera de alcance**: subida admin de documentos (B4.5.1); UI de onboarding (frontend); consentimiento de menores; eIDAS; `public_profiles` (B13).
 - **Checklist de cierre**:
-  - [ ] `student_health_info` creada con `profile_id` PK, `ON DELETE CASCADE`, `emergency_contact_*` NOT NULL, trigger `set_updated_at`.
-  - [ ] `user_agreements` creada con `UNIQUE(profile_id, type, version)`, append-only (`REVOKE UPDATE, DELETE`).
-  - [ ] RLS `ENABLE` + `FORCE` en ambas; políticas coherentes con §5.
-  - [ ] Vista `student_health_professor_view` con solo `profile_id`, `injuries`, `conditions`; SELECT a `profesor`.
-  - [ ] `src/config/agreements.js` con los 3 tipos y sus versiones; falla al arrancar si falta.
-  - [ ] `requireCompleteProfile` devuelve `{ ok, missing }` con la definición de §5 (display_name + health con emergency_contact + 3 agreements en versión vigente).
-  - [ ] `POST /me/health` (upsert) y `POST /me/agreements` (`{ type, version }`) funcionan.
-  - [ ] `GET /me/profile-status` devuelve `{ ok, missing }` sin provocar 403.
-  - [ ] `GET /agreements/:type/current` sirve el PDF vigente (placeholder de config).
-  - [ ] Tests por rol añadidos a `scripts/test-rls.js`: alumno no lee health de otro; admin sí; profesor solo ve `injuries`/`conditions` vía vista; alumno no puede borrar `user_agreements`.
-  - [ ] Verificación HTTP manual: alumno sin health → `GET /me/profile-status` con `missing: ['health_info','emergency_contact','waiver','data_protection','rights_of_image']`; tras completar → `ok: true`.
-  - [ ] `migrate:down` → `migrate` → `migrate:down` sin error.
-  - [ ] Servidor reiniciado tras `migrate` (riesgo §9).
-  - [ ] Commit `feat(B4.5): student_health_info + user_agreements + requireCompleteProfile`.
+  - [x] `student_health_info` creada con `profile_id` PK, `ON DELETE CASCADE` y trigger `set_updated_at`. `emergency_contact_*` quedaron `NULL` en la tabla y los exige el helper (decisión de §5 de `contexto-proyecto.md`: onboarding parcial).
+  - [x] `user_agreements` append-only (`app_user` solo `INSERT`, `SELECT`). El `UNIQUE` es `(profile_id, signed_by, type, version)` desde B4.6 (`006`: dos tutores firman por el mismo hijo).
+  - [x] RLS `ENABLE` + `FORCE` en ambas; políticas coherentes con §5.
+  - [x] Vista `student_health_professor_view`: sustituida en B8 (`010`) por `professor_session_health`, acotada a una sesión y auditada.
+  - [x] `src/config/agreements.js` con los 3 tipos; las versiones vigentes pasaron a `agreement_documents` en B4.5.1.
+  - [x] `requireCompleteProfile` devuelve `{ ok, missing }` (fuente única `profile_missing`, `013`; el `waiver` pasó a la cobertura de riesgo en B10.3, que añade `risk_cover`).
+  - [x] `POST /me/health` (upsert) y `POST /me/agreements` (`{ type, version }`) funcionan (verificado el 2026-10-31 por HTTP).
+  - [x] `GET /me/profile-status` devuelve `{ ok, missing }` sin provocar 403.
+  - [x] `GET /agreements/:type/current` sirve el PDF vigente (desde B4.5.1, el publicado en `agreement_documents`).
+  - [x] Tests por rol en `scripts/test-rls.js` (22 OK el 2026-10-31); la salud del profesor, en `test:attendance` desde B8.
+  - [x] Verificación HTTP manual (verificado el 2026-10-31, API real): alumno sin nada → `missing: ['health_info', 'data_protection', 'rights_of_image']` (sin `waiver` desde B10.3); tras salud y firmas → `{ ok: true, risk_cover: true }`.
+  - [x] `migrate:down` → `migrate` → `migrate:down` sin error (en su día; no se repite: bajaría 17 migraciones con datos).
+  - [x] Servidor reiniciado tras `migrate` (riesgo §9).
+  - [x] Commit (`65bd98b`, «cierre de B4.5»).
 
-### B4.5.1 — Gestión documental admin (`agreement_documents`, storage, subida) — IMPLEMENTADO
+### B4.5.1 — Gestión documental admin (`agreement_documents`, storage, subida) — CERRADO
 - **Estado** (verificado el 2026-10-30: commit en el historial y tests verdes: `672d870`, `test:agreements` 7 OK). La checklist de abajo no se marcó en su día; la verificación HTTP manual no consta.
 - **Objetivo**: que el admin pueda subir, publicar y retirar los PDFs de los 3 tipos de agreement; `requireCompleteProfile` pasa a leer la versión vigente de BD.
 - **Dependencia dura**: va **inmediatamente después de B4.5, antes de B5**. Sin esto, B7/B10 no pueden usar versiones reales.
@@ -170,21 +170,21 @@
   - `storage/` en `.gitignore` + `.gitkeep`.
 - **Fuera de alcance**: S3/MinIO (B20), backup de `storage/` (B20), firma electrónica avanzada (futuro), UI de admin (B19).
 - **Checklist de cierre**:
-  - [ ] `agreement_documents` creada con `UNIQUE(type, version)`, índice parcial de versión vigente, RLS.
-  - [ ] `AGREEMENTS_STORAGE_PATH` en `.env` / `.env.example`; directorio creado al arrancar; `storage/` en `.gitignore`.
-  - [ ] `storage.js` con `saveFile`/`readFile`/`deleteFile`; checksum SHA-256 al guardar.
-  - [ ] `POST /admin/agreements/documents` (multipart, admin): valida `type` ∈ `AGREEMENT_TYPES`, `version` semver-ish, `mime_type = application/pdf`, tamaño ≤ 10 MB; 409 `duplicate_document` / `version_exists_different_content` si aplica.
-  - [ ] `POST /admin/agreements/documents/:id/publish` (admin): retira la vigente anterior del mismo tipo, publica la nueva, audita en `audit_log`.
-  - [ ] `GET /admin/agreements/documents` (admin): lista con versiones y estado.
-  - [ ] `GET /agreements/:type/current` sirve el PDF publicado vigente desde `AGREEMENTS_STORAGE_PATH`.
-  - [ ] `requireCompleteProfile` lee versión vigente de `agreement_documents` (vía `getCurrentVersion`); contrato `{ ok, missing }` sin cambios.
-  - [ ] Tests por rol: admin sube/publica; alumno no puede subir; alumno ve el publicado; versión retirada no es "vigente".
-  - [ ] `migrate:down` → `migrate` → `migrate:down` sin error.
-  - [ ] Servidor reiniciado tras `migrate`.
-  - [ ] Verificación HTTP manual end-to-end: admin sube PDF → publica → alumno `GET /agreements/waiver/current` obtiene el PDF → `POST /me/agreements` con la versión nueva → `requireCompleteProfile` `ok: true`.
-  - [ ] Commit `feat(B4.5.1): agreement_documents + storage + subida admin + requireCompleteProfile desde BD`.
+  - [x] `agreement_documents` creada con `UNIQUE(type, version)`, índice parcial de versión vigente, RLS.
+  - [x] `AGREEMENTS_STORAGE_PATH` en `.env` / `.env.example`; directorio creado al arrancar; `storage/` en `.gitignore`.
+  - [x] `storage.js` con `saveFile`/`readFile`/`deleteFile`; checksum SHA-256 al guardar.
+  - [x] `POST /admin/agreements/documents` (cuerpo crudo `application/pdf`, sin multipart; admin): valida `type` ∈ `AGREEMENT_TYPES`, `version` semver-ish, `mime_type = application/pdf`, tamaño ≤ 10 MB; 409 `duplicate_document` / `version_exists_different_content` si aplica.
+  - [x] `POST /admin/agreements/documents/:id/publish` (admin): retira la vigente anterior del mismo tipo, publica la nueva, audita en `audit_log`.
+  - [x] `GET /admin/agreements/documents` (admin): lista con versiones y estado.
+  - [x] `GET /agreements/:type/current` sirve el PDF publicado vigente desde `AGREEMENTS_STORAGE_PATH`.
+  - [x] `requireCompleteProfile` lee versión vigente de `agreement_documents` (vía `getCurrentVersion`); contrato `{ ok, missing }` sin cambios.
+  - [x] Tests por rol (`test:agreements`, 7 OK el 2026-10-31).
+  - [x] `migrate:down` → `migrate` → `migrate:down` sin error (en su día; no se repite).
+  - [x] Servidor reiniciado tras `migrate`.
+  - [x] Verificación HTTP manual end-to-end (verificado el 2026-10-31, API real): el alumno no sube (403); el admin sube (201) y publica (200) los 3 tipos; el alumno descarga el PDF, idéntico al subido; firma la versión publicada (una no vigente → 400) y `profile-status` da `ok: true`.
+  - [x] Commit (`672d870`).
 
-### B4.6 — Cuenta familiar — IMPLEMENTADO
+### B4.6 — Cuenta familiar — CERRADO
 - **Objetivo**: el tutor se registra, crea a sus hijos (perfiles **sin credenciales**) y gestiona todo por ellos. Plan, decisiones D1–D16 y tabla de refactor en `PLAN_FAMILIA.md`; vocabulario en `CONTEXT.md`; ADR 0002.
 - **Primera versión** (commit `bc4685d`): menor con login propio y tutor que solo firmaba. Se sustituye.
 - **Dependencia dura**: después de B4.5.1 y **antes de B5** (reservas y pagos nacen con este modelo).
@@ -197,9 +197,9 @@
   - `requireCompleteProfile`: comprueba sujeto + actor.
 - **Fuera de alcance**: UI; invitación para reclamar el perfil a los 18; invitación de un 2º tutor; reservas y pagos (B7/B10, que ya nacen con sujeto/actor). 
 - **Permisos de BD** (aplicados a mano como superusuario el 2026-10-27; repetir en cada instalación nueva): `GRANT service_role TO migrator` y `GRANT CREATE ON SCHEMA public TO service_role`. Son necesarios para que la vista de profesor (004) y `is_guardian_of`/`create_child` (006) tengan owner `service_role` (BYPASSRLS).
-- **Checklist de cierre** (verde el 2026-10-27; el HTTP de firmas queda pendiente de documentos publicados): `test-minors.js` reescrito (el tutor crea un hijo y no se vincula a perfiles existentes; un adulto no puede ser hijo; el tutor edita la salud y firma; otro tutor no; a los 18 pierde poderes pero ve la lista; tutor sin `data_protection` incompleto); `test:rls` verde; `migrate:down` → `migrate` sin error; verificación HTTP del flujo del tutor.
+- **Checklist de cierre** (verde el 2026-10-27; el HTTP de firmas, verificado el 2026-10-31 con documentos publicados de prueba: el tutor crea al hijo, guarda su salud y firma los 3 por él, otro perfil no firma por el hijo, y el tutor queda completo tras su `data_protection`): `test-minors.js` reescrito (el tutor crea un hijo y no se vincula a perfiles existentes; un adulto no puede ser hijo; el tutor edita la salud y firma; otro tutor no; a los 18 pierde poderes pero ve la lista; tutor sin `data_protection` incompleto); `test:rls` verde; `migrate:down` → `migrate` sin error; verificación HTTP del flujo del tutor.
 
-### B5 — CRUD disciplinas, planes y disciplinas elegibles (admin) — IMPLEMENTADO
+### B5 — CRUD disciplinas, planes y disciplinas elegibles (admin) — CERRADO
 - **Objetivo**: catálogo de disciplinas y planes, con RLS. Vocabulario en `CONTEXT.md` ("Planes y disciplinas"); modelo en ADR 0003: **el plan fija cuántas disciplinas, la suscripción fija cuáles**.
 - **Entregable**: migración `007` con esquema + RLS en `disciplines`, `plans`, `plan_disciplines`; endpoints admin CRUD.
   - `disciplines`: `minors_only boolean NOT NULL DEFAULT false`; `is_active NOT NULL DEFAULT true`.
@@ -218,7 +218,7 @@
   - [x] Tests por rol: `npm run test:catalog` → 10/10 OK; `test:rls`, `test:agreements`, `test:minors` verdes.
   - [x] `migrate:down` → `migrate` → `migrate:down` sin error.
 
-### B6 — CRUD `class_sessions` + calendario — IMPLEMENTADO
+### B6 — CRUD `class_sessions` + calendario — CERRADO
 - **Estado** (verificado el 2026-10-30: commit en el historial y tests verdes: `096b5e8`, `test:classes` 12 OK). La checklist de abajo no se marcó en su día.
 - **Objetivo**: sesiones de clase con calendario.
 - **Entregable**: RLS en `class_sessions`; endpoints admin + lectura para alumnos.
@@ -255,15 +255,15 @@
 
     Regresión con la API parada: `test:classes` 12, `test:bookings` 18, `test:profiles` 25 y `test:rls` 22, todos OK; `npm run lint` sin errores. Contra la API real (`npm run dev`, JWT firmados): 200 (alumno, tutor, admin), 403 (profesor), 400 `invalid_range` / `invalid_field` y 401; la base de desarrollo no tenía sesiones, así que las listas salieron vacías.
 - **Pendiente**:
-  - Plazas libres en el calendario: harían falta otra función `SECURITY DEFINER`, porque `bookings_select` no deja contar las reservas ajenas.
+  - Plazas libres en el calendario: harían falta otra función `SECURITY DEFINER`, porque `bookings_select` no deja contar las reservas ajenas (→ `MEJORAS.md` 6.1).
 
-### B7 — Reservas (`create_booking`, `FOR UPDATE`, lista de espera) — IMPLEMENTADO
+### B7 — Reservas (`create_booking`, `FOR UPDATE`, lista de espera) — CERRADO
 - **Objetivo**: reservas con bloqueo de plaza (`FOR UPDATE`) y lista de espera.
 - **Cuenta familiar**: `student_id` = sujeto + `booked_by` = actor; RLS con `is_guardian_of`; `profile_id` opcional; bloqueo si el hijo o el tutor está incompleto. `event_registrations`: mismo patrón. Ver `PLAN_FAMILIA.md` §5.
 - **Entregable**: RLS en `bookings`; función `create_booking` con `FOR UPDATE`; endpoints de reserva/cancelación; middleware `requireCompleteProfile` (B4.5) montado.
 - **Reglas de dominio**: fijadas en `CONTEXT.md` § Reservas (grill-with-docs, sin ADR).
 - **Implementación** (migración `009`): la lógica vive en funciones `SECURITY DEFINER` (owner `service_role`): `book_session`, `cancel_booking`, `cancel_session_bookings` (públicas) y `covers`, `promote_waitlist` (internas). `app_user` solo lee `bookings`. Aforo: `FOR UPDATE` de la sesión; solape: `pg_advisory_xact_lock` por alumno. Enum `booking_cancel_reason`; `academy_settings`: `booking_window_days` = 14, `cancellation_notice_minutes` = 60. Se crea `subscription_disciplines` (solo tabla; flujos en B10.5). Avisos: filas `notice.*` en `audit_log` con `changes.recipients` (se entregan por el outbox de B10.6, ADR 0008; los de reservas, por push en B15). Se corrige el `UNIQUE` de 001, que era total y no parcial. Endpoints: `GET /bookings`, `POST /bookings`, `POST /bookings/:id/cancel`.
-- **Pendiente**: la promoción no vuelve a comprobar el perfil completo. Hecho en B10.5: el cambio de disciplina. Hecho en **B7.1**: la subida de aforo y el cambio de clase promocionan, eximen de cancelación tardía y avisan a los afectados.
+- **Pendiente**: nada. Hecho en B10.3: la promoción re-comprueba el perfil completo (`profile_missing` en `promote_waitlist`, `013`). Hecho en B10.5: el cambio de disciplina. Hecho en **B7.1**: la subida de aforo y el cambio de clase promocionan, eximen de cancelación tardía y avisan a los afectados.
 - **Fuera de alcance**: pago (B10), asistencia (B8).
 - **Checklist de cierre**:
   - [x] RLS en `bookings`.
@@ -272,7 +272,7 @@
   - [x] `requireCompleteProfile` (B4.5) bloquea reservas con `403 profile_incomplete`.
   - [x] Tests de concurrencia + rol (`npm run test:bookings`).
 
-### B7.1 — Cambio de clase y ajuste de sesión sobre las reservas — IMPLEMENTADO
+### B7.1 — Cambio de clase y ajuste de sesión sobre las reservas — CERRADO
 - **Objetivo**: cumplir lo que `CONTEXT.md` ya promete y B7 dejó pendiente. Un admin cambia una clase desde una fecha o ajusta una sesión concreta; las reservas siguen a su sesión; ante un **cambio que afecta a la sesión** (inicio, duración o profesor) se avisa a los afectados, que pueden cancelar sin que cuente como tardía; y si hay plazas nuevas, se promociona la lista de espera. Términos en `CONTEXT.md` (§ Clases y sesiones, § Reservas y § Avisos), y el modelo, en ADR 0004.
 - **Por qué tras B15**: el aviso es un `booking_notice` más (push o email de respaldo, agrupado, ADR 0011). Se separó de B15 porque el aviso solo, sin la exención, diría algo que el sistema no cumple.
 - **Choques con lo existente** (detectados en el diseño, 2026-10-31):
@@ -401,7 +401,7 @@
 - **Objetivo**: lo que falta de B6 para el admin (detectado en el diseño de B7.1, 2026-10-31): crear sesiones sueltas, cancelar una sesión concreta y deshacerlo (las reservas no vuelven, `CONTEXT.md`), la cancelación retroactiva con motivo por la API y deshacer un ajuste de sesión (devolver un campo a lo que dice su clase).
 - **Se apoya en**: `cancel_session_bookings` (009/010), `adjust_session` y `slot` (B7.1).
 
-### B8 — Asistencia manual (`register_attendance`, auditoría) — IMPLEMENTADO
+### B8 — Asistencia manual (`register_attendance`, auditoría) — CERRADO
 - **Estado** (verificado el 2026-10-30: commit en el historial y tests verdes: `4703047`, `test:attendance` 12 OK).
 - **Objetivo**: profesor pasa lista manualmente; se audita.
 - **Cuenta familiar**: la edición de la ficha de salud del hijo por el tutor ya está en B4.6 (sale de aquí).
@@ -418,14 +418,14 @@
   - [x] `audit_log` registra cierres de lista, correcciones y consultas de salud del profesor.
   - [x] Tests por rol (`npm run test:attendance`).
 
-### B9 — QR dinámico (`device_tokens`, SSE, check-in) — IMPLEMENTADO
+### B9 — QR dinámico (`device_tokens`, SSE, check-in) — CERRADO
 - **Objetivo**: tablet fija con `device_token`, QR rotativo de prueba de presencia, check-in desde el móvil. Vocabulario en CONTEXT.md §Asistencia (check-in, reserva candidata, ventana, QR, tablet).
 - **Cuenta familiar (decidido)**: el tutor hace check-in de sus hijos con su móvil; respaldo manual del profesor (CONTEXT.md §Asistencia).
 - **Decidido (2026-10-28)**: el QR no lleva `session_id`; la sesión se deduce de las reservas candidatas (una → se marca; varias → se elige; ninguna → rechazo, nunca crea reserva). Se aceptan el QR actual y el anterior. Ventana −30/+10 min ajustable por el admin. La tablet muestra QR + sesiones abiertas, sin nombres. El check-in de un hijo queda con `recorded_by` = tutor; la lista del profesor muestra el método.
 - **Entregable**: tabla `device_tokens` (hash), vinculación con código de un solo uso y revocación (admin), endpoints `/tablet/*` (sin prefijo `/api`, como el resto de `src/index.js`), SSE `/tablet/active-sessions`, rotación de QR, endpoint de check-in del alumno/tutor.
 - **Nota**: `mark_attendance` (`migrations/010_attendance.js`) rechaza marcar antes de `starts_at`; el check-in necesita su propia función, con la ventana en lugar de `starts_at`.
 - **Implementación** (migración `011`): `device_tokens` guarda sha256 del token y del código de vinculación (15 min, un solo uso); `app_user` sin acceso a las columnas de hash; RLS solo admin. El QR no se guarda: `HMAC(clave derivada de JWT_SECRET, floor(now/N))` en `src/services/checkin.js`, valen el tramo actual y el anterior. Funciones `SECURITY DEFINER` (owner `service_role`): `link_tablet`, `tablet_feed`, `checkin_qr_seconds` (la tablet llama sin contexto RLS por `appPool`), `check_in(booking?)` y la interna `checkin_window_open`. `academy_settings`: `checkin_opens_minutes` = 30, `checkin_closes_minutes` = 10, `checkin_qr_seconds` = 30. `check_in` bloquea la sesión `FOR UPDATE` como `close_attendance`. La lista del profesor devuelve `method`. Endpoints: `POST/GET /admin/tablets`, `POST /admin/tablets/:id/revoke`, `PUT /admin/settings/checkin`, `POST /tablet/link`, `GET /tablet/active-sessions` (SSE, `Authorization: Device <token>`), `POST /checkin { code, booking_id? }`.
-- **Pendiente**: rate limit en `/tablet/link`; auditar vincular/revocar; check-in de varios hijos en una petición.
+- **Pendiente**: rate limit en `/tablet/link` (→ B20); auditar vincular/revocar (→ B20); check-in de varios hijos en una petición (→ `MEJORAS.md` 6.2).
 - **Fuera de alcance**: MFA de tablet (futuro).
 - **Checklist de cierre**:
   - [x] `device_tokens` con hash y RLS.
@@ -436,7 +436,7 @@
   - [x] Check-in: candidatas propias y de hijos; rechazo sin candidatas.
   - [x] Tests (`npm run test:checkin`) y smoke del SSE con `curl -N`.
 
-### B10 — Stripe base (checkout, portal, webhook idempotente) — IMPLEMENTADO
+### B10 — Stripe base (checkout, portal, webhook idempotente) — CERRADO
 - **Objetivo**: checkout, portal de cliente y webhook idempotente. Vocabulario en `CONTEXT.md` («Suscripción», «Cobros»).
 - **Estados**: `sub_status` = estados de Stripe tal cual; se añade `unpaid`. `canceled` / `incomplete_expired` → `cancelled`. **En vigor** = `active` + `past_due` (periodo de gracia = reintentos de Stripe, 2 semanas en el Dashboard; al agotarse Stripe marca `unpaid`, no cancela). **Viva** = `active` + `past_due` + `unpaid`. `grace_period` y `academy_settings.grace_period_days` quedan sin uso (documentados). `pending_cash` / `cash` / `cash_payments`: efectivo reservado e inactivo (no antes de 2028); sale de `covers`.
 - **Cuenta familiar**: una suscripción por hijo + `subscriptions.payer_id` = quien hace el checkout (el propio alumno adulto o un tutor vinculado); cliente Stripe por pagador en **`profiles.stripe_customer_id`** (único, nullable, solo backend); checkout con `profile_id`; RLS = alumno, tutor vinculado o pagador. Cambio de pagador: B11.
@@ -448,7 +448,7 @@
 - **Entregable**: migración (enum `unpaid`, `profiles.stripe_customer_id`, índice único parcial de suscripción viva, RLS en `subscriptions` y `subscription_disciplines`, `covers` = `active` + `past_due`); endpoints `/billing/checkout`, `/billing/portal`; webhook con `webhook_events`; hooks de catálogo → Stripe.
 - **Fuera de alcance**: recibos (B10.1), seguro y cobertura de riesgo (B10.3; hasta entonces el `waiver` sigue en el perfil completo), upgrade/downgrade y cambio de disciplina (B10.5), cambio de pagador (B11), SEPA (`MEJORAS.md`). La baja admin se adelantó de B11 (ver B11).
 - **Implementación** (migración `012`, SDK `stripe@23`, API `2026-09-30.endive`): `src/config/stripe.js` (cliente único; `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PORTAL_CONFIGURATION_ID`, `APP_URL`). `012`: `sub_status` + `unpaid` (no reversible); `profiles.stripe_customer_id` (no se oculta por columna: un `cus_` no es credencial; ningún servicio lo devuelve); `subscriptions.stripe_subscription_id` único y `NOT NULL`; `subscriptions_one_live_idx` (viva = `active`/`past_due`/`unpaid`); RLS de lectura en `subscriptions`, `subscription_disciplines` e `invoices` (alumno, tutor incl. histórico, pagador, admin) — **antes no tenían RLS y `app_user` podía escribirlas**; `webhook_events` sin acceso para `app_user`; `covers` = `active` + `past_due`; `revoke_coverage(student)` (definer, interna); `is_guardian_of` con `NULLIF` (rompía con sesión vacía). `grace_period`/`pending_cash` quedan en el enum sin uso. Catálogo: `syncPlanToStripe` dentro de la transacción de `createPlan`/`updatePlan`; un Product por plan, Price nuevo por cada precio, sin `default_price` (Stripe no deja archivarlo); pasar a 0 € con suscriptores → 409; script `npm run sync-stripe-plans`. Checkout (`src/services/billing.js`): Customer creado y guardado fuera de la transacción (gana el primero si hay carrera); sin `payment_method_types`; pedido en `metadata` de sesión y suscripción; `integration_identifier`. Portal: `npm run stripe-portal-config` (solo método de pago y recibos). Webhook (`src/services/stripeWebhook.js`, `POST /webhooks/stripe` montado antes de `express.json`): firma con `constructEvent`; idempotencia = fila de `webhook_events` en la misma transacción que los efectos; cada handler relee el objeto de Stripe (eventos desordenados); pagador por el cliente, no por metadata; eventos: `checkout.session.completed`/`async_payment_succeeded`/`async_payment_failed`, `customer.subscription.updated`/`deleted`, `invoice.finalized`/`paid`/`payment_failed`, `charge.refunded`, `charge.dispute.created`, `radar.early_fraud_warning.created`. Avisos `notice.*` en `audit_log`. Endpoints: `POST /billing/checkout`, `POST /billing/portal`, `POST /webhooks/stripe`. Tests: `npm run test:billing`, `npm run test:webhook` (contra un sandbox de Stripe).
-- **Pendiente**: «solo tarjeta» en el Dashboard (el sandbox ofrece `link` y `satispay`); clave restringida `rk_` propia al reclamar el sandbox; la migración de suscriptores al cambiar de precio es secuencial en la petición (`shortcut:`); un plan que pasa de 0 € a precio crea otro Product; `past_due` → `unpaid` y el pool del webhook en B20.
+- **Pendiente**: «solo tarjeta» en el Dashboard (el sandbox ofrece `link` y `satispay`) y clave restringida `rk_` propia (→ B10.7); la migración de suscriptores al cambiar de precio es secuencial en la petición (`shortcut:` aceptado en el código); un plan que pasa de 0 € a precio crea otro Product (→ `MEJORAS.md` 6.3); `past_due` → `unpaid` y el pool del webhook (→ B20).
 - **Checklist de cierre**:
   - [x] RLS en `subscriptions` y `subscription_disciplines`.
   - [x] Una sola suscripción viva por alumno (índice único parcial) y carrera de checkouts resuelta (cancelación + reembolso).
@@ -461,7 +461,7 @@
   - [x] `requireCompleteProfile` (sujeto y actor) bloquea el checkout (E2E por HTTP: adulto e hijo incompletos → 403).
   - [x] Tests manuales con Stripe CLI (E2E 2026-10-29: `stripe listen` + dos Checkouts reales pagados, alumno y su hijo en el mismo cliente; bajas admin por HTTP de vuelta por el webhook).
 
-### B10.1 — Recibos (`invoices`) + webhook `invoice.payment_failed` — IMPLEMENTADO
+### B10.1 — Recibos (`invoices`) + webhook `invoice.payment_failed` — CERRADO
 - **Objetivo**: guardar los **recibos** (término en `CONTEXT.md`; no son facturas legales) y manejar el cobro fallido.
 - **Entregable**: migración de `invoices`: `stripe_invoice_id` UNIQUE, `subscription_id`, `student_id`, **`payer_id`**, `period_start` / `period_end`, `amount_due_cents`, `amount_paid_cents`, `currency`, `status` (Stripe tal cual: draft/open/paid/uncollectible/void), `paid_at`, `attempt_count`, `next_payment_attempt`, `last_payment_error`, `hosted_invoice_url`, `invoice_pdf` (sustituye `external_pdf_url`). Sin líneas ni impuestos. Handlers de `invoice.*`.
 - **Reglas**: `invoice.payment_failed` no quita acceso (la suscripción pasa a `past_due`); guarda intento / siguiente reintento / motivo y deja `notice.*` solo al pagador (enlace al portal). Al pagar después, vuelve a `active`; las reservas canceladas no vuelven.
@@ -475,7 +475,7 @@
   - [x] Idempotencia vía `webhook_events`.
   - [x] Tests manuales con Stripe CLI (E2E: recibos `paid` de ambos Checkouts).
 
-### B10.2 — Endpoint admin morosos y "en gracia" — IMPLEMENTADO
+### B10.2 — Endpoint admin morosos y "en gracia" — CERRADO
 - **Objetivo**: lista para el panel admin, agrupada por pagador.
 - **Entregable**: endpoint solo admin con dos listas: **morosos** (pagadores con alguna suscripción o seguro `unpaid`) y **en gracia** (`past_due`, no morosos).
 - **Fuera de alcance**: UI (B19), emails (B10.6).
@@ -485,7 +485,7 @@
   - [x] Solo admin (`requireRole('admin')` del router; la RLS además no da nada al resto).
   - [x] Tests (`npm run test:billing`).
 
-### B10.3 — Seguro y cobertura de riesgo — IMPLEMENTADO
+### B10.3 — Seguro y cobertura de riesgo — CERRADO
 - **Objetivo**: seguro anual de la academia como alternativa al `waiver` (ADR 0005, ADR 0006). Términos en `CONTEXT.md` («Seguro y cobertura de riesgo»).
 - **Reglas**:
   - Cobertura de riesgo = seguro en vigor (`active` / `past_due`) o `waiver` vigente. No hay seguro externo.
@@ -537,7 +537,7 @@
 - **Notas**:
   - Con *test clock*, Stripe rechaza modificar suscripciones mientras el reloj avanza. El aviso responde 500 y se reprocesa en el reintento (en el E2E, `stripe events resend`).
   - La clave del sandbox reclamable (`rkcs_test_`) no permite *test clocks* por API ni `accounts.retrieve`.
-- **Pendiente**: reactivar el seguro no deshace los `cancel_at_period_end` de la desactivación.
+- **Pendiente**: reactivar el seguro no deshace los `cancel_at_period_end` de la desactivación (→ `MEJORAS.md` 6.4).
 - **Checklist de cierre**:
   - [x] `missing` sin `waiver`; reservar exige `risk_cover`.
   - [x] Promoción salta (no saca) a quien no tiene cobertura de riesgo o perfil completo.
@@ -550,7 +550,7 @@
   - [x] `subscription_agreements` eliminada.
   - [x] Tests (incluida la regresión de B7/B9 con la nueva regla) y E2E con Stripe CLI.
 
-### B10.5 — Upgrade/downgrade + cambio de disciplina — IMPLEMENTADO
+### B10.5 — Upgrade/downgrade + cambio de disciplina — CERRADO
 - **Objetivo**: subir de plan (más caro) inmediato con prorrateo; bajar (igual o más barato) en la siguiente facturación; cambio de disciplina. Términos en `CONTEXT.md` («Suscripción», «Reservas»), decisión en ADR 0007.
 - **Reglas** (decididas 2026-10-29):
   - **Subida**: *pending update* (`payment_behavior: pending_if_incomplete`, `proration_behavior: always_invoice`), con `price` y `metadata` (`plan_id`, `discipline_ids`). Solo se aplica si se paga. Si la tarjeta se rechaza: *void* del recibo y 402 `payment_failed`. Si pide 3DS: `client_secret` para `handleNextAction`. Si había una bajada programada, se libera su Schedule antes.
@@ -643,10 +643,10 @@
   - Arreglo salido del E2E: el detalle del 402 se llamaba `error` y pisaba la categoría del `errorHandler`, que además no tenía el 402. Ahora es `decline_message` y `errorHandler` tiene `402: 'payment_required'`.
   - Datos del E2E borrados después (base de desarrollo, *test clock* y productos archivados en el sandbox).
 - **Pendiente**:
-  - Añadir `subscription_schedule.*` e `invoice.voided` al endpoint del Dashboard. En local, `stripe listen --all-snapshot` (o `--events` con ellos).
-  - Las plazas que libera un cambio de disciplina no promocionan la espera (`shortcut:`, como `revoke_coverage`).
-  - Un cambio de precio del plan descarta un pending update a medias de sus suscriptores (Stripe lo anula al cambiar `items`).
-  - El cambio de plan no pasa por `requireCompleteProfile` (el diseño no lo pide).
+  - Añadir `subscription_schedule.*` e `invoice.voided` al endpoint del Dashboard (→ B10.7). En local, `stripe listen --all-snapshot` (o `--events` con ellos).
+  - Las plazas que libera un cambio de disciplina no promocionan la espera (`shortcut:` aceptado, como `revoke_coverage`; B7.1 lo dejó fuera de alcance).
+  - Un cambio de precio del plan descarta un pending update a medias de sus suscriptores (Stripe lo anula al cambiar `items`; aceptado).
+  - El cambio de plan no pasa por `requireCompleteProfile` (el diseño no lo pide; aceptado).
 - **Checklist de cierre**:
   - [x] Subida: prorrateo cobrado y plan y disciplinas aplicados solo tras el pago (3DS y rechazo).
   - [x] Bajada: sin reembolso, aplicada al cambiar de fase; sustituir y anular; reservas no cubiertas canceladas al aplicarse.
@@ -656,7 +656,7 @@
   - [x] Seguro intacto.
   - [x] Tests y E2E con Stripe CLI.
 
-### B10.6 — Emails transaccionales de billing (al pagador) — IMPLEMENTADO
+### B10.6 — Emails transaccionales de billing (al pagador) — CERRADO
 - **Objetivo**: entregar por email al pagador los avisos de facturación que ya se crean (`notice.*` en `audit_log`) y los que faltaban (impagada, baja). Términos en `CONTEXT.md` («Avisos»), decisión en ADR 0008.
 - **Reglas** (decididas 2026-10-30):
   - **Qué va por email**: 11 avisos de facturación, solo al pagador:
@@ -788,10 +788,10 @@
   - **Envío real con Resend** (remitente de pruebas a la cuenta propia): dos llamadas con la misma `Idempotency-Key` → el mismo id y un solo email. La misma clave con otro contenido → 409, que se trata como permanente. Aspecto correcto en Gmail y en el móvil.
   - Datos del E2E borrados después (base de desarrollo, suscripción y cliente del sandbox, planes archivados).
 - **Pendiente**:
-  - **Producción**: verificar el dominio en Resend (SPF, DKIM, DMARC `p=none` → `quarantine`), `EMAIL_FROM` = `Kaizen <avisos@mail.<dominio>>`, `EMAIL_REPLY_TO` y apuntar Resend (EE. UU., DPA y SCC) en el registro de actividades. Apagar los mismos emails de cliente en la cuenta de producción (B10.7).
-  - Si se cae el proceso entre el envío y la marca y el email recompuesto cambia (por ejemplo, el nombre del plan), el reintento recibe un 409 de Resend y la entrega queda `failed`, aunque el email salió.
-  - Un aviso emitido con `servicePool` en *autocommit* (baja admin, desactivar el seguro, `upgrade_requires_action`) se queda aunque la ruta haga rollback después.
-  - El worker mantiene la transacción abierta mientras envía el lote (hasta 20 × 15 s en el peor caso).
+  - **Producción** (→ B10.7): verificar el dominio en Resend (SPF, DKIM, DMARC `p=none` → `quarantine`), `EMAIL_FROM` = `Kaizen <avisos@mail.<dominio>>`, `EMAIL_REPLY_TO` y apuntar Resend (EE. UU., DPA y SCC) en el registro de actividades. Apagar los mismos emails de cliente en la cuenta de producción.
+  - Si se cae el proceso entre el envío y la marca y el email recompuesto cambia (por ejemplo, el nombre del plan), el reintento recibe un 409 de Resend y la entrega queda `failed`, aunque el email salió (→ `MEJORAS.md` 6.6).
+  - Un aviso emitido con `servicePool` en *autocommit* (baja admin, desactivar el seguro, `upgrade_requires_action`) se queda aunque la ruta haga rollback después (→ B20).
+  - El worker mantiene la transacción abierta mientras envía el lote (hasta 20 × 15 s en el peor caso) (→ B20).
 - **Checklist de cierre**:
   - [x] Migración `015` (`notice_deliveries`, sin acceso para `app_user`).
   - [x] `notice()` crea aviso y entregas en una sentencia; mapa acción → canales; sin admins.
@@ -815,6 +815,7 @@
   - *Revenue recovery → Retries* de la cuenta: Kaizen necesita «mark the subscription as unpaid» al agotar los reintentos (en el sandbox estaba en cancelar; ver E2E de B11). Es un ajuste de toda la cuenta: si maat cancela, acordarlo antes del corte.
   - Endpoint de webhook propio de Kaizen con API `2026-09-30.endive` (sin cambiar la versión por defecto de la cuenta), clave `rk_live_` restringida y configuración de portal propia.
   - Plan de corte: cuándo deja maat de vender y de recibir webhooks.
+  - Reasignado al cerrar B10–B11 (2026-10-31): «solo tarjeta» en el Dashboard y clave `rk_` restringida propia (B10); `subscription_schedule.*` e `invoice.voided` en el endpoint del Dashboard (B10.5); dominio de Resend (SPF, DKIM, DMARC), `EMAIL_FROM`, `EMAIL_REPLY_TO`, Resend en el registro de actividades y emails de cliente apagados en producción (B10.6); *Retries* en «mark as unpaid», para que un seguro nunca se cancele sin aviso (B11).
 - **Fuera de alcance**: cuentas de Stripe distintas (las tarjetas no se mueven sin el soporte de Stripe).
 - **Checklist de cierre**:
   - [ ] Inventario revisado con el admin.
@@ -822,7 +823,7 @@
   - [ ] Base legal del traspaso de datos confirmada (gestoría).
   - [ ] Importación en producción y conteo cuadrado con Stripe.
 
-### B11 — Baja del seguro y cambio de pagador — IMPLEMENTADO
+### B11 — Baja del seguro y cambio de pagador — CERRADO
 - **Objetivo**: baja del seguro por el admin (a fin de año o inmediata) y **cambio de pagador**. Además, arreglar que la baja inmediata de una suscripción deje su recibo pendiente cobrándose. Términos en `CONTEXT.md` («Suscripción», «Seguro y cobertura de riesgo»), decisión en ADR 0009.
 - **Ya hecho en B10** (2026-10-29): `POST /admin/subscriptions/:id/cancel-now` y `/cancel-at-period-end` (`cancelSubscription`). Se pide la baja a Stripe y el estado local llega por el webhook. `audit_log` `subscription.cancel_now` / `subscription.cancel_at_period_end`.
 - **Sondeo del sandbox** (2026-10-30, `kaizen-app-testing`, *test clock*):
@@ -1050,15 +1051,15 @@
   - Con el *test clock*, una baja inmediata se lee «seguirá vigente hasta…» en el email: la plantilla compara `ends_at` con la hora real. En producción `ended_at` es el momento de la baja (`subscription_cancelled` de B10.6 hace igual).
   - Datos del E2E borrados después (base de desarrollo, *test clock*, plan y seguro archivados en Stripe y ajustes del seguro restaurados).
 - **Pendiente**:
-  - Endpoints sin prueba por HTTP en los tests (el E2E sí pasa por HTTP); en especial, el Checkout del cambio con un perfil incompleto (403 de `requireCompleteProfile`).
-  - Si Stripe cancelara un seguro tras los reintentos (otro ajuste de la cuenta), el pagador no recibiría ningún aviso de que se ha terminado. Con `unpaid` no pasa.
-  - Si el precio del plan cambia con un cambio `paid`, la sincronización no ve la sucesora (no tiene fila): el primer cobro en D es al precio viejo y el traspaso la alinea, sin prorrateo, para los siguientes.
-  - Un aviso escrito con `servicePool` en *autocommit* (`insurance_cancelled`) se queda aunque la ruta haga rollback después, como en B10.6.
+  - Endpoints sin prueba por HTTP en los tests (el E2E sí pasa por HTTP); en especial, el Checkout del cambio con un perfil incompleto (403 de `requireCompleteProfile`) (→ B20).
+  - Si Stripe cancelara un seguro tras los reintentos (otro ajuste de la cuenta), el pagador no recibiría ningún aviso de que se ha terminado. Con `unpaid` no pasa (→ B10.7: *Retries* en «mark as unpaid»).
+  - Si el precio del plan cambia con un cambio `paid`, la sincronización no ve la sucesora (no tiene fila): el primer cobro en D es al precio viejo y el traspaso la alinea, sin prorrateo, para los siguientes (→ `MEJORAS.md` 6.7).
+  - Un aviso escrito con `servicePool` en *autocommit* (`insurance_cancelled`) se queda aunque la ruta haga rollback después, como en B10.6 (→ B20).
 
 ### B12 — ELIMINADO
 - Absorbido: los consentimientos (`data_protection`, `rights_of_image`) ya los exige el perfil completo (B4.5) en el checkout, y el `waiver` pasa a la elección seguro / `waiver` del checkout (B10.3, ADR 0005).
 
-### B13 — Perfiles públicos (flags, `public_profiles`, directorio) — IMPLEMENTADO
+### B13 — Perfiles públicos (flags, `public_profiles`, directorio) — CERRADO
 - **Objetivo**: perfil público *opt-in* con campos visibles elegidos uno a uno, directorio para la academia, y cerrar lo que `profiles` deja leer hoy (el profesor y los perfiles públicos leen filas enteras). Términos en `CONTEXT.md` («Perfil público y directorio»), decisión en ADR 0010.
 - **Choques con lo existente** (detectados en el diseño, 2026-10-30):
   - `profiles_select` (003) tiene `OR is_public = true`: la RLS filtra filas, no columnas, así que un perfil público dejaría a cualquiera con sesión leer su fila entera (`phone`, `birth_date`, `stripe_customer_id`). Hoy está latente: ningún endpoint pone `is_public`.
@@ -1191,7 +1192,7 @@
   - `bio` y `display_name` no se filtran por contenido: lo resuelve el admin despublicando.
   - Riesgo residual aceptado (ADR 0010): el profesor lee a nivel SQL la fila entera de los alumnos de sus sesiones.
 
-### B14 — Racha, horas, badges, ranking mensual opt-in y disciplina abierta — IMPLEMENTADO
+### B14 — Racha, horas, badges, ranking mensual opt-in y disciplina abierta — CERRADO
 - **Objetivo**: gamificación básica sobre la asistencia: racha semanal, horas entrenadas, badges y un ranking mensual por disciplina con opt-in; y la **disciplina abierta** (el sparring), que las horas necesitan y hoy no cabe en el modelo. Términos en `CONTEXT.md` («Racha y logros», «Disciplina abierta», «Cubrir», «Campos visibles»). Sin ADR: nada es difícil de deshacer (calcular al leer admite una caché después sin cambiar la API, y el opt-in sigue el ADR 0010).
 - **Choques con lo existente** (detectados en el diseño, 2026-10-30):
   - `student_stats_daily` (001) asume agregados nocturnos con `streak_weeks`, pero B14 lo calcula todo al leer y no depende de B16. B14 no la usa; B16 decide su forma (y quitar `streak_weeks`).
@@ -1307,10 +1308,10 @@
     - Contra la API real (`npm run dev`, JWT firmados, fixtures borrados al acabar): `GET /me/progress` (200, y 403 `not_guardian` para otro alumno), `GET /rankings/:id` (200, 400 con `month=2026-13`, 401 sin token) y la ficha pública con `achievements`, todo como en el diseño.
 - **Pendiente**:
   - Carrera aceptada: si el admin marca una disciplina abierta mientras vive un checkout (o una bajada programada en Stripe) que la elige, el webhook la escribe igualmente en `subscription_disciplines` (no revalida). El alumno ocupa un hueco con algo que ya cubre, y nada lo avisa: lo corrige un cambio de disciplina.
-  - Una abierta en `plan_disciplines` se ignora para cubrir, pero `checkEligible` (B5) la sigue contando entre las elegibles de un plan.
-  - Los `id` de disciplina salen como número dentro del `jsonb` (`hours.disciplines`, como `public_disciplines` en B13) y como texto en `discipline.id` del ranking (como el resto del catálogo).
+  - Una abierta en `plan_disciplines` se ignora para cubrir, pero `checkEligible` (B5) la sigue contando entre las elegibles de un plan (→ `MEJORAS.md` 6.5).
+  - Los `id` de disciplina salen como número dentro del `jsonb` (`hours.disciplines`, como `public_disciplines` en B13) y como texto en `discipline.id` del ranking (como el resto del catálogo; aceptado).
 
-### B15 — Push (`push_subscriptions`, envío) — IMPLEMENTADO
+### B15 — Push (`push_subscriptions`, envío) — CERRADO
 - **Objetivo**: entregar por push los avisos de reservas y el nuevo de re-firma, con email de respaldo para quien no tiene ningún dispositivo de push. Términos en `CONTEXT.md` («Avisos»), decisiones en ADR 0008 (outbox) y ADR 0011 (push por destinatario con email de respaldo).
 - **Choques con lo existente** (detectados en el diseño, 2026-10-31):
   - La checklist pedía push de «pago fallido», pero `CONTEXT.md` dice que los avisos de facturación van siempre por email. **Gana `CONTEXT.md`**: la facturación sigue solo por email (B10.6) y el mapa `CHANNELS` de JS no cambia.
@@ -1422,7 +1423,7 @@
   - **Regresión verde**: `test:notices`, `test:bookings`, `test:billing`, `test:webhook` (Stripe sandbox), `test:attendance`, `test:agreements`, `test:rls`, `test:minors`, además de `test:progress`, `test:calendar`, `test:checkin`, `test:profiles`, `test:catalog`, `test:classes` y `test:mfa`. `npm run lint` sin errores.
 - **Pendiente**:
   - Push real en Chrome con el Service Worker (B18).
-  - El formato de fecha corta sale como lo da `es-ES` («mar, 3 nov, 19:00»), con comas, y no como el ejemplo del diseño («mar 3 nov 19:00»).
+  - El formato de fecha corta sale como lo da `es-ES` («mar, 3 nov, 19:00»), con comas, y no como el ejemplo del diseño («mar 3 nov 19:00»; aceptado).
   - Hecho en B7.1: el grupo caduca al empezar su **última** sesión (no la más próxima) y solo cuenta las que no han empezado.
 - **Checklist de cierre**:
   - [x] Migración `020`: `push_subscriptions` rehecha con RLS `FORCE`, `channel` con `push`, `save_push_subscription`, `enqueue_notice`, `booking_notice` y `agreement_notice`.
@@ -1482,7 +1483,7 @@
 - **Entregable**: rate limiting, auditoría de RLS, backups (incluido `storage/`), tests E2E, runner formal (Node test runner o Vitest), `npm run lint`, `npm run test`, `npm run build:prod` si hay frontend.
 - **Fuera de alcance**: nada.
 - **Checklist de cierre**:
-  - [ ] Rate limiting en `/auth/*` y `/admin/agreements/*`.
+  - [ ] Rate limiting en `/auth/*`, `/admin/agreements/*` y `/tablet/link` (B9).
   - [ ] Auditoría de RLS (revisar todas las políticas, incluidas B4.5 y B4.5.1).
   - [ ] Backups automáticos de BD **y de `AGREEMENTS_STORAGE_PATH`**.
   - [ ] Verificación de checksum al servir `GET /agreements/:type/current` (B4.5.1).
@@ -1494,4 +1495,8 @@
   - [ ] **[Media] Llamadas a Stripe dentro de la transacción del webhook** (detectado en B10): `services/stripeWebhook.js` llama a la API de Stripe con la conexión de `servicePool` (máx. 5) abierta; una ráfaga de eventos con Stripe lento puede agotar el pool. Asumible al volumen de un gimnasio. Arreglo si hace falta: leer de Stripe antes de abrir la transacción o subir el pool del webhook.
   - [ ] **[Media] `past_due` → `unpaid` sin test real** (detectado en B10): `test-webhook` cubre la baja (`deleted`) pero no la ventana de reintentos. Arreglo: test con Stripe test clocks (avanzar el reloj hasta agotar los reintentos) que compruebe que `past_due` conserva las reservas y `unpaid` las cancela.
   - [ ] **[Media] Webhooks que agotan los reintentos de Stripe** (detectado en B10.3): un evento que falla (500) se reprocesa en los reintentos de Stripe (unos 3 días); si los agota, se pierde, p. ej. el aviso de renovación del seguro (`invoice.upcoming`). Arreglo: alerta de webhooks fallidos en el Dashboard de producción y reenvío (`stripe events resend`) como procedimiento.
+  - [ ] **[Media] Auditar vincular y revocar una tablet** (B9): hoy no queda rastro en `audit_log`.
+  - [ ] **[Media] Avisos en *autocommit*** (B10.6, B11): un aviso emitido con `servicePool` fuera de la transacción de la ruta (baja admin, desactivar el seguro, `upgrade_requires_action`, `insurance_cancelled`) se queda aunque la ruta haga rollback. Arreglo: emitirlo con el `client` de la transacción.
+  - [ ] **[Baja] Transacción del worker de avisos abierta durante el envío** (B10.6): hasta 20 × 15 s en el peor caso. Arreglo: marcar en curso, confirmar y enviar fuera.
+  - [ ] **[Media] Endpoints de B11 sin test HTTP** (el E2E sí pasa por HTTP), en especial el Checkout del cambio de pagador con un perfil incompleto (403).
   - [ ] **[Baja] `scripts/test-attendance.js` falla entre las 00:00 y las 00:05 de Madrid** (detectado en B8): la sesión «de hoy» empieza 5 min antes de `now()` y cae en el día anterior. Arreglo: fijar la hora de la sesión dentro del día de Madrid o inyectar el reloj al migrar a la BD efímera.
