@@ -179,7 +179,7 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
   _Evitar_: check-in (para la asistencia en sí).
 - **Pasar lista**: el profesor marca a los presentes de su sesión. Se puede desde el inicio de la sesión. Antes del cierre, marcar y desmarcar es libre y no deja rastro.
 - **Cerrar la lista**: confirmar la lista de una sesión. Al cerrarla, toda reserva sin presente pasa a **falta**. Se puede desde el inicio de la sesión y sin límite posterior. Pasan lista y la cierran el profesor de la sesión (sustituto incluido) y el admin; ningún otro profesor.
-- **Sin registrar**: reserva de una sesión cuya lista no se ha cerrado. No es falta ni presencia.
+- **Sin registrar**: reserva sin presente de una sesión cuya lista no se ha cerrado. No es falta ni presencia. Presentes, faltas y sin registrar suman todas las reservas de una sesión.
 - **Falta**: reserva sin presente en una lista cerrada. Nunca se genera sola por pasar la hora.
   _Evitar_: ausencia, no-show.
 - **Corrección**: cambio de una asistencia (presente ↔ falta) después de cerrar la lista. Exige motivo y queda fechada. La hace el profesor de la sesión dentro del **plazo de corrección** (parámetro de la academia, contado desde el cierre) y el admin siempre. Alumno y tutor no corrigen: lo piden a la academia.
@@ -221,12 +221,12 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 
 ## Informes
 
-- **Informe**: vista agregada de la actividad de la academia para el admin o el profesor. El profesor solo ve las sesiones que imparte y nunca nada de dinero. Ningún informe enseña salud, edad ni fecha de nacimiento.
+- **Informe**: vista agregada de la actividad de la academia para el admin o el profesor. El profesor solo ve las sesiones que imparte, y solo en cifras (nunca el desglose por alumno), y nunca nada de dinero. Ningún informe enseña salud, edad ni fecha de nacimiento.
 - **Foto diaria**: el estado de las suscripciones al cierre de cada día (cuántas activas, en periodo de gracia e impagadas, altas, bajas e ingreso mensual recurrente). Se toma una vez por la noche y no cambia nunca después: es lo que había ese día. Un día sin foto es un hueco («sin dato»); no se rellena después.
   Lo demás (asistencia, ocupación, horas) no se fotografía: se calcula siempre sobre los datos actuales, así que una corrección o una cancelación retroactiva cambian también los informes pasados.
 - **Alta** y **baja** (en informes): una suscripción que se contrata o que termina (ver «Baja»). Un traspaso no es ni una baja ni un alta: la cobertura sigue.
 - **Ingreso mensual recurrente** (MRR): la suma de los precios de las suscripciones en vigor. Las impagadas no suman, ni el seguro.
-- **Ocupación**: plazas reservadas entre el aforo de las sesiones celebradas. Una reserva que acabó en falta ocupa igual; quién vino lo mide la asistencia.
+- **Ocupación**: plazas reservadas entre el aforo de las sesiones celebradas. Una reserva que acabó en falta ocupa igual; quién vino lo mide la asistencia. Las sesiones canceladas, también las retroactivas, no cuentan; una sesión cuenta en el mes de Madrid en que empieza.
 
 ## Avisos
 
