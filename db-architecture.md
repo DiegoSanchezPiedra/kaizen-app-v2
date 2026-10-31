@@ -208,25 +208,18 @@ Claves: `qr_rotation_seconds`, `qr_activation_minutes_before`, `qr_deactivation_
 
 Índice: `(actor_id, created_at DESC)`, `(resource_type, resource_id)`.
 
-### student_stats_daily (agregación)
+### academy_stats_daily (foto diaria, B16)
 | Columna | Tipo |
 |---|---|
-| student_id | uuid |
-| date | date |
-| classes_attended | integer |
-| streak_weeks | integer |
+| date | date PK (día de Madrid) |
+| active | integer NOT NULL |
+| past_due | integer NOT NULL |
+| unpaid | integer NOT NULL |
+| new_subscriptions | integer NOT NULL |
+| cancelled_subscriptions | integer NOT NULL |
+| mrr_cents | integer NOT NULL |
 
-PK `(student_id, date)`.
-
-### academy_stats_daily (agregación)
-| Columna | Tipo |
-|---|---|
-| date | date PK |
-| active_students | integer |
-| new_students | integer |
-| cancelled_students | integer |
-| mrr_cents | integer |
-| occupancy_rate | numeric |
+Una fila por día con el estado de las suscripciones; no cambia nunca y un día sin fila es un hueco (ADR 0012). Altas y bajas sin traspasos; `mrr_cents` de las `active` y `past_due`. La escribe `snapshot_academy_stats(date)` desde `scripts/nightly.js`. `student_stats_daily` (001) se borró en `023`: la asistencia se calcula al leer.
 
 ### push_subscriptions
 | Columna | Tipo |
@@ -250,5 +243,5 @@ PK `(student_id, date)`.
 - `class_sessions`: lectura para authenticated; escritura solo admin.
 - `user_mfa`: solo el propio usuario y service_role.
 - `audit_log`: solo admin lectura; escritura solo service_role.
-- `student_stats_daily` / `academy_stats_daily`: alumno lee las suyas; admin todas.
+- `academy_stats_daily`: solo el admin lee (lleva dinero); el profesor y el alumno, nada. Sin escritura para `app_user`: la escribe `snapshot_academy_stats` (sin `EXECUTE` para `app_user`) con `servicePool`.
 - `webhook_events`: solo service_role.

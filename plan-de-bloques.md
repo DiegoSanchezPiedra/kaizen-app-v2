@@ -62,7 +62,7 @@
 | B13 | Perfiles públicos (flags, `public_profiles`, directorio) | B3 | CERRADO |
 | B14 | Racha, horas, badges, ranking mensual opt-in y disciplina abierta | B8, B13 | CERRADO |
 | B15 | Push (`push_subscriptions`, envío) | B2, B10.6 | CERRADO |
-| B16 | Foto diaria de suscripciones + tareas nocturnas | B6, B10, B11 | Diseñado |
+| B16 | Foto diaria de suscripciones + tareas nocturnas | B6, B10, B11 | Implementado (falta la prueba manual) |
 | B17 | Endpoints de informes | B16 | Pendiente |
 | B18 | PWA (manifest, Service Worker) | B13 | Pendiente |
 | B19 | Panel admin (métricas, usuarios, auditoría, morosos) | B11, B17, B10.2 | Pendiente |
@@ -1606,7 +1606,7 @@
   - [x] VAPID por `.env`, validada al arrancar.
   - [x] Tests (`test:push` y regresión) y prueba manual con `PUSH_TRANSPORT=log`.
 
-### B16 — Foto diaria de suscripciones + tareas nocturnas — Diseñado
+### B16 — Foto diaria de suscripciones + tareas nocturnas — Implementado (falta la prueba manual)
 - **Objetivo**: guardar cada noche lo que los informes de B17 necesitan y no se puede reconstruir después: el estado de las suscripciones de cada día (**foto diaria**, `academy_stats_daily`). Y lanzar de verdad las tareas nocturnas, empezando por `extend-horizon`, que hasta hoy nadie programa. Todo lo que sale de la asistencia y las sesiones (ocupación, presentes, faltas, horas) **no se agrega**: B17 lo calcula al leer, como B14. Términos en `CONTEXT.md` § Informes («Foto diaria», «Alta» y «baja», «Ingreso mensual recurrente», «Ocupación»). ADR 0012.
 - **Se apoya en**: `extendHorizon` (B6, ADR 0004), `subscriptions` (B10), `payer_changes` (B11, ADR 0009) y el patrón de `SECURITY DEFINER` con owner `service_role` (B14, B6.1).
 - **Choques con lo existente** (detectados en el diseño, 2026-10-31):
@@ -1682,14 +1682,27 @@
   - foto del seguro, desglose por plan o por disciplina, cohortes y retención;
   - avisos de que el cron ha fallado (B20, con la monitorización y los backups);
   - otras tareas por fecha, como el aviso «cumple 18» (B15 la aplaza al flujo de reclamar el perfil); cuando llegue, va en `nightly.js`.
+- **Implementación** (migración `023`, 2026-10-31):
+  - **Desviaciones del diseño, decididas al implementar (2026-10-31)**:
+    - **Función interna `academy_stats_of(date)`**, que calcula la fila de cualquier día con el estado de ahora; `snapshot_academy_stats` comprueba la fecha e inserta su resultado. Sin ella no se pueden probar las altas y las bajas en los cambios de hora (el último fue el 25-10 y la foto solo admite ayer u hoy). Mismo owner `service_role`, sin `EXECUTE` para `app_user`, y tampoco menciona salud ni fecha de nacimiento (comprobado en el test).
+  - **Comprobado en el código, sin cambios**: las suscripciones nunca están `incomplete` (solo el seguro lo está; el Checkout de la cuota crea la fila ya `active`), así que una alta que no llegó a pagarse no cuenta. `cancelled_at` es el fin real de la suscripción (`ended_at` de Stripe), no el día en que se pidió la baja, así que la baja cuenta el día en que termina. El seguro vive en `insurances`, fuera de la foto.
+  - **Comprobado en el sistema**: el `cron` de Debian y Ubuntu (3.0pl1) **no soporta `CRON_TZ`** y usa la zona del sistema; solo cronie lo entiende. La línea de crontab sigue como en el diseño, y `scripts/README.md` explica que con ese cron la hora sale de la zona del sistema (`timedatectl set-timezone Europe/Madrid`). La fecha de la foto no depende de eso: «ayer de Madrid» se calcula en SQL.
+  - **`023`**:
+    - `student_stats_daily` y `academy_stats_daily` se borran (vacías) y la segunda se recrea con las siete columnas. Los privilegios por defecto del esquema dan `arwd` a `app_user`: se revocan y solo queda `SELECT`, con la política `academy_stats_daily_select` (admin).
+    - Altas y bajas por rango semiabierto `[p_date 00:00, p_date + 1 00:00)` de Madrid, que vale también para los días de 23 y 25 horas. El traspaso se excluye con `NOT EXISTS` sobre `payer_changes` `completed` (sucesora por `stripe_subscription_id` y antigua por `subscription_id`). El `shortcut:` del MRR va en el comentario de la función.
+    - `snapshot_academy_stats`: `p_date` nula o distinta de ayer u hoy de Madrid → `invalid_date`; `INSERT … SELECT * FROM academy_stats_of(p_date) ON CONFLICT (date) DO NOTHING` y `RETURN FOUND`.
+    - Con su `down`, que recrea las dos tablas como en 001, con la PK y la FK de `student_stats_daily` (probado up → down → up, con el esquema y los privilegios iguales a los de antes).
+  - **`scripts/nightly.js`**: `extendHorizon(servicePool)` (también falla si alguna clase sale en `failed`) y después la foto, cada una en su `try`. `--date` va tal cual a SQL: un formato malo o una fecha que no es ayer ni hoy es un error de la foto (código 1). `extend-horizon.js` se queda para lanzarlo a mano.
+  - **Tests** (`test:nightly`, 8 casos): las reglas, en una transacción de `servicePool` que se deshace (se borran las fotos de ayer y hoy, y se comparan los recuentos con los de antes de los fixtures). El job, los permisos y la concurrencia usan una foto confirmada de un día libre (hoy o ayer), que se borra al acabar. El job corre `scripts/nightly.js` como proceso aparte, con una clase que choca con una sesión suelta de su profesor; extiende de verdad el horizonte del resto de clases de la base. Comprobado a mano que los tests detectan los fallos: con días UTC, sin excluir traspasos, con el MRR de las impagadas, sin comprobar la fecha y sin `ON CONFLICT` (todo a la vez) fallan 6 de los 8; los permisos no dependen de eso. El de altas y bajas se reforzó porque con días UTC pasaba por casualidad, y ahora falla solo con ese cambio.
+  - **Regresión**: `test:classes`, `test:billing`, `test:webhook` (Stripe sandbox), `test:rls` y `test:progress` en verde; `npm run lint` sin errores.
 - **Checklist de cierre**:
-  - [ ] Migración `023`: `student_stats_daily` borrada, `academy_stats_daily` rehecha con RLS `FORCE` y solo lectura del admin, `snapshot_academy_stats` sin `EXECUTE` para `app_user`.
-  - [ ] Foto de D−1: recuentos por estado, altas y bajas sin traspasos, MRR de las que están en vigor.
-  - [ ] Idempotente (relanzar, dos a la vez); un día saltado queda en hueco; `--date` solo ayer u hoy.
-  - [ ] `npm run nightly` lanza `extend-horizon` y la foto, independientes, con código de salida.
+  - [x] Migración `023`: `student_stats_daily` borrada, `academy_stats_daily` rehecha con RLS `FORCE` y solo lectura del admin, `snapshot_academy_stats` sin `EXECUTE` para `app_user`.
+  - [x] Foto de D−1: recuentos por estado, altas y bajas sin traspasos, MRR de las que están en vigor.
+  - [x] Idempotente (relanzar, dos a la vez); un día saltado queda en hueco; `--date` solo ayer u hoy.
+  - [x] `npm run nightly` lanza `extend-horizon` y la foto, independientes, con código de salida.
   - [ ] Job corre a las 03:00 (Europe/Madrid) desde el crontab, documentado en `scripts/README.md`.
   - [ ] Datos correctos para un día de prueba (prueba manual).
-  - [ ] Tests (`test:nightly` y regresión).
+  - [x] Tests (`test:nightly` y regresión).
 
 ### B17 — Endpoints de informes — Pendiente
 - **Objetivo**: endpoints de informes para admin/profesor.
