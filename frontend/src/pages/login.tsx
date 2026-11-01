@@ -38,11 +38,13 @@ export function LoginPage() {
   const [mfaToken, setMfaToken] = useState<string | null>(null) // ADR 0014: el mfa_token solo en memoria
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(() =>
-    params.get('caducada')
-      ? { kind: 'info', icon: 'clock', title: 'Tu sesión ha caducado', text: 'Vuelve a entrar y seguirás donde estabas.' }
-      : params.get('cambiada')
-        ? { kind: 'success', title: 'Contraseña cambiada', text: 'Ya puedes entrar con la nueva.' }
-        : null,
+    params.get('acceso')
+      ? { kind: 'info', title: 'Tu acceso ha cambiado', text: 'Vuelve a entrar.' }
+      : params.get('caducada')
+        ? { kind: 'info', icon: 'clock', title: 'Tu sesión ha caducado', text: 'Vuelve a entrar y seguirás donde estabas.' }
+        : params.get('cambiada')
+          ? { kind: 'success', title: 'Contraseña cambiada', text: 'Ya puedes entrar con la nueva.' }
+          : null,
   )
 
   function finish(res: AuthResponse) {

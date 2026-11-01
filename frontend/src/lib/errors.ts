@@ -112,3 +112,9 @@ export function errorText(code: string | undefined): string {
 Object.assign(TEXTS, {
   invalid_link_code: 'Este código no vale: ha caducado o ya se ha usado. Pide uno nuevo a la academia.', // propuesto
 })
+
+// B19 (docs/pantallas-b19.md § Mapa de errores nuevos).
+Object.assign(TEXTS, {
+  insufficient_role: 'No tienes acceso a esto.',
+  invalid_totp: 'El código no es correcto; revisa la hora del móvil.',
+})

@@ -1,10 +1,9 @@
 import { useEffect } from 'react'
 import { createBrowserRouter, Navigate, Outlet, useLocation, useSearchParams } from 'react-router'
-import { setUnauthorizedHandler } from '@/lib/api'
-import { logout } from '@/lib/logout'
-import { loginPath, safeReturnPath } from '@/lib/paths'
+import { setUnauthorizedHandler, setWrongRoleHandler } from '@/lib/api'
+import { checkRole, logout } from '@/lib/logout'
+import { loginPath, redirectFor, safeReturnPath } from '@/lib/paths'
 import { getEndReason, isExpired, useSession } from '@/lib/session'
-import { AdminWaitingPage } from '@/pages/admin-waiting'
 import { AccountPage, AgreementsPage, DataPage, HealthPage } from '@/pages/account'
 import { PublicProfilePage } from '@/pages/account-profile'
 import { BillingPage, DisciplinePage, InsurancePage, PlanPage } from '@/pages/billing'
@@ -30,21 +29,26 @@ function PublicOnly() {
   return session && !isExpired(session) ? <Navigate to={safeReturnPath(params.get('volver'))} replace /> : <Outlet />
 }
 
-// Con sesión: cada rol a lo suyo; el admin, a la espera hasta B19.
+// Con sesión: cada rol a lo suyo (el admin, al panel). Al abrir, el rol de GET /me tiene que ser el del token.
 function RequireSession() {
   const session = useSession()
   const location = useLocation()
   const expired = session ? isExpired(session) : false
+  const token = expired ? null : session?.token
 
   useEffect(() => {
     if (expired) logout({ expired: true })
   }, [expired])
 
+  useEffect(() => {
+    if (token) void checkRole()
+  }, [token])
+
   if (!session) return <Navigate to={loginPath(getEndReason(), location.pathname + location.search)} replace />
   if (expired) return null
-  if (session.role === 'admin') return <AdminWaitingPage />
-  if (session.role === 'profesor' && location.pathname === '/') return <Navigate to="/professor" replace />
-  return <AppShell />
+  const to = redirectFor(session.role, location.pathname)
+  if (to) return <Navigate to={to} replace />
+  return session.role === 'admin' ? <Outlet /> : <AppShell />
 }
 
 export const router = createBrowserRouter([
@@ -63,6 +67,18 @@ export const router = createBrowserRouter([
   {
     element: <RequireSession />,
     children: [
+      // El panel va en trozos aparte que el alumno no baja (el Service Worker los precachea con el esqueleto).
+      {
+        path: '/admin',
+        lazy: async () => ({ Component: (await import('@/pages/admin/shell')).AdminShell }),
+        children: [
+          { index: true, lazy: async () => ({ Component: (await import('@/pages/admin/home')).AdminHomePage }) },
+          { path: 'mfa', lazy: async () => ({ Component: (await import('@/pages/admin/mfa')).MfaSetupPage }) },
+          { path: 'account', lazy: async () => ({ Component: (await import('@/pages/admin/account')).AdminAccountPage }) },
+          { path: 'reports', lazy: async () => ({ Component: (await import('@/pages/admin/reports')).AdminReportsPage }) },
+          { path: '*', lazy: async () => ({ Component: (await import('@/pages/admin/shell')).AdminPending }) },
+        ],
+      },
       { path: '/', element: <HomePage /> },
       { path: '/onboarding', element: <OnboardingPage /> },
       { path: '/calendar', element: <CalendarPage /> },
@@ -99,3 +115,4 @@ export const router = createBrowserRouter([
 ])
 
 setUnauthorizedHandler(() => void logout({ expired: true }))
+setWrongRoleHandler(() => void checkRole())

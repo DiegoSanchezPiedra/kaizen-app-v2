@@ -3,6 +3,7 @@ import { ApiError, api } from '@/lib/api'
 import { queryClient } from '@/lib/logout'
 import { path } from '@/lib/url'
 import { getSession } from '@/lib/session'
+import type { AuthMe } from '@/lib/admin'
 import type { Booking, Discipline, Insurance, Plan, ProfileStatus, Progress, Subscription } from '@/lib/types'
 
 // GET /bookings también devuelve las que el alumno hizo por sus hijos: cada pantalla enseña solo las del sujeto.
@@ -65,3 +66,6 @@ export const useProgress = (profileId: string | undefined, month?: string) =>
 export const refreshBookings = () => Promise.all(['calendar', 'bookings'].map((k) => queryClient.invalidateQueries({ queryKey: [k] })))
 
 export { path }
+
+// GET /auth/me: el panel lo lee para el aviso del MFA (ADR 0016).
+export const useAuthMe = () => useQuery({ queryKey: ['auth-me'], queryFn: () => api<AuthMe>('/auth/me') })

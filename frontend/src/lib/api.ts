@@ -19,9 +19,13 @@ export class ApiError extends Error {
 type Options = { method?: string; body?: unknown; auth?: boolean }
 
 let onUnauthorized: () => void = () => {}
-// La sesión caducada la resuelve quien monta el router (cierra sesión y va a /login).
+let onWrongRole: () => void = () => {}
+// La sesión caducada y el rol que ya no vale los resuelve quien monta el router (cierra sesión y va a /login).
 export const setUnauthorizedHandler = (fn: () => void) => {
   onUnauthorized = fn
+}
+export const setWrongRoleHandler = (fn: () => void) => {
+  onWrongRole = fn
 }
 
 async function once<T>(path: string, { method = 'GET', body, auth = true }: Options): Promise<T> {
@@ -45,6 +49,7 @@ async function once<T>(path: string, { method = 'GET', body, auth = true }: Opti
   if (res.status === 401 && auth && session && (err.code === 'invalid_token' || err.code === 'missing_token')) {
     onUnauthorized()
   }
+  if (res.status === 403 && auth && session && err.code === 'insufficient_role') onWrongRole()
   throw err
 }
 

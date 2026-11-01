@@ -1,7 +1,7 @@
 import { LinkIcon, MoonIcon, ScanLineIcon, WifiOffIcon } from 'lucide-react'
-import QRCode from 'qrcode'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import logo from '@/assets/logo.png'
+import { QrCode } from '@/components/qr-code'
 import { FieldMessage, StatusAlert } from '@/components/status-alert'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -190,21 +190,6 @@ function useWakeLock(): boolean {
   return ok
 }
 
-// Siempre oscuro sobre blanco, también en modo oscuro: muchos lectores no leen un QR invertido.
-function Qr({ code }: { code: string }) {
-  const { size, data } = useMemo(() => QRCode.create(code, { errorCorrectionLevel: 'M' }).modules, [code])
-  const path = useMemo(() => {
-    let d = ''
-    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (data[y * size + x]) d += `M${x} ${y}h1v1h-1z`
-    return d
-  }, [size, data])
-  return (
-    <svg viewBox={`-4 -4 ${size + 8} ${size + 8}`} shapeRendering="crispEdges" role="img" aria-label="Código QR para hacer check-in" className="block size-full">
-      <path d={path} fill="#050A2E" />
-    </svg>
-  )
-}
-
 const QR_SIZE = 'size-[min(560px,calc(100vw-6rem))] landscape:size-[min(520px,calc(100dvh-12rem))]'
 
 function Running({ token, onRevoked }: { token: string; onRevoked: () => void }) {
@@ -220,7 +205,7 @@ function Running({ token, onRevoked }: { token: string; onRevoked: () => void })
         <div className="grid shrink-0 place-items-center">
           {view === 'live' || view === 'reconnecting' ? (
             <div className={cn('enter-soft rounded-[28px] bg-white p-4 shadow-[0_0_0_1px_rgb(255_255_255/0.12),0_0_96px_-24px_rgb(47_98_255/0.55)]', QR_SIZE)}>
-              {feed && <Qr code={feed.qr} />}
+              {feed && <QrCode value={feed.qr} label="Código QR para hacer check-in" />}
             </div>
           ) : view === 'connecting' ? (
             <div aria-busy="true" className={cn('flex flex-col items-center justify-center gap-3.5 rounded-[28px] bg-muted text-muted-foreground', QR_SIZE)}>
