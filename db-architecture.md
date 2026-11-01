@@ -232,6 +232,18 @@ Una fila por día con el estado de las suscripciones; no cambia nunca y un día 
 
 Índice: `(user_id)`.
 
+### password_resets (B18.0, `025`)
+| Columna | Tipo |
+|---|---|
+| id | uuid PK |
+| profile_id | uuid FK profiles (CASCADE) |
+| token_hash | text UNIQUE (SHA-256 del token; el token en claro solo va en el email) |
+| expires_at | timestamptz (1 h) |
+| used_at | timestamptz (usado, o anulado al pedir otro) |
+| created_at | timestamptz |
+
+Índice: `(profile_id)`. Sin acceso para `app_user`: solo `create_password_reset(email, token_hash)` y `consume_password_reset(token_hash, password_hash)` (`SECURITY DEFINER`, owner `service_role`).
+
 ## Vistas
 - `public_profiles`: expone solo columnas públicas de filas con is_public=true y flags activos.
 
@@ -243,6 +255,7 @@ Una fila por día con el estado de las suscripciones; no cambia nunca y un día 
 - `class_sessions`: lectura para authenticated; escritura solo admin.
 - `disciplines`: las activas para cualquier autenticado y todas para el admin (007); el suscriptor, las de su suscripción viva (012); el profesor, también las de sus sesiones aunque estén desactivadas (`disciplines_select_trainer`, `024`, B17).
 - `user_mfa`: solo el propio usuario y service_role.
+- `password_resets`: RLS forzada sin políticas y sin privilegios para `app_user`; solo por sus dos funciones (`025`).
 - `audit_log`: solo admin lectura; escritura solo service_role.
 - `academy_stats_daily`: solo el admin lee (lleva dinero, también en `/admin/reports/subscriptions`); el profesor y el alumno, nada. Sin escritura para `app_user`: la escribe `snapshot_academy_stats` (sin `EXECUTE` para `app_user`) con `servicePool`.
 - `webhook_events`: solo service_role.

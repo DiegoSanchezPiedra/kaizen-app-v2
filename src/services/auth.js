@@ -1,10 +1,13 @@
 import crypto from 'node:crypto';
-import { servicePool } from '../config/database.js';
+import { appPool, servicePool } from '../config/database.js';
+import { APP_URL } from '../config/stripe.js';
 import { withRls } from '../db/rls.js';
 import { httpError } from '../lib/errors.js';
 import { hashPassword, verifyPassword } from './password.js';
 import { signToken } from './jwt.js';
 import { verifyGoogleIdToken } from './google.js';
+import { send } from './email.js';
+import { mail } from './notices.js';
 
 // ---------------------------------------------------------------------------
 // Lectura de credenciales SOLO para login (sin JWT todavía).
@@ -81,6 +84,12 @@ export function isAdultBirthDate(value) {
   return value <= cutoff.toISOString().slice(0, 10);
 }
 
+function assertStrongPassword(password) {
+  if (typeof password !== 'string' || password.length < 8) {
+    throw httpError(400, 'weak_password', 'password too short');
+  }
+}
+
 // ---------------------------------------------------------------------------
 // registerLocal — sigue firmando token; un registro nuevo no puede tener MFA.
 // Solo adultos: a los hijos los da de alta su tutor (ADR 0002).
@@ -95,9 +104,7 @@ export async function registerLocal({ email, password, displayName, birthDate })
   if (!isAdultBirthDate(birthDate)) {
     throw httpError(400, 'minor_cannot_register', 'solo pueden registrarse mayores de 18');
   }
-  if (password.length < 8) {
-    throw httpError(400, 'weak_password', 'password too short');
-  }
+  assertStrongPassword(password);
   const existing = await findCredentialsByEmail(email);
   if (existing) {
     throw httpError(409, 'email_taken', 'email already registered');
@@ -178,4 +185,37 @@ export async function loginGoogle({ idToken }) {
     email: created.user.email,
     role: created.user.role,
   };
+}
+// ---------------------------------------------------------------------------
+// Recuperar contraseña (B18.0, migración 025). Sin sesión: las funciones SQL son SECURITY DEFINER y el
+// appPool (app_user) solo puede llamarlas. En la BD, solo el SHA-256 del token.
+// ---------------------------------------------------------------------------
+const sha256 = (token) => crypto.createHash('sha256').update(token).digest('hex');
+
+/** Nunca revela si el email existe: no lanza por eso ni espera al envío (ni el tiempo ni un fallo lo delatan). */
+export async function requestPasswordReset(email) {
+  if (typeof email !== 'string' || !email) return;
+  const token = crypto.randomBytes(32).toString('base64url');
+  const { rows: [r] } = await appPool.query(`SELECT create_password_reset($1, $2) AS ok`, [email, sha256(token)]);
+  if (!r.ok) return;
+  const url = `${APP_URL}/reset-password?token=${token}`;
+  // Directo y no por el outbox: este compone al enviar y obligaría a guardar el token en claro.
+  send({
+    to: email,
+    ...mail('Recupera tu contraseña de Kaizen', {}, [
+      'Alguien (esperamos que tú) ha pedido una contraseña nueva para tu cuenta de Kaizen.',
+      'El enlace vale durante 1 hora y una sola vez. Si no lo has pedido tú, ignora este email: tu contraseña no cambia.',
+    ], ['Elegir contraseña nueva', url], 'Este es un email de servicio sobre tu cuenta en Kaizen.'),
+    idempotencyKey: crypto.randomUUID(),
+  }).catch((err) => console.error('[auth] email de recuperar contraseña:', err.message));
+}
+
+export async function resetPassword({ token, password }) {
+  if (typeof token !== 'string' || !token) {
+    throw httpError(400, 'invalid_reset_token', 'token inválido, caducado o ya usado');
+  }
+  assertStrongPassword(password);
+  const passwordHash = await hashPassword(password);
+  const { rows: [r] } = await appPool.query(`SELECT consume_password_reset($1, $2) AS ok`, [sha256(token), passwordHash]);
+  if (!r.ok) throw httpError(400, 'invalid_reset_token', 'token inválido, caducado o ya usado');
 }

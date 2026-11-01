@@ -1,7 +1,7 @@
 // src/services/sessions.js — generación de sesiones a partir de clases (ADR 0004), ajuste de sesión (B7.1), sesiones
 // sueltas, cancelar, recuperar y deshacer un ajuste (B6.1), vista del profesor y calendario.
 import { httpError } from '../lib/errors.js';
-import { listChildren } from './profile.js';
+import { listChildren, assertGuardianOf } from './profile.js';
 import { validate, invalid, audit } from './catalog.js';
 
 const TZ = 'Europe/Madrid';
@@ -234,8 +234,9 @@ export const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: TZ
 export const addDays = (d, n) => new Date(Date.parse(d) + n * 864e5).toISOString().slice(0, 10);
 
 // Calendario (CONTEXT § Clases y sesiones): todas las sesiones que deja ver la RLS, con la cobertura y la
-// reserva activa de cada sujeto. Sujetos: el alumno; los hijos vigentes del tutor; el alumno de `profile_id` (admin).
-// Con un solo sujeto, `covered`/`booking` van planos; el tutor los recibe por hijo; el admin sin sujeto, sin ellos.
+// reserva activa de cada sujeto. Sujetos: el alumno; los hijos vigentes del tutor; o solo el de `profile_id` (el admin,
+// o un hijo de quien lo pide, B18.0: si no, 403 not_guardian). Con un solo sujeto, `covered`/`booking` van planos;
+// el tutor sin `profile_id` los recibe por hijo; el admin sin sujeto, sin ellos.
 // Una sesión de una disciplina retirada no sale si la RLS de disciplines no la deja ver (aceptado, B6).
 export async function listCalendar(client, user, { from, to, discipline_id, profile_id } = {}) {
   const f = from ? dateParam(from, 'from') : today();
@@ -247,14 +248,12 @@ export async function listCalendar(client, user, { from, to, discipline_id, prof
   if (discipline_id !== undefined && !/^\d{1,18}$/.test(discipline_id)) {
     throw httpError(400, 'invalid_field', 'discipline_id debe ser un entero', { field: 'discipline_id' });
   }
-  if (profile_id !== undefined && user.role !== 'admin') {
-    throw httpError(400, 'invalid_field', 'profile_id solo lo usa el admin', { field: 'profile_id' });
-  }
+  if (profile_id !== undefined && user.role !== 'admin') await assertGuardianOf(client, profile_id);
 
   let subjects = [];
-  if (user.role === 'alumno') subjects = [user.id];
+  if (profile_id) subjects = [profile_id];
+  else if (user.role === 'alumno') subjects = [user.id];
   else if (user.role === 'tutor') subjects = (await listChildren(client, user.id)).filter((c) => !c.pending_claim).map((c) => c.id);
-  else if (profile_id) subjects = [profile_id];
 
   const { rows } = await client.query(
     // covers() una vez por sujeto y disciplina, no por sesión: MATERIALIZED impide que el planificador la reparta.
@@ -285,7 +284,7 @@ export async function listCalendar(client, user, { from, to, discipline_id, prof
       ORDER BY s.starts_at, s.id`,
     [f, t, discipline_id ?? null, subjects]
   );
-  if (user.role === 'tutor') return rows;
+  if (user.role === 'tutor' && !profile_id) return rows;
   for (const r of rows) {
     if (subjects.length) {
       [r.covered, r.booking] = [r.covered[subjects[0]], r.booking[subjects[0]]];

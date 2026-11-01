@@ -45,7 +45,7 @@ const BILLING_FOOTER = 'Este es un email de servicio sobre tus pagos en Kaizen: 
   + 'tengas pagos con la academia.';
 
 // Esqueleto común: saludo, párrafos, un enlace y el pie de email de servicio (LSSI art. 21: sin baja).
-function mail(subject, d, paragraphs, [label, url] = ['Ir a facturación', BILLING], about = BILLING_FOOTER) {
+export function mail(subject, d, paragraphs, [label, url] = ['Ir a facturación', BILLING], about = BILLING_FOOTER) {
   const hello = d.payer ? `Hola, ${d.payer}:` : 'Hola:';
   const contact = EMAIL_REPLY_TO ? `escribe a ${EMAIL_REPLY_TO}` : 'contesta a este email';
   const footer = `${about} Para cualquier duda, ${contact}.`;

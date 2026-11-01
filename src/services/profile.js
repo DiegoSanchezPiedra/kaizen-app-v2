@@ -51,6 +51,29 @@ export async function getProfileStatus(client, profileId, role) {
 
 const TUTOR_REQUIRED = ['display_name', 'data_protection'];
 
+/** Mis datos (B18.0): la RLS deja leer el propio perfil y la propia fila de auth_credentials. */
+export async function getMe(client, user) {
+  const { rows } = await client.query(
+    `SELECT p.id, $2::text AS role, p.display_name, c.email, p.birth_date::text AS birth_date,
+            c.password_hash IS NOT NULL AS has_password
+       FROM profiles p LEFT JOIN auth_credentials c ON c.profile_id = p.id
+      WHERE p.id = $1`,
+    [user.id, user.role]
+  );
+  if (!rows[0]) throw httpError(404, 'profile_not_found', 'Perfil no encontrado');
+  return rows[0];
+}
+
+/** display_name y/o birth_date propios; birth_date solo si estaba vacía. Validar antes (adulto). */
+export async function updateMe(client, id, { displayName, birthDate }) {
+  const { rowCount } = await client.query(
+    `UPDATE profiles SET display_name = COALESCE($2, display_name), birth_date = COALESCE($3::date, birth_date)
+      WHERE id = $1 AND ($3::date IS NULL OR birth_date IS NULL)`,
+    [id, displayName ?? null, birthDate ?? null]
+  );
+  if (!rowCount) throw httpError(409, 'birth_date_already_set', 'La fecha de nacimiento ya está puesta');
+}
+
 /** 403 si el usuario del contexto RLS no es tutor vigente (sujeto menor) de `profileId`. */
 export async function assertGuardianOf(client, profileId) {
   const { rows } = await client.query(`SELECT is_guardian_of($1) AS ok`, [profileId]);
@@ -117,6 +140,15 @@ export const HEALTH_FIELDS = [
   'emergency_contact_name',
   'emergency_contact_phone',
 ];
+
+/** Ficha de salud (los campos de HEALTH_FIELDS) o null. Comprobar antes que es propia o de un hijo. */
+export async function getHealthInfo(client, profileId) {
+  const { rows } = await client.query(
+    `SELECT profile_id, ${HEALTH_FIELDS.join(', ')}, updated_at FROM student_health_info WHERE profile_id = $1`,
+    [profileId]
+  );
+  return rows[0] ?? null;
+}
 
 /**
  * Upsert de student_health_info: solo toca los campos presentes en `input`

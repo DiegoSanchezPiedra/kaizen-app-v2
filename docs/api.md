@@ -40,6 +40,7 @@ El backend construye enlaces con `APP_URL`; el frontend **tiene** que servir est
 | `/billing/payer-changes/:id[?session_id=…]` | aviso al nuevo pagador y vuelta de su Checkout |
 | `/bookings` | enlace de los avisos de reservas (push y email) |
 | `/agreements` | aviso de re-firma de un documento legal |
+| `/reset-password?token=…` | email de recuperar contraseña (el token, en la URL: `Referrer-Policy: same-origin`) |
 
 ---
 
@@ -52,6 +53,8 @@ El backend construye enlaces con `APP_URL`; el frontend **tiene** que servir est
 | `POST /auth/login` | — | `{ email, password }` | `{ token, user }` o, con MFA, `{ mfa_required: true, mfa_token }`. `401 invalid_credentials` |
 | `POST /auth/google` | — | `{ id_token }` (Google Identity Services) | como `/auth/login`. `invalid_google_token` |
 | `POST /auth/mfa/verify` | — (con `mfa_token`) | `{ mfa_token, code }` | `{ token, user }`. `401 invalid_mfa_code` |
+| `POST /auth/password/forgot` | — | `{ email }` | `204` **siempre** (no dice si el email existe). Si existe, email con el enlace a `/reset-password?token=…`, válido 1 h y una vez; pedir otro anula los anteriores |
+| `POST /auth/password/reset` | — | `{ token, password }` | `204`. `400 invalid_reset_token` (caducado, usado o inexistente), `weak_password`. Un perfil solo con Google se pone así contraseña |
 | `GET /auth/me` | cualquiera | — | `{ user: { id, role }, mfa_enabled, rls_context }` |
 | `POST /auth/mfa/setup` | admin | — | `201` con el secreto y el `otpauth://` para el QR |
 | `POST /auth/mfa/activate` | admin | `{ code }` | activa el MFA. `invalid_totp`, `mfa_not_setup`, `mfa_already_enabled` |
@@ -63,7 +66,10 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 
 | Método y ruta | Rol | Cuerpo / query | Respuesta |
 |---|---|---|---|
+| `GET /me` | cualquiera | — | `{ id, role, display_name, email, birth_date, has_password }` (`birth_date` y `display_name` pueden ser `null` tras el alta con Google) |
+| `PATCH /me` | cualquiera | `{ display_name?, birth_date? }` | como `GET /me`. `display_name` no vacío (`invalid_field_type`); `birth_date` solo si estaba vacía (`409 birth_date_already_set`) y de un adulto (`minor_cannot_register`, `invalid_birth_date`); `no_fields` |
 | `GET /me/profile-status?profile_id=` | cualquiera | — | `{ ok, missing?, risk_cover? }` (`risk_cover`: tiene seguro o waiver) |
+| `GET /me/health?profile_id=` | cualquiera (propia o de un hijo) | — | `{ health }` (los campos de `POST /me/health` y `updated_at`) o `{ health: null }`. `403 not_guardian` |
 | `POST /me/health` | alumno, tutor | `{ profile_id?, injuries?, conditions?, previous_experience?, previous_discipline?, medication?, allergies?, emergency_contact_name?, emergency_contact_phone? }` (strings o null) | `{ health }`. `no_fields`, `invalid_field_type`, `403 not_guardian` |
 | `GET /agreements/:type/current` | cualquiera | `type`: `waiver`, `data_protection`, `rights_of_image` | el PDF (`X-Agreement-Version`). `404 no_current_document` |
 | `POST /me/agreements` | alumno, tutor | `{ type, version, profile_id? }` (`version` = la vigente) | `{ agreement }`. `409 agreement_already_signed`, `invalid_version`, `403 not_allowed_to_sign` |
@@ -85,7 +91,7 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 |---|---|---|---|
 | `GET /disciplines` | cualquiera | — | `{ disciplines: [{ id, name, minors_only, is_active, is_open }] }` (activas; las desactivadas solo si las ve por suscripción o por sus sesiones) |
 | `GET /plans` | cualquiera | — | `{ plans: [{ id, name, price_cents, billing_period, max_disciplines, minors_only, is_active, eligible_discipline_ids }] }` |
-| `GET /sessions/calendar?from&to&discipline_id&profile_id` | alumno, tutor, admin (`profile_id` solo admin) | rango ≤ 92 días, por defecto hoy + 30 | `{ sessions: [{ id, starts_at, ends_at, discipline: { id, name }, trainer: { id, display_name }, location, capacity, status, held, covered, booking }] }`. Al tutor, `covered` y `booking` vienen **por hijo** (objeto por id) |
+| `GET /sessions/calendar?from&to&discipline_id&profile_id` | alumno, tutor, admin (`profile_id`: el admin, o quien sea tutor de ese perfil; si no, `403 not_guardian`) | rango ≤ 92 días, por defecto hoy + 30 | `{ sessions: [{ id, starts_at, ends_at, discipline: { id, name }, trainer: { id, display_name }, location, capacity, status, held, covered, booking }] }`. Al tutor sin `profile_id`, `covered` y `booking` vienen **por hijo** (objeto por id); con `profile_id`, planos para ese sujeto |
 | `GET /bookings?profile_id&from&to` | alumno, tutor, admin | rango ≤ 92 días | `{ bookings: [{ id, session_id, student_id, booked_by, status, cancel_reason, discipline_id, discipline_name, starts_at, ends_at, location, session_status }] }` |
 | `POST /bookings` | alumno, tutor, admin (perfil completo) | `{ session_id, profile_id? }` | `201 { booking }` con `status` `confirmed` o `waitlisted` |
 | `POST /bookings/:id/cancel` | alumno, tutor, admin | — | `{ booking }` (también sale de la espera; `cancel_reason` `late` si es tardía) |
@@ -251,7 +257,7 @@ reintentar `GET /billing/subscription`).
 
 Lo que una pantalla podría pedir y la API **no da hoy**. Se decide en el diseño de B18/B19 si se añade o se rodea:
 
-- **Cuenta**: recuperar contraseña, verificar el email, cambiar email o contraseña, reclamar el perfil al cumplir 18
+- **Cuenta**: verificar el email, cambiar email o contraseña con sesión, reclamar el perfil al cumplir 18
   (`pending_claim`). No hay logout de servidor ni revocación de tokens.
 - **Admin, usuarios**: listar y buscar perfiles, ver la ficha de un alumno (sus datos, su suscripción, su seguro),
   crear profesores y tutores, cambiar roles. Hoy el admin no tiene cómo encontrar el `id` de una suscripción salvo por

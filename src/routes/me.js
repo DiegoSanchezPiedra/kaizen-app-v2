@@ -4,6 +4,9 @@ import { httpError } from '../lib/errors.js';
 import { requireAuth, requireRole, withRlsContext } from '../middleware/auth.js';
 import {
   getProfileStatus,
+  getMe,
+  updateMe,
+  getHealthInfo,
   upsertHealthInfo,
   HEALTH_FIELDS,
   assertGuardianOf,
@@ -15,7 +18,7 @@ import {
 import { signAgreement } from '../services/agreements.js';
 import { getMyProfile, updateMyProfile, VISIBLE_FIELDS, SOCIAL_NETWORKS } from '../services/profiles.js';
 import { getProgress } from '../services/progress.js';
-import { isValidPastDate } from '../services/auth.js';
+import { isValidPastDate, isAdultBirthDate } from '../services/auth.js';
 
 const router = Router();
 
@@ -30,6 +33,51 @@ function validateSubject(req, res, next) {
   }
   return next();
 }
+
+// ------------------------------------------------------------
+// Mis datos (B18.0). Sin profile_id: un tutor edita a sus hijos en /me/children.
+// GET   /me → { id, role, display_name, email, birth_date, has_password }
+// PATCH /me { display_name?, birth_date? } → igual. birth_date solo si estaba vacía (alta con Google)
+//   y de un adulto: 409 birth_date_already_set, 400 minor_cannot_register | invalid_birth_date.
+// ------------------------------------------------------------
+function validateMe(req, res, next) {
+  const body = req.body ?? {};
+  const provided = CHILD_FIELDS.filter((k) => Object.hasOwn(body, k));
+  if (provided.length === 0) {
+    return next(httpError(400, 'no_fields', 'Ningún campo válido en el body.', { allowed: CHILD_FIELDS }));
+  }
+  if (provided.includes('display_name') && (typeof body.display_name !== 'string' || !body.display_name.trim())) {
+    return next(httpError(400, 'invalid_field_type', 'Campo inválido: display_name', { field: 'display_name' }));
+  }
+  if (provided.includes('birth_date')) {
+    if (!isValidPastDate(body.birth_date)) {
+      return next(httpError(400, 'invalid_birth_date', 'birth_date (YYYY-MM-DD, pasada) requerido'));
+    }
+    if (!isAdultBirthDate(body.birth_date)) {
+      return next(httpError(400, 'minor_cannot_register', 'solo pueden registrarse mayores de 18'));
+    }
+  }
+  return next();
+}
+
+router.get(
+  '/',
+  requireAuth,
+  withRlsContext((req, client) => getMe(client, req.user))
+);
+
+router.patch(
+  '/',
+  requireAuth,
+  validateMe,
+  withRlsContext(async (req, client) => {
+    await updateMe(client, req.user.id, {
+      displayName: req.body.display_name?.trim(),
+      birthDate: req.body.birth_date,
+    });
+    return getMe(client, req.user);
+  })
+);
 
 // ------------------------------------------------------------
 // GET /me/profile-status?profile_id=
@@ -83,6 +131,18 @@ function validateHealth(req, res, next) {
   }
   return next();
 }
+
+// GET /me/health?profile_id= → { health } | { health: null } (B18.0): propia o de un hijo (403 not_guardian).
+router.get(
+  '/health',
+  requireAuth,
+  validateSubject,
+  withRlsContext(async (req, client) => {
+    const subject = req.query.profile_id ?? req.user.id;
+    if (subject !== req.user.id) await assertGuardianOf(client, subject);
+    return { health: await getHealthInfo(client, subject) };
+  })
+);
 
 router.post(
   '/health',

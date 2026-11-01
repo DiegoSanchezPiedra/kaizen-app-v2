@@ -4,7 +4,7 @@ import { Router } from 'express';
 import { httpError } from '../lib/errors.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { withRls } from '../db/rls.js';
-import { registerLocal, loginLocal, loginGoogle } from '../services/auth.js';
+import { registerLocal, loginLocal, loginGoogle, requestPasswordReset, resetPassword } from '../services/auth.js';
 import { signToken } from '../services/jwt.js';
 import {
   prepareMfaSetup,
@@ -90,6 +90,22 @@ router.post('/google', async (req, res, next) => {
     next(err);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Recuperar contraseña (B18.0). Sin sesión. El rate limit, en B20.
+// POST /auth/password/forgot { email }           → 204 siempre (no revela si existe)
+// POST /auth/password/reset  { token, password } → 204; 400 invalid_reset_token | weak_password
+// ---------------------------------------------------------------------------
+
+router.post('/password/forgot', asyncHandler(async (req, res) => {
+  await requestPasswordReset(req.body?.email);
+  res.status(204).end();
+}));
+
+router.post('/password/reset', asyncHandler(async (req, res) => {
+  await resetPassword({ token: req.body?.token, password: req.body?.password });
+  res.status(204).end();
+}));
 
 // ---------------------------------------------------------------------------
 // /auth/me (protegida)
