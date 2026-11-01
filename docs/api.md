@@ -199,6 +199,7 @@ Todas exigen `role = admin` (y el admin entra con MFA si lo tiene activado). El 
 | `POST /admin/classes` | `{ discipline_id, trainer_id, weekday, start_time, duration_min, capacity, location?, starts_on?, ends_on? }` | `201 { class }` (genera las sesiones a un año) |
 | `PATCH /admin/classes/:id` | `{ from?, trainer_id?, start_time?, duration_min?, capacity?, location? }` | `{ class, sessions_changed, notified, promoted }` |
 | `POST /admin/classes/:id/retire` | `{ date? }` | `{ class: { …, cancelled_sessions } }` |
+| `GET /admin/sessions/:id` | — | `{ session: { id, class_id, starts_at, ends_at, discipline: { id, name }, trainer: { id, display_name }, location, capacity, duration_min, status, held, adjusted_fields, class_values: { trainer_id, starts_at (el slot), duration_min, capacity, location } \| null (sesión suelta), cancel_note }, bookings: [{ id, student: { id, display_name }, status (confirmed\|waitlisted), created_at }] }`: primero las confirmadas y luego la espera, cada grupo por orden de llegada. `404 session_not_found` |
 | `POST /admin/sessions` | `{ discipline_id, trainer_id, starts_at, duration_min, capacity, location? }` | `201 { session }` (sesión suelta) |
 | `PATCH /admin/sessions/:id` | `{ trainer_id?, starts_at?, duration_min?, capacity?, location? }` | `{ session, sessions_changed, notified, promoted }` |
 | `POST /admin/sessions/:id/cancel` | `{ note? }` (obligatoria si ya empezó) | `{ session, retroactive, cancelled_bookings, notified }` |
@@ -222,16 +223,26 @@ Errores: `409 trainer_overlap`, `409 capacity_below_bookings { sessions, fits_fr
 | `DELETE /admin/subscriptions/:id/plan/scheduled` | — | `204` |
 | `POST /admin/subscriptions/:id/disciplines` | `{ from_id, to_id }` | `{ disciplines, changes_left, free }` |
 | `POST /admin/subscriptions/:id/payer-change` | `{ payer_id }` | `201 { id, status, new_payer_id, plan_id, discipline_ids, starts_at, deadline }` |
+| `GET /admin/payer-changes?status&from&subscription_id&limit&offset` | `status` admite varios (`requested,paid`; `requested\|paid\|completed\|expired\|cancelled`), `from` es un día sobre `updated_at`, `subscription_id` limita a una suscripción | `{ rows: [{ id, status, subscription_id, student: { id, display_name }, old_payer: { … }, new_payer: { … }, plan: { id, name }, starts_at, deadline, cancel_reason, updated_at }], total, limit, offset }`, el más reciente primero. Un `requested` pasada su fecha límite sale (y se filtra) como `expired`, aunque el webhook aún no lo haya marcado. `400 invalid_field`, `invalid_pagination` |
 | `GET /admin/payer-changes/:id` | — | como el del alumno |
 | `DELETE /admin/subscriptions/:id/payer-change` | — | `204` |
 
-**Ajustes de la academia** (solo escritura: devuelven los valores vigentes)
+**Ajustes de la academia** (los `PUT` devuelven `{ settings }` con los valores vigentes)
 
 | Método y ruta | Cuerpo |
 |---|---|
+| `GET /admin/settings` | — → `{ checkin: { opens_minutes, closes_minutes, qr_seconds }, insurance: { enabled, price_adult_cents, price_minor_cents }, discipline_changes: { per_period } }`: lo mismo que devuelve cada `PUT` en `settings` |
 | `PUT /admin/settings/checkin` | `{ opens_minutes?, closes_minutes?, qr_seconds? }` |
 | `PUT /admin/settings/insurance` | `{ price_adult_cents?, price_minor_cents?, enabled? }` |
 | `PUT /admin/settings/discipline-changes` | `{ per_period }` |
+
+**Auditoría, avisos de la academia y entregas fallidas** (B19.1). Todas paginadas (`limit` 1–100, 25 por defecto; `offset`) y del más nuevo al más viejo; `from` y `to` son días de Madrid, ambos incluidos. `400 invalid_pagination`, `invalid_field`.
+
+| Método y ruta | Respuesta |
+|---|---|
+| `GET /admin/audit?action&actor_id&resource_type&resource_id&from&to&limit&offset` | `{ rows: [{ id, created_at, action, actor: { id, display_name }, resource_type, resource_id, changes }], total, limit, offset }`. `action` son prefijos separados por comas (`session.,class.`). **Nunca** devuelve `notice.*` (ni filtrando por ellos). `400 invalid_range` si `to < from` |
+| `GET /admin/notices?limit&offset` | `{ rows: [{ id, created_at, action, resource_type, resource_id, details }], total, limit, offset }`: los `notice.*` con algún admin entre sus destinatarios (`stripe_risk`, la carrera de Checkouts, `payer_change_expired`…); `details` es `changes` sin `recipients` |
+| `GET /admin/notice-deliveries?from&limit&offset` | `{ rows: [{ id, created_at, action, channel, recipient: { id, display_name }, attempts, last_error }], total, limit, offset }`: solo las `failed` (no se reintentan); `from` sobre `created_at` |
 
 **Tablets, documentos y perfiles**
 
@@ -242,6 +253,7 @@ Errores: `409 trainer_overlap`, `409 capacity_below_bookings { sessions, fits_fr
 | `POST /admin/tablets/:id/revoke` | — | `{ tablet }` |
 | `GET /admin/agreements/documents` | — | `{ documents: [{ id, type, version, checksum, created_at, published_at, retired_at, status }] }` |
 | `POST /admin/agreements/documents?type&version` | **cuerpo crudo** `application/pdf`, ≤ 10 MB | `201 { document }` |
+| `GET /admin/agreements/documents/:id/file` | — | el PDF (`application/pdf`, con `X-Agreement-Type` y `X-Agreement-Version`) de cualquier estado: borrador, vigente o retirado. `404 document_not_found` |
 | `POST /admin/agreements/documents/:id/publish` | — | `{ document }` (retira la vigente y avisa para re-firmar) |
 | `POST /admin/profiles/:id/unpublish` | — | `{ id, is_public: false }` |
 
@@ -266,15 +278,9 @@ reintentar `GET /billing/subscription`).
 ## Huecos conocidos (para el diseño técnico)
 
 Lo que una pantalla podría pedir y la API **no da hoy**. Se decide en el diseño de B18/B19 si se añade o se rodea
-(los de admin ya están decididos: endpoints de B19.0 y B19.1 en `plan-de-bloques.md` § B19; se quitan de aquí al
-implementarlos):
+(los de admin se resolvieron en B19.0 y B19.1: ver «Admin» arriba):
 
 - **Cuenta**: verificar el email, cambiar email o contraseña con sesión, reclamar el perfil al cumplir 18
   (`pending_claim`). No hay logout de servidor ni revocación de tokens.
-- **Admin, lectura de ajustes**: `checkin`, `insurance` y `discipline-changes` solo tienen `PUT` (devuelven los
-  valores al guardar, pero no hay `GET` para pintar el formulario).
-- **Admin, B19**: consultar `audit_log`, entregas de avisos fallidas y cambios de pagador caducados.
-- **Admin, sesiones**: no hay lista de sesiones propia (usa el calendario) ni detalle de una sesión con sus reservas
-  y su lista de espera.
 - **Alumno**: no hay detalle de una sesión aparte del calendario; tampoco su historial de recibos (lo da el Portal).
 - **Eventos**: no implementados (no son sesiones).

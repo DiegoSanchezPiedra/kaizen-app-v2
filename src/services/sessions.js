@@ -230,6 +230,30 @@ export async function getTrainerSession(client, trainerId, id) {
   return s;
 }
 
+// Detalle de una sesión para el admin (B19.1): los campos del calendario más lo que SESSION_SELECT guarda (clase, ajustes,
+// valores de la clase, nota de cancelación) y las reservas confirmadas y en espera, cada grupo por orden de llegada.
+// class_values es null en una sesión suelta; starts_at es su slot.
+export async function getSessionDetail(client, id) {
+  const { rows: [session] } = await client.query(
+    `SELECT s.id, s.class_id, s.starts_at, s.ends_at, jsonb_build_object('id', d.id, 'name', d.name) AS discipline,
+            CASE WHEN tn.id IS NOT NULL THEN jsonb_build_object('id', tn.id, 'display_name', tn.display_name) END AS trainer,
+            s.location, s.capacity, s.duration_min, s.status, (s.status = 'scheduled' AND s.ends_at < now()) AS held,
+            s.adjusted_fields,
+            CASE WHEN s.class_id IS NOT NULL THEN jsonb_build_object('trainer_id', s.class_trainer_id,
+              'starts_at', s.slot, 'duration_min', s.class_duration_min, 'capacity', s.class_capacity,
+              'location', s.class_location) END AS class_values,
+            s.cancel_note
+       FROM class_sessions s JOIN disciplines d ON d.id = s.discipline_id LEFT JOIN trainer_names tn ON tn.id = s.trainer_id
+      WHERE s.id = $1`, [id]);
+  if (!session) throw httpError(404, 'session_not_found', 'Sesión no encontrada');
+  const { rows: bookings } = await client.query(
+    `SELECT b.id, jsonb_build_object('id', p.id, 'display_name', p.display_name) AS student, b.status, b.created_at
+       FROM bookings b JOIN profiles p ON p.id = b.student_id
+      WHERE b.session_id = $1 AND b.status IN ('confirmed', 'waitlisted')
+      ORDER BY b.status, b.created_at, b.id`, [id]);
+  return { session, bookings };
+}
+
 export const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: TZ });
 export const addDays = (d, n) => new Date(Date.parse(d) + n * 864e5).toISOString().slice(0, 10);
 

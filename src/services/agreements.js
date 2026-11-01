@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import { httpError } from '../lib/errors.js';
 import { AGREEMENT_TYPES, VERSION_RE } from '../config/agreements.js';
-import { saveFile, deleteFile } from './storage.js';
+import { saveFile, deleteFile, readFile } from './storage.js';
 
 const CURRENT = 'published_at IS NOT NULL AND retired_at IS NULL';
 
@@ -25,6 +25,14 @@ export async function getCurrentDocument(client, type) {
     [type]
   );
   return rows[0];
+}
+
+/** PDF de cualquier documento, también borrador o retirado (admin). 404 si no existe. */
+export async function getDocumentFile(client, id) {
+  const { rows: [doc] } = await client.query(
+    `SELECT type, version, storage_path, mime_type FROM agreement_documents WHERE id = $1`, [id]);
+  if (!doc) throw httpError(404, 'document_not_found', 'Documento no encontrado');
+  return { ...doc, buffer: await readFile(doc.storage_path) };
 }
 
 export async function listDocuments(client) {

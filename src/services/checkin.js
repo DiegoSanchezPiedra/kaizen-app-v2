@@ -84,6 +84,10 @@ export async function updateCheckinSettings(client, body) {
       `INSERT INTO academy_settings (key, value) VALUES ($1, to_jsonb($2::integer))
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [key, body[field]]);
   }
+  return getCheckinSettings(client);
+}
+
+export async function getCheckinSettings(client) {
   const { rows } = await client.query(
     `SELECT key, value FROM academy_settings WHERE key = ANY($1)`, [Object.values(SETTINGS)]);
   const byKey = Object.fromEntries(rows.map((r) => [r.key, r.value]));

@@ -30,7 +30,7 @@ const disciplineParam = (v) => {
   return v;
 };
 // Como services/profiles.js.
-const pagination = ({ limit = 25, offset = 0 }) => {
+export const pagination = ({ limit = 25, offset = 0 }) => {
   limit = Number(limit);
   offset = Number(offset);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0) {

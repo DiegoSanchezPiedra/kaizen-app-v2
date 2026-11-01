@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole, withRlsContext } from '../../middleware/auth.js';
 import { httpError } from '../../lib/errors.js';
 import {
-  adjustSession, createSession, cancelSession, restoreSession, resetSession,
+  adjustSession, createSession, cancelSession, restoreSession, resetSession, getSessionDetail,
 } from '../../services/sessions.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -14,6 +14,8 @@ router.use(requireAuth, requireRole('admin'));
 router.param('id', (req, res, next, id) =>
   UUID_RE.test(id) ? next() : next(httpError(400, 'invalid_id', 'id inválido')));
 
+// GET /admin/sessions/:id → { session (con adjusted_fields, class_values y cancel_note), bookings (confirmadas y en espera) }
+router.get('/sessions/:id', withRlsContext((req, client) => getSessionDetail(client, req.params.id)));
 // → { session, sessions_changed, notified, promoted }
 router.patch('/sessions/:id', withRlsContext((req, client) => adjustSession(client, { id: req.params.id, body: req.body ?? {} })));
 router.post('/sessions', withRlsContext(async (req, client) => ({

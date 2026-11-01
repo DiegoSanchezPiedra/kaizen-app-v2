@@ -6,7 +6,7 @@ import { httpError } from '../../lib/errors.js';
 import {
   cancelSubscription, cancelInsurance, updateInsuranceSettings, listOverduePayers,
   changePlan, cancelScheduledChange, changeDiscipline, updateDisciplineChangeSettings,
-  requestPayerChange, cancelPayerChange, getPayerChange,
+  requestPayerChange, cancelPayerChange, getPayerChange, listPayerChanges,
 } from '../../services/billing.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -37,6 +37,8 @@ for (const [path, atPeriodEnd] of [['cancel-now', false], ['cancel-at-period-end
 //   starts_at, deadline }. Cambio de pagador (B11): el nuevo pagador paga desde la app antes de la fecha límite.
 router.post('/subscriptions/:id/payer-change', withRlsContext(async (req, client) =>
   requestPayerChange(client, { id: req.params.id, payerId: req.body?.payer_id, actorId: req.user.id })));
+// GET /admin/payer-changes?status&from&subscription_id&limit&offset → { rows, total, limit, offset }
+router.get('/payer-changes', withRlsContext(async (req, client) => listPayerChanges(client, req.query)));
 // GET /admin/payer-changes/:id → como GET /billing/payer-changes/:id (ese router no admite al admin)
 router.get('/payer-changes/:id', withRlsContext(async (req, client) => getPayerChange(client, { id: req.params.id })));
 // DELETE /admin/subscriptions/:id/payer-change → 204 (solo si aún no está pagado)

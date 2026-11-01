@@ -1,5 +1,6 @@
 // B19.0: usuarios y roles del panel (GET /admin/profiles[/:id], PUT …/role, POST/DELETE …/guardians) y el rol de la
-// base en requireAuth. Como app_user por HTTP con un express en memoria y JWT firmados (como test:account).
+// base en requireAuth. B19.1: las lecturas del panel (ajustes, auditoría, avisos, entregas, cambios de pagador, detalle de
+// sesión y PDF de un documento). Como app_user por HTTP con un express en memoria y JWT firmados (como test:account).
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import express from 'express';
@@ -11,6 +12,15 @@ const { errorHandler } = await import('../src/middleware/errorHandler.js');
 const { default: authRouter } = await import('../src/routes/auth.js');
 const { default: adminProfilesRouter } = await import('../src/routes/admin/profiles.js');
 const { default: professorRouter } = await import('../src/routes/professor.js');
+const { default: panelRouter } = await import('../src/routes/admin/panel.js');
+const { default: adminBillingRouter } = await import('../src/routes/admin/billing.js');
+const { default: adminCheckinRouter } = await import('../src/routes/admin/checkin.js');
+const { default: adminSessionsRouter } = await import('../src/routes/admin/sessions.js');
+const { default: adminAgreementsRouter } = await import('../src/routes/admin/agreements.js');
+const { withRls } = await import('../src/db/rls.js');
+const { notice } = await import('../src/services/notices.js');
+const { createDocument } = await import('../src/services/agreements.js');
+const { deleteFile } = await import('../src/services/storage.js');
 
 let failed = 0;
 async function run(name, fn) {
@@ -60,7 +70,8 @@ const session = (await servicePool.query(
    RETURNING id`, [disc, U.prof])).rows[0].id;
 
 const app = express().use(express.json()).use('/auth', authRouter).use('/admin', adminProfilesRouter)
-  .use('/professor', professorRouter).use(errorHandler);
+  .use('/professor', professorRouter).use('/admin/agreements', adminAgreementsRouter)
+  .use('/admin', panelRouter, adminBillingRouter, adminCheckinRouter, adminSessionsRouter).use(errorHandler);
 const server = app.listen(0);
 const base = `http://127.0.0.1:${server.address().port}`;
 // Token firmado con el rol que se pasa (por defecto el de la fixture): la API debe usar el de la base.
@@ -78,6 +89,12 @@ const expectError = (r, status, c) => assert.deepEqual([r.status, code(r)], [sta
 const lastAudit = async (action, id) => (await servicePool.query(
   `SELECT actor_id, resource_type, changes FROM audit_log WHERE action = $1 AND resource_id = $2
     ORDER BY created_at DESC LIMIT 1`, [action, id])).rows[0];
+const rawGet = async (url, who) => {
+  const res = await fetch(base + url, { headers: { authorization: `Bearer ${tokenOf(who)}` } });
+  return { status: res.status, type: res.headers.get('content-type'), body: Buffer.from(await res.arrayBuffer()) };
+};
+const audits = []; // ids de audit_log creados por los tests de B19.1 (su actor puede no ser el admin)
+const documents = []; // [{ id, file }]
 const realError = console.error;
 
 try {
@@ -201,11 +218,287 @@ try {
     const rows = (await servicePool.query(`SELECT tutor_id FROM guardianships WHERE minor_id = $1`, [U.child])).rows;
     assert.deepEqual(rows, [{ tutor_id: U.parent }]);
   });
+  // ── B19.1: lecturas del panel ──────────────────────────────────────────────
+  await run('ajustes: GET igual a lo que devuelven los PUT, y ve un cambio', async () => {
+    const get = async () => (await http('GET', '/admin/settings', 'admin')).body;
+    const before = await get();
+    assert.deepEqual(Object.keys(before).sort(), ['checkin', 'discipline_changes', 'insurance']);
+    assert.deepEqual(Object.keys(before.checkin).sort(), ['closes_minutes', 'opens_minutes', 'qr_seconds']);
+    assert.deepEqual(Object.keys(before.insurance).sort(), ['enabled', 'price_adult_cents', 'price_minor_cents']);
+    // Sin cambiar nada: los PUT devuelven lo mismo (el del seguro, sin campos, no toca Stripe).
+    assert.deepEqual((await http('PUT', '/admin/settings/checkin', 'admin', {})).body.settings, before.checkin);
+    assert.deepEqual((await http('PUT', '/admin/settings/insurance', 'admin', {})).body.settings, before.insurance);
+    const put = (n) => http('PUT', '/admin/settings/discipline-changes', 'admin', { per_period: n });
+    assert.deepEqual((await put(before.discipline_changes.per_period)).body.settings, before.discipline_changes);
+    const n = before.discipline_changes.per_period + 1;
+    try {
+      assert.deepEqual((await put(n)).body.settings, { per_period: n });
+      assert.deepEqual((await get()).discipline_changes, { per_period: n });
+    } finally {
+      await put(before.discipline_changes.per_period);
+    }
+    assert.deepEqual(await get(), before);
+  });
+
+  // Auditoría: acciones propias de la prueba, con fechas fijas, y un aviso (notice.*) que nunca debe salir.
+  const A = (s) => `zz${tag}.${s}`;
+  const auditRows = [
+    [A('one'), U.admin, 'session', `${tag}-s1`, '2020-01-10T12:00:00Z'],
+    [A('two'), U.stu, 'session', `${tag}-s2`, '2020-01-20T12:00:00Z'],
+    [`yy${tag}.three`, U.admin, 'class', `${tag}-c1`, '2020-02-01T12:00:00Z'],
+    [`notice.${tag}_x`, U.admin, 'subscription', `${tag}-n1`, '2020-01-25T12:00:00Z'],
+  ];
+  for (const [action, actor, type, rid, at] of auditRows) {
+    audits.push((await servicePool.query(
+      `INSERT INTO audit_log (id, actor_id, action, resource_type, resource_id, changes, created_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, '{"k":1}', $5) RETURNING id`, [actor, action, type, rid, at])).rows[0].id);
+  }
+  const auditQ = async (q) => {
+    const r = await http('GET', `/admin/audit?${q.includes('limit') ? '' : 'limit=100&'}${q}`, 'admin');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    return r.body;
+  };
+  const actions = (b) => b.rows.map((r) => r.action);
+  await run('auditoría: por prefijos (varios con comas), más nuevo primero, sin notice.*', async () => {
+    const one = await auditQ(`action=${A('')}`);
+    assert.deepEqual(actions(one), [A('two'), A('one')]);
+    assert.equal(one.total, 2);
+    assert.deepEqual(Object.keys(one.rows[0]).sort(),
+      ['action', 'actor', 'changes', 'created_at', 'id', 'resource_id', 'resource_type']);
+    assert.deepEqual(one.rows[0].actor, { id: U.stu, display_name: `${tag}-stu` });
+    assert.deepEqual(one.rows[0].changes, { k: 1 });
+    assert.deepEqual(actions(await auditQ(`action=${A('')},yy${tag}.`)), [`yy${tag}.three`, A('two'), A('one')]);
+    // Un aviso no sale ni por su acción exacta, ni por su prefijo, ni por actor, ni sin filtro.
+    assert.deepEqual((await auditQ(`action=notice.`)).rows, []);
+    assert.deepEqual((await auditQ(`action=notice.${tag}_x`)).rows, []);
+    assert.ok(!actions(await auditQ(`actor_id=${U.admin}`)).includes(`notice.${tag}_x`));
+    assert.ok((await auditQ('')).rows.every((r) => !r.action.startsWith('notice.')));
+  });
+  await run('auditoría: por persona, recurso y fechas', async () => {
+    assert.deepEqual(actions(await auditQ(`actor_id=${U.admin}&action=zz${tag},yy${tag}`)), [`yy${tag}.three`, A('one')]);
+    assert.deepEqual(actions(await auditQ(`resource_type=class&action=yy${tag}`)), [`yy${tag}.three`]);
+    assert.deepEqual(actions(await auditQ(`resource_type=session&resource_id=${tag}-s2`)), [A('two')]);
+    assert.deepEqual(actions(await auditQ(`action=${A('')},yy${tag}.&from=2020-01-15&to=2020-01-31`)), [A('two')]);
+    assert.deepEqual(actions(await auditQ(`action=${A('')},yy${tag}.&from=2020-01-20`)), [`yy${tag}.three`, A('two')]);
+    assert.deepEqual(actions(await auditQ(`action=${A('')},yy${tag}.&to=2020-01-10`)), [A('one')]);
+    const page = await auditQ(`action=${A('')},yy${tag}.&limit=1&offset=1`);
+    assert.deepEqual([actions(page), page.total, page.limit, page.offset], [[A('two')], 3, 1, 1]);
+  });
+  await run('auditoría: errores', async () => {
+    expectError(await http('GET', '/admin/audit?from=2020-02-01&to=2020-01-01', 'admin'), 400, 'invalid_range');
+    expectError(await http('GET', '/admin/audit?from=ayer', 'admin'), 400, 'invalid_field');
+    expectError(await http('GET', '/admin/audit?actor_id=nope', 'admin'), 400, 'invalid_field');
+    expectError(await http('GET', '/admin/audit?action=,', 'admin'), 400, 'invalid_field');
+    expectError(await http('GET', '/admin/audit?limit=101', 'admin'), 400, 'invalid_pagination');
+  });
+
+  // Avisos: con notice() de verdad. Uno para el admin y un alumno, otro solo para alumnos.
+  const noticeOf = async (action, recipients, rid) => {
+    await notice(servicePool, { action, actorId: U.stu, type: 'subscription', resourceId: rid, recipients, student_id: U.stu });
+    const { rows: [a] } = await servicePool.query(`SELECT id FROM audit_log WHERE resource_id = $1`, [rid]);
+    audits.push(a.id);
+    return a.id;
+  };
+  const nBoth = await noticeOf('notice.payer_change_expired', [U.stu, U.admin], `${tag}-nboth`);
+  const nStu = await noticeOf('notice.payment_failed', [U.stu, U.stu2], `${tag}-nstu`);
+  const nAdmin = await noticeOf('notice.stripe_risk', [U.admin], `${tag}-nadmin`);
+  await run('avisos: solo los que tienen un admin entre sus destinatarios, sin los recipients', async () => {
+    const r = await http('GET', '/admin/notices?limit=100', 'admin');
+    assert.equal(r.status, 200);
+    const mine = r.body.rows.filter((x) => x.resource_id.startsWith(tag));
+    assert.deepEqual(mine.map((x) => x.id).sort(), [nBoth, nAdmin].sort());
+    const both = mine.find((x) => x.id === nBoth);
+    assert.deepEqual(Object.keys(both).sort(), ['action', 'created_at', 'details', 'id', 'resource_id', 'resource_type']);
+    assert.deepEqual([both.action, both.resource_type, both.details], ['notice.payer_change_expired', 'subscription', { student_id: U.stu }]);
+    assert.ok(r.body.rows.every((x) => x.action.startsWith('notice.') && !('recipients' in x.details)));
+    assert.deepEqual(Object.keys(r.body).sort(), ['limit', 'offset', 'rows', 'total']);
+    const dates = r.body.rows.map((x) => +new Date(x.created_at));
+    assert.deepEqual(dates, [...dates].sort((a, b) => b - a));
+    expectError(await http('GET', '/admin/notices?offset=-1', 'admin'), 400, 'invalid_pagination');
+  });
+
+  // Entregas: nBoth → una para stu (el admin nunca recibe); nStu → una para stu y otra para stu2.
+  const delivery = async (audit, who) => (await servicePool.query(
+    `SELECT id FROM notice_deliveries WHERE audit_id = $1 AND recipient_id = $2`, [audit, U[who]])).rows[0].id;
+  const dFailed = await delivery(nBoth, 'stu');
+  const dOld = await delivery(nStu, 'stu');
+  const dPending = await delivery(nStu, 'stu2');
+  await servicePool.query(`UPDATE notice_deliveries SET status = 'failed', attempts = 3, last_error = 'smtp 550' WHERE id = $1`, [dFailed]);
+  await servicePool.query(
+    `UPDATE notice_deliveries SET status = 'failed', attempts = 1, last_error = 'timeout', created_at = '2020-01-01' WHERE id = $1`, [dOld]);
+  await run('entregas: solo las failed, la más nueva primero, y desde from', async () => {
+    assert.equal(await servicePool.query(`SELECT 1 FROM notice_deliveries WHERE recipient_id = $1`, [U.admin]).then((r) => r.rowCount), 0);
+    const r = await http('GET', '/admin/notice-deliveries?limit=100', 'admin');
+    assert.equal(r.status, 200);
+    const mine = r.body.rows.filter((x) => [dFailed, dOld, dPending].includes(x.id));
+    assert.deepEqual(mine.map((x) => x.id), [dFailed, dOld]);
+    assert.deepEqual(mine[0], {
+      id: dFailed, created_at: mine[0].created_at, action: 'notice.payer_change_expired', channel: 'email',
+      recipient: { id: U.stu, display_name: `${tag}-stu` }, attempts: 3, last_error: 'smtp 550',
+    });
+    const since = await http('GET', '/admin/notice-deliveries?limit=100&from=2020-06-01', 'admin');
+    assert.deepEqual(since.body.rows.filter((x) => [dFailed, dOld, dPending].includes(x.id)).map((x) => x.id), [dFailed]);
+    const old = await http('GET', '/admin/notice-deliveries?limit=100&from=2020-01-01', 'admin');
+    assert.ok(old.body.total >= since.body.total + 1);
+    expectError(await http('GET', '/admin/notice-deliveries?from=x', 'admin'), 400, 'invalid_field');
+    expectError(await http('GET', '/admin/notice-deliveries?limit=0', 'admin'), 400, 'invalid_pagination');
+  });
+  await run('entregas: un alumno no lee notice_deliveries, ni por la API ni con SQL directo (RLS)', async () => {
+    expectError(await http('GET', '/admin/notice-deliveries', 'stu'), 403, 'insufficient_role');
+    const count = (uid, role) => withRls({ uid, role }, async (c) =>
+      (await c.query(`SELECT count(*)::int AS n FROM notice_deliveries`)).rows[0].n);
+    assert.equal(await count(U.stu, 'alumno'), 0);
+    assert.equal(await count(U.prof, 'profesor'), 0);
+    assert.ok((await count(U.admin, 'admin')) >= 2);
+    await assert.rejects(withRls({ uid: U.admin, role: 'admin' }, (c) =>
+      c.query(`UPDATE notice_deliveries SET status = 'sent' WHERE id = $1`, [dFailed])), { code: '42501' });
+  });
+
+  // Cambios de pagador. subs[0]: stu paga su cuota; subs[1]: el padre paga a child; sub2: el padre paga a child2.
+  const sub2 = crypto.randomUUID();
+  subs.push(sub2);
+  await servicePool.query(
+    `INSERT INTO subscriptions (id, student_id, payer_id, plan_id, status, stripe_subscription_id)
+     VALUES ($1, $2, $3, $4, 'active', $5)`, [sub2, U.child2, U.parent, plan, `sub_test_${sub2}`]);
+  const payerChanges = [];
+  for (const [subscription, student, oldP, newP, status, reason, deadline, updated] of [
+    [subs[1], U.child, U.parent, U.tutor2, 'completed', null, '+30 days', '2020-01-01'],
+    [subs[1], U.child, U.parent, U.tutor2, 'cancelled', 'admin', '+30 days', '2020-03-01'],
+    [subs[1], U.child, U.parent, U.tutor2, 'paid', null, '+30 days', null],
+    [sub2, U.child2, U.parent, U.tutor2, 'requested', null, '+30 days', null],
+    [subs[0], U.stu, U.stu, U.parent, 'requested', null, '-1 day', null],
+  ]) {
+    payerChanges.push((await servicePool.query(
+      `INSERT INTO payer_changes (subscription_id, student_id, old_payer_id, new_payer_id, plan_id, starts_at, deadline,
+                                  status, cancel_reason, created_by, updated_at)
+       VALUES ($1, $2, $3, $4, $5, now() + interval '31 days', now() + $6::interval, $7, $8, $9, COALESCE($10::timestamptz, now()))
+       RETURNING id`, [subscription, student, oldP, newP, plan, deadline, status, reason, U.admin, updated])).rows[0].id);
+  }
+  const [pcDone, pcCancelled, pcPaid, pcRequested, pcLate] = payerChanges;
+  await run('cambios de pagador: por estado (varios), con el caducado como expired, y su subscription_id', async () => {
+    const q = async (s) => {
+      const r = await http('GET', `/admin/payer-changes?limit=100&${s}`, 'admin');
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      return r.body.rows.filter((x) => payerChanges.includes(x.id));
+    };
+    assert.deepEqual((await q('status=requested,paid')).map((x) => x.id).sort(), [pcPaid, pcRequested].sort());
+    assert.deepEqual((await q('status=expired')).map((x) => x.id), [pcLate]);
+    assert.deepEqual((await q('status=completed')).map((x) => x.id), [pcDone]);
+    assert.deepEqual((await q('status=cancelled')).map((x) => [x.id, x.cancel_reason]), [[pcCancelled, 'admin']]);
+    const all = await q('');
+    assert.equal(all.length, 5);
+    const late = all.find((x) => x.id === pcLate);
+    assert.deepEqual(Object.keys(late).sort(), ['cancel_reason', 'deadline', 'id', 'new_payer', 'old_payer', 'plan',
+      'starts_at', 'status', 'student', 'subscription_id', 'updated_at']);
+    assert.deepEqual([late.status, late.subscription_id, late.student, late.old_payer, late.new_payer, late.plan],
+      ['expired', subs[0], { id: U.stu, display_name: `${tag}-stu` }, { id: U.stu, display_name: `${tag}-stu` },
+        { id: U.parent, display_name: `${tag}-parent` }, { id: String(plan), name: tag }]);
+    // Una suscripción: sus cambios, el más reciente primero.
+    assert.deepEqual((await q(`subscription_id=${subs[1]}`)).map((x) => x.id), [pcPaid, pcCancelled, pcDone]);
+    // from sobre updated_at.
+    assert.deepEqual((await q(`subscription_id=${subs[1]}&from=2020-02-01`)).map((x) => x.id), [pcPaid, pcCancelled]);
+    assert.deepEqual((await q(`subscription_id=${subs[1]}&from=2020-03-02`)).map((x) => x.id), [pcPaid]);
+    const page = await http('GET', `/admin/payer-changes?subscription_id=${subs[1]}&limit=2&offset=2`, 'admin');
+    assert.deepEqual([page.body.rows.map((x) => x.id), page.body.total, page.body.limit, page.body.offset], [[pcDone], 3, 2, 2]);
+    expectError(await http('GET', '/admin/payer-changes?status=requested,hecho', 'admin'), 400, 'invalid_field');
+    expectError(await http('GET', '/admin/payer-changes?subscription_id=nope', 'admin'), 400, 'invalid_field');
+    expectError(await http('GET', '/admin/payer-changes?from=nope', 'admin'), 400, 'invalid_field');
+    expectError(await http('GET', '/admin/payer-changes?limit=0', 'admin'), 400, 'invalid_pagination');
+    // El GET de uno sigue siendo el de B11.
+    assert.equal((await http('GET', `/admin/payer-changes/${pcPaid}`, 'admin')).body.status, 'paid');
+  });
+
+  // Detalle de sesión: una de clase con sustituto, aforo ajustado y reservas desordenadas; otra cancelada con nota.
+  const klass = (await servicePool.query(
+    `INSERT INTO classes (discipline_id, trainer_id, weekday, start_time, duration_min, capacity, location, starts_on)
+     VALUES ($1, $2, 3, '19:00', 60, 20, 'sala A', current_date) RETURNING id`, [disc, U.prof2])).rows[0].id;
+  const classSession = (slot, status, note) => servicePool.query(
+    `INSERT INTO class_sessions (class_id, discipline_id, trainer_id, starts_at, slot, ends_at, duration_min, capacity, location,
+                                 status, adjusted_fields, class_trainer_id, class_duration_min, class_capacity, class_location,
+                                 cancelled_at, cancelled_by, cancel_note)
+     VALUES ($1, $2, $3, $4::timestamptz, $4::timestamptz, $4::timestamptz + interval '60 min', 60, 2, 'sala A', $5::text::session_status,
+             $6::text[], $7, 60, 20, 'sala A', CASE WHEN $5::text = 'cancelled' THEN now() END,
+             CASE WHEN $5::text = 'cancelled' THEN $8::uuid END, $9) RETURNING id`,
+    [klass, disc, U.prof, slot, status, status === 'cancelled' ? '{}' : '{trainer_id,capacity}', U.prof2, U.admin, note])
+    .then((r) => r.rows[0].id);
+  const slot = new Date(Date.now() + 3 * 864e5).toISOString();
+  const detail = await classSession(slot, 'scheduled', null);
+  const cancelled = await classSession(new Date(Date.now() + 4 * 864e5).toISOString(), 'cancelled', 'lesión del profesor');
+  const t0 = Date.now();
+  for (const [who, status, offset] of [['child2', 'waitlisted', 4], ['stu2', 'confirmed', 2], ['child', 'waitlisted', 3],
+    ['stu', 'confirmed', 1], ['grown', 'cancelled', 0]]) {
+    await servicePool.query(
+      `INSERT INTO bookings (id, session_id, student_id, status, booked_by, created_at, cancel_reason, cancelled_at)
+       VALUES (gen_random_uuid(), $1, $2, $3::booking_status, $2, $4, CASE WHEN $3::text = 'cancelled' THEN 'student' END::booking_cancel_reason,
+               CASE WHEN $3::text = 'cancelled' THEN now() END)`,
+      [detail, U[who], status, new Date(t0 + offset * 1000)]);
+  }
+  await run('detalle de sesión: ajustes, valores de la clase y reservas en orden de llegada', async () => {
+    const r = await http('GET', `/admin/sessions/${detail}`, 'admin');
+    assert.equal(r.status, 200);
+    const s = r.body.session;
+    assert.deepEqual(s.adjusted_fields, ['trainer_id', 'capacity']);
+    assert.deepEqual(s.class_values, { trainer_id: U.prof2, starts_at: s.class_values.starts_at, duration_min: 60,
+      capacity: 20, location: 'sala A' });
+    assert.equal(+new Date(s.class_values.starts_at), +new Date(slot));
+    assert.deepEqual([s.id, s.class_id, s.capacity, s.cancel_note, s.status, s.held, s.location, s.duration_min],
+      [detail, klass, 2, null, 'scheduled', false, 'sala A', 60]);
+    assert.deepEqual([s.discipline, s.trainer], [{ id: Number(disc), name: tag }, { id: U.prof, display_name: `${tag}-prof` }]);
+    assert.deepEqual(r.body.bookings.map((b) => [b.student.id, b.status]),
+      [[U.stu, 'confirmed'], [U.stu2, 'confirmed'], [U.child, 'waitlisted'], [U.child2, 'waitlisted']]);
+    assert.deepEqual(Object.keys(r.body.bookings[0]).sort(), ['created_at', 'id', 'status', 'student']);
+  });
+  await run('detalle de sesión: cancelada con su nota, suelta sin class_values, 404', async () => {
+    const c = (await http('GET', `/admin/sessions/${cancelled}`, 'admin')).body;
+    assert.deepEqual([c.session.status, c.session.cancel_note, c.bookings], ['cancelled', 'lesión del profesor', []]);
+    const loose = (await http('GET', `/admin/sessions/${session}`, 'admin')).body.session;
+    assert.deepEqual([loose.class_id, loose.class_values, loose.adjusted_fields], [null, null, []]);
+    expectError(await http('GET', `/admin/sessions/${crypto.randomUUID()}`, 'admin'), 404, 'session_not_found');
+    expectError(await http('GET', '/admin/sessions/nope', 'admin'), 400, 'invalid_id');
+  });
+
+  // PDF: un borrador y un retirado, idénticos a lo subido (servicePool: no se publica nada en la base compartida).
+  const nonce = 1000 + Math.floor(Math.random() * 9000);
+  const pdfs = {
+    draft: Buffer.from(`%PDF-1.4 borrador ${tag}`), retired: Buffer.from(`%PDF-1.4 retirado ${tag}`),
+  };
+  const docs = {
+    draft: await createDocument(servicePool, { type: 'waiver', version: `${nonce}.1`, buffer: pdfs.draft }),
+    retired: await createDocument(servicePool, { type: 'waiver', version: `${nonce}.2`, buffer: pdfs.retired }),
+  };
+  for (const d of Object.values(docs)) documents.push(d.id);
+  await servicePool.query(
+    `UPDATE agreement_documents SET published_at = now() - interval '2 days', retired_at = now() - interval '1 day' WHERE id = $1`,
+    [docs.retired.id]);
+  await run('PDF: un borrador y un retirado idénticos al subido; 404; no es de alumno', async () => {
+    for (const k of ['draft', 'retired']) {
+      const r = await rawGet(`/admin/agreements/documents/${docs[k].id}/file`, 'admin');
+      assert.deepEqual([r.status, r.type], [200, 'application/pdf']);
+      assert.ok(r.body.equals(pdfs[k]), `${k} distinto del subido`);
+    }
+    expectError(await http('GET', `/admin/agreements/documents/${crypto.randomUUID()}/file`, 'admin'), 404, 'document_not_found');
+    expectError(await http('GET', '/admin/agreements/documents/nope/file', 'admin'), 400, 'invalid_id');
+    expectError(await http('GET', `/admin/agreements/documents/${docs.draft.id}/file`, 'stu'), 403, 'insufficient_role');
+  });
+  await run('lecturas del panel: alumno y profesor → 403', async () => {
+    for (const url of ['/admin/settings', '/admin/audit', '/admin/notices', '/admin/notice-deliveries', '/admin/payer-changes',
+      `/admin/sessions/${detail}`]) {
+      expectError(await http('GET', url, 'stu'), 403, 'insufficient_role');
+      expectError(await http('GET', url, 'prof'), 403, 'insufficient_role');
+    }
+  });
 } finally {
   console.error = realError;
   server.close();
-  await servicePool.query(`DELETE FROM audit_log WHERE actor_id = $1`, [U.admin]);
-  await servicePool.query(`DELETE FROM class_sessions WHERE id = $1`, [session]);
+  await servicePool.query(`DELETE FROM audit_log WHERE actor_id = $1 OR id = ANY($2::uuid[])`, [U.admin, audits]);
+  for (const id of documents) {
+    const { rows: [d] } = await servicePool.query(`DELETE FROM agreement_documents WHERE id = $1 RETURNING storage_path`, [id]);
+    if (d) await deleteFile(d.storage_path);
+  }
+  await servicePool.query(`DELETE FROM payer_changes WHERE created_by = $1`, [U.admin]);
+  await servicePool.query(`DELETE FROM bookings WHERE student_id = ANY($1::uuid[])`, [ids]);
+  await servicePool.query(`DELETE FROM class_sessions WHERE id = $1 OR class_id IN (SELECT id FROM classes WHERE discipline_id = $2)`, [session, disc]);
+  await servicePool.query(`DELETE FROM classes WHERE discipline_id = $1`, [disc]);
   await servicePool.query(`DELETE FROM subscriptions WHERE id = ANY($1::uuid[])`, [subs]);
   await servicePool.query(`DELETE FROM plans WHERE id = $1`, [plan]);
   await servicePool.query(`DELETE FROM disciplines WHERE id = $1`, [disc]);

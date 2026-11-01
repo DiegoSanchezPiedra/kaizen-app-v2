@@ -5,6 +5,8 @@ import { stripe, STRIPE_PORTAL_CONFIGURATION_ID, APP_URL, STRIPE_STATEMENT_DESCR
 import { httpError } from '../lib/errors.js';
 import { parseId, invalid, audit } from './catalog.js';
 import { notice } from './notices.js';
+import { dateParam } from './sessions.js';
+import { pagination } from './reports.js';
 
 const LIVE = `('active', 'past_due', 'unpaid')`;
 // Estados de Stripe tal cual (CONTEXT § Suscripción); canceled / incomplete_expired → cancelled.
@@ -401,6 +403,13 @@ export async function updateDisciplineChangeSettings(client, body, actorId) {
   return { per_period: n };
 }
 
+/** Cambios de disciplina por periodo; sin fila válida, 1 (como discipline_change_limit()). */
+export async function getDisciplineChangeSettings(client) {
+  const { rows: [r] } = await client.query(
+    `SELECT value #>> '{}' AS v FROM academy_settings WHERE key = 'discipline_changes_per_period'`);
+  return { per_period: /^[0-9]{1,9}$/.test(r?.v ?? '') ? Number(r.v) : 1 };
+}
+
 // --- Cambio de pagador (B11; CONTEXT § Suscripción; ADR 0009) ---
 // La sucesora sale de un Checkout con billing_cycle_anchor = D (0 € hoy, X €/mes desde D) y su fila local nace en el
 // traspaso (webhook). Mientras el cambio está pendiente, el pedido de la antigua se congela.
@@ -572,6 +581,39 @@ export async function getPayerChange(client, { id }) {
   return pc;
 }
 
+const PAYER_STATUSES = ['requested', 'paid', 'completed', 'expired', 'cancelled'];
+
+/**
+ * Cambios de pagador del panel (B19.1): `status` admite varios («requested,paid») y se filtra por el estado efectivo
+ * (un requested pasada su fecha límite sale expired aunque el webhook aún no lo haya marcado); `from` sobre
+ * updated_at; `subscription_id` limita a una suscripción. Los más recientes primero.
+ */
+export async function listPayerChanges(client, { status, from, subscription_id: subscriptionId, limit, offset }) {
+  ({ limit, offset } = pagination({ limit, offset }));
+  const statuses = status === undefined ? null : String(status).split(',');
+  if (statuses && !statuses.every((s) => PAYER_STATUSES.includes(s))) {
+    throw invalid('status', `status: ${PAYER_STATUSES.join(', ')} separados por comas`);
+  }
+  if (subscriptionId !== undefined && !UUID_RE.test(subscriptionId)) throw invalid('subscription_id', 'subscription_id inválido');
+  const f = from === undefined ? null : dateParam(from, 'from');
+  const where = `WHERE ($1::text[] IS NULL OR (${EFFECTIVE_STATUS}) = ANY($1))
+                   AND ($2::date IS NULL OR pc.updated_at >= $2::date::timestamp AT TIME ZONE 'Europe/Madrid')
+                   AND ($3::uuid IS NULL OR pc.subscription_id = $3)`;
+  const params = [statuses, f, subscriptionId ?? null];
+  const { rows } = await client.query(
+    `SELECT pc.id, ${EFFECTIVE_STATUS} AS status, pc.subscription_id,
+            jsonb_build_object('id', st.id, 'display_name', st.display_name) AS student,
+            jsonb_build_object('id', op.id, 'display_name', op.display_name) AS old_payer,
+            jsonb_build_object('id', np.id, 'display_name', np.display_name) AS new_payer,
+            jsonb_build_object('id', pc.plan_id::text, 'name', pl.name) AS plan,
+            pc.starts_at, pc.deadline, pc.cancel_reason, pc.updated_at
+       FROM payer_changes pc JOIN profiles st ON st.id = pc.student_id JOIN profiles op ON op.id = pc.old_payer_id
+       JOIN profiles np ON np.id = pc.new_payer_id LEFT JOIN plans pl ON pl.id = pc.plan_id
+       ${where} ORDER BY pc.updated_at DESC, pc.id LIMIT $4 OFFSET $5`, [...params, limit, offset]);
+  const { rows: [{ total }] } = await client.query(`SELECT count(*)::int AS total FROM payer_changes pc ${where}`, params);
+  return { rows, total, limit, offset };
+}
+
 /** El cambio, si quien llama es su nuevo pagador y aún cumple las condiciones (tutor vinculado o el propio adulto). */
 export async function assertNewPayer(client, { id, userId }) {
   const { rows: [pc] } = await client.query(`SELECT * FROM payer_changes WHERE id = $1`, [id]);
@@ -696,6 +738,10 @@ export async function updateInsuranceSettings(client, body, actorId) {
       for (const i of rows) await insuranceWontRenew(servicePool, i, 'disabled');
     }
   }
+  return getInsuranceSettings(client);
+}
+
+export async function getInsuranceSettings(client) {
   const r = await insuranceSettings(client);
   return {
     enabled: r.insurance_enabled === true,
