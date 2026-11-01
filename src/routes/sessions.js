@@ -9,7 +9,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const router = Router();
 
-// GET /sessions/calendar?from=&to=&discipline_id=&profile_id= (profile_id: solo admin) → { sessions }
+// GET /sessions/calendar?from=&to=&discipline_id=&profile_id= (profile_id: admin o tutor de ese perfil, si no 403 not_guardian) → { sessions }
 router.get(
   '/calendar',
   requireAuth,

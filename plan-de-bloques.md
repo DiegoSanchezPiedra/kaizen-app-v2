@@ -1856,7 +1856,7 @@
   - otros idiomas, cachear datos offline, cola de escrituras, cookie `httpOnly` (→ B20 si hace falta);
   - rate limiting y E2E (B20).
 - **Checklist de cierre**:
-  - [ ] B18.0: `GET`/`PATCH /me`, `GET /me/health`, recuperar contraseña (`025`) y `profile_id` del tutor en el calendario, con `test:account` y la regresión.
+  - [x] B18.0: `GET`/`PATCH /me`, `GET /me/health`, recuperar contraseña (`025`) y `profile_id` del tutor en el calendario, con `test:account` y la regresión.
   - [ ] B18.1: login (email, Google, MFA), registro, recuperar contraseña, cierre de sesión en orden, selector de sujeto, `build:frontend` reproducible y `deploy/nginx.conf` con `/api/`, CSP y `no-store`.
   - [ ] B18.2: pantallas del alumno y del tutor con sus estados, incluido el **aviso de acuerdo pendiente (re-firma)** visible en Inicio y en `/agreements`.
   - [ ] B18.3: cuota completa, con 3DS y la vuelta de Stripe.

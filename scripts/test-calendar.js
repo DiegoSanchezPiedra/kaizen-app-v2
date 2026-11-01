@@ -189,7 +189,8 @@ try {
     await bad({ from: day(0), to: day(92) }, 'invalid_range');
     await bad({ from: '2026-13-01' }, 'invalid_field');
     await bad({ discipline_id: 'x' }, 'invalid_field');
-    await bad({ profile_id: U.aluN }, 'invalid_field'); // solo el admin
+    // profile_id ajeno (B18.0): solo el admin o un tutor de ese perfil.
+    await assert.rejects(cal('aluNone', { profile_id: U.aluN }), (e) => e.status === 403 && e.code === 'not_guardian');
     await cal('aluNone', { from: day(0), to: day(91) }); // 92 días: vale
   });
 
