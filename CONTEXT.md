@@ -6,7 +6,7 @@ Solo términos de dominio. Sin detalles de implementación.
 
 - **Perfil**: la persona. Es el único concepto de identidad. En columnas nuevas la FK a la persona se llama siempre `profile_id`; `student_id`, `trainer_id`, `user_id` y `actor_id` ya existentes se leen como "el perfil en ese papel".
 - **Rol**: papel de un perfil. Roles: **alumno**, **profesor**, **admin**, **tutor**. Cada perfil tiene exactamente **un** rol. El multi-rol queda aplazado hasta que exista un caso real.
-- **Cambiar el rol**: solo lo hace el admin, entre alumno, tutor y profesor, y solo a un perfil con acceso propio (un hijo siempre es alumno). Quien deja de ser profesor no puede seguir siendo profesor habitual de una clase ni profesor de una sesión futura (como en la baja de un profesor); quien deja de ser alumno no puede tener una suscripción ni un seguro vivos. Nadie se registra como profesor o tutor: se registra y el admin le cambia el rol. El cambio se nota la próxima vez que la persona entra.
+- **Cambiar el rol**: solo lo hace el admin, entre alumno, tutor y profesor, y solo a un perfil con acceso propio (un hijo siempre es alumno). Quien deja de ser profesor no puede seguir siendo profesor habitual de una clase ni profesor de una sesión futura (como en la baja de un profesor); quien deja de ser alumno no puede tener una suscripción ni un seguro vivos. Nadie se registra como profesor o tutor: se registra y el admin le cambia el rol. El cambio vale desde ese momento.
 - **Alumno**: perfil que entrena.
 - **Profesor**: perfil que imparte clases.
 - **Admin**: perfil que gestiona la academia. Se le recomienda el doble factor, pero no es obligatorio. El rol de admin no se da ni se quita desde la app.

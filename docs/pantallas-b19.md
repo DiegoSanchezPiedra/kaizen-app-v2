@@ -42,6 +42,7 @@ Los de `docs/pantallas-b18.md` (cargando, vacío, error, sin conexión, sin perm
 | Estado | Cuándo | Qué muestra |
 |---|---|---|
 | Sin MFA | `mfa_enabled: false` en `GET /auth/me` | aviso fijo arriba en Inicio y Cuenta: «Activa el doble factor: protege los datos de la academia» y **Activar** → Configurar el MFA. No bloquea nada; desaparece al activarlo |
+| Acceso cambiado | el rol de `GET /me` ya no es el del token (al abrir o tras un `403 insufficient_role`) | cierra la sesión y va a `/login` con «tu acceso ha cambiado; vuelve a entrar». Vale para todos los roles, no solo el admin |
 | Sesión del admin caducada | el token del admin dura 12 h | como en B18: a `/login` con «tu sesión ha caducado» y vuelta a donde estaba |
 
 ## Estructura
@@ -99,7 +100,7 @@ Un vistazo y lo que pide atención. Todo enlaza a su pantalla. Sin MFA, el aviso
   (`POST /admin/profiles/:id/unpublish`, con confirmación: «el dueño puede volver a publicarlo»). Para un alumno, el
   estado del perfil (`status.missing` como en B18: qué le falta) y la cobertura de riesgo (sí/no, sin la forma).
   **Cambiar el rol** (Select con alumno, tutor, profesor; `PUT /admin/profiles/:id/role`, **B19.0**), con
-  confirmación «verá su nuevo rol la próxima vez que entre». No sale para un admin ni para un hijo. Errores:
+  confirmación «el cambio es inmediato; si tiene la app abierta, tendrá que volver a entrar». No sale para un admin ni para un hijo. Errores:
   `same_role`, `admin_role_locked`, `child_role_locked`, `trainer_has_sessions` («antes, reasigna o retira sus
   clases y sesiones futuras» con enlace a Clases), `student_has_subscription` («tiene una cuota o un seguro vivos;
   dalos de baja antes»).

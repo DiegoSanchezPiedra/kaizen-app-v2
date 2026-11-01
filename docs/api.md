@@ -7,7 +7,7 @@
 ## Convenciones
 
 - **Auth**: `Authorization: Bearer <jwt>` (HS256, caduca a los `JWT_EXPIRES_IN`, por defecto 7 días). El token lleva
-  `sub` (id del perfil) y `role`. **Un rol por perfil** (ADR 0001): `alumno`, `tutor`, `profesor` o `admin`. No hay
+  `sub` (id del perfil) y `role`; **desde B19.0** la API usa el rol de la base en cada petición, no el del token (un cambio de rol vale al momento). **Un rol por perfil** (ADR 0001): `alumno`, `tutor`, `profesor` o `admin`. No hay
   refresh ni logout en el servidor: cerrar sesión es borrar el token (y antes, darse de baja del push).
 - **La tablet** no es usuario: `Authorization: Device <device_token>` (ver § Tablet).
 - **Errores**: `{ error, code, message, ...details }`. `error` es la categoría (`bad_request`, `unauthorized`,
