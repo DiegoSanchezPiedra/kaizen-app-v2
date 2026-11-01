@@ -163,7 +163,7 @@ Errores: `409 session_not_started`, `409 session_cancelled`, `409 attendance_clo
 | Método y ruta | Auth | Respuesta |
 |---|---|---|
 | `POST /tablet/link` `{ code }` | — (código de un solo uso del admin) | `201 { device_token }` (solo esta vez; guardarlo en la tablet). `400 invalid_link_code` |
-| `GET /tablet/active-sessions` | `Device <token>` | **SSE**: evento `feed` `{ qr, expires_in, sessions: [{ id, name, starts_at, ends_at }] }` cada periodo del QR; `revoked` si la revocan. Sin nombres de alumnos |
+| `GET /tablet/active-sessions` | `Device <token>` | **SSE**: evento `feed` `{ qr, expires_in, sessions: [{ session_id, discipline, starts_at, ends_at }] }` cada periodo del QR (`discipline` es el nombre de la disciplina); `revoked` (`{ code: 'device_not_found' }`) si la revocan; y `error` (`{ code }`) si falla la lectura, tras lo cual el servidor cierra el stream. Sin nombres de alumnos |
 
 ## Admin
 

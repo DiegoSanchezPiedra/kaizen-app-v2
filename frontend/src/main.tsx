@@ -7,9 +7,9 @@ import { ToastProvider } from '@/components/ui/toast'
 import { queryClient } from '@/lib/logout'
 import { router } from '@/router'
 
-// El modo oscuro sigue la preferencia del sistema (fijarlo en Cuenta queda para B18.2).
+// El modo oscuro sigue la preferencia del sistema (fijarlo en Cuenta queda para B18.2); la tablet siempre es oscura.
 const dark = window.matchMedia('(prefers-color-scheme: dark)')
-const applyTheme = () => document.documentElement.classList.toggle('dark', dark.matches)
+const applyTheme = () => document.documentElement.classList.toggle('dark', dark.matches || location.pathname === '/tablet')
 applyTheme()
 dark.addEventListener('change', applyTheme)
 

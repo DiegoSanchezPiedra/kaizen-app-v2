@@ -58,9 +58,10 @@ export const router = createBrowserRouter([
   },
   // Vale con o sin sesión: el enlace llega por email.
   { path: '/reset-password', element: <ResetPasswordPage /> },
+  // La tablet no es un usuario: sin sesión, con su propio token. Pesa por `qrcode`, así que se baja solo aquí.
+  { path: '/tablet', lazy: async () => ({ Component: (await import('@/pages/tablet')).TabletPage }) },
   {
     element: <RequireSession />,
-    // B18.5 (tablet) sigue en PendingScreen.
     children: [
       { path: '/', element: <HomePage /> },
       { path: '/onboarding', element: <OnboardingPage /> },

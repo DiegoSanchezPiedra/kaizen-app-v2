@@ -107,3 +107,8 @@ export function errorText(code: string | undefined): string {
   if (code === 'push_disabled') return ''
   return (code && TEXTS[code]) || FALLBACK
 }
+
+// B18.5. Propuesto en el canvas (nota b185n4), pendiente de confirmar.
+Object.assign(TEXTS, {
+  invalid_link_code: 'Este código no vale: ha caducado o ya se ha usado. Pide uno nuevo a la academia.', // propuesto
+})
