@@ -64,7 +64,7 @@
 | B15 | Push (`push_subscriptions`, envío) | B2, B10.6 | CERRADO |
 | B16 | Foto diaria de suscripciones + tareas nocturnas | B6, B10, B11 | CERRADO |
 | B17 | Endpoints de informes | B16 | CERRADO |
-| B18 | Frontend PWA (alumno, tutor, profesor, tablet; sub-bloques B18.0–B18.6) | B13, B15, B17 | En curso (B18.6) |
+| B18 | Frontend PWA (alumno, tutor, profesor, tablet; sub-bloques B18.0–B18.6) | B13, B15, B17 | CERRADO (con pruebas en dispositivos pendientes) |
 | B19 | Panel admin (métricas, usuarios, auditoría, morosos) | B11, B17, B10.2 | Pendiente |
 | B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos | Pendiente |
 
@@ -1810,7 +1810,7 @@
   - [x] RLS correcta: lectura por el `client` RLS, el profesor solo sus sesiones y sin foto ni alumnos.
   - [x] Tests (`test:reports` y regresión).
 
-### B18 — Frontend PWA (alumno, tutor, profesor, tablet) — En curso (B18.6)
+### B18 — Frontend PWA (alumno, tutor, profesor, tablet) — CERRADO
 - **Objetivo**: el primer frontend: una PWA instalable para el alumno, el tutor (que actúa por sus hijos), el profesor y la tablet, contra la API existente (`docs/api.md`). El panel admin es de B19. Términos en `CONTEXT.md` (nuevo: «Selector de sujeto»).
 - **Diseño técnico** (fase 1, 2026-11-01). Decisiones difíciles de revertir: ADR 0013 (stack y `/api`), 0014 (sesión) y 0015 (caché y offline). Pantallas y estados para Claude Design en `docs/pantallas-b18.md`. La fase visual (Claude Design, con el logo y la web de la academia, coss ui y la skill `emil-design-eng`) va en paralelo con B18.0: primero el sistema de diseño (único para B18 y B19) y las pantallas de login, que necesita B18.1; después, las de cada sub-bloque.
 - **Fase visual** (2026-11-01): canvas «Kaizen · Sistema de diseño» en Claude Design (`https://claude.ai/artifact/WeHn5vTZUmUsutiawGwtpD`): fundamentos (color, tipografía, espacio, radios, sombras), componentes y estados de coss ui, movimiento y «nivel de poder», estados comunes, y las pantallas sin sesión en móvil, escritorio y oscuro. Marca: azul real `#0B47F0` y cian `#0BB4F5` del logo, azul noche `#050A2E` para los paneles de marca, naranja `--power` solo para racha y badges; Barlow Condensed (títulos), DM Sans (texto, la de la web) y Geist Mono (códigos). Las pantallas de B18.2–B18.6 se diseñan en el mismo canvas antes de cada sub-bloque.
@@ -1886,8 +1886,14 @@
   - [x] B18.4: pantallas del profesor; las fichas de salud solo al tocar y sin caché.
   - [x] B18.5: tablet vinculada, con QR que se oculta sin conexión y revocación.
   - [x] B18.6: instalable (Android e iOS); offline básico (abre y muestra «sin conexión»); push: permiso, `POST`, comparar la clave VAPID al abrir, `DELETE` antes de borrar el token, notificación con su `tag` que abre su `url`; prueba manual en Chrome de un push real. (falta probar en Android e iOS reales y tocar la notificación; ver el avance de B18.6).
-  - [ ] i18n decidido: solo español (hecho en el diseño).
-  - [ ] Tests de Vitest de la lógica; `typecheck`, `lint` y `build:frontend` en verde.
+  - [x] i18n decidido: solo español (hecho en el diseño).
+  - [x] Tests de Vitest de la lógica; `typecheck`, `lint` y `build:frontend` en verde.
+- **Cierre** (2026-11-01): todo probado en Chrome contra la API local. Quedan pruebas que piden un dispositivo o una credencial, y no frenan B19:
+  - push e instalación en Android e iOS reales (también la tarjeta «ios» en un iPhone sin instalar) y tocar la notificación (B18.6);
+  - la cámara del check-in en un móvil (B18.2) y la tablet física: Wake Lock y el QR leído a distancia (B18.5);
+  - entrar con Google, pendiente de `VITE_GOOGLE_CLIENT_ID` (B18.1);
+  - `handleNextAction` (3DS con Stripe.js), pendiente de la clave publicable del sandbox (B18.3);
+  - el SVG del logo para el monocromo y el badge (hoy provisionales, `shortcut:`).
 
 ### B19 — Panel admin (métricas, usuarios, auditoría, morosos) — Pendiente
 - **Objetivo**: panel admin con métricas, usuarios, auditoría y morosos.
