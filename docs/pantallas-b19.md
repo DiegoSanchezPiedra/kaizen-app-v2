@@ -41,7 +41,7 @@ Los de `docs/pantallas-b18.md` (cargando, vacío, error, sin conexión, sin perm
 
 | Estado | Cuándo | Qué muestra |
 |---|---|---|
-| Sin MFA | `403 mfa_setup_required` en cualquier petición, o `mfa_enabled: false` en `GET /auth/me` | lleva a **Configurar el MFA**; no se ve nada más del panel |
+| Sin MFA | `mfa_enabled: false` en `GET /auth/me` | aviso fijo arriba en Inicio y Cuenta: «Activa el doble factor: protege los datos de la academia» y **Activar** → Configurar el MFA. No bloquea nada; desaparece al activarlo |
 | Sesión del admin caducada | el token del admin dura 12 h | como en B18: a `/login` con «tu sesión ha caducado» y vuelta a donde estaba |
 
 ## Estructura
@@ -58,7 +58,7 @@ Los de `docs/pantallas-b18.md` (cargando, vacío, error, sin conexión, sin perm
 8. **Documentos legales** `/admin/documents`
 9. **Auditoría** `/admin/audit`
 10. **Tablets** `/admin/tablets` · **Ajustes** `/admin/settings`
-11. Abajo: **Cuenta** `/admin/account` (nombre, MFA activo, cerrar sesión)
+11. Abajo: **Cuenta** `/admin/account` (nombre, doble factor, cerrar sesión)
 
 ---
 
@@ -66,13 +66,13 @@ Los de `docs/pantallas-b18.md` (cargando, vacío, error, sin conexión, sin perm
 
 | Pantalla | Endpoints | Estados y errores |
 |---|---|---|
-| **Login** | los de B18 (`POST /auth/login`, `/auth/google`, `/auth/mfa/verify`) | sin cambios. Un admin con MFA pasa por el código; sin MFA, entra y va a **Configurar el MFA** |
-| **Configurar el MFA** `/admin/mfa` | `POST /auth/mfa/setup`, `POST /auth/mfa/activate` (**B19.0**: devuelve un token nuevo) | 3 pasos en una página, sin barra lateral: (1) «La cuenta de administración exige un segundo factor» y escanear el QR (`otpauth_uri` pintado con `qrcode` en SVG) con la clave para teclearla a mano (el `secret` de esa URI, en grupos de 4); (2) los 10 códigos de recuperación, que solo se ven aquí: copiar, descargar `.txt` y la casilla «los he guardado» para seguir; (3) el código de 6 cifras → activar → al panel. `invalid_totp` («el código no es correcto; revisa la hora del móvil»), `mfa_already_enabled` (va al panel). Volver a cargar la página repite el paso 1 con un secreto nuevo (el anterior deja de valer). Cerrar sesión siempre visible |
-| **Cuenta** `/admin/account` | `GET`/`PATCH /me` | nombre y email, «Doble factor activo», cerrar sesión. Sin perfil público ni push. Perder el móvil y los códigos se resuelve fuera de la app (texto: «habla con quien administra el servidor») |
+| **Login** | los de B18 (`POST /auth/login`, `/auth/google`, `/auth/mfa/verify`) | sin cambios. Un admin con MFA pasa por el código; sin MFA, entra directo al panel |
+| **Configurar el MFA** `/admin/mfa` | `POST /auth/mfa/setup`, `POST /auth/mfa/activate` | 3 pasos en una página dentro del panel, con «Ahora no» que vuelve atrás: (1) «Protege la cuenta de administración con un segundo factor» y escanear el QR (`otpauth_uri` pintado con `qrcode` en SVG) con la clave para teclearla a mano (el `secret` de esa URI, en grupos de 4); (2) los 10 códigos de recuperación, que solo se ven aquí: copiar, descargar `.txt` y la casilla «los he guardado» para seguir; (3) el código de 6 cifras → activar → «Doble factor activado» y vuelta a donde estaba (la sesión sigue; desde el próximo login pedirá el código). `invalid_totp` («el código no es correcto; revisa la hora del móvil»), `mfa_already_enabled` (va al panel). Volver a cargar la página repite el paso 1 con un secreto nuevo (el anterior deja de valer) |
+| **Cuenta** `/admin/account` | `GET`/`PATCH /me` | nombre y email, doble factor («Activo» o el aviso con **Activar**), cerrar sesión. Sin perfil público ni push. Perder el móvil y los códigos se resuelve fuera de la app (texto: «habla con quien administra el servidor») |
 
 ## Inicio `/admin`
 
-Un vistazo y lo que pide atención. Todo enlaza a su pantalla.
+Un vistazo y lo que pide atención. Todo enlaza a su pantalla. Sin MFA, el aviso de «Activa el doble factor» va arriba del todo.
 
 - **Cifras** (cuatro tarjetas): suscripciones activas, en periodo de gracia, impagadas y MRR del último día con foto
   (`GET /admin/reports/subscriptions?group=day`, la última fila no nula, con una línea de los 30 días). Día sin foto:
@@ -197,7 +197,6 @@ Los de B18 siguen valiendo. Texto de la UI para los nuevos y los del admin que l
 
 | `code` | Texto |
 |---|---|
-| `mfa_setup_required` | (no se muestra: lleva a Configurar el MFA) |
 | `insufficient_role` | «no tienes acceso a esto» |
 | `invalid_totp` | «el código no es correcto; revisa la hora del móvil» |
 | `profile_not_found` | «este perfil no existe» |

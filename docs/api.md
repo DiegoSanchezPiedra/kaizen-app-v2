@@ -167,7 +167,7 @@ Errores: `409 session_not_started`, `409 session_cancelled`, `409 attendance_clo
 
 ## Admin
 
-Todas exigen `role = admin` (y el admin entra con MFA si lo tiene activado). **Desde B19.0** (ADR 0016) el token del admin tiene que llevar el MFA verificado: sin él, toda ruta salvo `GET /auth/me`, `POST /auth/mfa/setup` y `/activate` responde `403 mfa_setup_required`.
+Todas exigen `role = admin` (y el admin entra con MFA si lo tiene activado). El MFA del admin es opcional (ADR 0016). **Desde B19.0** el token del admin caduca a las 12 h.
 
 **Catálogo**
 
