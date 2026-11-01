@@ -4,23 +4,34 @@ import { JWT_SECRET } from '../config/auth.js';
 import { withRls } from '../db/rls.js';
 import { httpError } from '../lib/errors.js';
 
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
+  // Varios routers montados en el mismo prefijo (/admin, /sessions) lo repiten: una consulta por petición.
+  if (req.user) return next();
   const header = req.headers.authorization || '';
   const [scheme, token] = header.split(' ');
   if (scheme !== 'Bearer' || !token) {
     return next(httpError(401, 'missing_token', 'missing token'));
   }
+  let payload;
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    // Un mfa_token NO sirve para rutas protegidas normales.
-    if (payload.mfa === 'pending' || !payload.sub || !payload.role) {
-      return next(httpError(401, 'invalid_token', 'invalid token'));
-    }
-    req.user = { id: payload.sub, role: payload.role };
-    return next();
+    payload = jwt.verify(token, JWT_SECRET);
   } catch {
     return next(httpError(401, 'invalid_token', 'invalid token'));
   }
+  // Un mfa_token NO sirve para rutas protegidas normales.
+  if (payload.mfa === 'pending' || !payload.sub || !payload.role) {
+    return next(httpError(401, 'invalid_token', 'invalid token'));
+  }
+  // B19: el rol es el de user_roles en cada petición, no el del token (un cambio de rol vale al momento).
+  // Se lee con el contexto RLS del propio perfil (user_roles_select deja leer la fila propia); sin fila, alumno.
+  try {
+    const { rows } = await withRls({ uid: payload.sub, role: 'alumno' }, (client) =>
+      client.query(`SELECT role FROM user_roles WHERE user_id = $1`, [payload.sub]));
+    req.user = { id: payload.sub, role: rows[0]?.role ?? 'alumno' };
+  } catch (err) {
+    return next(err);
+  }
+  return next();
 }
 
 export function requireRole(...roles) {

@@ -1,9 +1,9 @@
 // src/services/jwt.js
 import jwt from 'jsonwebtoken';
-import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/auth.js';
+import { JWT_SECRET, JWT_EXPIRES_IN, ADMIN_JWT_EXPIRES_IN } from '../config/auth.js';
 
 export function signToken({ sub, role }) {
-  return jwt.sign({ sub, role }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  return jwt.sign({ sub, role }, JWT_SECRET, { expiresIn: role === 'admin' ? ADMIN_JWT_EXPIRES_IN : JWT_EXPIRES_IN });
 }
 
 export function verifyToken(token) {

@@ -6,8 +6,8 @@
 
 ## Convenciones
 
-- **Auth**: `Authorization: Bearer <jwt>` (HS256, caduca a los `JWT_EXPIRES_IN`, por defecto 7 días). El token lleva
-  `sub` (id del perfil) y `role`; **desde B19.0** la API usa el rol de la base en cada petición, no el del token (un cambio de rol vale al momento). **Un rol por perfil** (ADR 0001): `alumno`, `tutor`, `profesor` o `admin`. No hay
+- **Auth**: `Authorization: Bearer <jwt>` (HS256, caduca a los `JWT_EXPIRES_IN`, por defecto 7 días; el del admin a los `ADMIN_JWT_EXPIRES_IN`, por defecto 12 h). El token lleva
+  `sub` (id del perfil) y `role`; la API usa el rol de la base (`user_roles`) en cada petición, no el del token: un cambio de rol vale al momento, y sin fila el perfil es `alumno`. Si `GET /me` o `GET /auth/me` dan un rol distinto del del token, el frontend cierra la sesión. **Un rol por perfil** (ADR 0001): `alumno`, `tutor`, `profesor` o `admin`. No hay
   refresh ni logout en el servidor: cerrar sesión es borrar el token (y antes, darse de baja del push).
 - **La tablet** no es usuario: `Authorization: Device <device_token>` (ver § Tablet).
 - **Errores**: `{ error, code, message, ...details }`. `error` es la categoría (`bad_request`, `unauthorized`,
@@ -167,7 +167,17 @@ Errores: `409 session_not_started`, `409 session_cancelled`, `409 attendance_clo
 
 ## Admin
 
-Todas exigen `role = admin` (y el admin entra con MFA si lo tiene activado). El MFA del admin es opcional (ADR 0016). **Desde B19.0** el token del admin caduca a las 12 h.
+Todas exigen `role = admin` (y el admin entra con MFA si lo tiene activado). El MFA del admin es opcional (ADR 0016). El token del admin caduca a las 12 h.
+
+**Usuarios y roles** (B19.0). Nunca devuelven `birth_date` ni salud: de la edad, solo `is_minor` y `pending_claim` (cumplió 18 sin reclamar su perfil).
+
+| Método y ruta | Cuerpo / query | Respuesta |
+|---|---|---|
+| `GET /admin/profiles?q&role&limit&offset` | `q` en nombre y email, sin distinguir mayúsculas; `role` `alumno\|tutor\|profesor\|admin` | `{ profiles: [{ id, display_name, email, role, is_minor, pending_claim, created_at, subscription_status }], total, limit, offset }` por nombre; `email` `null` en un hijo; `subscription_status` el de la viva o `null`. `400 invalid_field` (rol), `invalid_pagination` |
+| `GET /admin/profiles/:id` | — | `{ profile: { id, display_name, email, role, created_at, is_minor, pending_claim, is_public, has_password, has_google }, status: { ok, missing?, risk_cover } \| null (solo de un alumno), guardians: [{ id, display_name, email }], children: [{ id, display_name, pending_claim }], subscription: { …como GET /billing/subscription, payer: { id, display_name } } \| null, insurance: { …como GET /billing/insurance, payer } \| null }`. `404 profile_not_found` |
+| `PUT /admin/profiles/:id/role` | `{ role }` (`alumno`, `tutor` o `profesor`) | `{ profile }` (como en la ficha). Vale en la siguiente petición del afectado. `audit_log` `profile.role_change` `{ from, to }`. `400 invalid_field`; `404 profile_not_found`; `409 same_role`, `admin_role_locked`, `child_role_locked` (sin acceso propio), `trainer_has_sessions` (profesor habitual de una clase no retirada o de una sesión futura no cancelada), `student_has_subscription` (alumno con suscripción o seguro vivos que pasaría a tutor o profesor) |
+| `POST /admin/profiles/:id/guardians` | `{ tutor_id }` | `201 { guardians }`. `audit_log` `guardian.add`. `400 invalid_field`; `404 profile_not_found`; `409 not_a_child` (`:id` tiene acceso propio), `invalid_guardian` (el tutor no existe, no tiene acceso propio o es menor), `already_guardian` |
+| `DELETE /admin/profiles/:id/guardians/:tutorId` | — | `204`. `audit_log` `guardian.remove`. `404 profile_not_found` (también si no es su tutor); `409 not_a_child`, `last_guardian`, `guardian_is_payer` (paga su suscripción o su seguro vivos: antes, cambio de pagador) |
 
 **Catálogo**
 
@@ -261,9 +271,6 @@ implementarlos):
 
 - **Cuenta**: verificar el email, cambiar email o contraseña con sesión, reclamar el perfil al cumplir 18
   (`pending_claim`). No hay logout de servidor ni revocación de tokens.
-- **Admin, usuarios**: listar y buscar perfiles, ver la ficha de un alumno (sus datos, su suscripción, su seguro),
-  crear profesores y tutores, cambiar roles. Hoy el admin no tiene cómo encontrar el `id` de una suscripción salvo por
-  los morosos o un cambio de pagador.
 - **Admin, lectura de ajustes**: `checkin`, `insurance` y `discipline-changes` solo tienen `PUT` (devuelven los
   valores al guardar, pero no hay `GET` para pintar el formulario).
 - **Admin, B19**: consultar `audit_log`, entregas de avisos fallidas y cambios de pagador caducados.

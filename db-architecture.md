@@ -257,5 +257,6 @@ Una fila por día con el estado de las suscripciones; no cambia nunca y un día 
 - `user_mfa`: solo el propio usuario y service_role.
 - `password_resets`: RLS forzada sin políticas y sin privilegios para `app_user`; solo por sus dos funciones (`025`).
 - `audit_log`: solo admin lectura; escritura solo service_role.
+- `notice_deliveries`: RLS forzada; solo el admin lee (`026`, B19.0, para las entregas fallidas del panel); escribe solo `servicePool` y `enqueue_notice`.
 - `academy_stats_daily`: solo el admin lee (lleva dinero, también en `/admin/reports/subscriptions`); el profesor y el alumno, nada. Sin escritura para `app_user`: la escribe `snapshot_academy_stats` (sin `EXECUTE` para `app_user`) con `servicePool`.
 - `webhook_events`: solo service_role.

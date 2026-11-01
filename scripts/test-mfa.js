@@ -22,6 +22,12 @@ import {
 import { encrypt, decrypt } from '../src/services/crypto.js';
 import * as OTPAuth from 'otpauth';
 import { MFA_TOTP_ISSUER } from '../src/config/mfa.js';
+import express from 'express';
+import jwt from 'jsonwebtoken';
+import { signToken } from '../src/services/jwt.js';
+import { errorHandler } from '../src/middleware/errorHandler.js';
+import authRouter from '../src/routes/auth.js';
+import adminProfilesRouter from '../src/routes/admin/profiles.js';
 
 // ---------------------------------------------------------------------------
 // Runner mínimo
@@ -367,6 +373,64 @@ async function main() {
 }
 
 // ---------------------------------------------------------------------------
+// B19.0 (ADR 0016): el token del admin caduca a las 12 h, con y sin MFA; el resto a los 7 días.
+// Por HTTP con un express en memoria. Al empezar borra el MFA del admin de prueba y lo activa por la API.
+// ---------------------------------------------------------------------------
+
+const ttlHours = (token) => {
+  const { iat, exp } = jwt.decode(token);
+  return (exp - iat) / 3600;
+};
+
+async function httpCases() {
+  const app = express().use(express.json()).use('/auth', authRouter).use('/admin', adminProfilesRouter)
+    .use(errorHandler);
+  const server = app.listen(0);
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const http = async (method, url, { token, body } = {}) => {
+    const headers = { 'content-type': 'application/json' };
+    if (token) headers.authorization = `Bearer ${token}`;
+    const res = await fetch(base + url, { method, headers, body: body && JSON.stringify(body) });
+    const text = await res.text();
+    return { status: res.status, body: text ? JSON.parse(text) : null };
+  };
+  const login = () => http('POST', '/auth/login', { body: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD } });
+  try {
+    await servicePool.query(`DELETE FROM user_mfa WHERE user_id = $1`, [adminProfileId]);
+    let token;
+    await run('B19.0: un admin sin MFA entra con token de 12 h y usa /admin/*', async () => {
+      const r = await login();
+      assert(r.status === 200 && r.body.token, `login ${r.status}`);
+      token = r.body.token;
+      assert(ttlHours(token) === 12, `ttl ${ttlHours(token)} h`);
+      const me = await http('GET', '/auth/me', { token });
+      assert(me.body.mfa_enabled === false && me.body.user.role === 'admin', 'GET /auth/me');
+      const list = await http('GET', '/admin/profiles?limit=1', { token });
+      assert(list.status === 200 && typeof list.body.total === 'number', `GET /admin/profiles ${list.status}`);
+    });
+    await run('B19.0: con MFA, el token de /auth/mfa/verify también es de 12 h', async () => {
+      assert((await http('POST', '/auth/mfa/setup', { token })).status === 201, 'setup');
+      const code = await currentTotpFor(adminProfileId);
+      const act = await http('POST', '/auth/mfa/activate', { token, body: { code } });
+      assert(act.status === 200, `activate ${act.status}`);
+      const r = await login();
+      assert(r.body.mfa_required === true, 'login sin mfa_required');
+      const v = await http('POST', '/auth/mfa/verify', { body: { mfa_token: r.body.mfa_token, code } });
+      assert(v.status === 200 && ttlHours(v.body.token) === 12, `verify ${v.status}`);
+      assert((await http('GET', '/admin/profiles?limit=1', { token: v.body.token })).status === 200, '/admin con MFA');
+    });
+    await run('B19.0: alumno, tutor y profesor siguen a 7 días', async () => {
+      for (const role of ['alumno', 'tutor', 'profesor']) {
+        const ttl = ttlHours(signToken({ sub: adminProfileId, role }));
+        assert(ttl === 7 * 24, `${role}: ${ttl} h`);
+      }
+    });
+  } finally {
+    server.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -376,6 +440,7 @@ try {
   await createTestAdmin();
   console.log(`Admin de prueba creado: ${ADMIN_EMAIL} (${adminProfileId})`);
   await main();
+  await httpCases();
 } catch (err) {
   console.error('ERROR FATAL:', err);
   exitCode = 1;

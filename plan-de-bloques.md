@@ -1852,6 +1852,8 @@
   - **Tablet**: la misma app en `/tablet`, sin login de usuario. SSE con `fetch` (lector propio de `feed` y `revoked`, sin dependencia), reconexión con espera creciente de 1 s a 30 s. El QR (`qrcode`) se oculta si pasan `expires_in` segundos sin `feed`. `revoked` o `401` borran el token. Screen Wake Lock si existe.
   - **UI**: las de `docs/pantallas-b18.md` (solo español; nunca salud, edad ni fecha de nacimiento fuera de la ficha, las fichas del día del profesor y la fecha de nacimiento en «Mis datos» y en un hijo; un hijo nunca en Comunidad; móvil primero, 44 px, AA; Dragon Ball como inspiración, sin su propiedad intelectual).
   - **Dependencias** del frontend: las del stack, `vite-plugin-pwa`, `qrcode`, una librería para leer el QR con la cámara (`qr-scanner` o `@zxing/browser`, se elige en B18.2: `BarcodeDetector` no existe en Safari de iOS), Stripe.js (3DS) y Vitest. Ninguna más sin decidirlo.
+- **Avance**:
+  - **B19.0 hecho** (2026-11-01): `requireAuth` lee el rol de `user_roles` con el contexto RLS del propio perfil (una vez por petición aunque varios routers de `/admin` o `/sessions` lo repitan); `signToken` firma al admin con `ADMIN_JWT_EXPIRES_IN`; `026`; los cuatro endpoints en `services/users.js` y `routes/admin/profiles.js`. Decisiones de la implementación: un **hijo** es un perfil sin credenciales (`not_a_child` si tiene acceso propio; `pending_claim` = sin credenciales, mayor de edad y con algún tutor); `invalid_guardian` también para un `tutor_id` que no existe; desvincular a quien no es tutor de ese hijo → `404 profile_not_found`; «clase no retirada» = `ends_on` nulo o desde hoy; las sesiones futuras canceladas no cuentan para `trainer_has_sessions`; `audit_log` de los tutores con `resource_type = 'guardian'`, `resource_id` el hijo y `changes { tutor_id }`. `test:admin` (12 casos), `test:mfa` (16) y toda la regresión de backend en verde; `npm run lint` limpio.
 - **Sub-bloques** (en orden; cada uno en su chat, con su checklist):
   - **B18.0 — Huecos de backend** (Opus, medio; no necesita el diseño visual):
     - `GET /me` → `{ id, role, display_name, email, birth_date, has_password }` (por el `client` RLS: `auth_credentials_select_self_or_admin` ya deja leer la propia fila).
@@ -1895,7 +1897,7 @@
   - `handleNextAction` (3DS con Stripe.js), pendiente de la clave publicable del sandbox (B18.3);
   - el SVG del logo para el monocromo y el badge (hoy provisionales, `shortcut:`).
 
-### B19 — Panel admin (métricas, usuarios, auditoría, morosos) — Diseñado
+### B19 — Panel admin (métricas, usuarios, auditoría, morosos) — Diseñado · B19.0 hecho
 - **Objetivo**: el panel de la academia en la misma PWA (`/admin`), de escritorio primero: todo lo que el admin ya puede hacer por la API (catálogo, horario, cobros, tablets, ajustes, documentos, informes) más lo que le faltaba (usuarios y roles, auditoría, avisos de la academia, entregas fallidas, cambios de pagador), con el MFA fomentado pero no obligatorio. Sin él, la academia solo se gestiona con `curl`, y producción (B10.7) no puede abrirse así.
 - **Diseño técnico** (fase 1, 2026-11-01, Opus alto, grill respondido con los docs). ADR 0016: el MFA del admin es opcional y el panel lo fomenta; token del admin a 12 h; el rol admin nunca se da ni se quita desde la app (revisado el 2026-11-01: el MFA obligatorio se descartó). Pantallas y estados para Claude Design en `docs/pantallas-b19.md`. Términos nuevos en `CONTEXT.md`: cambiar el rol, desvincular un tutor, entrega y avisos de la academia. La fase visual va en el mismo canvas que B18 (`https://claude.ai/artifact/WeHn5vTZUmUsutiawGwtpD`), una sección por sub-bloque de frontend y una por delante de su implementación; B19.0 y B19.1 no la necesitan y van en paralelo.
 - **Qué entra** (decidido 2026-11-01):
@@ -1966,7 +1968,7 @@
   - revocar tokens en el servidor (→ B20 con la cookie `httpOnly`, si se hace), eventos, reclamar el perfil a los 18;
   - rate limiting y E2E (B20).
 - **Checklist de cierre**:
-  - [ ] B19.0: rol de la base en `requireAuth` (un cambio de rol vale al momento); token del admin a 12 h; usuarios, rol y tutores con sus reglas y su auditoría; `026`; `test:mfa`, `test:admin` y la regresión.
+  - [x] B19.0 (2026-11-01): rol de la base en `requireAuth` (un cambio de rol vale al momento); token del admin a 12 h; usuarios, rol y tutores con sus reglas y su auditoría; `026`; `test:mfa`, `test:admin` y la regresión.
   - [ ] B19.1: los siete `GET` con `test:admin`; `docs/api.md` al día.
   - [ ] B19.2: panel en `/admin` con su barra, Configurar el MFA de punta a punta en el navegador (el aviso sale sin MFA, no bloquea nada y desaparece al activarlo), Inicio con la última foto y los contadores, Informes. **Métricas visibles.**
   - [ ] B19.3: **gestión de usuarios**: búsqueda, ficha, cambiar el rol, vincular y desvincular tutores, despublicar y las acciones de cuota y seguro (con el sandbox).
