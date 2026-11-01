@@ -117,4 +117,23 @@ Object.assign(TEXTS, {
 Object.assign(TEXTS, {
   insufficient_role: 'No tienes acceso a esto.',
   invalid_totp: 'El código no es correcto; revisa la hora del móvil.',
+  same_role: 'Ya tiene ese rol.',
+  admin_role_locked: 'El rol de administración no se cambia desde la app.',
+  child_role_locked: 'Un hijo siempre es alumno.',
+  trainer_has_sessions: 'Antes, reasigna o retira sus clases y sesiones futuras.',
+  student_has_subscription: 'Tiene una cuota o un seguro vivos; dalos de baja antes.',
+  not_a_child: 'Solo se vincula un adulto con acceso propio a un menor.',
+  invalid_guardian: 'Solo se vincula un adulto con acceso propio a un menor.',
+  already_guardian: 'Ya es su tutor.',
+  last_guardian: 'Un hijo siempre tiene al menos un tutor.',
+  guardian_is_payer: 'Paga su cuota o su seguro: cambia antes el pagador.',
+  requires_payer_action: 'El pagador recibirá un email para autorizar el pago.',
+  // Los del admin sobre la cuota que la UI de B18 no tenía (propuestos: no están en el mapa de B19).
+  same_payer: 'Ya paga esa persona.', // propuesto
+  invalid_payer: 'Esa persona no puede pagar esta cuota.', // propuesto
+  no_payer_change: 'Ya no hay ningún cambio de pagador.', // propuesto
+  subscription_cancelled: 'La cuota ya está dada de baja.', // propuesto
+  insurance_cancelled: 'El seguro ya está dado de baja.', // propuesto
+  insurance_cancel_scheduled: 'El seguro ya no se renueva.', // propuesto
+  insurance_not_live: 'El seguro no está en vigor.', // propuesto
 })

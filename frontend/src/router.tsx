@@ -75,6 +75,8 @@ export const router = createBrowserRouter([
           { index: true, lazy: async () => ({ Component: (await import('@/pages/admin/home')).AdminHomePage }) },
           { path: 'mfa', lazy: async () => ({ Component: (await import('@/pages/admin/mfa')).MfaSetupPage }) },
           { path: 'account', lazy: async () => ({ Component: (await import('@/pages/admin/account')).AdminAccountPage }) },
+          { path: 'users', lazy: async () => ({ Component: (await import('@/pages/admin/users')).UsersPage }) },
+          { path: 'users/:id', lazy: async () => ({ Component: (await import('@/pages/admin/users')).UserPage }) },
           { path: 'reports', lazy: async () => ({ Component: (await import('@/pages/admin/reports')).AdminReportsPage }) },
           { path: '*', lazy: async () => ({ Component: (await import('@/pages/admin/shell')).AdminPending }) },
         ],

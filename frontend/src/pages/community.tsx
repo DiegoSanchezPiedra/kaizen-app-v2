@@ -20,7 +20,7 @@ const PAGE = 25
 const initial = (name: string) => name.trim().charAt(0).toUpperCase()
 const ROLE_LABEL: Record<string, string> = { alumno: 'Alumno', profesor: 'Profesor' }
 
-function useDebounced(value: string, ms = 300) {
+export function useDebounced(value: string, ms = 300) {
   const [v, setV] = useState(value)
   useEffect(() => {
     const t = setTimeout(() => setV(value), ms)

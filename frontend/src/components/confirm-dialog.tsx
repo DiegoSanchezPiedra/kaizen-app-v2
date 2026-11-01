@@ -19,6 +19,7 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel = 'Volver',
   loading,
+  disabled,
   onConfirm,
   variant = 'destructive',
   children,
@@ -30,6 +31,8 @@ export function ConfirmDialog({
   confirmLabel: string
   cancelLabel?: string
   loading?: boolean
+  // Cuando el diálogo lleva un formulario (elegir el plan nuevo), hasta que esté listo.
+  disabled?: boolean
   onConfirm: () => void
   // Una confirmación que no destruye nada (programar un cambio de plan) va con el botón principal.
   variant?: 'destructive' | 'default'
@@ -45,7 +48,7 @@ export function ConfirmDialog({
         {children && <div className="flex flex-col gap-3 px-6 pb-4 text-sm">{children}</div>}
         <AlertDialogFooter>
           <AlertDialogClose render={<Button variant="outline" size="xl" />}>{cancelLabel}</AlertDialogClose>
-          <Button variant={variant} size="xl" loading={loading} onClick={onConfirm}>
+          <Button variant={variant} size="xl" loading={loading} disabled={disabled} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </AlertDialogFooter>

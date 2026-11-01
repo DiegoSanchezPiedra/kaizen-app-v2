@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { latestStat, noticeLabel, showMfaNotice, type DayStat } from '@/lib/admin'
+import { ageMarks, canChangeRole, latestStat, noticeLabel, payerCandidates, showMfaNotice, type DayStat, type ProfileFile } from '@/lib/admin'
 import { loginPath, redirectFor } from '@/lib/paths'
 
 describe('a dónde va cada rol (B19)', () => {
@@ -68,5 +68,31 @@ describe('avisos de la academia', () => {
   it('uno conocido en español; uno desconocido, tal cual', () => {
     expect(noticeLabel('notice.payer_change_expired')).toBe('Un cambio de pagador ha caducado')
     expect(noticeLabel('notice.algo_nuevo')).toBe('notice.algo_nuevo')
+  })
+})
+
+describe('usuarios del panel (B19.3)', () => {
+  const adult = { id: 'a', display_name: 'Ana', email: 'ana@x.es', role: 'alumno' as const, is_minor: false, pending_claim: false, created_at: '', is_public: false, has_password: true, has_google: false }
+  const child = { ...adult, id: 'h', display_name: 'Hijo', email: null, is_minor: true, has_password: false }
+  const tutor = { id: 't', display_name: 'Tutora', email: 't@x.es' }
+  const file = (profile: typeof adult | typeof child, payer?: string) =>
+    ({ profile, status: null, guardians: profile.email ? [] : [tutor, { id: 't2', display_name: 'Otro', email: 'o@x.es' }], children: [], insurance: null, subscription: payer ? { payer: { id: payer, display_name: '' } } : null }) as unknown as ProfileFile
+
+  it('el rol no se cambia a un admin ni a un hijo', () => {
+    expect(canChangeRole(adult)).toBe(true)
+    expect(canChangeRole({ ...adult, role: 'admin' })).toBe(false)
+    expect(canChangeRole(child)).toBe(false)
+  })
+  it('de la edad, solo las marcas', () => {
+    expect(ageMarks(adult)).toEqual([])
+    expect(ageMarks(child)).toEqual(['Menor'])
+    expect(ageMarks({ is_minor: false, pending_claim: true })).toEqual(['Mayor de edad sin reclamar'])
+  })
+  it('pagador: el adulto a sí mismo; el hijo, sus tutores; nunca el actual', () => {
+    expect(payerCandidates(file(adult, 'x')).map((p) => p.id)).toEqual(['a'])
+    expect(payerCandidates(file(adult, 'a'))).toEqual([])
+    expect(payerCandidates(file(child, 't')).map((p) => p.id)).toEqual(['t2'])
+    // Mayor de edad sin reclamar: sin acceso propio, no se paga a sí mismo.
+    expect(payerCandidates(file({ ...child, is_minor: false, pending_claim: true }, 't')).map((p) => p.id)).toEqual(['t2'])
   })
 })

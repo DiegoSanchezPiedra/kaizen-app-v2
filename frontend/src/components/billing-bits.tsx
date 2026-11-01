@@ -101,7 +101,7 @@ export function OptionCard({
   )
 }
 
-export const Tag = ({ children, variant = 'outline' }: { children: React.ReactNode; variant?: 'outline' | 'info' | 'warning' | 'success' | 'secondary' }) => (
+export const Tag = ({ children, variant = 'outline' }: { children: React.ReactNode; variant?: 'outline' | 'info' | 'warning' | 'success' | 'secondary' | 'error' }) => (
   <Badge variant={variant} size="lg">
     {children}
   </Badge>
