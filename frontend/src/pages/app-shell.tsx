@@ -1,11 +1,13 @@
 import { CalendarCheckIcon, CalendarIcon, ChartColumnIcon, HouseIcon, LogOutIcon, UserIcon, UsersIcon, ZapIcon } from 'lucide-react'
-import { NavLink, Outlet, useLocation } from 'react-router'
+import { NavLink, Outlet, useLocation, useSearchParams } from 'react-router'
 import logo from '@/assets/logo.png'
+import { SubjectPicker } from '@/components/subject-picker'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { logout } from '@/lib/logout'
 import { cn } from '@/lib/utils'
 import { useSession, type Role } from '@/lib/session'
+import { usesSubject } from '@/lib/subject'
 
 type Item = { to: string; label: string; icon: typeof HouseIcon; end?: boolean }
 
@@ -28,6 +30,10 @@ const navFor =(role: Role): Item[] => (role === 'profesor' ? PROFESSOR : STUDENT
 export function AppShell() {
   const session = useSession()
   const items = navFor(session?.role ?? 'alumno')
+  const { pathname } = useLocation()
+  // El sujeto sigue al cambiar de pestaña.
+  const para = useSearchParams()[0].get('para')
+  const search = para ? `?${new URLSearchParams({ para })}` : ''
   return (
     <div className="flex min-h-dvh flex-col lg:flex-row">
       <nav
@@ -44,7 +50,7 @@ export function AppShell() {
         {items.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
-            to={to}
+            to={{ pathname: to, search }}
             end={end}
             className={({ isActive }) =>
               cn(
@@ -62,6 +68,7 @@ export function AppShell() {
         ))}
       </nav>
       <main className="flex-1 px-4 pt-6 pb-28 lg:px-10 lg:pb-10">
+        {usesSubject(pathname) && <SubjectPicker />}
         <Outlet />
       </main>
     </div>

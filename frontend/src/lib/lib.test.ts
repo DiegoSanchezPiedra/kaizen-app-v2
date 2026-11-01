@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { errorText } from '@/lib/errors'
-import { formatEuros, maskSpanishDate, parseSpanishDate } from '@/lib/format'
+import { formatDate, formatEuros, formatTime, maskSpanishDate, parseSpanishDate } from '@/lib/format'
 import { decode, isExpired, loginPath, safeReturnPath } from '@/lib/paths'
+import { activeSubject, subjectOptions, usesSubject } from '@/lib/subject'
 
 const b64 = (o: object) => btoa(JSON.stringify(o)).replace(/=+$/, '')
 const jwt = (payload: object) => `${b64({ alg: 'HS256' })}.${b64(payload)}.firma`
@@ -16,6 +17,19 @@ describe('fecha de nacimiento', () => {
   it('pone las barras mientras se escribe', () => {
     expect(maskSpanishDate('14051998')).toBe('14/05/1998')
     expect(maskSpanishDate('140')).toBe('14/0')
+  })
+})
+
+describe('fechas en Madrid', () => {
+  it('una sesión a las 23:30 del 31 sale a las 23:30 del 31 con el proceso en UTC', () => {
+    // npm test corre con TZ=UTC, como un móvil fuera de España.
+    expect(new Date().getTimezoneOffset()).toBe(0)
+    // 22:30 UTC = 23:30 en Madrid (invierno); en UTC un formato ingenuo daría 22:30.
+    expect(formatTime('2026-12-31T22:30:00Z')).toBe('23:30')
+    expect(formatDate('2026-12-31T22:30:00Z')).toBe('jueves, 31 de diciembre')
+    // En verano (UTC+2) y cruzando la medianoche: 23:30 UTC del 31 ya es el 1 en Madrid.
+    expect(formatTime('2026-07-31T21:30:00Z')).toBe('23:30')
+    expect(formatDate('2026-12-31T23:30:00Z')).toBe('viernes, 1 de enero')
   })
 })
 
@@ -52,5 +66,35 @@ describe('errores', () => {
     expect(errorText('link_required')).toBe('Ya hay una cuenta con ese email: entra con tu contraseña.')
     expect(errorText('algo_nuevo')).toBe('Algo ha fallado; inténtalo de nuevo.')
     expect(errorText('push_disabled')).toBe('')
+  })
+})
+
+describe('selector de sujeto', () => {
+  const kids = [
+    { id: 'h1', display_name: 'Ana', birth_date: '2015-01-01', pending_claim: false },
+    { id: 'h2', display_name: 'Luis', birth_date: '2007-01-01', pending_claim: true },
+    { id: 'h3', display_name: 'Eva', birth_date: '2017-01-01', pending_claim: false },
+  ]
+  it('un tutor elige entre sus hijos; un alumno con hijos, él y ellos; nunca un pending_claim', () => {
+    expect(subjectOptions('tutor', 't1', kids).map((o) => o.id)).toEqual(['h1', 'h3'])
+    expect(subjectOptions('alumno', 'a1', kids).map((o) => o.id)).toEqual(['a1', 'h1', 'h3'])
+    expect(subjectOptions('alumno', 'a1', [])).toEqual([])
+    expect(subjectOptions('alumno', 'a1', [kids[1]])).toEqual([])
+    expect(subjectOptions('profesor', 'p1', kids)).toEqual([])
+  })
+  it('un ?para= que no está en la lista cae en el sujeto por defecto', () => {
+    const alumno = subjectOptions('alumno', 'a1', kids)
+    expect(activeSubject(alumno, 'h3')?.id).toBe('h3')
+    expect(activeSubject(alumno, 'h2')?.id).toBe('a1')
+    expect(activeSubject(alumno, 'ajeno')?.id).toBe('a1')
+    expect(activeSubject(subjectOptions('tutor', 't1', kids), null)?.id).toBe('h1')
+    expect(activeSubject([], 'h1')).toBeNull()
+  })
+  it('sale en las pantallas por sujeto, no en el check-in', () => {
+    expect(usesSubject('/')).toBe(true)
+    expect(usesSubject('/bookings')).toBe(true)
+    expect(usesSubject('/billing/success')).toBe(true)
+    expect(usesSubject('/checkin')).toBe(false)
+    expect(usesSubject('/bookingsx')).toBe(false)
   })
 })

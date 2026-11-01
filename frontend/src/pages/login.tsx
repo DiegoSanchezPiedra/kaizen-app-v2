@@ -154,7 +154,8 @@ function MfaStep({
     } catch (err) {
       const c = err instanceof ApiError ? err.code : 'unknown'
       if (c === 'invalid_mfa_token') return onExpired()
-      if (c === 'invalid_mfa_code') setError(errorText(c))
+      // El texto del mapa habla de la app; con un código de recuperación, lo propio de ese modo.
+      if (c === 'invalid_mfa_code') setError(recovery ? 'El código no es correcto o ya se ha usado.' : errorText(c))
       else setNotice(loginNotice(c))
     } finally {
       setLoading(false)
@@ -174,6 +175,7 @@ function MfaStep({
       {notice && <StatusAlert notice={notice} />}
       <Form
         className="flex flex-col gap-4"
+        // Escribir borra el error: con él puesto, el Form de Base UI no deja enviar.
         errors={error ? { code: error } : undefined}
         onFormSubmit={() => verify(code)}
       >
@@ -190,7 +192,10 @@ function MfaStep({
                 maxLength={10}
                 placeholder="10 caracteres"
                 value={code}
-                onChange={(e) => setCode(e.target.value.trim())}
+                onChange={(e) => {
+                  setCode(e.target.value.trim().toUpperCase())
+                  setError(null)
+                }}
                 autoFocus
               />
               {error ? <FieldMessage>{error}</FieldMessage> : <FieldDescription>Cada código sirve una sola vez.</FieldDescription>}
@@ -204,7 +209,10 @@ function MfaStep({
               <OTPField
                 length={6}
                 value={code}
-                onValueChange={setCode}
+                onValueChange={(v) => {
+                  setCode(v)
+                  setError(null)
+                }}
                 onValueComplete={verify}
                 validationType="numeric"
                 autoComplete="one-time-code"
