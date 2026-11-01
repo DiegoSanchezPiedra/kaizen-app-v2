@@ -4,6 +4,7 @@ import logo from '@/assets/logo.png'
 import { SubjectPicker } from '@/components/subject-picker'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { usePushQuery } from '@/hooks/use-push'
 import { logout } from '@/lib/logout'
 import { cn } from '@/lib/utils'
 import { useSession, type Role } from '@/lib/session'
@@ -29,6 +30,8 @@ const navFor =(role: Role): Item[] => (role === 'profesor' ? PROFESSOR : STUDENT
 // Barra inferior en móvil; en escritorio (≥ 1024 px) pasa a lateral. Sin animación al cambiar de pestaña.
 export function AppShell() {
   const session = useSession()
+  // Al abrir la app con sesión: clave VAPID y reafirmar la suscripción (ADR 0011), en cualquier pantalla.
+  usePushQuery()
   const items = navFor(session?.role ?? 'alumno')
   const { pathname } = useLocation()
   // El sujeto sigue al cambiar de pestaña.

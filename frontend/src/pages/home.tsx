@@ -2,6 +2,7 @@ import { CalendarIcon, CircleAlertIcon, InfoIcon, TriangleAlertIcon } from 'luci
 import { Link } from 'react-router'
 import { EmptyState, ListSkeleton, QueryView } from '@/components/screen-state'
 import { Page } from '@/components/page'
+import { PushCard } from '@/components/push-card'
 import { SessionCard } from '@/components/session-card'
 import { StreakPanel } from '@/components/streak-panel'
 import { SubjectGate, subjectName } from '@/components/subject-gate'
@@ -13,7 +14,6 @@ import { useSubject } from '@/hooks/use-subject'
 import { addDays, formatDay, madridDay } from '@/lib/dates'
 import { homeNotices, type HomeNotice } from '@/lib/notices'
 import { useBookings, useProfileStatus, useProgress, useSubscription } from '@/lib/queries'
-import { useSession } from '@/lib/session'
 import type { Subject } from '@/lib/subject'
 
 const ICON = { warning: TriangleAlertIcon, error: CircleAlertIcon, info: InfoIcon }
@@ -36,7 +36,6 @@ function NoticeCard({ n }: { n: HomeNotice }) {
 }
 
 function Home({ subject, profileId }: { subject: Subject | null; profileId?: string }) {
-  const session = useSession()
   const { withSubject } = useSubject()
   const status = useProfileStatus(profileId)
   const subscription = useSubscription(profileId)
@@ -111,8 +110,7 @@ function Home({ subject, profileId }: { subject: Subject | null; profileId?: str
           }
         </QueryView>
       </section>
-      {/* Hueco de la tarjeta de avisos push: llega en B18.6 (solo alumno y tutor). */}
-      {session?.role !== 'profesor' && <div data-slot="push-card" />}
+      <PushCard place="inicio" />
     </>
   )
 }

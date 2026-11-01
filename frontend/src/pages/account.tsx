@@ -6,6 +6,7 @@ import { AgreementsPanel } from '@/components/agreements-panel'
 import { HealthForm } from '@/components/health-form'
 import { MyDataForm } from '@/components/my-data-form'
 import { Page } from '@/components/page'
+import { PushCard } from '@/components/push-card'
 import { ErrorState, ListSkeleton } from '@/components/screen-state'
 import { SubjectGate, subjectName } from '@/components/subject-gate'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -73,8 +74,7 @@ export function AccountPage() {
           <Row to={withSubject('/billing')} icon={WalletIcon} label="Mi cuota" />
         </Group>
       )}
-      {/* Hueco de la tarjeta de avisos push y su estado: llega en B18.6. */}
-      {family && <div data-slot="push-card" />}
+      {family && <PushCard place="cuenta" />}
       <Button variant="outline" size="xl" onClick={() => logout()}>
         <LogOutIcon />
         Cerrar sesión
