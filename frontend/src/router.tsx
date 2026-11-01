@@ -15,6 +15,8 @@ import { ChildFormPage, ChildrenPage } from '@/pages/children'
 import { CommunityPage, ProfilePage, RankingsPage } from '@/pages/community'
 import { HomePage } from '@/pages/home'
 import { OnboardingPage } from '@/pages/onboarding'
+import { ProfessorSessionPage, ProfessorSessionsPage } from '@/pages/professor'
+import { ProfessorReportsPage } from '@/pages/professor-reports'
 import { ProgressPage } from '@/pages/progress'
 import { AppShell, PendingScreen } from '@/pages/app-shell'
 import { LoginPage } from '@/pages/login'
@@ -58,7 +60,7 @@ export const router = createBrowserRouter([
   { path: '/reset-password', element: <ResetPasswordPage /> },
   {
     element: <RequireSession />,
-    // B18.4 (profesor) y B18.5 (tablet) siguen en PendingScreen.
+    // B18.5 (tablet) sigue en PendingScreen.
     children: [
       { path: '/', element: <HomePage /> },
       { path: '/onboarding', element: <OnboardingPage /> },
@@ -66,6 +68,9 @@ export const router = createBrowserRouter([
       { path: '/bookings', element: <BookingsPage /> },
       // El lector de QR solo se baja al abrir el check-in.
       { path: '/checkin', lazy: async () => ({ Component: (await import('@/pages/checkin')).CheckinPage }) },
+      { path: '/professor', element: <ProfessorSessionsPage /> },
+      { path: '/professor/sessions/:id', element: <ProfessorSessionPage /> },
+      { path: '/professor/reports', element: <ProfessorReportsPage /> },
       { path: '/progress', element: <ProgressPage /> },
       { path: '/profiles', element: <CommunityPage /> },
       { path: '/profiles/:id', element: <ProfilePage /> },

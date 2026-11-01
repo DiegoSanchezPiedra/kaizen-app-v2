@@ -156,7 +156,7 @@ Errores frecuentes: `409 subscription_exists`, `409 risk_cover_required` (sin se
 | `POST /sessions/:id/attendance/:studentId/correct` | `{ status: 'present'\|'absent', reason (≤500) }` | `{ attendance }` |
 
 Errores: `409 session_not_started`, `409 session_cancelled`, `409 attendance_closed`, `409 attendance_not_closed`,
-`404 no_active_booking`, `409 no_change`, `403 correction_window_expired`.
+`404 no_active_booking`, `409 no_change`, `403 correction_window_expired`, `400 reason_required` (lo lanza `correct_attendance`; la ruta ya rechaza un motivo vacío con `400 invalid_field`).
 
 ## Tablet
 

@@ -90,6 +90,17 @@ Object.assign(TEXTS, {
   stripe_unavailable: 'No se ha podido abrir la confirmación del banco. Inténtalo de nuevo.', // propuesto (no es de la API)
 })
 
+// B18.4. Los marcados «propuesto» salen del canvas (nota b184n6) y están pendientes de confirmar.
+Object.assign(TEXTS, {
+  session_not_started: 'La lista aún no se ha abierto.', // propuesto (en pantalla: «La lista se abre a las HH:MM»)
+  session_cancelled: 'Sesión cancelada.', // propuesto
+  no_active_booking: 'Esa reserva ya no está activa. Hemos actualizado la lista.', // propuesto
+  attendance_not_closed: 'La lista aún no está cerrada.', // propuesto
+  no_change: 'No había nada que cambiar: ya estaba así.', // propuesto
+  reason_required: 'Escribe el motivo.', // propuesto
+  correction_window_expired: 'Ya no se puede corregir. Pídelo a la academia.',
+})
+
 const FALLBACK = 'Algo ha fallado; inténtalo de nuevo.'
 
 export function errorText(code: string | undefined): string {

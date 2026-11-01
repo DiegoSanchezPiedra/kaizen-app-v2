@@ -83,17 +83,14 @@ const TITLES: Record<string, string> = {
   '/account': 'Cuenta',
   '/billing': 'Cuota',
   '/agreements': 'Acuerdos',
-  '/professor': 'Sesiones',
-  '/professor/reports': 'Informes',
   '/profiles': 'Comunidad',
 }
 
-// Hueco de las pantallas de B18.2–B18.4: el router y la sesión ya funcionan.
+// Hueco de lo que aún no existe: el router y la sesión ya funcionan.
 export function PendingScreen() {
   const { pathname } = useLocation()
-  const session = useSession()
   const title = TITLES[pathname] ?? TITLES[`/${pathname.split('/')[1]}`] ?? 'Kaizen'
-  const block = session?.role === 'profesor' ? 'B18.4' : pathname.startsWith('/billing') ? 'B18.3' : 'B18.2'
+  const block = 'B18.5'
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-6">
       <h1 className="font-heading text-[26px] font-bold">{title}</h1>

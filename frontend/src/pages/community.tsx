@@ -31,7 +31,7 @@ function useDebounced(value: string, ms = 300) {
 
 const useDisciplines = () => useQuery({ queryKey: ['disciplines'], queryFn: () => api<{ disciplines: Discipline[] }>('/disciplines').then((r) => r.disciplines) })
 
-function Filter({ label, value, onChange, items }: { label: string; value: string; onChange: (v: string) => void; items: { value: string; label: string }[] }) {
+export function Filter({ label, value, onChange, items }: { label: string; value: string; onChange: (v: string) => void; items: { value: string; label: string }[] }) {
   return (
     <Select value={value} onValueChange={(v) => v && onChange(v)} items={items}>
       <SelectTrigger aria-label={label} className="min-h-11 sm:min-h-11">

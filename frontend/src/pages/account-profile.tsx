@@ -25,10 +25,13 @@ const FIELDS: [string, string][] = [
   ['achievements', 'Mis logros'],
   ['ranking', 'Aparecer en los rankings'],
 ]
+// El profesor no tiene logros ni sale en los rankings.
+const PROFESSOR_FIELDS = FIELDS.filter(([k]) => k !== 'achievements' && k !== 'ranking').map(([k, l]): [string, string] => [k, k === 'member_since' ? 'Desde cuándo estoy en la academia' : l])
 const NETWORKS: [string, string][] = [['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['web', 'Web']]
 const isHttps = (u: string) => /^https:\/\/\S+$/.test(u)
 
 function ProfileForm({ profile }: { profile: MyProfile }) {
+  const role = useSession()?.role
   const [isPublic, setPublic] = useState(profile.is_public)
   const [visible, setVisible] = useState(profile.visible_fields)
   const [bio, setBio] = useState(profile.bio ?? '')
@@ -62,7 +65,7 @@ function ProfileForm({ profile }: { profile: MyProfile }) {
       </label>
       <fieldset className="flex flex-col rounded-xl border bg-card px-4 py-1">
         <legend className="px-1 text-sm font-semibold">Qué se ve</legend>
-        {FIELDS.map(([key, label]) => (
+        {(role === 'profesor' ? PROFESSOR_FIELDS : FIELDS).map(([key, label]) => (
           <label key={key} className="flex min-h-12 items-center justify-between gap-3 border-b last:border-b-0">
             <span className="text-[15px]">{label}</span>
             <Switch checked={visible[key] ?? false} onCheckedChange={(c) => setVisible((s) => ({ ...s, [key]: c }))} aria-label={label} />
