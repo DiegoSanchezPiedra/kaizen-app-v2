@@ -1,3 +1,4 @@
+import type React from 'react'
 import {
   AlertDialog,
   AlertDialogClose,
@@ -19,6 +20,8 @@ export function ConfirmDialog({
   cancelLabel = 'Volver',
   loading,
   onConfirm,
+  variant = 'destructive',
+  children,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -28,6 +31,9 @@ export function ConfirmDialog({
   cancelLabel?: string
   loading?: boolean
   onConfirm: () => void
+  // Una confirmación que no destruye nada (programar un cambio de plan) va con el botón principal.
+  variant?: 'destructive' | 'default'
+  children?: React.ReactNode
 }) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -36,9 +42,10 @@ export function ConfirmDialog({
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
+        {children && <div className="flex flex-col gap-3 px-6 pb-4 text-sm">{children}</div>}
         <AlertDialogFooter>
           <AlertDialogClose render={<Button variant="outline" size="xl" />}>{cancelLabel}</AlertDialogClose>
-          <Button variant="destructive" size="xl" loading={loading} onClick={onConfirm}>
+          <Button variant={variant} size="xl" loading={loading} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </AlertDialogFooter>

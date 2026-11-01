@@ -28,3 +28,11 @@ export function maskSpanishDate(text: string): string {
 
 // AAAA-MM-DD → dd/mm/aaaa (para rellenar el campo de fecha al editar).
 export const isoToSpanish = (iso: string): string => iso.slice(0, 10).split('-').reverse().join('/')
+
+// «1 dic 2026» y «1 dic a las 9:24», como en el canvas de B18.3.
+const shortFmt = new Intl.DateTimeFormat('es-ES', { timeZone: TZ, day: 'numeric', month: 'short', year: 'numeric' })
+const shortNoYear = new Intl.DateTimeFormat('es-ES', { timeZone: TZ, day: 'numeric', month: 'short' })
+const hourFmt = new Intl.DateTimeFormat('es-ES', { timeZone: TZ, hour: 'numeric', minute: '2-digit' })
+export const formatShortDate = (iso: string | Date): string => shortFmt.format(new Date(iso)).replace('.', '')
+export const formatDeadline = (iso: string | Date): string =>
+  `${shortNoYear.format(new Date(iso)).replace('.', '')} a las ${hourFmt.format(new Date(iso))}`

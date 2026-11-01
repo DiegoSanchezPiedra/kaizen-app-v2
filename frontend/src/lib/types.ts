@@ -40,6 +40,43 @@ export type Subscription = {
   plan: { id: number | string; name: string; price_cents: number; max_disciplines: number | null }
   disciplines: { id: number | string; name: string }[]
   current_period_end: string | null
+  cancel_at_period_end?: boolean
+  scheduled_change?: { plan_id: string; plan_name: string; discipline_ids: string[]; scheduled_at: string } | null
+  discipline_changes_left?: number | null
+  payer_change?: { id: string; status: string; new_payer_id: string; starts_at: string; deadline: string } | null
+}
+
+export type Plan = {
+  id: number | string
+  name: string
+  price_cents: number
+  billing_period: string
+  max_disciplines: number | null
+  minors_only: boolean
+  is_active: boolean
+  eligible_discipline_ids: (number | string)[]
+}
+
+// Nunca se enseña el tramo (adult/minor): delata la edad.
+export type Insurance = {
+  id: string
+  status: string
+  bracket?: string
+  current_period_end: string | null
+  cancel_at_period_end: boolean
+  payment_status?: string | null
+  client_secret?: string | null
+}
+
+export type PayerChange = {
+  id: string
+  status: 'requested' | 'paid' | 'completed' | 'expired' | 'cancelled'
+  student: { id: string; name: string }
+  plan: { id: string; name: string }
+  price_cents: number
+  disciplines: { id: string; name: string }[]
+  starts_at: string
+  deadline: string
 }
 
 export type Progress = {

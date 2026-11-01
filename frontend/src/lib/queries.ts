@@ -3,7 +3,7 @@ import { ApiError, api } from '@/lib/api'
 import { queryClient } from '@/lib/logout'
 import { path } from '@/lib/url'
 import { getSession } from '@/lib/session'
-import type { Booking, ProfileStatus, Progress, Subscription } from '@/lib/types'
+import type { Booking, Discipline, Insurance, Plan, ProfileStatus, Progress, Subscription } from '@/lib/types'
 
 // GET /bookings también devuelve las que el alumno hizo por sus hijos: cada pantalla enseña solo las del sujeto.
 export const bookingsOf = (profileId: string | undefined, from: string, to: string): Promise<Booking[]> =>
@@ -35,6 +35,25 @@ export const useSubscription = (profileId?: string) =>
         throw err
       }),
   })
+
+// Sin seguro es un 404 esperado, como la suscripción.
+export const useInsurance = (profileId?: string) =>
+  useQuery({
+    queryKey: ['insurance', who(profileId)],
+    queryFn: () =>
+      api<Insurance>(path('/billing/insurance', { profile_id: profileId })).catch((err) => {
+        if (err instanceof ApiError && err.code === 'insurance_not_found') return null
+        throw err
+      }),
+  })
+
+export const usePlans = () => useQuery({ queryKey: ['plans'], queryFn: () => api<{ plans: Plan[] }>('/plans').then((r) => r.plans) })
+export const useDisciplines = () =>
+  useQuery({ queryKey: ['disciplines'], queryFn: () => api<{ disciplines: Discipline[] }>('/disciplines').then((r) => r.disciplines) })
+
+// Tras un cambio en la cuota: la suscripción, el seguro y el estado (cobertura de riesgo) de Inicio.
+export const refreshBilling = () =>
+  Promise.all(['subscription', 'insurance', 'profile-status'].map((k) => queryClient.invalidateQueries({ queryKey: [k] })))
 
 export const useProgress = (profileId: string | undefined, month?: string) =>
   useQuery({

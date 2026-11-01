@@ -7,6 +7,8 @@ import { getEndReason, isExpired, useSession } from '@/lib/session'
 import { AdminWaitingPage } from '@/pages/admin-waiting'
 import { AccountPage, AgreementsPage, DataPage, HealthPage } from '@/pages/account'
 import { PublicProfilePage } from '@/pages/account-profile'
+import { BillingPage, DisciplinePage, InsurancePage, PlanPage } from '@/pages/billing'
+import { CancelPage, ContractPage, PayerChangePage, SuccessPage } from '@/pages/billing-contract'
 import { BookingsPage } from '@/pages/bookings'
 import { CalendarPage } from '@/pages/calendar'
 import { ChildFormPage, ChildrenPage } from '@/pages/children'
@@ -56,7 +58,7 @@ export const router = createBrowserRouter([
   { path: '/reset-password', element: <ResetPasswordPage /> },
   {
     element: <RequireSession />,
-    // B18.3 (cuota), B18.4 (profesor) y B18.5 (tablet) siguen en PendingScreen.
+    // B18.4 (profesor) y B18.5 (tablet) siguen en PendingScreen.
     children: [
       { path: '/', element: <HomePage /> },
       { path: '/onboarding', element: <OnboardingPage /> },
@@ -77,6 +79,14 @@ export const router = createBrowserRouter([
       { path: '/account/children/:id', element: <ChildFormPage /> },
       { path: '/account/health', element: <HealthPage /> },
       { path: '/agreements', element: <AgreementsPage /> },
+      { path: '/billing', element: <BillingPage /> },
+      { path: '/billing/contract', element: <ContractPage /> },
+      { path: '/billing/plan', element: <PlanPage /> },
+      { path: '/billing/discipline', element: <DisciplinePage /> },
+      { path: '/billing/insurance', element: <InsurancePage /> },
+      { path: '/billing/success', element: <SuccessPage /> },
+      { path: '/billing/cancel', element: <CancelPage /> },
+      { path: '/billing/payer-changes/:id', element: <PayerChangePage /> },
       { path: '*', element: <PendingScreen /> },
     ],
   },

@@ -55,6 +55,41 @@ Object.assign(TEXTS, {
   no_current_document: 'La academia aún no ha publicado este documento.',
 })
 
+// B18.3. Los marcados «propuesto» salen del canvas (nota b183n6) y están pendientes de confirmar.
+Object.assign(TEXTS, {
+  portal_not_configured: 'Ahora no se pueden gestionar los pagos. Inténtalo más tarde.', // propuesto
+  no_billing_account: 'Lo gestiona quien paga la cuota.',
+  subscription_exists: 'Ya hay una cuota contratada.', // propuesto
+  plan_minors_only: 'Este plan es solo para menores.', // propuesto
+  plan_not_purchasable: 'Este plan ya no se puede contratar.', // propuesto
+  plan_not_found: 'Este plan ya no se puede contratar.', // propuesto
+  discipline_not_eligible: 'Esa disciplina no entra en este plan.', // propuesto
+  risk_cover_required: 'Elige el seguro o firma la exención.', // propuesto
+  payment_failed: 'El banco ha rechazado el pago. No ha cambiado nada.', // propuesto (el decline_message va en inglés)
+  not_payer: 'Solo puede hacerlo quien paga la cuota.', // propuesto
+  upgrade_pending: 'Hay otro cambio de plan a medias.', // propuesto
+  period_ending_soon: 'La cuota se renueva en menos de 2 horas.', // propuesto
+  same_plan: 'Ya tienes este plan.', // propuesto
+  subscription_not_active: 'Ahora no se puede cambiar el plan.', // propuesto
+  cancel_scheduled: 'La cuota termina: ya no se puede cambiar el plan.', // propuesto
+  subscription_not_in_force: 'Ahora no se pueden cambiar las disciplinas.', // propuesto
+  payer_change_pending: 'Con un cambio de pagador en marcha no se puede cambiar nada.', // propuesto
+  discipline_change_limit: 'No te quedan cambios de disciplina en este periodo.', // propuesto
+  discipline_not_chosen: 'Esa disciplina ya no está en la cuota.', // propuesto
+  plan_all_disciplines: 'Este plan incluye todas las disciplinas.', // propuesto
+  no_scheduled_change: 'Ya no hay ningún cambio programado.', // propuesto
+  insurance_disabled: 'Ahora la academia no ofrece el seguro.',
+  insurance_exists: 'Ya hay un seguro en vigor.', // propuesto
+  subscription_required: 'Primero hace falta una cuota.', // propuesto
+  not_a_student: 'Un tutor contrata la cuota de sus hijos, no la suya.', // propuesto
+  not_new_payer: 'Este pago no es para ti.',
+  payer_change_expired: 'Este enlace ha caducado.',
+  payer_change_cancelled: 'Este cambio se ha anulado.',
+  payer_change_paid: 'Este cambio ya está pagado.',
+  payer_change_not_found: 'No lo encontramos.',
+  stripe_unavailable: 'No se ha podido abrir la confirmación del banco. Inténtalo de nuevo.', // propuesto (no es de la API)
+})
+
 const FALLBACK = 'Algo ha fallado; inténtalo de nuevo.'
 
 export function errorText(code: string | undefined): string {

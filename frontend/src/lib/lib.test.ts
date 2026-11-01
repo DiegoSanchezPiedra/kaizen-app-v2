@@ -93,7 +93,9 @@ describe('selector de sujeto', () => {
   it('sale en las pantallas por sujeto, no en el check-in', () => {
     expect(usesSubject('/')).toBe(true)
     expect(usesSubject('/bookings')).toBe(true)
-    expect(usesSubject('/billing/success')).toBe(true)
+    expect(usesSubject('/billing/plan')).toBe(true)
+    expect(usesSubject('/billing/success')).toBe(false)
+    expect(usesSubject('/billing/payer-changes/x')).toBe(false)
     expect(usesSubject('/checkin')).toBe(false)
     expect(usesSubject('/bookingsx')).toBe(false)
   })
