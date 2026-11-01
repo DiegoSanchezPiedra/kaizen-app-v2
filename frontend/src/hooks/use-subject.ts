@@ -9,7 +9,7 @@ export function useSubject() {
   const session = useSession()
   const [params, setParams] = useSearchParams()
   const enabled = session?.role === 'alumno' || session?.role === 'tutor'
-  const { data, isPending } = useQuery({
+  const { data, isPending, error, refetch } = useQuery({
     queryKey: ['me', 'children'],
     queryFn: () => api<{ children: Child[] }>('/me/children'),
     enabled,
@@ -21,12 +21,18 @@ export function useSubject() {
       p.set('para', id)
       return p
     })
+  // Las pestañas y los enlaces conservan el sujeto elegido.
+  const para = params.get('para')
+  const withSubject = (pathname: string) => ({ pathname, search: para ? `?${new URLSearchParams({ para })}` : '' })
   return {
     options,
+    withSubject,
     subject,
     // Para uno mismo no se manda: el calendario solo acepta profile_id de un hijo (o del admin) y responde 403.
     profileId: subject && !subject.self ? subject.id : undefined,
     loading: enabled && isPending,
+    error,
+    retry: () => void refetch(),
     select,
   }
 }

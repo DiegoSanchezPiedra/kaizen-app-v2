@@ -29,6 +29,32 @@ const TEXTS: Record<string, string> = {
   invalid_reset_token: 'El enlace ha caducado o ya se ha usado. Pide otro.',
 }
 
+// B18.2. Los marcados «propuesto» salen del canvas (notas b182n7) y están pendientes de confirmar.
+Object.assign(TEXTS, {
+  not_covered: 'Tu cuota no incluye esta disciplina.',
+  no_risk_cover: 'Necesitas el seguro o firmar la exención.',
+  profile_incomplete: 'Completa el perfil para poder reservar.',
+  session_not_bookable: 'Esta sesión ya no se puede reservar.', // propuesto
+  outside_booking_window: 'Aún no se puede reservar esta sesión.',
+  already_booked: 'Ya tienes esta sesión reservada.', // propuesto
+  booking_overlap: 'Ya tienes otra reserva a esa hora.',
+  session_started: 'La sesión ya ha empezado.', // propuesto
+  booking_not_active: 'Esta reserva ya no está activa.', // propuesto
+  booking_conflict_retry: 'Inténtalo de nuevo.',
+  invalid_qr: 'El código ha caducado, vuelve a escanear.',
+  no_candidates: 'No tienes ninguna reserva con el check-in abierto.',
+  attendance_closed: 'La lista ya está cerrada; habla con el profesor.',
+  profile_not_found: 'Este perfil no existe o no es público.',
+  not_eligible: 'Tu perfil todavía no puede ser público.', // propuesto
+  child_must_be_minor: 'Tiene que ser menor de edad. Un adulto se registra con su propia cuenta.', // propuesto
+  child_not_found: 'No encontramos a esa persona.', // propuesto
+  birth_date_already_set: 'La fecha de nacimiento ya estaba puesta.', // propuesto
+  agreement_already_signed: 'Ya estaba firmado.', // propuesto
+  invalid_version: 'Hay una versión nueva del documento. Léela y vuelve a firmar.', // propuesto
+  not_allowed_to_sign: 'No puedes firmar este documento.', // propuesto
+  no_current_document: 'La academia aún no ha publicado este documento.',
+})
+
 const FALLBACK = 'Algo ha fallado; inténtalo de nuevo.'
 
 export function errorText(code: string | undefined): string {

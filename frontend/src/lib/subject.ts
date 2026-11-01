@@ -17,6 +17,6 @@ export const activeSubject = (options: Subject[], para: string | null): Subject 
   options.find((o) => o.id === para) ?? options[0] ?? null
 
 // Rutas que actúan por un sujeto (docs/pantallas-b18.md); el check-in no.
-const SUBJECT_PATHS = ['/calendar', '/bookings', '/progress', '/agreements', '/billing']
+const SUBJECT_PATHS = ['/calendar', '/bookings', '/progress', '/account/health', '/agreements', '/billing']
 export const usesSubject = (pathname: string): boolean =>
   pathname === '/' || SUBJECT_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))

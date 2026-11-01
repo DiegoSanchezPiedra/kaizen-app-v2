@@ -3,6 +3,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router'
 import './index.css'
+import { ToastProvider } from '@/components/ui/toast'
 import { queryClient } from '@/lib/logout'
 import { router } from '@/router'
 
@@ -16,7 +17,9 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <div className="relative isolate flex min-h-dvh flex-col">
-        <RouterProvider router={router} />
+        <ToastProvider position="top-center">
+          <RouterProvider router={router} />
+        </ToastProvider>
       </div>
     </QueryClientProvider>
   </StrictMode>,

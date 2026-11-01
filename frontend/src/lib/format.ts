@@ -25,3 +25,6 @@ export function maskSpanishDate(text: string): string {
   const digits = text.replace(/\D/g, '').slice(0, 8)
   return [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4)].filter(Boolean).join('/')
 }
+
+// AAAA-MM-DD → dd/mm/aaaa (para rellenar el campo de fecha al editar).
+export const isoToSpanish = (iso: string): string => iso.slice(0, 10).split('-').reverse().join('/')

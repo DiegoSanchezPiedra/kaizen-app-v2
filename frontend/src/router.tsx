@@ -5,6 +5,15 @@ import { logout } from '@/lib/logout'
 import { loginPath, safeReturnPath } from '@/lib/paths'
 import { getEndReason, isExpired, useSession } from '@/lib/session'
 import { AdminWaitingPage } from '@/pages/admin-waiting'
+import { AccountPage, AgreementsPage, DataPage, HealthPage } from '@/pages/account'
+import { PublicProfilePage } from '@/pages/account-profile'
+import { BookingsPage } from '@/pages/bookings'
+import { CalendarPage } from '@/pages/calendar'
+import { ChildFormPage, ChildrenPage } from '@/pages/children'
+import { CommunityPage, ProfilePage, RankingsPage } from '@/pages/community'
+import { HomePage } from '@/pages/home'
+import { OnboardingPage } from '@/pages/onboarding'
+import { ProgressPage } from '@/pages/progress'
 import { AppShell, PendingScreen } from '@/pages/app-shell'
 import { LoginPage } from '@/pages/login'
 import { ForgotPasswordPage, ResetPasswordPage } from '@/pages/password'
@@ -47,7 +56,29 @@ export const router = createBrowserRouter([
   { path: '/reset-password', element: <ResetPasswordPage /> },
   {
     element: <RequireSession />,
-    children: [{ path: '*', element: <PendingScreen /> }],
+    // B18.3 (cuota), B18.4 (profesor) y B18.5 (tablet) siguen en PendingScreen.
+    children: [
+      { path: '/', element: <HomePage /> },
+      { path: '/onboarding', element: <OnboardingPage /> },
+      { path: '/calendar', element: <CalendarPage /> },
+      { path: '/bookings', element: <BookingsPage /> },
+      // El lector de QR solo se baja al abrir el check-in.
+      { path: '/checkin', lazy: async () => ({ Component: (await import('@/pages/checkin')).CheckinPage }) },
+      { path: '/progress', element: <ProgressPage /> },
+      { path: '/profiles', element: <CommunityPage /> },
+      { path: '/profiles/:id', element: <ProfilePage /> },
+      { path: '/rankings', element: <RankingsPage /> },
+      { path: '/rankings/:id', element: <RankingsPage /> },
+      { path: '/account', element: <AccountPage /> },
+      { path: '/account/data', element: <DataPage /> },
+      { path: '/account/profile', element: <PublicProfilePage /> },
+      { path: '/account/children', element: <ChildrenPage /> },
+      { path: '/account/children/new', element: <ChildFormPage /> },
+      { path: '/account/children/:id', element: <ChildFormPage /> },
+      { path: '/account/health', element: <HealthPage /> },
+      { path: '/agreements', element: <AgreementsPage /> },
+      { path: '*', element: <PendingScreen /> },
+    ],
   },
 ])
 
