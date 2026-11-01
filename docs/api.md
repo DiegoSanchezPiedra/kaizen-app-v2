@@ -13,7 +13,7 @@
 - **Errores**: `{ error, code, message, ...details }`. `error` es la categoría (`bad_request`, `unauthorized`,
   `payment_required`, `forbidden`, `not_found`, `conflict`, `internal_error`); la UI decide por `code`. Los de campo
   traen `field` (`invalid_field`). `message` está en español pero es técnico: la UI pone su propio texto por `code`.
-- **Comunes**: `401 missing_token|invalid_token`, `403 forbidden` (rol no permitido), `400 invalid_id` (uuid o id
+- **Comunes**: `401 missing_token|invalid_token`, `403 insufficient_role` (rol no permitido), `400 invalid_id` (uuid o id
   numérico mal formado), `404 not_found` (ruta inexistente).
 - **Perfil completo** (`requireCompleteProfile`): reservar, contratar y el Checkout del cambio de pagador fallan con
   `403 profile_incomplete { missing: [...] }` si al sujeto (y al tutor que actúa por un hijo) le falta algo.
@@ -167,7 +167,7 @@ Errores: `409 session_not_started`, `409 session_cancelled`, `409 attendance_clo
 
 ## Admin
 
-Todas exigen `role = admin` (y el admin entra con MFA si lo tiene activado).
+Todas exigen `role = admin` (y el admin entra con MFA si lo tiene activado). **Desde B19.0** (ADR 0016) el token del admin tiene que llevar el MFA verificado: sin él, toda ruta salvo `GET /auth/me`, `POST /auth/mfa/setup` y `/activate` responde `403 mfa_setup_required`.
 
 **Catálogo**
 
@@ -255,7 +255,9 @@ reintentar `GET /billing/subscription`).
 
 ## Huecos conocidos (para el diseño técnico)
 
-Lo que una pantalla podría pedir y la API **no da hoy**. Se decide en el diseño de B18/B19 si se añade o se rodea:
+Lo que una pantalla podría pedir y la API **no da hoy**. Se decide en el diseño de B18/B19 si se añade o se rodea
+(los de admin ya están decididos: endpoints de B19.0 y B19.1 en `plan-de-bloques.md` § B19; se quitan de aquí al
+implementarlos):
 
 - **Cuenta**: verificar el email, cambiar email o contraseña con sesión, reclamar el perfil al cumplir 18
   (`pending_claim`). No hay logout de servidor ni revocación de tokens.

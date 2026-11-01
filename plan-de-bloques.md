@@ -65,7 +65,7 @@
 | B16 | Foto diaria de suscripciones + tareas nocturnas | B6, B10, B11 | CERRADO |
 | B17 | Endpoints de informes | B16 | CERRADO |
 | B18 | Frontend PWA (alumno, tutor, profesor, tablet; sub-bloques B18.0–B18.6) | B13, B15, B17 | CERRADO (con pruebas en dispositivos pendientes) |
-| B19 | Panel admin (métricas, usuarios, auditoría, morosos) | B11, B17, B10.2 | Pendiente |
+| B19 | Panel admin (métricas, usuarios, auditoría, morosos; sub-bloques B19.0–B19.6) | B11, B17, B10.2, B18 | Diseñado |
 | B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos | Pendiente |
 
 ---
@@ -1895,17 +1895,84 @@
   - `handleNextAction` (3DS con Stripe.js), pendiente de la clave publicable del sandbox (B18.3);
   - el SVG del logo para el monocromo y el badge (hoy provisionales, `shortcut:`).
 
-### B19 — Panel admin (métricas, usuarios, auditoría, morosos) — Pendiente
-- **Objetivo**: panel admin con métricas, usuarios, auditoría y morosos.
-- **Entregable**: endpoints + UI.
-- **Fuera de alcance**: nada específico.
+### B19 — Panel admin (métricas, usuarios, auditoría, morosos) — Diseñado
+- **Objetivo**: el panel de la academia en la misma PWA (`/admin`), de escritorio primero: todo lo que el admin ya puede hacer por la API (catálogo, horario, cobros, tablets, ajustes, documentos, informes) más lo que le faltaba (usuarios y roles, auditoría, avisos de la academia, entregas fallidas, cambios de pagador), con el MFA obligatorio. Sin él, la academia solo se gestiona con `curl`, y producción (B10.7) no puede abrirse así.
+- **Diseño técnico** (fase 1, 2026-11-01, Opus alto, grill respondido con los docs). Decisión difícil de revertir: ADR 0016 (el admin solo opera con el MFA verificado en el token). Pantallas y estados para Claude Design en `docs/pantallas-b19.md`. Términos nuevos en `CONTEXT.md`: cambiar el rol, desvincular un tutor, entrega y avisos de la academia. La fase visual va en el mismo canvas que B18 (`https://claude.ai/artifact/WeHn5vTZUmUsutiawGwtpD`), una sección por sub-bloque de frontend y una por delante de su implementación; B19.0 y B19.1 no la necesitan y van en paralelo.
+- **Qué entra** (decidido 2026-11-01):
+  - **Métricas de B17**: Inicio (cuatro cifras de la última foto y lo que pide atención) e Informes (suscripciones, sesiones y alumnos), con los gráficos de HTML y CSS de B18.4. Sin endpoint de resumen: Inicio lee los `total` de las listas con `limit=1`.
+  - **Usuarios y roles**: lista con búsqueda, ficha (datos, estado del perfil, familia, cuota y seguro con su pagador, reservas), cambiar el rol, vincular y desvincular tutores, despublicar. Las acciones de cobro de la ficha usan los endpoints admin que ya existen (B10, B10.5, B11).
+  - **`audit_log`**: consultable, con filtros, sin los avisos.
+  - **Morosos y en gracia** (B10.2), con el recibo pendiente y la baja inmediata.
+  - **Entregas fallidas** (B10.6): solo consulta; no se reintentan (un aviso caduca a las 24 h).
+  - **Cambios de pagador**: en curso (anular) y caducados (volver a pedirlo desde la ficha).
+  - **Avisos de la academia**: los que tienen al admin como destinatario (`stripe_risk`, la carrera de Checkouts, `payer_change_expired`), que hoy solo quedan en `audit_log`.
+  - **Documentos legales** (B4.5.1): subir, ver el PDF, publicar. Retirar es publicar otro del mismo tipo (como ya hace `publishDocument`): no hay retirar a secas, que dejaría el tipo sin vigente y a todos sin poder completar el perfil.
+  - **Horario y catálogo**: sesiones (calendario, detalle con reservas y espera, ajustar, deshacer, cancelar, recuperar, reservar por un alumno, pasar lista y corregir), clases, disciplinas y planes. Todo con endpoints de B5–B8 salvo el detalle de sesión.
+  - **Tablets y ajustes**: los tres grupos que tienen `PUT` (check-in, seguro, cambios de disciplina), con su `GET` nuevo.
+- **Reglas** (decididas 2026-11-01):
+  - **MFA** (ADR 0016): obligatorio para operar como admin y exigido por la API. `POST /auth/mfa/verify` y `POST /auth/mfa/activate` firman el token con `mfa: 'verified'`; `requireAuth` rechaza con `403 mfa_setup_required` el token de un admin sin ese claim, salvo en `GET /auth/me`, `POST /auth/mfa/setup` y `POST /auth/mfa/activate` (lista de permitidas: lo nuevo nace cerrado). El token del admin caduca a las 12 h (`ADMIN_JWT_EXPIRES_IN`). Un admin sin MFA solo ve «Configurar el MFA». Perder el móvil y los códigos, crear un admin o quitarle el rol: a mano en la base, como hoy.
+  - **Permisos del admin**: un solo nivel (ADR 0001: un rol por perfil; sin «recepción» ni subroles). Ve y hace todo lo que la API ya le deja, con dos límites: **el panel nunca da ni quita el rol `admin`**, y **nunca enseña salud, edad ni fecha de nacimiento** (de un menor, solo «Menor» o «Mayor de edad sin reclamar»; la ficha no devuelve campos de salud aunque la RLS dejara leerlos). Toda acción que cobra, da de baja, avisa o bloquea pide confirmación con a quién afecta.
+  - **Cambiar el rol** (`CONTEXT.md`): entre alumno, tutor y profesor, solo de perfiles con acceso propio (un hijo siempre es alumno). Dejar de ser profesor exige no ser profesor habitual de ninguna clase no retirada ni profesor de ninguna sesión futura (la regla de «Baja de un profesor»). Pasar de alumno a tutor o a profesor exige no tener suscripción ni seguro vivos como sujeto. **Se aplica al volver a entrar**: el rol va en el JWT y no hay revocación; con las reglas anteriores, el token viejo de un profesor degradado no tiene sesiones futuras que tocar (riesgo aceptado: hasta 7 días ve los informes y nombres de sus sesiones pasadas). Queda en `audit_log` (`profile.role_change`, de → a). Cómo se llega a profesor o a tutor: la persona se registra (sale alumno) y el admin le cambia el rol; el panel no crea cuentas.
+  - **Tutores**: el admin vincula a un hijo cualquier adulto con acceso propio y desvincula, salvo que deje al hijo sin tutores o que ese tutor pague su suscripción o su seguro vivos (antes, cambio de pagador). En `audit_log` (`guardian.add`, `guardian.remove`).
+  - **Frontend** (sobre B18, ADR 0013–0015 sin cambios):
+    - **Rutas** en la misma SPA, en inglés como las de B18: `/admin`, `/admin/mfa`, `/admin/users[/:id]`, `/admin/billing`, `/admin/notices`, `/admin/sessions[/:id]`, `/admin/classes`, `/admin/catalog`, `/admin/reports`, `/admin/documents`, `/admin/audit`, `/admin/tablets`, `/admin/settings`, `/admin/account`. Pestañas, filtros, búsqueda y página en la URL (`?tab=&q=&page=`). No chocan con la API, que va bajo `/api/`.
+    - **Router**: `RequireSession` manda al admin a `/admin` (cualquier otra ruta → `/admin`) y a cualquier otro rol fuera de `/admin` (→ `/`). Un admin cuyo token no lleva `mfa` (leído sin verificar, como el `exp`) o que recibe `403 mfa_setup_required` va a `/admin/mfa`; al activar, el token nuevo sustituye al viejo. `AdminWaitingPage` se borra. Las rutas de `/admin` se cargan con `lazy` (un trozo aparte que el alumno no baja; el Service Worker lo precachea como el resto del esqueleto, sin datos).
+    - **Layout**: `AdminShell` con el Sidebar de coss ui fijo desde 1024 px y en Sheet por debajo; contenido a ancho completo con tablas (Table, Pagination); se diseña a 1280 px. Sin selector de sujeto ni push. La lista de una sesión reutiliza la del profesor (B18.4); los gráficos, los de sus informes; el PDF, como `fetchAgreement`.
+    - Errores por `code` con los textos de `docs/pantallas-b19.md`; `insufficient_role` (lo que de verdad responde `requireRole`) se añade al mapa.
+- **Choques con lo existente** (detectados en el diseño, 2026-11-01):
+  - **`/billing/*` es solo de alumno y tutor** y `GET /me/profile-status?profile_id` exige ser tutor del perfil: el admin no tiene cómo leer la suscripción, el seguro ni el estado de un alumno. Lo da la ficha (`GET /admin/profiles/:id`), reutilizando los servicios de esas rutas.
+  - **`notice_deliveries` no tiene acceso para `app_user`** (`015`): migración `026` con RLS de solo lectura para el admin.
+  - **El calendario no da ajustes, nota de cancelación ni reservas por sesión** (`SESSION_SELECT` no devuelve los valores de clase, B6.1): detalle de sesión nuevo.
+  - **14 scripts de test firman tokens de admin a mano** (`test-rls`, `test-mfa`, `test-agreements`, `test-minors`, `test-catalog`, `test-classes`, `test-bookings`, `test-attendance`, `test-checkin`, `test-billing`, `test-webhook`, `test-profiles`, `test-session-changes`, `test-session-cancel`): con ADR 0016 dejan de valer; B19.0 les añade el claim.
+  - **`docs/api.md` decía `403 forbidden`** para el rol no permitido: es `403 insufficient_role`. Corregido.
+- **Endpoints nuevos** (todos con `requireRole('admin')` y el MFA del ADR 0016, por el `client` RLS):
+  - **B19.0** (MFA y usuarios):
+    - `POST /auth/mfa/verify` → el token lleva `mfa: 'verified'`; `POST /auth/mfa/activate` → `{ token }` (nuevo, con el claim) además de lo de hoy.
+    - `GET /admin/profiles?q&role&limit&offset` → `{ profiles: [{ id, display_name, email, role, is_minor, pending_claim, created_at, subscription_status }], total, limit, offset }`. `q` busca en nombre y email (sin distinguir mayúsculas); orden por nombre; `subscription_status` de la viva o `null`. `400 invalid_field` (rol), `invalid_pagination`.
+    - `GET /admin/profiles/:id` → `{ profile: { id, display_name, email, role, created_at, is_minor, pending_claim, is_public, has_password, has_google }, status: { ok, missing, risk_cover } | null, guardians: [{ id, display_name, email }], children: [{ id, display_name, pending_claim }], subscription: { …como GET /billing/subscription, payer: { id, display_name } } | null, insurance: { …como GET /billing/insurance, payer: { id, display_name } } | null }`. `status` solo de un alumno. Nunca `birth_date` ni salud. `404 profile_not_found`.
+    - `PUT /admin/profiles/:id/role { role }` → `{ profile }`. `400 invalid_field` (rol que no es alumno, tutor ni profesor); `404 profile_not_found`; `409 same_role`, `admin_role_locked`, `child_role_locked`, `trainer_has_sessions`, `student_has_subscription`.
+    - `POST /admin/profiles/:id/guardians { tutor_id }` → `201 { guardians }`; `DELETE /admin/profiles/:id/guardians/:tutorId` → `204`. `404 profile_not_found`; `409 not_a_child`, `invalid_guardian`, `already_guardian`, `last_guardian`, `guardian_is_payer`.
+    - **Migración `026`**: `notice_deliveries` con RLS (`ENABLE` + `FORCE`), política de `SELECT` solo admin y `GRANT SELECT` a `app_user`. Nada más cambia de esquema.
+  - **B19.1** (lecturas del panel):
+    - `GET /admin/settings` → `{ checkin: { opens_minutes, closes_minutes, qr_seconds }, insurance: { price_adult_cents, price_minor_cents, enabled }, discipline_changes: { per_period } }` (lo mismo que devuelven los `PUT`).
+    - `GET /admin/audit?action&actor_id&resource_type&resource_id&from&to&limit&offset` → `{ rows: [{ id, created_at, action, actor: { id, display_name }, resource_type, resource_id, changes }], total, limit, offset }`. `action` admite prefijos separados por comas (`session.,class.`); sin `notice.*` nunca; del más nuevo al más viejo. `400 invalid_range`, `invalid_pagination`.
+    - `GET /admin/notices?limit&offset` → `{ rows: [{ id, created_at, action, resource_type, resource_id, details }], total, limit, offset }`: los `notice.*` con algún admin entre sus `recipients`; `details` es `changes` sin `recipients`.
+    - `GET /admin/notice-deliveries?from&limit&offset` → `{ rows: [{ id, created_at, action, channel, recipient: { id, display_name }, attempts, last_error }], total, limit, offset }`: solo `failed`, de la más nueva a la más vieja; `from` sobre `created_at`.
+    - `GET /admin/payer-changes?status&from&limit&offset` → `{ rows: [{ id, status, subscription_id, student: { id, display_name }, old_payer: { … }, new_payer: { … }, plan: { id, name }, starts_at, deadline, cancel_reason, updated_at }], total, limit, offset }`. `status` admite varios (`requested,paid`); `from` sobre `updated_at`.
+    - `GET /admin/sessions/:id` → `{ session: { …los campos del calendario, class_id, adjusted_fields, class_values: { trainer_id, starts_at, duration_min, capacity, location } | null, cancel_note }, bookings: [{ id, student: { id, display_name }, status, created_at }] }`: confirmadas y en espera, cada grupo por orden de llegada. `404 session_not_found`.
+    - `GET /admin/agreements/documents/:id/file` → el PDF de cualquier estado (borrador, vigente o retirado). `404 document_not_found`.
+  - `docs/api.md` se actualiza en cada sub-bloque con lo que añade (y quita los huecos de «Admin» que resuelve).
+- **Sub-bloques** (en orden; cada uno en su chat, con su checklist):
+  - **B19.0 — MFA del admin y usuarios (backend)** (Opus, alto: seguridad de la sesión, roles y tutores): el claim y las 12 h, `requireAuth` con su lista de permitidas, `activate` con token, `026`, los cuatro endpoints de usuarios con sus reglas y su auditoría, y el claim en los 14 scripts.
+  - **B19.1 — Lecturas del panel (backend)** (Sonnet, alto): los siete `GET` de arriba.
+  - **B19.2 — Base del panel, MFA, Inicio e Informes** (Opus, medio: router y token): `AdminShell`, rutas `lazy`, redirecciones por rol y por MFA, Configurar el MFA, Cuenta, Inicio e Informes.
+  - **B19.3 — Usuarios** (Opus, medio: roles y dinero): lista, ficha y sus cuatro pestañas con todas sus acciones.
+  - **B19.4 — Cobros, avisos y auditoría** (Sonnet, alto): morosos, en gracia, cambios de pagador, avisos de la academia, entregas fallidas y auditoría.
+  - **B19.5 — Horario** (Sonnet, alto): sesiones, detalle (ajustes, cancelar, recuperar, reservar por un alumno, lista) y clases.
+  - **B19.6 — Catálogo, documentos, tablets y ajustes** (Sonnet, alto).
+- **Tests**:
+  - **B19.0**: `test:mfa` ampliado (admin sin el claim → `403 mfa_setup_required` en `/admin/disciplines`, `/sessions/calendar`, `/bookings` y `/me`, y pasa en `/auth/me`, `setup` y `activate`; `activate` devuelve un token que entra; `verify` lleva el claim; el token del admin caduca a las 12 h; un `mfa_token` sigue sin valer; alumno y profesor, sin cambios). `test:admin` nuevo (como `app_user` por HTTP): búsqueda por nombre y por email, filtro por rol, paginación, un hijo sin email; la ficha con el pagador y **sin `birth_date` ni campos de salud**; cada error del rol y de los tutores, con su fila en `audit_log`; un token emitido antes del cambio conserva el rol viejo (documentado); un alumno o un profesor → `403`. Regresión: los 14 scripts con el claim y `npm run lint`.
+  - **B19.1**: `test:admin` ampliado: `GET /admin/settings` igual a lo que devuelven los `PUT`; la auditoría por prefijo, persona, recurso y fechas, sin `notice.*`; los avisos solo con admins entre los destinatarios; las entregas solo `failed` y desde `from`; los cambios de pagador por estado con su `subscription_id`; el detalle de sesión con espera en orden, `class_values` y `adjusted_fields`; el PDF de un borrador y de un retirado idéntico al subido; un alumno no lee `notice_deliveries` ni con SQL directo (RLS).
+  - **Frontend** (Vitest, solo lógica): a dónde va un admin según el claim y el `403`; la última fila no nula del informe para las cifras de Inicio (y «sin dato de ayer»); las etiquetas de la auditoría (una acción desconocida sale tal cual); las categorías → prefijos de `action`.
+  - **Pantallas**: checklist manual por sub-bloque contra la API local con los estados de `docs/pantallas-b19.md`; las acciones de cobro, contra el sandbox con `stripe listen`. En cada sub-bloque, `typecheck`, `lint` y `build:frontend` sin errores.
+- **Fuera de alcance**:
+  - dar o quitar el rol `admin`, crear un admin, resetear su MFA o regenerar sus códigos de recuperación (a mano, ADR 0016);
+  - crear cuentas o invitar desde el panel (cada uno se registra y el admin cambia el rol) y la opción «solo gestiono a mis hijos» en el registro (→ `MEJORAS.md`);
+  - dar de baja o borrar un perfil, también la baja de un hijo que `CONTEXT.md` reserva al admin (bloque propio: datos de menores con historial; → `MEJORAS.md`);
+  - ver la salud de nadie, editar el nombre o el email de otro, contratar por un alumno, reembolsos e historial de recibos (Dashboard de Stripe);
+  - reintentar entregas, «leído» en los avisos, avisos al admin por email o push;
+  - editar la ventana de reserva, el plazo de cancelación, el plazo de corrección y el horizonte (no tienen `PUT`; → `MEJORAS.md`);
+  - revocar tokens en el servidor (→ B20 con la cookie `httpOnly`, si se hace), eventos, reclamar el perfil a los 18;
+  - rate limiting y E2E (B20).
 - **Checklist de cierre**:
-  - [ ] Métricas visibles.
-  - [ ] Gestión de usuarios.
-  - [ ] `audit_log` consultable.
-  - [ ] Morosos (B10.2) visible.
-  - [ ] **Gestión de documentos legales (B4.5.1) visible**: subir, publicar, retirar.
-  - [ ] Tests manuales.
+  - [ ] B19.0: MFA obligatorio en la API con el claim y las 12 h; usuarios, rol y tutores con sus reglas y su auditoría; `026`; `test:mfa`, `test:admin` y la regresión con el claim.
+  - [ ] B19.1: los siete `GET` con `test:admin`; `docs/api.md` al día.
+  - [ ] B19.2: panel en `/admin` con su barra, Configurar el MFA de punta a punta en el navegador (un admin sin MFA no ve nada más), Inicio con la última foto y los contadores, Informes. **Métricas visibles.**
+  - [ ] B19.3: **gestión de usuarios**: búsqueda, ficha, cambiar el rol, vincular y desvincular tutores, despublicar y las acciones de cuota y seguro (con el sandbox).
+  - [ ] B19.4: **morosos (B10.2) visibles**, cambios de pagador caducados, avisos de la academia, entregas fallidas y **`audit_log` consultable**.
+  - [ ] B19.5: horario completo: sesiones, detalle, ajustes, cancelar y recuperar, reservar por un alumno, lista y clases.
+  - [ ] B19.6: catálogo, tablets, ajustes y **documentos legales (B4.5.1) visibles**: subir, ver, publicar (retirar = publicar otro).
+  - [ ] Tests de Vitest de la lógica; `typecheck`, `lint` y `build:frontend` en verde; **tests manuales** de cada pantalla.
 
 ### B20 — Hardening (rate limiting, RLS audit, backups, E2E) — Pendiente
 - **Objetivo**: endurecer el sistema.

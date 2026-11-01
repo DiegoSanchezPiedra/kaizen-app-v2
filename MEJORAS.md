@@ -195,3 +195,14 @@ Una sola sesión inicial (antes de cerrar B4.5) debería fijar el vocabulario tr
 
 ### 7.3 Primera firma o re-firma — **Impacto: Bajo**
 - `missing` no distingue un acuerdo nunca firmado de uno con versión nueva: la UI usa el mismo texto. Si hace falta decir «hay una versión nueva», la API tendría que dar la última versión firmada.
+
+## Sección 8: Pendientes que salieron del diseño de B19 (2026-11-01)
+
+### 8.1 Invitar desde el panel y registrarse como tutor — **Impacto: Medio (mejora futura)**
+- B19 no crea cuentas: un profesor o un tutor se registra (sale alumno) y el admin le cambia el rol. Un padre que no entrena tiene que esperar al admin para no tener que rellenar su propia ficha de salud. Mejoras: una opción «solo gestiono a mis hijos» en el registro, y que el admin invite por email (con el mismo enlace de un solo uso que recuperar la contraseña).
+
+### 8.2 Baja de un perfil — **Impacto: Medio**
+- `CONTEXT.md` dice que la baja de un hijo la hace el admin, pero no hay endpoint ni regla de qué pasa con su historial (reservas, asistencia, recibos, firmas), y con menores pesa el RGPD (supresión frente a conservación obligatoria de lo cobrado). Bloque propio.
+
+### 8.3 Ajustes sin `PUT` — **Impacto: Bajo**
+- La ventana de reserva, el plazo de cancelación, el plazo de corrección y el horizonte son parámetros de la academia sin endpoint para cambiarlos: hoy, a mano en `academy_settings`. B19 solo pinta y guarda los que ya tienen `PUT`.
