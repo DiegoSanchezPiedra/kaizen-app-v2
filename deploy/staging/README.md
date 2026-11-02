@@ -173,6 +173,7 @@ En Google Cloud, un cliente OAuth (Web) con `https://TU-DOMINIO.ngrok-free.dev` 
 | `502 Bad Gateway` en `/api` | la API de staging no está en marcha o no escucha en el `:3100` |
 | Pagas y la cuota no pasa a «Activa» | `stripe listen` parado, apuntando a otro puerto, o `STRIPE_WEBHOOK_SECRET` distinto del de `stripe listen --print-secret` |
 | Un error ya arreglado sigue saliendo | la PWA guardada: § 3 |
+| iPhone: «Unexpected Application Error!» o no deja entrar tras un cambio | versión vieja guardada en Safari. Desde la versión con «Actualizar y recargar» en la pantalla de error basta con tocarlo; si el iPhone aún tiene una anterior, una vez a mano: Ajustes → Safari → Avanzado → Datos de sitios web → borrar el dominio de ngrok (y, si la añadiste a la pantalla de inicio, borrar el icono y volver a añadirla) |
 | `429` «Demasiados intentos» | límite por IP (30 entradas cada 15 min; 5 «olvidé la contraseña» por hora). Una oficina comparte IP; reiniciar la API pone los contadores a cero |
 | El email no llega | remitente de pruebas de Resend: § Emails. Mira también `storage-staging/emails.log` y la terminal de la API |
 | ngrok enseña una página de aviso | normal en el plan gratuito, la primera vez: «Visit Site» |
