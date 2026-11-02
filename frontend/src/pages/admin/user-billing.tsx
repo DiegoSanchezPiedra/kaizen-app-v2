@@ -45,12 +45,13 @@ export function SubBadge({ status }: { status: string | null | undefined }) {
 const name = (p: { display_name: string | null } | undefined) => p?.display_name ?? 'Sin nombre'
 
 // Una acción con su AlertDialog (docs/pantallas-b19.md § Reglas de UI): dice qué pasa y a quién se avisa.
-type Ask = { title: string; description: string; label: string; done: string; run: () => Promise<unknown>; destructive?: boolean }
+// `done` puede ser una función del resultado (los avisados, los que pasan de la espera).
+type Ask = { title: string; description: string; label: string; done: string | ((result: any) => string); run: () => Promise<unknown>; destructive?: boolean }
 export function useConfirm(refresh: () => void) {
   const [ask, setAsk] = useState<Ask | null>(null)
   const act = useMutation({
     mutationFn: (a: Ask) => a.run(),
-    onSuccess: (_r, a) => toastOk(a.done),
+    onSuccess: (r, a) => toastOk(typeof a.done === 'function' ? a.done(r) : a.done),
     onError: (err) => toastError(err),
     onSettled: () => {
       setAsk(null)

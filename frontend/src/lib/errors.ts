@@ -137,3 +137,17 @@ Object.assign(TEXTS, {
   insurance_cancel_scheduled: 'El seguro ya no se renueva.', // propuesto
   insurance_not_live: 'El seguro no está en vigor.', // propuesto
 })
+
+// B19.5 (docs/pantallas-b19.md § Horario). Los marcados «propuesto» no tienen texto en el documento.
+Object.assign(TEXTS, {
+  capacity_below_bookings: 'Hay más reservas que ese aforo.',
+  trainer_overlap: 'Ese profesor ya tiene otra sesión a esa hora.',
+  session_not_adjustable: 'La sesión está cancelada o ya ha empezado: no se puede ajustar.', // propuesto
+  session_not_cancelled: 'La sesión no está cancelada.', // propuesto
+  slot_passed: 'La hora que le toca según su clase ya ha pasado.', // propuesto
+  loose_session: 'Una sesión suelta no tiene clase a la que volver.', // propuesto
+  class_retired: 'Su clase está retirada en esa fecha: crea una sesión suelta.', // propuesto
+  already_retired: 'La clase ya termina antes de esa fecha.', // propuesto
+  discipline_inactive: 'Esa disciplina está desactivada.', // propuesto
+  class_not_found: 'No lo encontramos.',
+})
