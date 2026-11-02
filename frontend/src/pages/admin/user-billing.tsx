@@ -72,8 +72,8 @@ export function useConfirm(refresh: () => void) {
   return { ask: setAsk, dialog }
 }
 
-const post = (url: string) => () => api(url, { method: 'POST' })
-const del = (url: string) => () => api(url, { method: 'DELETE' })
+export const post = (url: string) => () => api(url, { method: 'POST' })
+export const del = (url: string) => () => api(url, { method: 'DELETE' })
 
 // Cambiar de plan (B10.5): subida = se cobra ya la parte proporcional al pagador; bajada = a la renovación.
 function PlanDialog({ s, minor, onClose, refresh }: { s: Sub; minor: boolean; onClose: () => void; refresh: () => void }) {
@@ -385,14 +385,16 @@ function Subscription({ file, refresh }: { file: ProfileFile; refresh: () => voi
 const BRACKET: Record<string, string> = { adult: 'Adulto', minor: 'Menor' }
 const NO_COVER = 'Si no ha firmado la exención, no podrá reservar hasta firmarla o contratar otro seguro.'
 
+export async function cancelInsurance(id: string, now: boolean) {
+  const r = await api<{ risk_cover: boolean }>(`/admin/insurances/${id}/${now ? 'cancel-now' : 'cancel-at-period-end'}`, { method: 'POST' })
+  if (!r.risk_cover) toastManager.add({ type: 'warning', title: 'Se queda sin cobertura de riesgo', description: NO_COVER, timeout: 8000 })
+}
+
 function InsuranceSection({ i, refresh }: { i: Ins; refresh: () => void }) {
   const { ask, dialog } = useConfirm(refresh)
   const end = i.current_period_end ? formatShortDate(i.current_period_end) : null
   // Sin cobertura de riesgo tras la baja: no puede reservar (lo dice la respuesta).
-  const cancel = (now: boolean) => async () => {
-    const r = await api<{ risk_cover: boolean }>(`/admin/insurances/${i.id}/${now ? 'cancel-now' : 'cancel-at-period-end'}`, { method: 'POST' })
-    if (!r.risk_cover) toastManager.add({ type: 'warning', title: 'Se queda sin cobertura de riesgo', description: NO_COVER, timeout: 8000 })
-  }
+  const cancel = (now: boolean) => () => cancelInsurance(i.id, now)
   return (
     <Section
       title="Seguro"

@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { ageMarks, canChangeRole, latestStat, noticeLabel, payerCandidates, showMfaNotice, type DayStat, type ProfileFile } from '@/lib/admin'
+import {
+  ageMarks,
+  auditDetail,
+  auditLabel,
+  auditTarget,
+  canCancelPayerChange,
+  canChangeRole,
+  categoryPrefixes,
+  deliveryLabel,
+  latestStat,
+  noticeLabel,
+  pageHref,
+  pageOf,
+  payerCandidates,
+  safeInvoiceUrl,
+  showMfaNotice, type DayStat, type ProfileFile } from '@/lib/admin'
 import { loginPath, redirectFor } from '@/lib/paths'
 
 describe('a dónde va cada rol (B19)', () => {
@@ -94,5 +109,50 @@ describe('usuarios del panel (B19.3)', () => {
     expect(payerCandidates(file(child, 't')).map((p) => p.id)).toEqual(['t2'])
     // Mayor de edad sin reclamar: sin acceso propio, no se paga a sí mismo.
     expect(payerCandidates(file({ ...child, is_minor: false, pending_claim: true }, 't')).map((p) => p.id)).toEqual(['t2'])
+  })
+})
+
+describe('auditoría, avisos y cobros (B19.4)', () => {
+  it('la categoría se convierte en prefijos de action; una desconocida no filtra', () => {
+    expect(categoryPrefixes('sessions')).toBe('session.,class.')
+    expect(categoryPrefixes('billing')).toContain('insurance.')
+    expect(categoryPrefixes('nope')).toBeUndefined()
+    expect(categoryPrefixes(null)).toBeUndefined()
+  })
+  it('una acción desconocida sale tal cual; las conocidas, en español', () => {
+    expect(auditLabel('attendance.close')).toBe('Cerró la lista')
+    expect(auditLabel('foo.bar')).toBe('foo.bar')
+    expect(noticeLabel('notice.otra')).toBe('notice.otra')
+    expect(deliveryLabel('notice.payment_failed')).toBe('Cobro fallido')
+    expect(deliveryLabel('notice.otra')).toBe('notice.otra')
+  })
+  it('el detalle: corrección, rol y precio; de la salud, nada', () => {
+    expect(auditDetail({ action: 'attendance.correct', changes: { from: 'absent', to: 'present', reason: 'llegó tarde' } })).toBe('ausente → presente · llegó tarde')
+    expect(auditDetail({ action: 'profile.role_change', changes: { from: 'alumno', to: 'profesor' } })).toBe('Alumno → Profesor')
+    expect(auditDetail({ action: 'plan.price_change', changes: { from: 4500, to: 5000 } })).toBe('45 € → 50 €')
+    expect(auditDetail({ action: 'health.view', changes: { student_ids: ['x'] } })).toBe('')
+    expect(auditDetail({ action: 'class.create', changes: null })).toBe('')
+  })
+  it('el recurso: ficha, sesión o texto sin enlace', () => {
+    expect(auditTarget({ resource_type: 'guardian', resource_id: 'u1' }).to).toBe('/admin/users/u1')
+    expect(auditTarget({ resource_type: 'session', resource_id: '7' }).to).toBe('/admin/sessions/7')
+    expect(auditTarget({ resource_type: 'plan', resource_id: '2' })).toEqual({ to: null, label: 'Plan' })
+  })
+  it('solo se anula un cambio de pagador sin pagar', () => {
+    expect(canCancelPayerChange({ status: 'requested' })).toBe(true)
+    expect(canCancelPayerChange({ status: 'paid' })).toBe(false)
+    expect(canCancelPayerChange({ status: 'expired' })).toBe(false)
+  })
+  it('el enlace del recibo solo se abre si es https', () => {
+    expect(safeInvoiceUrl('https://invoice.stripe.com/i/x')).toBe('https://invoice.stripe.com/i/x')
+    expect(safeInvoiceUrl('javascript:alert(1)')).toBeNull()
+    expect(safeInvoiceUrl(null)).toBeNull()
+  })
+  it('la página vive en la URL y conserva los filtros', () => {
+    expect(pageOf(new URLSearchParams('page=3'))).toBe(3)
+    expect(pageOf(new URLSearchParams('page=0'))).toBe(1)
+    expect(pageOf(new URLSearchParams('page=x'))).toBe(1)
+    expect(pageHref(new URLSearchParams('tab=grace&page=2'), 3)).toBe('?tab=grace&page=3')
+    expect(pageHref(new URLSearchParams('tab=grace&page=2'), 1)).toBe('?tab=grace')
   })
 })
