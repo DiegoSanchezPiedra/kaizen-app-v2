@@ -11,10 +11,7 @@
 - **El mismo sistema de diseño de B18** (canvas «Kaizen · Sistema de diseño»): tokens, coss ui, tipografías, claro y
   oscuro. El panel es la cara sobria de la app: sin «nivel de poder», sin animaciones expresivas; el naranja `--power`
   no se usa (aquí no hay rachas ni badges).
-- **Escritorio primero**: se diseña a 1280 px y tiene que funcionar desde 1024 px con la barra lateral fija. Por debajo
-  de 1024 px la barra pasa a un menú en hoja (Sheet) y las tablas se desplazan en horizontal dentro de su marco; en el
-  móvil se consulta, no se optimiza. Densidad media: filas de tabla de 40 px, objetivos táctiles de 44 px donde haya
-  botones sueltos.
+- **Móvil primero** (decidido el 2026-11-02; antes era «escritorio primero»): cada pantalla tiene que funcionar perfecto a 360, 390 y 430 px y seguir bien a 768, 1024 y 1280. Sin scroll horizontal de la página (solo dentro de un marco, como las pestañas largas); por debajo de 640 px las tablas pasan a tarjetas (cada fila, una tarjeta con el nombre de cada columna) y la barra lateral a un menú en hoja (Sheet) por debajo de 1024 px. Objetivos táctiles de 44 px (los botones ya los dan en pantallas táctiles) y los campos a 16 px para que iOS no haga zoom. Densidad media en escritorio: filas de tabla de 40 px.
 - **Componentes de coss ui** que ya están en el repo: Sidebar, Table, Pagination, Tabs, Sheet, Dialog, AlertDialog,
   Combobox, Select, Badge, Card, Meter, Empty, Skeleton, Toast, Field y Form. Sin componentes nuevos de terceros ni
   librería de gráficos: los gráficos son los de HTML y CSS de los informes del profesor (B18.4), con «Ver tabla».

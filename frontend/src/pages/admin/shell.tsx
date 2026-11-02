@@ -115,7 +115,7 @@ export function AdminShell() {
           <SidebarTrigger className="size-11" />
           <span className="font-heading text-lg font-extrabold italic uppercase">Kaizen</span>
         </header>
-        <div className="px-4 py-6 lg:px-8 lg:py-8">
+        <div className="min-w-0 px-4 py-6 lg:px-8 lg:py-8">
           <Outlet />
         </div>
       </SidebarInset>

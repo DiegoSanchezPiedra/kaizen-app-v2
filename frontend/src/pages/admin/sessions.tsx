@@ -146,19 +146,19 @@ export function AdminSessionsPage() {
                       <li key={s.id}>
                         <Link
                           to={`/admin/sessions/${s.id}`}
-                          className="flex min-h-14 flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 outline-none hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                          className="flex min-h-14 flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 outline-none hover:bg-accent/40 active:bg-accent/60 focus-visible:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                         >
-                          <span className="w-28 shrink-0 font-semibold tabular-nums">
+                          <span className="shrink-0 font-semibold tabular-nums sm:w-28">
                             {formatTime(s.starts_at)}–{formatTime(s.ends_at)}
                           </span>
-                          <span className="min-w-0 flex-1">
-                            <span className={cn('font-semibold', s.status === 'cancelled' && 'text-muted-foreground line-through')}>{s.discipline.name}</span>
-                            <span className="text-sm text-muted-foreground">
-                              {' · '}
+                          <span className="order-last min-w-0 basis-full sm:order-none sm:flex-1 sm:basis-auto">
+                            <span className={cn('block font-semibold sm:inline', s.status === 'cancelled' && 'text-muted-foreground line-through')}>{s.discipline.name}</span>
+                            <span className="block text-sm text-muted-foreground sm:inline">
+                              <span className="hidden sm:inline">{' · '}</span>
                               {[s.trainer ? name(s.trainer) : 'Sin profesor', s.location].filter(Boolean).join(' · ')}
                             </span>
                           </span>
-                          <span className="text-sm text-muted-foreground tabular-nums">{plural(s.capacity, 'plaza', 'plazas')}</span>
+                          <span className="ml-auto text-sm text-muted-foreground tabular-nums sm:ml-0">{plural(s.capacity, 'plaza', 'plazas')}</span>
                           <StateTag s={s} />
                         </Link>
                       </li>

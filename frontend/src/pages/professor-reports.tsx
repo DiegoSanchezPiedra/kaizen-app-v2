@@ -162,7 +162,7 @@ export function MonthBars<T>({ months, max, ticks, unit, stack, tip, labelLast, 
           >
             <Stack parts={stack(m)} max={max} />
             {i === last && (
-              <span className="pointer-events-none absolute -right-2 -left-2 text-center text-xs font-semibold whitespace-nowrap tabular-nums" style={{ bottom: `calc(${(stack(m).reduce((s, p) => s + p.v, 0) / max) * 100}% + 4px)` }}>
+              <span className="pointer-events-none absolute right-0 text-right text-xs font-semibold whitespace-nowrap tabular-nums" style={{ bottom: `calc(${(stack(m).reduce((s, p) => s + p.v, 0) / max) * 100}% + 4px)` }}>
                 {labelLast(m)}
               </span>
             )}

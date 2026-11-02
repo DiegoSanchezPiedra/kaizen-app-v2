@@ -258,3 +258,12 @@
     transition-property: opacity, color, background-color, border-color !important;
   }
 }
+
+/* Táctil: los enlaces de texto (nombres en tablas y listas) miden 14–16 px de alto; el relleno vertical agranda
+   la zona de toque y el margen negativo deja el layout como estaba. */
+@media (pointer: coarse) {
+  a.text-link {
+    padding-block: 0.65rem;
+    margin-block: -0.65rem;
+  }
+}

@@ -65,7 +65,7 @@ function Figures() {
             <Link
               key={f.key}
               to={f.to}
-              className="flex min-w-0 flex-col gap-2 rounded-xl border bg-card p-4 outline-none transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex min-w-0 flex-col gap-2 rounded-xl border bg-card p-4 outline-none transition-colors hover:bg-accent/40 active:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring"
             >
               <span className="text-[13px] font-medium text-muted-foreground">{f.label}</span>
               <span className="font-heading text-3xl leading-none font-bold tabular-nums">{f.key === 'mrr_cents' ? formatEuros(v) : nf.format(v)}</span>
@@ -207,7 +207,7 @@ export function AdminHomePage() {
     <Page title="Inicio" wide>
       <MfaNotice />
       <Figures />
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Attention />
         <Today />
       </div>

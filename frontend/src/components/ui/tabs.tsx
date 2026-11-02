@@ -45,7 +45,7 @@ export function TabsList({
   return (
     <TabsPrimitive.List
       className={cn(
-        "relative z-0 flex w-fit items-center justify-center gap-x-0.5 text-muted-foreground",
+        "relative z-0 flex w-fit max-w-full items-center justify-start gap-x-0.5 overflow-x-auto text-muted-foreground [scrollbar-width:none]",
         "data-[orientation=vertical]:flex-col",
         variant === "default"
           ? "rounded-lg bg-muted p-0.5 text-muted-foreground/72"

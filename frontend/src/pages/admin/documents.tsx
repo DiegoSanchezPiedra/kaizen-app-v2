@@ -149,6 +149,7 @@ function Upload({ onClose }: { onClose: () => void }) {
     <Dialog open onOpenChange={(o) => !o && !send.isPending && onClose()}>
       <DialogPopup closeProps={{ 'aria-label': 'Cerrar' }}>
         <form
+          className="flex min-h-0 flex-1 flex-col"
           onSubmit={(e) => {
             e.preventDefault()
             if (!problem && !send.isPending) send.mutate()
