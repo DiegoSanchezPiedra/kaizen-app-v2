@@ -45,3 +45,7 @@ npm run dev
 - `npm run migrate` - Run database migrations
 - `npm run lint` - Lint the code
 - `npm run format` - Format the code
+## Staging (para que el cliente pruebe)
+
+Una instancia aparte publicada por ngrok, con Stripe en modo prueba: paso a paso en
+[`deploy/staging/README.md`](deploy/staging/README.md).
