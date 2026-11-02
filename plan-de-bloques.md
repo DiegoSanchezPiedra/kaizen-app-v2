@@ -1985,7 +1985,7 @@
 ### B20 — Hardening (rate limiting, RLS audit, backups, E2E) — Pendiente
 - **Objetivo**: endurecer el sistema.
 - **Entregable**: rate limiting, auditoría de RLS, backups (incluido `storage/`), tests E2E, runner formal (Node test runner o Vitest), `npm run lint`, `npm run test`, `npm run build:prod` si hay frontend.
-- **Despliegue** (decidido el 2026-11-02, `docs/adr/0017-un-vps-con-docker-compose-e-imagenes-privadas.md`): un VPS con Docker Compose, nginx y cron del sistema, con imágenes de un registro privado (ghcr.io), no de Docker Hub público ni con el repo en el servidor. Falta escribir el `Dockerfile`, el `docker-compose.prod.yaml`, el CI y el script de despliegue.
+- **Despliegue** (decidido el 2026-11-02, `docs/adr/0017-un-vps-con-docker-compose-y-nginx.md`): un VPS con Docker Compose, nginx y cron del sistema, desplegando con `git pull` y `docker compose up -d --build`; las imágenes de un registro privado (ghcr.io) quedan por valorar y Docker Hub público está descartado. Falta escribir el `Dockerfile`, el `docker-compose.prod.yaml` y el script de despliegue.
 - **Fuera de alcance**: nada.
 - **Checklist de cierre**:
   - [ ] Rate limiting en `/auth/*`, `/admin/agreements/*` y `/tablet/link` (B9).
