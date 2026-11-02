@@ -3,6 +3,7 @@ import { Router } from 'express';
 
 import { httpError } from '../lib/errors.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { authLimit, forgotLimit } from '../middleware/rateLimit.js';
 import { withRls } from '../db/rls.js';
 import { registerLocal, loginLocal, loginGoogle, requestPasswordReset, resetPassword } from '../services/auth.js';
 import { signToken } from '../services/jwt.js';
@@ -29,7 +30,7 @@ const router = Router();
 // Registro / login
 // ---------------------------------------------------------------------------
 
-router.post('/register', async (req, res, next) => {
+router.post('/register', authLimit, async (req, res, next) => {
   try {
     const { email, password, displayName, birthDate } = req.body || {};
     const result = await registerLocal({ email, password, displayName, birthDate });
@@ -39,7 +40,7 @@ router.post('/register', async (req, res, next) => {
   }
 });
 
-router.post('/login', async (req, res, next) => {
+router.post('/login', authLimit, async (req, res, next) => {
   try {
     const { email, password } = req.body || {};
     const { profileId, email: userEmail, role } = await loginLocal({
@@ -64,7 +65,7 @@ router.post('/login', async (req, res, next) => {
   }
 });
 
-router.post('/google', async (req, res, next) => {
+router.post('/google', authLimit, async (req, res, next) => {
   try {
     const { id_token } = req.body || {};
     if (!id_token) {
@@ -97,12 +98,12 @@ router.post('/google', async (req, res, next) => {
 // POST /auth/password/reset  { token, password } → 204; 400 invalid_reset_token | weak_password
 // ---------------------------------------------------------------------------
 
-router.post('/password/forgot', asyncHandler(async (req, res) => {
+router.post('/password/forgot', forgotLimit, asyncHandler(async (req, res) => {
   await requestPasswordReset(req.body?.email);
   res.status(204).end();
 }));
 
-router.post('/password/reset', asyncHandler(async (req, res) => {
+router.post('/password/reset', authLimit, asyncHandler(async (req, res) => {
   await resetPassword({ token: req.body?.token, password: req.body?.password });
   res.status(204).end();
 }));
@@ -159,6 +160,7 @@ router.post(
 
 router.post(
   '/mfa/verify',
+  authLimit,
   requireMfaTokenFromBody,
   async (req, res, next) => {
     try {

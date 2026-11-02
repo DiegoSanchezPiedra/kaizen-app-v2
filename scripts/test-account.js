@@ -64,12 +64,14 @@ const booking = (await servicePool.query(
   `INSERT INTO bookings (session_id, student_id, booked_by, status) VALUES ($1, $2, $3, 'confirmed') RETURNING id`,
   [session, U.child, U.parent])).rows[0].id;
 
-const app = express().use(express.json()).use('/auth', authRouter).use('/me', meRouter).use('/sessions', sessionsRouter)
+// Cada petición con su IP (X-Forwarded-For): el rate limiting (B20) no es lo que se prueba aquí; ver test-ratelimit.js.
+const app = express().set('trust proxy', true).use(express.json()).use('/auth', authRouter).use('/me', meRouter).use('/sessions', sessionsRouter)
   .use(errorHandler);
 const server = app.listen(0);
 const base = `http://127.0.0.1:${server.address().port}`;
+let reqs = 0;
 const http = async (method, url, who, body) => {
-  const headers = { 'content-type': 'application/json' };
+  const headers = { 'content-type': 'application/json', 'x-forwarded-for': `10.0.0.${++reqs % 250}` };
   if (who) headers.authorization = `Bearer ${signToken({ sub: U[who], role: people[who][0] })}`;
   const res = await fetch(base + url, { method, headers, body: body && JSON.stringify(body) });
   const text = await res.text();

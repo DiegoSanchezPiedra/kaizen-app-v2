@@ -3,12 +3,13 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { httpError } from '../lib/errors.js';
+import { tabletLinkLimit } from '../middleware/rateLimit.js';
 import { linkTablet, tabletFeed, qrPeriod, qrStep, qrCode } from '../services/checkin.js';
 
 const router = Router();
 
 // POST /tablet/link { code } → { device_token }: se devuelve una sola vez.
-router.post('/link', asyncHandler(async (req, res) => {
+router.post('/link', tabletLinkLimit, asyncHandler(async (req, res) => {
   res.status(201).json(await linkTablet(req.body?.code));
 }));
 

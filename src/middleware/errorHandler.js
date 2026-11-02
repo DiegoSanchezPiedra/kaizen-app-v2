@@ -10,6 +10,7 @@ const CATEGORIES = {
   403: 'forbidden',
   404: 'not_found',
   409: 'conflict',
+  429: 'too_many_requests',
 };
 
 // Firma obligatoria de 4 args para que Express lo reconozca como error handler

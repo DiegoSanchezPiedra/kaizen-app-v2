@@ -256,7 +256,7 @@ Una fila por día con el estado de las suscripciones; no cambia nunca y un día 
 - `disciplines`: las activas para cualquier autenticado y todas para el admin (007); el suscriptor, las de su suscripción viva (012); el profesor, también las de sus sesiones aunque estén desactivadas (`disciplines_select_trainer`, `024`, B17).
 - `user_mfa`: solo el propio usuario y service_role.
 - `password_resets`: RLS forzada sin políticas y sin privilegios para `app_user`; solo por sus dos funciones (`025`).
-- `audit_log`: solo admin lectura; escritura solo service_role.
+- `audit_log`: solo admin lectura; `app_user` no inserta (027): escribe `write_audit(actor, action, resource_type, resource_id, changes)` (`SECURITY DEFINER`, owner `service_role`), que exige que el actor sea el de la sesión, deja al admin anotar cualquier acción y al resto solo `subscription.upgrade|downgrade|downgrade_cancel`; el servicePool y las funciones `SECURITY DEFINER` escriben directo.
 - `notice_deliveries`: RLS forzada; solo el admin lee (`026`, B19.0, para las entregas fallidas del panel); escribe solo `servicePool` y `enqueue_notice`.
 - `academy_stats_daily`: solo el admin lee (lleva dinero, también en `/admin/reports/subscriptions`); el profesor y el alumno, nada. Sin escritura para `app_user`: la escribe `snapshot_academy_stats` (sin `EXECUTE` para `app_user`) con `servicePool`.
 - `webhook_events`: solo service_role.

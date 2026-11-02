@@ -4,10 +4,11 @@ import { httpError } from '../../lib/errors.js';
 import { requireAuth, requireRole, withRlsContext } from '../../middleware/auth.js';
 import { withRls } from '../../db/rls.js';
 import { asyncHandler } from '../../middleware/asyncHandler.js';
+import { agreementsAdminLimit } from '../../middleware/rateLimit.js';
 import { createDocument, listDocuments, publishDocument, getDocumentFile } from '../../services/agreements.js';
 
 const router = Router();
-router.use(requireAuth, requireRole('admin'));
+router.use(agreementsAdminLimit, requireAuth, requireRole('admin'));
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

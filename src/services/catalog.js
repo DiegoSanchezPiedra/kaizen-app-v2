@@ -1,5 +1,4 @@
 // src/services/catalog.js
-import crypto from 'node:crypto';
 import { stripe, STRIPE_STATEMENT_DESCRIPTOR } from '../config/stripe.js';
 import { httpError } from '../lib/errors.js';
 import { callChange } from './sessions.js';
@@ -314,11 +313,7 @@ export async function getEligibleDisciplines(client, planId) {
   return (await getPlan(client, planId)).eligible_discipline_ids;
 }
 
+// write_audit() (027): con el cliente RLS, `actorId` tiene que ser el de la sesión; con el servicePool, el que se pase.
 export function audit(client, actorId, action, resourceId, changes) {
-  const type = action.split('.')[0];
-  return client.query(
-    `INSERT INTO audit_log (id, actor_id, action, resource_type, resource_id, changes)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [crypto.randomUUID(), actorId, action, type, resourceId, changes]
-  );
+  return client.query(`SELECT write_audit($1, $2, $3, $4, $5)`, [actorId, action, action.split('.')[0], String(resourceId), changes]);
 }

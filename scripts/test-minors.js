@@ -44,14 +44,15 @@ const denied = (c, fn) => fails(c, fn, /row-level security/);
 
 try {
   await withRls({ uid: admin, role: 'admin' }, async (c) => {
-    // Versiones de prueba vigentes (el ROLLBACK final las descarta).
+    // Versiones de prueba vigentes (el ROLLBACK final las descarta), únicas: no chocan con documentos ya subidos.
+    const V = `9.${Date.now() % 1e9}`;
     for (const type of TYPES) {
-      const d = await createDocument(c, { type, version: '9.9', buffer: Buffer.from(`%PDF-1.4 ${type}`) });
+      const d = await createDocument(c, { type, version: V, buffer: Buffer.from(`%PDF-1.4 ${type}`) });
       files.push(`${d.id}.pdf`);
       await publishDocument(c, { id: d.id, actorId: admin });
     }
     const sign = (type, profileId, signedBy) =>
-      signAgreement(c, { profileId, signedBy, type, version: '9.9' });
+      signAgreement(c, { profileId, signedBy, type, version: V });
 
     let hijo;
     await run('el tutor crea un hijo: perfil + alumno + vínculo, sin credenciales', async () => {

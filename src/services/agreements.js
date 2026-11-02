@@ -109,11 +109,9 @@ export async function publishDocument(client, { id, actorId }) {
       WHERE id = $1 RETURNING id, type, version, published_at`,
     [id, actorId]
   );
-  await client.query(
-    `INSERT INTO audit_log (id, actor_id, action, resource_type, resource_id, changes)
-     VALUES ($1, $2, 'agreement_document.publish', 'agreement_document', $3, $4)`,
-    [crypto.randomUUID(), actorId, id, { type: doc.type, version: doc.version, retired: retired[0]?.version ?? null }]
-  );
+  await client.query(`SELECT write_audit($1, 'agreement_document.publish', 'agreement_document', $2, $3)`, [
+    actorId, id, { type: doc.type, version: doc.version, retired: retired[0]?.version ?? null },
+  ]);
   // Aviso de re-firma a quien queda bloqueado (B15), en la misma transacción.
   await client.query(`SELECT agreement_notice($1)`, [id]);
   return published;

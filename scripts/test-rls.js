@@ -199,14 +199,30 @@ async function main() {
       assert.equal(rows.length, 1);
     });
 
-    await run('admin puede INSERT en audit_log', async () => {
-      await withCtx({ uid: ids.admin, role: 'admin' }, (c) =>
-        c.query(
-          `INSERT INTO audit_log (id, actor_id, action, resource_type, resource_id)
-           VALUES ($1,$2,'test','profiles',$3)`,
-          [crypto.randomUUID(), ids.admin, String(ids.a)]
-        )
-      );
+    // 027: nadie inserta en audit_log por SQL; se anota con write_audit(), firmado con el actor de la sesión.
+    await run('nadie (ni el admin) puede INSERT directo en audit_log', async () => {
+      for (const ctx of [{ uid: ids.admin, role: 'admin' }, { uid: ids.a, role: 'alumno' }]) {
+        await expectDenied(withCtx(ctx, (c) => c.query(
+          `INSERT INTO audit_log (id, actor_id, action, resource_type, resource_id) VALUES ($1,$2,'test','profiles',$3)`,
+          [crypto.randomUUID(), ctx.uid, String(ids.a)])));
+      }
+    });
+
+    await run('write_audit: el admin anota con su actor; nadie firma como otro', async () => {
+      const rows = await withCtx({ uid: ids.admin, role: 'admin' }, async (c) => {
+        await c.query(`SELECT write_audit($1, 'test.rls', 'profiles', $2, '{}')`, [ids.admin, String(ids.a)]);
+        return (await c.query(`SELECT actor_id FROM audit_log WHERE action = 'test.rls' AND resource_id = $1`, [String(ids.a)])).rows;
+      });
+      assert.deepEqual(rows.map((r) => r.actor_id), [ids.admin]);
+      await expectDenied(withCtx({ uid: ids.admin, role: 'admin' }, (c) =>
+        c.query(`SELECT write_audit($1, 'test.rls', 'profiles', $2, '{}')`, [ids.a, String(ids.a)])));
+    });
+
+    await run('write_audit: un alumno solo anota sus cambios de plan', async () => {
+      await withCtx({ uid: ids.a, role: 'alumno' }, (c) =>
+        c.query(`SELECT write_audit($1, 'subscription.downgrade_cancel', 'subscription', 'x', '{}')`, [ids.a]));
+      await expectDenied(withCtx({ uid: ids.a, role: 'alumno' }, (c) =>
+        c.query(`SELECT write_audit($1, 'profile.role_change', 'profile', $2, '{}')`, [ids.a, String(ids.a)])));
     });
 
     await run('admin NO puede UPDATE en audit_log', async () => {

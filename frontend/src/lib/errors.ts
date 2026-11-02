@@ -171,3 +171,8 @@ Object.assign(TEXTS, {
   empty_patch: 'No hay nada que cambiar.', // propuesto
   insurance_prices_missing: 'Pon los dos precios antes de activar el seguro.', // propuesto
 })
+
+// B20 (rate limiting): 429 en el login, el MFA, recuperar contraseña y vincular la tablet.
+Object.assign(TEXTS, {
+  rate_limited: 'Demasiados intentos. Espera unos minutos y vuelve a intentarlo.', // propuesto
+})

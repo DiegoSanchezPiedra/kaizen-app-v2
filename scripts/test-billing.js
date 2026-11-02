@@ -691,14 +691,15 @@ try {
   for (const id of stripeSubs) await stripe.subscriptions.cancel(id).catch(() => {});
   await servicePool.query(`DELETE FROM academy_settings WHERE key LIKE 'insurance\\_%'`);
   for (const { key, value } of savedSettings) {
-    await servicePool.query(`INSERT INTO academy_settings (key, value) VALUES ($1, $2)`, [key, value]);
+    // value llega ya parseado (jsonb): un string («price_…») hay que volver a pasarlo como JSON.
+    await servicePool.query(`INSERT INTO academy_settings (key, value) VALUES ($1, $2::jsonb)`, [key, JSON.stringify(value)]);
   }
   await servicePool.query(`DELETE FROM audit_log WHERE resource_type = 'insurance' AND actor_id = ANY($1::uuid[])`, [Object.values(U)]);
   await servicePool.query(`DELETE FROM audit_log WHERE resource_id = ANY($1::text[])`, [Object.values(sub)]);
   await servicePool.query(`DELETE FROM audit_log WHERE action = 'settings.discipline_changes' AND actor_id = $1`, [U.admin]);
   await servicePool.query(`DELETE FROM academy_settings WHERE key = 'discipline_changes_per_period'`);
   if (savedChanges !== undefined) {
-    await servicePool.query(`INSERT INTO academy_settings (key, value) VALUES ('discipline_changes_per_period', $1)`, [savedChanges]);
+    await servicePool.query(`INSERT INTO academy_settings (key, value) VALUES ('discipline_changes_per_period', $1::jsonb)`, [JSON.stringify(savedChanges)]);
   }
   await servicePool.query(`DELETE FROM invoices WHERE student_id = ANY($1::uuid[])`, [Object.values(U)]);
   await servicePool.query(`DELETE FROM insurances WHERE student_id = ANY($1::uuid[])`, [Object.values(U)]);

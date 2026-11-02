@@ -54,7 +54,8 @@ y los 3 documentos legales publicados (PDFs de prueba). Imprime las cuentas; la 
 ## Cuidado
 
 - La URL de ngrok es **pública**: cualquiera que la tenga ve la pantalla de entrada. Pasa solo las cuentas de demo y no metas
-  datos reales de clientes de maat. El rate limiting aún no está (B20).
+  datos reales de clientes de maat. El login, el MFA, recuperar contraseña y vincular la tablet tienen límite por IP
+  (`429`, B20): un equipo probando desde la misma oficina comparte el contador (30 intentos de entrada cada 15 min).
 - ngrok gratis enseña una pantalla intermedia la primera vez y cambia la URL al reiniciar (rompe enlaces de emails ya enviados).
 - Reiniciar de cero: `docker compose -f deploy/staging/docker-compose.staging.yaml --env-file .env.staging down -v`
   (borra la BD de staging) y repite «Una vez» 3 y el seed.

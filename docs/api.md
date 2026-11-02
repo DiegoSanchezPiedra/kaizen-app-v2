@@ -13,6 +13,10 @@
 - **Errores**: `{ error, code, message, ...details }`. `error` es la categoría (`bad_request`, `unauthorized`,
   `payment_required`, `forbidden`, `not_found`, `conflict`, `internal_error`); la UI decide por `code`. Los de campo
   traen `field` (`invalid_field`). `message` está en español pero es técnico: la UI pone su propio texto por `code`.
+- **Rate limiting** (B20): por IP, `429 rate_limited` (`error: too_many_requests`) con `Retry-After` en segundos. `POST /auth/register`,
+  `/auth/login`, `/auth/google`, `/auth/mfa/verify` y `/auth/password/reset`: 30 cada 15 min (contador común); `/auth/password/forgot`:
+  5 por hora; `/tablet/link`: 10 cada 15 min; todo `/admin/agreements/*`: 60 cada 15 min. La IP sale de `TRUST_PROXY` (saltos de proxy:
+  1 en el VPS con Nginx, 2 en el staging con ngrok + Nginx).
 - **Comunes**: `401 missing_token|invalid_token`, `403 insufficient_role` (rol no permitido), `400 invalid_id` (uuid o id
   numérico mal formado), `404 not_found` (ruta inexistente).
 - **Perfil completo** (`requireCompleteProfile`): reservar, contratar y el Checkout del cambio de pagador fallan con
