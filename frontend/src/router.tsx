@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { AppCrash } from '@/components/screen-state'
 import { createBrowserRouter, Navigate, Outlet, useLocation, useSearchParams } from 'react-router'
 import { setUnauthorizedHandler, setWrongRoleHandler } from '@/lib/api'
 import { checkRole, logout } from '@/lib/logout'
@@ -54,6 +55,7 @@ function RequireSession() {
 export const router = createBrowserRouter([
   {
     element: <PublicOnly />,
+    errorElement: <AppCrash />,
     children: [
       { path: '/login', element: <LoginPage /> },
       { path: '/register', element: <RegisterPage /> },
@@ -61,11 +63,12 @@ export const router = createBrowserRouter([
     ],
   },
   // Vale con o sin sesión: el enlace llega por email.
-  { path: '/reset-password', element: <ResetPasswordPage /> },
+  { path: '/reset-password', element: <ResetPasswordPage />, errorElement: <AppCrash /> },
   // La tablet no es un usuario: sin sesión, con su propio token. Pesa por `qrcode`, así que se baja solo aquí.
-  { path: '/tablet', lazy: async () => ({ Component: (await import('@/pages/tablet')).TabletPage }) },
+  { path: '/tablet', errorElement: <AppCrash />, lazy: async () => ({ Component: (await import('@/pages/tablet')).TabletPage }) },
   {
     element: <RequireSession />,
+    errorElement: <AppCrash />,
     children: [
       // El panel va en trozos aparte que el alumno no baja (el Service Worker los precachea con el esqueleto).
       {

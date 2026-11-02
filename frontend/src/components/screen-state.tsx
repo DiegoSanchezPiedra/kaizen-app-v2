@@ -1,12 +1,14 @@
 import type { UseQueryResult } from '@tanstack/react-query'
 import { CircleAlertIcon, LockIcon, RefreshCwIcon, SearchXIcon, WifiOffIcon } from 'lucide-react'
 import type React from 'react'
-import { Link } from 'react-router'
+import { useEffect, useState } from 'react'
+import { Link, useRouteError } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ApiError } from '@/lib/api'
 import { errorText } from '@/lib/errors'
+import { updateAndReload } from '@/lib/sw-update'
 
 // Estados comunes de docs/pantallas-b18.md: error, sin conexión y sin permiso. Cargando y vacío los pone cada pantalla.
 export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
@@ -95,4 +97,38 @@ export function QueryView<T>({
   if (query.isPending) return <>{skeleton}</>
   if (query.isError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
   return <>{children(query.data)}</>
+}
+
+// Pantalla de error del router (cuando una pantalla revienta): en vez del «Unexpected Application Error!» de React Router,
+// la salida que casi siempre lo arregla, actualizar a la versión nueva (lib/sw-update.ts).
+export function AppCrash() {
+  const error = useRouteError()
+  const [busy, setBusy] = useState(false)
+  useEffect(() => console.error(error), [error])
+  return (
+    <div className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center px-4">
+      <Empty role="alert" className="rounded-2xl border bg-card">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <CircleAlertIcon />
+          </EmptyMedia>
+          <EmptyTitle>Algo ha fallado</EmptyTitle>
+          <EmptyDescription>Puede que tengas una versión antigua de la app. Actualízala y vuelve a intentarlo.</EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button
+            size="xl"
+            loading={busy}
+            onClick={() => {
+              setBusy(true)
+              void updateAndReload()
+            }}
+          >
+            <RefreshCwIcon />
+            Actualizar y recargar
+          </Button>
+        </EmptyContent>
+      </Empty>
+    </div>
+  )
 }
