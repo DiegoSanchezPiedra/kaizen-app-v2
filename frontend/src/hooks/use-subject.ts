@@ -10,11 +10,12 @@ export function useSubject() {
   const [params, setParams] = useSearchParams()
   const enabled = session?.role === 'alumno' || session?.role === 'tutor'
   const { data, isPending, error, refetch } = useQuery({
+    // Misma clave y misma forma (la lista) que pages/children.tsx: si no, la que llega primero a la caché rompe a la otra.
     queryKey: ['me', 'children'],
-    queryFn: () => api<{ children: Child[] }>('/me/children'),
+    queryFn: () => api<{ children: Child[] }>('/me/children').then((r) => r.children),
     enabled,
   })
-  const options = session && data ? subjectOptions(session.role, session.id, data.children) : []
+  const options = session && data ? subjectOptions(session.role, session.id, data) : []
   const subject = activeSubject(options, params.get('para'))
   const select = (id: string) =>
     setParams((p) => {
