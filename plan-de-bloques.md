@@ -67,6 +67,7 @@
 | B18 | Frontend PWA (alumno, tutor, profesor, tablet; sub-bloques B18.0–B18.6) | B13, B15, B17 | CERRADO (con pruebas en dispositivos pendientes) |
 | B19 | Panel admin (métricas, usuarios, auditoría, morosos; sub-bloques B19.0–B19.6) | B11, B17, B10.2, B18 | Diseñado |
 | B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos | Pendiente |
+| B21 | Eventos (inscripción, cobro aparte, panel) | B10, B18, B19 | Pendiente (sin diseñar) |
 
 ---
 
@@ -2010,3 +2011,23 @@
   - [ ] **[Baja] Transacción del worker de avisos abierta durante el envío** (B10.6): hasta 20 × 15 s en el peor caso. Arreglo: marcar en curso, confirmar y enviar fuera.
   - [ ] **[Media] Endpoints de B11 sin test HTTP** (el E2E sí pasa por HTTP), en especial el Checkout del cambio de pagador con un perfil incompleto (403).
   - [ ] **[Baja] `scripts/test-attendance.js` falla entre las 00:00 y las 00:05 de Madrid** (detectado en B8): la sesión «de hoy» empieza 5 min antes de `now()` y cae en el día anterior. Arreglo: fijar la hora de la sesión dentro del día de Madrid o inyectar el reloj al migrar a la BD efímera.
+
+### B21 — Eventos — Pendiente (sin diseñar)
+- **Objetivo**: los **eventos** de `CONTEXT.md` (seminario, torneo, examen de grado, quedada): fuera del horario regular, sin
+  depender de cubrir, gratis o de pago aparte. A un evento uno se **inscribe**; no es una sesión. Hasta ahora no tenían bloque
+  (B6 los dejó fuera; `docs/api.md` § Huecos). Pedido el 2026-11-02, al preparar el staging: «no veo cómo crear eventos».
+- **De partida**: las tablas `events` y `event_registrations` y el enum `event_payment_status` de `001`, sin uso; la FK
+  `events.id → class_sessions(id)` es un error (B6) y se quita aquí. «Sesión suelta» no sirve de sustituto: exige cuota que cubra,
+  cobertura de riesgo y aforo, y no cobra aparte.
+- **Diseño** (grill, Opus alto; dinero y menores): qué decidir antes de implementar:
+  - **Pago**: gratis o de pago; precio de socio y de no socio; cobro único (Checkout `mode: payment`, sandbox) y qué pasa al
+    cancelar (reembolso o no, plazos); conciliación por webhook.
+  - **Quién se inscribe**: alumno adulto, tutor por sus hijos, el admin por cualquiera; ¿personas sin cuenta?
+  - **Requisitos**: perfil completo, ficha médica, cobertura de riesgo (exención o seguro) o un acuerdo propio del evento.
+  - **Aforo** y lista de espera; disciplina y profesor opcionales; lugar; varias fechas o una.
+  - **Avisos** (email y push) al cambiar o cancelar un evento, y quién lo cancela.
+  - **Pantallas**: dónde lo ve el alumno (calendario o sección propia), el panel (crear, editar, cancelar, inscritos, cobros) y el
+    profesor (lista); check-in (lista o QR de la tablet).
+  - **Auditoría** (`write_audit`, 027) y RLS de las tablas.
+- **Orden**: después de que el cliente pruebe el staging; no bloquea B20.
+
