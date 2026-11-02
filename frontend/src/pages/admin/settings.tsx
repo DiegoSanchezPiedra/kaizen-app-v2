@@ -1,0 +1,135 @@
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import type React from 'react'
+import { Page } from '@/components/page'
+import { ErrorState, ListSkeleton } from '@/components/screen-state'
+import { Button } from '@/components/ui/button'
+import { api } from '@/lib/api'
+import { centsToEuros, changed, checkinBody, insuranceBody, minutesOf, perPeriodBody, type Settings } from '@/lib/catalog'
+import { queryClient } from '@/lib/logout'
+import { toastOk } from '@/lib/notify'
+import { SwitchRow, TextField, useFieldError } from '@/pages/admin/schedule-bits'
+import { useConfirm } from '@/pages/admin/user-billing'
+
+const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin'] })
+const text = (n: number | null) => (n === null ? '' : String(n))
+
+// docs/pantallas-b19.md § Ajustes: tres grupos, cada uno con su «Guardar».
+export function AdminSettingsPage() {
+  const q = useQuery({ queryKey: ['admin', 'settings'], queryFn: () => api<Settings>('/admin/settings') })
+  return (
+    <Page title="Ajustes" wide>
+      {q.isPending ? (
+        <ListSkeleton rows={3} className="h-40" />
+      ) : q.isError ? (
+        <ErrorState error={q.error} onRetry={() => void q.refetch()} />
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <Checkin saved={q.data.checkin} />
+          <DisciplineChanges saved={q.data.discipline_changes} />
+          <Insurance saved={q.data.insurance} />
+        </div>
+      )}
+    </Page>
+  )
+}
+
+function Group({ title, description, onSave, disabled, loading, children }: { title: string; description: string; onSave: () => void; disabled: boolean; loading: boolean; children: React.ReactNode }) {
+  return (
+    <form
+      className="flex flex-col gap-4 rounded-2xl border bg-card p-5"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (!disabled && !loading) onSave()
+      }}
+    >
+      <div>
+        <h2 className="font-heading text-lg font-bold">{title}</h2>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </div>
+      {children}
+      <Button type="submit" size="xl" className="self-start" disabled={disabled} loading={loading}>
+        Guardar
+      </Button>
+    </form>
+  )
+}
+
+// Un grupo se guarda con su PUT; lo que no ha cambiado no se manda ni se puede guardar.
+function useSave(url: string, body: object | null, saved: object, fe: ReturnType<typeof useFieldError>) {
+  const m = useMutation({
+    mutationFn: () => {
+      fe.clear()
+      return api(url, { method: 'PUT', body })
+    },
+    onSuccess: () => toastOk('Ajustes guardados'),
+    onError: fe.fail,
+    onSettled: () => void refresh(),
+  })
+  return { m, disabled: !body || !changed(saved, body) }
+}
+
+function Checkin({ saved }: { saved: Settings['checkin'] }) {
+  const [d, setD] = useState({ opens_minutes: text(saved.opens_minutes), closes_minutes: text(saved.closes_minutes), qr_seconds: text(saved.qr_seconds) })
+  const fe = useFieldError()
+  const body = checkinBody(d)
+  const { m, disabled } = useSave('/admin/settings/checkin', body, saved, fe)
+  const field = (k: keyof typeof d, label: string, hint: string) => (
+    <TextField label={label} value={d[k]} onChange={(v) => setD((x) => ({ ...x, [k]: v }))} inputMode="numeric" hint={hint} error={fe.error(k) ?? (d[k] && minutesOf(d[k]) === null ? 'Escribe un número entero entre 1 y 1440.' : undefined)} />
+  )
+  return (
+    <Group title="Check-in" description="Cuándo se abre la lista de una sesión y cada cuánto cambia el QR de la tablet." onSave={() => m.mutate()} disabled={disabled} loading={m.isPending}>
+      {field('opens_minutes', 'Abre (minutos antes)', 'Entre 1 y 1440.')}
+      {field('closes_minutes', 'Cierra (minutos después)', 'Entre 1 y 1440.')}
+      {field('qr_seconds', 'El QR cambia cada (segundos)', 'Entre 1 y 1440.')}
+    </Group>
+  )
+}
+
+function DisciplineChanges({ saved }: { saved: Settings['discipline_changes'] }) {
+  const [v, setV] = useState(String(saved.per_period))
+  const fe = useFieldError()
+  const { m, disabled } = useSave('/admin/settings/discipline-changes', perPeriodBody(v), saved, fe)
+  return (
+    <Group title="Cambios de disciplina" description="Cuántas veces por periodo de cuota puede cambiar el alumno una disciplina de su plan." onSave={() => m.mutate()} disabled={disabled} loading={m.isPending}>
+      <TextField label="Cambios por periodo" value={v} onChange={setV} inputMode="numeric" hint="0 o más. Con 0 no hay cambios, salvo los gratis (cuando ya no se cubría la disciplina)." error={fe.error('per_period') ?? (v && perPeriodBody(v) === null ? 'Escribe un número entero, 0 o más.' : undefined)} />
+    </Group>
+  )
+}
+
+function Insurance({ saved }: { saved: Settings['insurance'] }) {
+  const [d, setD] = useState({ adult: saved.price_adult_cents === null ? '' : centsToEuros(saved.price_adult_cents), minor: saved.price_minor_cents === null ? '' : centsToEuros(saved.price_minor_cents), enabled: saved.enabled })
+  const fe = useFieldError()
+  const body = insuranceBody(saved, d)
+  const { ask, dialog } = useConfirm(() => void refresh())
+  const { m, disabled } = useSave('/admin/settings/insurance', body, saved, fe)
+  const disabling = saved.enabled && !d.enabled
+  const missing = d.enabled && (d.adult.trim() === '' || d.minor.trim() === '')
+  return (
+    <>
+      <Group
+        title="Seguro"
+        description="El seguro anual de riesgos. Un precio nuevo vale para los seguros que se contraten o renueven desde ahora."
+        onSave={() =>
+          disabling
+            ? ask({
+                title: '¿Dejar de ofrecer el seguro?',
+                description: 'Los seguros vivos no se renuevan y se avisa a sus pagadores. Nadie podrá contratarlo hasta que lo actives otra vez.',
+                label: 'Desactivar y avisar',
+                done: 'Seguro desactivado',
+                destructive: true,
+                run: () => api('/admin/settings/insurance', { method: 'PUT', body }),
+              })
+            : m.mutate()
+        }
+        disabled={disabled}
+        loading={m.isPending}
+      >
+        <TextField label="Precio adulto al año (€)" value={d.adult} onChange={(v) => setD((x) => ({ ...x, adult: v }))} inputMode="decimal" hint="Impuestos incluidos." error={fe.error('price_adult_cents') ?? (d.adult && !/^\d+([.,]\d{1,2})?$/.test(d.adult.trim()) ? 'Escribe un importe como 30 o 29,90.' : undefined)} />
+        <TextField label="Precio menor al año (€)" value={d.minor} onChange={(v) => setD((x) => ({ ...x, minor: v }))} inputMode="decimal" hint="Impuestos incluidos." error={fe.error('price_minor_cents') ?? (d.minor && !/^\d+([.,]\d{1,2})?$/.test(d.minor.trim()) ? 'Escribe un importe como 30 o 29,90.' : undefined)} />
+        <SwitchRow label="Ofrecer el seguro" hint={missing ? 'No se puede activar sin los dos precios.' : 'Los alumnos podrán contratarlo.'} checked={d.enabled} onChange={(v) => setD((x) => ({ ...x, enabled: v }))} />
+      </Group>
+      {dialog}
+    </>
+  )
+}

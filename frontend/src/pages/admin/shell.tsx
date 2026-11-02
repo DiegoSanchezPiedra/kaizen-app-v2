@@ -40,24 +40,24 @@ import {
 import { showMfaNotice } from '@/lib/admin'
 import { useAuthMe } from '@/lib/queries'
 
-type Item = { to: string; label: string; icon: typeof HouseIcon; block: string }
+type Item = { to: string; label: string; icon: typeof HouseIcon }
 
-// docs/pantallas-b19.md § Estructura, en ese orden. `block`: el sub-bloque que la trae (para el hueco de lo que falta).
+// docs/pantallas-b19.md § Estructura, en ese orden.
 const NAV: Item[] = [
-  { to: '/admin', label: 'Inicio', icon: HouseIcon, block: 'B19.2' },
-  { to: '/admin/users', label: 'Usuarios', icon: UsersIcon, block: 'B19.3' },
-  { to: '/admin/billing', label: 'Cobros', icon: WalletIcon, block: 'B19.4' },
-  { to: '/admin/notices', label: 'Avisos', icon: BellIcon, block: 'B19.4' },
-  { to: '/admin/sessions', label: 'Horario', icon: CalendarIcon, block: 'B19.5' },
-  { to: '/admin/classes', label: 'Clases', icon: LayersIcon, block: 'B19.5' },
-  { to: '/admin/catalog', label: 'Catálogo', icon: BookOpenIcon, block: 'B19.6' },
-  { to: '/admin/reports', label: 'Informes', icon: ChartColumnIcon, block: 'B19.2' },
-  { to: '/admin/documents', label: 'Documentos legales', icon: FileTextIcon, block: 'B19.6' },
-  { to: '/admin/audit', label: 'Auditoría', icon: HistoryIcon, block: 'B19.4' },
-  { to: '/admin/tablets', label: 'Tablets', icon: TabletIcon, block: 'B19.6' },
-  { to: '/admin/settings', label: 'Ajustes', icon: SettingsIcon, block: 'B19.6' },
+  { to: '/admin', label: 'Inicio', icon: HouseIcon },
+  { to: '/admin/users', label: 'Usuarios', icon: UsersIcon },
+  { to: '/admin/billing', label: 'Cobros', icon: WalletIcon },
+  { to: '/admin/notices', label: 'Avisos', icon: BellIcon },
+  { to: '/admin/sessions', label: 'Horario', icon: CalendarIcon },
+  { to: '/admin/classes', label: 'Clases', icon: LayersIcon },
+  { to: '/admin/catalog', label: 'Catálogo', icon: BookOpenIcon },
+  { to: '/admin/reports', label: 'Informes', icon: ChartColumnIcon },
+  { to: '/admin/documents', label: 'Documentos legales', icon: FileTextIcon },
+  { to: '/admin/audit', label: 'Auditoría', icon: HistoryIcon },
+  { to: '/admin/tablets', label: 'Tablets', icon: TabletIcon },
+  { to: '/admin/settings', label: 'Ajustes', icon: SettingsIcon },
 ]
-const ACCOUNT: Item = { to: '/admin/account', label: 'Cuenta', icon: UserIcon, block: 'B19.2' }
+const ACCOUNT: Item = { to: '/admin/account', label: 'Cuenta', icon: UserIcon }
 
 const isActive = (to: string, pathname: string) => (to === '/admin' ? pathname === to : pathname === to || pathname.startsWith(`${to}/`))
 
@@ -142,16 +142,14 @@ export function MfaNotice() {
   )
 }
 
-// Hueco de las pantallas que traen los siguientes sub-bloques.
-export function AdminPending() {
-  const { pathname } = useLocation()
-  const item = NAV.find((i) => isActive(i.to, pathname) && i.to !== '/admin')
+// Cualquier ruta del panel que no existe.
+export function AdminNotFound() {
   return (
-    <Page title={item?.label ?? 'Panel'} wide>
+    <Page title="Panel" wide>
       <Empty className="rounded-2xl border bg-card">
         <EmptyHeader>
-          <EmptyTitle>{item ? `Esta pantalla llega en ${item.block}` : 'No lo encontramos'}</EmptyTitle>
-          <EmptyDescription>Mientras, el resto del panel ya funciona.</EmptyDescription>
+          <EmptyTitle>No lo encontramos</EmptyTitle>
+          <EmptyDescription>Puede que esta página ya no exista. Usa el menú para seguir.</EmptyDescription>
         </EmptyHeader>
       </Empty>
     </Page>

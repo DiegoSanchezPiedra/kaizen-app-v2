@@ -6,7 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Sheet, SheetDescription, SheetFooter, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import type { Paged, ProfileRow } from '@/lib/admin'
-import { api } from '@/lib/api'
+import { Switch } from '@/components/ui/switch'
+import { api, ApiError } from '@/lib/api'
+import { toastError } from '@/lib/notify'
 import type { Discipline } from '@/lib/types'
 import { path } from '@/lib/url'
 
@@ -25,16 +27,23 @@ export function TextField({
   onChange,
   type = 'text',
   hint,
+  error,
   ...rest
-}: { label: string; value: string; onChange: (v: string) => void; type?: string; hint?: string } & Omit<React.ComponentProps<'input'>, 'value' | 'onChange' | 'size'>) {
+}: { label: string; value: string; onChange: (v: string) => void; type?: string; hint?: string; error?: string } & Omit<React.ComponentProps<'input'>, 'value' | 'onChange' | 'size'>) {
   const id = useId()
   return (
     <div className="flex flex-col gap-1.5">
       <label htmlFor={id} className="text-sm font-medium">
         {label}
       </label>
-      <Input id={id} type={type} value={value} size="lg" onChange={(e) => onChange(e.target.value)} {...rest} />
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      <Input id={id} type={type} value={value} size="lg" onChange={(e) => onChange(e.target.value)} aria-invalid={error ? true : undefined} {...rest} />
+      {error ? (
+        <p role="alert" className="text-xs text-destructive-foreground">
+          {error}
+        </p>
+      ) : (
+        hint && <p className="text-xs text-muted-foreground">{hint}</p>
+      )}
     </div>
   )
 }
@@ -68,7 +77,7 @@ export function FormSheet({
   submitLabel: string
   disabled?: boolean
   loading?: boolean
-  confirm?: { title: string; description: string }
+  confirm?: { title: string; description: string; destructive?: boolean }
   // Lo que pasa al guardar. Si falla, la hoja se queda abierta para corregir; el aviso del error lo da quien llama.
   onSubmit: () => Promise<unknown>
   children: React.ReactNode
@@ -111,11 +120,34 @@ export function FormSheet({
           title={confirm.title}
           description={confirm.description}
           confirmLabel={submitLabel}
-          variant="default"
+          variant={confirm.destructive ? 'destructive' : 'default'}
           loading={loading}
           onConfirm={() => void run()}
         />
       )}
     </Sheet>
   )
+}
+
+// Un interruptor con su explicación, en una fila táctil.
+export function SwitchRow({ label, hint, checked, onChange }: { label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex min-h-12 items-center justify-between gap-3 rounded-xl border bg-card px-4 py-2">
+      <span>
+        <span className="block text-[15px] font-medium">{label}</span>
+        {hint && <span className="block text-xs text-muted-foreground">{hint}</span>}
+      </span>
+      <Switch checked={checked} onCheckedChange={onChange} />
+    </label>
+  )
+}
+
+// `invalid_field` trae su campo: el aviso sale bajo ese campo. Cualquier otro error, en un toast.
+export function useFieldError() {
+  const [field, setField] = useState<string | null>(null)
+  return {
+    error: (name: string) => (field === name ? 'Revisa este valor.' : undefined),
+    clear: () => setField(null),
+    fail: (err: unknown) => (err instanceof ApiError && err.code === 'invalid_field' && err.field ? setField(err.field) : toastError(err)),
+  }
 }

@@ -176,7 +176,7 @@ Errores: `invalid_range` («revisa las fechas: como mucho 92 días o 24 meses»)
 | Pantalla | Endpoints | Estados y errores |
 |---|---|---|
 | **Documentos** | `GET /admin/agreements/documents`, `GET /admin/agreements/documents/:id/file` (**B19.1**) | por tipo (exención de responsabilidad, protección de datos, derechos de imagen): la **vigente**, los **borradores** y los **retirados**, cada uno con versión, fechas y **Ver el PDF**. Un tipo sin vigente: «aún no hay documento publicado: nadie puede completar su perfil» en rojo |
-| **Subir** (Dialog) | `POST /admin/agreements/documents?type&version` (cuerpo crudo PDF) | tipo, versión X.Y y el PDF (≤ 10 MB). Queda como borrador. `duplicate_document`, `version_exists_different_content`, `invalid_field` (versión o tipo), archivo que no es PDF o muy grande (se comprueba antes de enviar) |
+| **Subir** (Dialog) | `POST /admin/agreements/documents?type&version` (cuerpo crudo PDF) | tipo, versión X.Y y el PDF (≤ 10 MB). Queda como borrador. `duplicate_document`, `version_exists_different_content`, `invalid_type`, `invalid_version` o `invalid_file` (la API no usa `invalid_field` aquí), archivo que no es PDF o muy grande (se comprueba antes de enviar) |
 | **Publicar** (en un borrador) | `POST /admin/agreements/documents/:id/publish` | confirmación fuerte: «retira la versión vigente; **todos** los que la firmaron tendrán que volver a firmar y no podrán reservar hasta hacerlo; se les avisa». Retirar un documento **solo** se hace publicando otro del mismo tipo: no hay botón de retirar a secas (dejaría a todos sin poder completar el perfil) |
 
 ## Auditoría `/admin/audit`

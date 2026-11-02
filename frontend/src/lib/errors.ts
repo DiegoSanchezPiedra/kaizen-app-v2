@@ -151,3 +151,23 @@ Object.assign(TEXTS, {
   discipline_inactive: 'Esa disciplina está desactivada.', // propuesto
   class_not_found: 'No lo encontramos.',
 })
+
+// B19.6 (docs/pantallas-b19.md § Mapa de errores). Los marcados «propuesto» no tienen texto en el documento; salen de
+// src/services/catalog.js, agreements.js, checkin.js y billing.js.
+Object.assign(TEXTS, {
+  duplicate_document: 'Ese PDF ya está subido.',
+  version_exists_different_content: 'Esa versión ya existe con otro PDF; usa otra versión.',
+  document_not_found: 'No encontramos ese documento.', // propuesto
+  already_published: 'Ese documento ya está publicado o retirado.', // propuesto
+  invalid_type: 'Elige el tipo de documento.', // propuesto
+  invalid_file: 'El archivo no es un PDF válido.', // propuesto
+  tablet_not_found: 'No encontramos esa tablet.', // propuesto
+  discipline_not_found: 'No encontramos esa disciplina.', // propuesto
+  discipline_in_use: 'Hay cuotas que la tienen elegida: no puede ser abierta.', // propuesto
+  name_taken: 'Ya hay uno con ese nombre.', // propuesto
+  plan_has_subscriptions: 'El plan tiene suscriptores: no cambia de disciplinas ni de edad, ni baja a 0 €. Crea otro plan.', // propuesto
+  eligible_too_few: 'Hacen falta al menos tantas disciplinas elegibles como incluye el plan.', // propuesto
+  unknown_discipline: 'Alguna de las disciplinas ya no existe.', // propuesto
+  empty_patch: 'No hay nada que cambiar.', // propuesto
+  insurance_prices_missing: 'Pon los dos precios antes de activar el seguro.', // propuesto
+})

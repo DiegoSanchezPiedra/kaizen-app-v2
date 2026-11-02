@@ -185,7 +185,7 @@ Todas exigen `role = admin` (y el admin entra con MFA si lo tiene activado). El 
 |---|---|---|
 | `GET /admin/disciplines` | — | `{ disciplines }` (todas) |
 | `POST /admin/disciplines` | `{ name, minors_only?, is_active?, is_open? }` | `201 { discipline }` |
-| `PATCH /admin/disciplines/:id` | `{ name?, minors_only?, is_active?, is_open? }` | `{ discipline }` (+ `{ retired_classes, cancelled_sessions }` al desactivar) |
+| `PATCH /admin/disciplines/:id` | `{ name?, minors_only?, is_active?, is_open? }` | `{ discipline }`; al desactivar, `discipline` trae además `retired_classes` y `cancelled_sessions` |
 | `GET /admin/plans` | — | `{ plans }` (todos) |
 | `POST /admin/plans` | `{ name, price_cents, max_disciplines (null = todas), billing_period?, minors_only?, is_active? }` | `201 { plan }` |
 | `PATCH /admin/plans/:id` | campos del plan | `{ plan }` |
@@ -252,7 +252,7 @@ Errores: `409 trainer_overlap`, `409 capacity_below_bookings { sessions, fits_fr
 | `POST /admin/tablets` | `{ name }` | `201 { tablet: { …, link_code } }` (el código solo se ve aquí) |
 | `POST /admin/tablets/:id/revoke` | — | `{ tablet }` |
 | `GET /admin/agreements/documents` | — | `{ documents: [{ id, type, version, checksum, created_at, published_at, retired_at, status }] }` |
-| `POST /admin/agreements/documents?type&version` | **cuerpo crudo** `application/pdf`, ≤ 10 MB | `201 { document }` |
+| `POST /admin/agreements/documents?type&version` | **cuerpo crudo** `application/pdf`, ≤ 10 MB | `201 { document }` (borrador). `400 invalid_type`, `invalid_version` (X.Y), `invalid_file` (no empieza por `%PDF-`); `409 duplicate_document` (mismo PDF), `version_exists_different_content` |
 | `GET /admin/agreements/documents/:id/file` | — | el PDF (`application/pdf`, con `X-Agreement-Type` y `X-Agreement-Version`) de cualquier estado: borrador, vigente o retirado. `404 document_not_found` |
 | `POST /admin/agreements/documents/:id/publish` | — | `{ document }` (retira la vigente y avisa para re-firmar) |
 | `POST /admin/profiles/:id/unpublish` | — | `{ id, is_public: false }` |

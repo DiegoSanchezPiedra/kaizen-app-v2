@@ -16,7 +16,8 @@ export class ApiError extends Error {
   }
 }
 
-type Options = { method?: string; body?: unknown; auth?: boolean }
+// `body` Blob: cuerpo crudo con su propio tipo (el PDF de un documento). `blob`: la respuesta es un archivo, no JSON.
+type Options = { method?: string; body?: unknown; auth?: boolean; blob?: boolean }
 
 let onUnauthorized: () => void = () => {}
 let onWrongRole: () => void = () => {}
@@ -28,20 +29,22 @@ export const setWrongRoleHandler = (fn: () => void) => {
   onWrongRole = fn
 }
 
-async function once<T>(path: string, { method = 'GET', body, auth = true }: Options): Promise<T> {
+async function once<T>(path: string, { method = 'GET', body, auth = true, blob }: Options): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' }
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  const raw = body instanceof Blob
+  if (body !== undefined) headers['Content-Type'] = raw ? body.type : 'application/json'
   const session = getSession()
   if (auth && session) headers.Authorization = `Bearer ${session.token}`
 
   let res: Response
   try {
-    res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+    res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : raw ? body : JSON.stringify(body) })
   } catch {
     throw new ApiError(0, { code: 'network' })
   }
 
   if (res.status === 204) return undefined as T
+  if (res.ok && blob) return (await res.blob()) as T
   const data = await res.json().catch(() => ({}))
   if (res.ok) return data as T
 
