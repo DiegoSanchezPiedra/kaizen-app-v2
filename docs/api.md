@@ -287,4 +287,4 @@ Lo que una pantalla podría pedir y la API **no da hoy**. Se decide en el diseñ
 - **Cuenta**: verificar el email, cambiar email o contraseña con sesión, reclamar el perfil al cumplir 18
   (`pending_claim`). No hay logout de servidor ni revocación de tokens.
 - **Alumno**: no hay detalle de una sesión aparte del calendario; tampoco su historial de recibos (lo da el Portal).
-- **Eventos**: no implementados (no son sesiones).
+- **Eventos**: no implementados (no son sesiones). Diseñados en B21 (`plan-de-bloques.md` § B21); se documentan aquí al implementarse en B21.0.

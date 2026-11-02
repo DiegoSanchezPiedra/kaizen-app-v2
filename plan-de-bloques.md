@@ -67,7 +67,7 @@
 | B18 | Frontend PWA (alumno, tutor, profesor, tablet; sub-bloques B18.0–B18.6) | B13, B15, B17 | CERRADO (con pruebas en dispositivos pendientes) |
 | B19 | Panel admin (métricas, usuarios, auditoría, morosos; sub-bloques B19.0–B19.6) | B11, B17, B10.2, B18 | Diseñado |
 | B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos | Pendiente |
-| B21 | Eventos (inscripción, cobro aparte, panel) | B10, B18, B19 | Pendiente (sin diseñar) |
+| B21 | Eventos (inscripción, cobro aparte, panel; sub-bloques B21.0–B21.2) | B10, B18, B19 | Diseñado |
 
 ---
 
@@ -2012,22 +2012,167 @@
   - [ ] **[Media] Endpoints de B11 sin test HTTP** (el E2E sí pasa por HTTP), en especial el Checkout del cambio de pagador con un perfil incompleto (403).
   - [ ] **[Baja] `scripts/test-attendance.js` falla entre las 00:00 y las 00:05 de Madrid** (detectado en B8): la sesión «de hoy» empieza 5 min antes de `now()` y cae en el día anterior. Arreglo: fijar la hora de la sesión dentro del día de Madrid o inyectar el reloj al migrar a la BD efímera.
 
-### B21 — Eventos — Pendiente (sin diseñar)
+### B21 — Eventos — Diseñado
 - **Objetivo**: los **eventos** de `CONTEXT.md` (seminario, torneo, examen de grado, quedada): fuera del horario regular, sin
   depender de cubrir, gratis o de pago aparte. A un evento uno se **inscribe**; no es una sesión. Hasta ahora no tenían bloque
   (B6 los dejó fuera; `docs/api.md` § Huecos). Pedido el 2026-11-02, al preparar el staging: «no veo cómo crear eventos».
-- **De partida**: las tablas `events` y `event_registrations` y el enum `event_payment_status` de `001`, sin uso; la FK
-  `events.id → class_sessions(id)` es un error (B6) y se quita aquí. «Sesión suelta» no sirve de sustituto: exige cuota que cubra,
-  cobertura de riesgo y aforo, y no cobra aparte.
-- **Diseño** (grill, Opus alto; dinero y menores): qué decidir antes de implementar:
-  - **Pago**: gratis o de pago; precio de socio y de no socio; cobro único (Checkout `mode: payment`, sandbox) y qué pasa al
-    cancelar (reembolso o no, plazos); conciliación por webhook.
-  - **Quién se inscribe**: alumno adulto, tutor por sus hijos, el admin por cualquiera; ¿personas sin cuenta?
-  - **Requisitos**: perfil completo, ficha médica, cobertura de riesgo (exención o seguro) o un acuerdo propio del evento.
-  - **Aforo** y lista de espera; disciplina y profesor opcionales; lugar; varias fechas o una.
-  - **Avisos** (email y push) al cambiar o cancelar un evento, y quién lo cancela.
-  - **Pantallas**: dónde lo ve el alumno (calendario o sección propia), el panel (crear, editar, cancelar, inscritos, cobros) y el
-    profesor (lista); check-in (lista o QR de la tablet).
-  - **Auditoría** (`write_audit`, 027) y RLS de las tablas.
+- **Diseño** (2026-11-02, Opus alto, grill respondido con los docs y el código; las decisiones de dinero, edad y requisitos son
+  del usuario). ADR 0018 (cobro de eventos). Términos nuevos en `CONTEXT.md` § Eventos.
+- **De partida** (comprobado en el código):
+  - `events` y `event_registrations` y el enum `event_payment_status` de `001`, sin uso y **vacías**. La FK
+    `events.id → class_sessions(id)` **ya la quitó `008`** (no queda nada que quitar).
+  - **Hallazgo**: las dos tablas **no tienen RLS** y `app_user` tiene `SELECT/INSERT/UPDATE/DELETE` por los privilegios por
+    defecto. Hoy no hay ruta que las use; `028` las cierra.
+  - `onCheckoutPaid` ignora todo lo que no sea `mode: 'subscription'`: el cobro de un evento es una rama nueva. `charge.refunded`
+    avisa hoy al admin (`notice.stripe_risk`) de cualquier reembolso, también de los que haga Kaizen.
+  - «Sesión suelta» no sirve de sustituto: exige cuota que cubra y no cobra aparte.
+- **Reglas** (decididas 2026-11-02):
+  - **Quién se inscribe**: solo un **alumno con perfil** (sujeto): el adulto por sí mismo, cualquier tutor vinculado por sus hijos
+    y el admin por cualquier alumno. Nadie sin cuenta (se registra antes); un tutor (rol) no se inscribe a sí mismo; el profesor
+    no inscribe. Un hijo con 18 cumplidos sin reclamar su perfil no se inscribe (como en `book_session`).
+  - **Requisitos**: **perfil completo** siempre (sujeto y actor, como reservar) y **cobertura de riesgo** del sujeto solo si el
+    evento la **exige** (marca del evento, encendida por defecto; se apaga en los eventos sociales). Un no socio solo tiene
+    cobertura con el `waiver` (el seguro exige suscripción viva). No hay acuerdo propio de un evento.
+  - **Público**: `all` (por defecto), `minors` o `adults`, por la fecha de nacimiento del sujeto el día de la inscripción.
+  - **Precio**: gratis (`price_cents = 0`) o un precio, y un **precio de socio** opcional (≤ precio). **Socio** = el sujeto con
+    suscripción en vigor al inscribirse (un hijo, por la suya). Lo pagado queda en la inscripción (`amount_cents`); cambiar el
+    precio solo vale para las nuevas. Un precio > 0 es de 0,50 € como mínimo (mínimo de Stripe). Importe 0 (gratis, socio a 0 € o
+    invitado) → confirmada sin Checkout.
+  - **Pago** (ADR 0018): un Checkout `mode: payment` por inscripción, con `price_data` (sin Product ni Price por evento), solo
+    tarjeta (y monederos), al cliente de Stripe del **pagador** = el actor adulto (`ensureCustomer`). Sin recibo de Kaizen: vale
+    el justificante de Stripe. La inscripción queda **pendiente** y **ocupa plaza** hasta que el webhook la resuelve
+    (`checkout.session.completed` → confirmada; `checkout.session.expired` → cancelada); el Checkout caduca a los 30 min.
+  - **Cancelar** (sin reembolsos parciales ni plazos):
+    - el alumno o el tutor cancela una inscripción **gratis** (o a 0 €) o **pendiente** (se caduca su Checkout) hasta el inicio;
+      una **pagada no la cancela él** (`409 paid_registration`: «pídelo a la academia»);
+    - el **admin** cancela cualquier inscripción y elige **devolver el importe entero o nada**;
+    - **cancelar el evento** (solo el admin) cancela todas las inscripciones y **devuelve todo lo pagado**, automático;
+    - un pago que llega con la inscripción ya cancelada (evento cancelado o el admin la canceló con el Checkout abierto) se
+      devuelve entero, automático.
+    - Cambiar la fecha, la hora o el lugar no da reembolso: el aviso dice «si no puedes venir, contacta con la academia» y el
+      admin decide.
+  - **Aforo** opcional (sin límite si es nulo; > 0 si lo hay); cuentan pendientes y confirmadas. **Sin lista de espera**: lleno
+    es «Completo»; para hacer sitio el admin sube el aforo. Nunca por debajo de las inscripciones vivas.
+  - **Inscripción**: una viva (pendiente o confirmada) por sujeto y evento; tras cancelar se puede volver (y pagar otra vez). Se
+    cierra en la **fecha límite** opcional del evento (≤ inicio) o, sin ella, al inicio. El admin no tiene ventana ni fecha
+    límite, pero sí aforo y requisitos.
+  - **Invitado**: el admin inscribe a cualquier alumno **sin cobro** (importe 0, `guest`), con requisitos y aforo. Sin pago en
+    efectivo (sigue reservado).
+  - **Evento**: título, descripción, inicio y fin (un solo tramo; un seminario de dos días es un evento de dos días), lugar
+    (texto), disciplina y profesor de la academia opcionales, aforo, público, marca de cobertura de riesgo, precios y fecha
+    límite. Se publica al crearlo (sin borradores) y nunca se borra: se cancela (con motivo opcional que solo ve el admin). Editar
+    con inscritos no toca a quien ya está dentro (precio, público, marca).
+  - **Quién lo ve**: cualquier perfil con sesión ve los eventos programados que no han terminado y aquellos en los que el sujeto
+    estuvo inscrito; el profesor, además, los que imparte; el admin, todos (cancelados incluidos). Los inscritos (nombres) solo
+    los ven el admin y el profesor del evento.
+  - **Asistencia**: lista simple (presente sí o no) desde el inicio del evento, que marcan el profesor del evento y el admin;
+    sin cerrar, sin corregir, sin check-in por QR. **No cuenta** para racha, horas, badges, ranking ni informes.
+  - **Salud**: el profesor del evento ve las fichas de los inscritos confirmados **el día del evento** (Madrid), como en sus
+    sesiones, y queda en `audit_log` (`health.view`). Sin profesor de la academia, nadie las ve en la app.
+  - **Avisos** (`CONTEXT.md` § Avisos; quien lo provoca no se avisa; el admin y el profesor no reciben):
+    - `notice.event_changed` (inicio, fin o lugar) y `notice.event_cancelled`: push a los inscritos vivos (a los tutores si es un
+      hijo) con email de respaldo; caducan al empezar el evento.
+    - `notice.event_registration_cancelled` (el admin cancela una inscripción): igual.
+    - `notice.event_refunded`: **email de facturación** al pagador con el importe devuelto (cualquier reembolso de Kaizen).
+    - `notice.event_refund_failed`: aviso de la academia (al admin, en su panel) si Stripe rechaza un reembolso.
+    - Ninguno al publicar un evento nuevo.
+  - **Auditoría** (`write_audit`, solo admin): `event.create`, `event.update` (de → a), `event.cancel`,
+    `event_registration.guest`, `event_registration.cancel` (con `refund`), `event_registration.refund`. Las inscripciones
+    del alumno y del tutor no se auditan (como las reservas); la asistencia tampoco.
+  - **Reembolsos**: `stripe.refunds.create` con `idempotencyKey: event-refund-<inscripción>` y `metadata.kind = 'event'`. En
+    `charge.refunded`, si el `payment_intent` es de una inscripción: se guarda lo devuelto (`refunded_cents`) y, si el reembolso
+    no lo pidió Kaizen (Dashboard), además el `notice.stripe_risk` de siempre. Las disputas y avisos de fraude, como hoy.
+- **Esquema** (migración `028`; las tablas están vacías, así que se borran y se crean de nuevo):
+  - `DROP` de `event_registrations`, `events` y el tipo `event_payment_status`.
+  - `events`: `id uuid`, `title` (1–120), `description` (≤ 2000), `starts_at`, `ends_at` (> inicio), `location`,
+    `discipline_id` → `disciplines` (nulo), `trainer_id` → `profiles` (nulo, rol profesor), `capacity` (nulo o > 0),
+    `audience` (`all|minors|adults`), `requires_risk_cover` (por defecto `true`), `price_cents` (0 o ≥ 50),
+    `member_price_cents` (nulo, 0 o ≥ 50, ≤ `price_cents`), `registration_deadline` (nulo, ≤ `starts_at`),
+    `status` (`scheduled|cancelled`), `cancel_note`, `created_by`, `created_at`, `updated_at`.
+  - `event_registrations`: `id uuid`, `event_id`, `profile_id` (sujeto), `actor_id`, `payer_id` (nulo si importe 0),
+    `status` (`pending|confirmed|cancelled`), `amount_cents`, `guest`, `cancel_reason`
+    (`student|admin|event_cancelled|checkout_expired`), `checkout_session_id`, `payment_intent_id`, `refund_status`
+    (nulo, `requested|refunded|failed`), `refunded_cents`, `attended` (nulo/bool), `created_at`, `cancelled_at`. Único parcial
+    `(event_id, profile_id) WHERE status IN ('pending','confirmed')`; únicos `checkout_session_id` y `payment_intent_id`.
+  - **RLS** (`ENABLE` + `FORCE`): `events` lo lee cualquier autenticado y lo escribe solo el admin (sin `DELETE`);
+    `event_registrations` la leen el sujeto, sus tutores (`is_guardian_of`), el profesor del evento y el admin, y **`app_user` no
+    escribe**: todo pasa por funciones `SECURITY DEFINER` (owner `service_role`) o por el webhook (`servicePool`).
+  - **Funciones**: `register_event(p_event, p_subject, p_guest)` (actor con `booking_can_act`; `FOR UPDATE` del evento; estado,
+    cierre, público, `profile_missing` del sujeto y del actor, `has_risk_cover` si la marca, aforo, una viva; calcula el importe
+    y devuelve la fila; `p_guest` solo el admin); `cancel_event_registration(p_id, p_refund)` (las reglas de cancelar; marca
+    `refund_status = 'requested'` si devuelve); `cancel_event(p_id, p_note)` (admin; inscripciones → `event_cancelled`, las
+    pagadas a `requested`; avisos); `mark_event_attendance(p_reg, p_present)`; `professor_event_health(p_event)` (como
+    `professor_session_health`).
+- **Endpoints** (`docs/api.md` se actualiza en B21.0):
+  - **Alumno y tutor** (`requireCompleteProfile` donde reserva lo pide):
+    - `GET /events?profile_id&registered` → `{ events: [{ id, title, description, starts_at, ends_at, location,
+      discipline: { id, name } | null, trainer: { id, display_name } | null, capacity, taken, audience, requires_risk_cover,
+      price_cents, member_price_cents, registration_deadline, status, registration: { id, status, amount_cents } | null }] }`.
+      `registration` es la del sujeto; `registered=true` solo los suyos (Reservas e Inicio). `403 not_guardian`.
+    - `GET /events/:id?profile_id` → `{ event }` igual. `404 event_not_found`.
+    - `POST /events/:id/registrations { profile_id? }` → `201 { registration }` o, con importe, `201 { registration, url }`.
+      `403 not_guardian`, `profile_incomplete`, `no_risk_cover`; `404 event_not_found`; `409 event_cancelled`,
+      `registration_closed`, `event_full`, `already_registered`, `audience_mismatch`, `not_a_student`.
+    - `DELETE /events/registrations/:id` → `204`. `404 registration_not_found`; `409 paid_registration`, `event_started`,
+      `already_cancelled`.
+  - **Profesor**: `GET /professor/events?from&to`, `GET /professor/events/:id` (inscritos confirmados: nombre, presente, «sin
+    cobertura de riesgo»), `PUT /events/:id/attendance/:profileId { present }` (también el admin; `409 event_not_started`),
+    `GET /professor/events/:id/health`.
+  - **Admin**: `GET /admin/events?from&to&status&limit&offset`; `POST /admin/events`; `PATCH /admin/events/:id` (solo lo que
+    cambia; `409 capacity_below_registrations`, `event_cancelled`); `POST /admin/events/:id/cancel { note? }` →
+    `{ refunded, refund_failed, notified }`; `GET /admin/events/:id` → `{ event, registrations: [{ id, student, status,
+    amount_cents, guest, payer, refund_status, refunded_cents, attended, cancel_reason, created_at }] }`;
+    `POST /admin/events/:id/registrations { profile_id }` (invitado); `POST /admin/event-registrations/:id/cancel { refund }`
+    (sobre una ya cancelada y pagada con `refund: true` y `refund_status` nulo o `failed`, reintenta el reembolso).
+  - **Webhook**: `checkout.session.completed` con `mode: payment` y `metadata.kind = 'event'` (sin él, no es de Kaizen: maat),
+    `checkout.session.expired` (**nuevo en `HANDLED_EVENTS`**: hay que suscribirlo en el endpoint del sandbox y en la guía de
+    staging) y `charge.refunded`.
+- **Pantallas** (sobre B18 y B19; reglas de UI y mapa de errores de `docs/pantallas-b18.md` y `pantallas-b19.md`, textos nuevos
+  «propuesto»):
+  - **Alumno y tutor**: Calendario con pestañas **Sesiones | Eventos** (`?tab=events`); detalle `/events/:id` con precio (y de
+    socio), plazas («Completo»), fecha límite, requisitos que faltan y **Inscribirse** según el selector de sujeto; con importe,
+    al Checkout y vuelta a `/events/:id?pago=ok`, que relee hasta ver la inscripción confirmada (como B18.3). Cancelar solo si es
+    gratis o pendiente; pagada: «para cancelar, pídelo a la academia». Sus inscripciones en Reservas (Próximas) y en Inicio.
+  - **Profesor**: sus eventos en Sesiones, mezclados por fecha y marcados «Evento»; detalle con la lista simple y las fichas del
+    día.
+  - **Panel**: `/admin/events` (grupo Horario): lista, crear y editar en hoja, cancelar con AlertDialog que dice cuántos
+    inscritos y cuánto se devuelve; detalle con inscritos, estado del pago y del reembolso, «Inscribir invitado» (Combobox),
+    cancelar inscripción con «devolver el importe» y «Reintentar el reembolso» si falló; lista de asistencia. Los
+    `notice.event_refund_failed` salen en Avisos de la academia.
+- **Sub-bloques** (en orden; cada uno en su chat, con su checklist):
+  - **B21.0 — Eventos (backend)** (Opus, **alto**: Stripe, reembolsos, RLS y menores): `028`, funciones, endpoints, webhook,
+    reembolsos, avisos y auditoría; `docs/api.md` y `db-architecture.md`.
+  - **B21.1 — Panel de eventos** (Sonnet, alto): `/admin/events` y su detalle.
+  - **B21.2 — Eventos del alumno, el tutor y el profesor** (Sonnet, alto): Calendario › Eventos, detalle e inscripción con
+    Checkout, Reservas, Inicio y la vista del profesor; prueba de punta a punta contra el sandbox con `stripe listen`.
+- **Tests**:
+  - **B21.0**: `test:events` nuevo (como `app_user` por HTTP y con el webhook simulado como en `test:webhook`): cada requisito
+    (perfil del sujeto y del actor, cobertura solo con la marca, público por edad, cierre, aforo con pendientes, una viva,
+    `not_guardian`, hijo con 18 sin reclamar), precio de socio vs no socio, gratis sin Checkout, invitado solo admin; el
+    `completed` confirma, el `expired` libera la plaza, un `completed` repetido no duplica, un pago tardío sobre una cancelada se
+    devuelve (clave de idempotencia), metadata sin `kind` se ignora; cancelar gratis/pendiente sí y pagada `409`; el admin con y
+    sin reembolso y el reintento; cancelar el evento devuelve todo y avisa (tutores de un hijo, no al actor); `charge.refunded`
+    de Kaizen sin `stripe_risk` y del Dashboard con él; RLS: un alumno no lee inscripciones ajenas ni escribe en las tablas con
+    SQL directo, el profesor solo las de su evento; fichas solo el día y con `health.view`; auditoría de cada acción del admin.
+    Regresión: `test:rls`, `test:webhook`, `test:billing`, `test:minors` y `npm run lint`.
+  - **Frontend** (Vitest, solo lógica): importe que verá el sujeto (socio o no), estado del botón (inscribirse, completo,
+    cerrado, falta perfil o cobertura, cancelar o «pídelo a la academia»), público por edad sin enseñar la edad.
+  - **Pantallas**: checklist manual contra la API local; el pago, la cancelación con reembolso y la cancelación del evento,
+    contra el **sandbox** (`sk_test_`, nunca la cuenta real) con `stripe listen`. En cada sub-bloque, `typecheck`, `lint` y
+    `build:frontend` en verde.
+- **Fuera de alcance**: inscribir a quien no tiene cuenta; lista de espera; pago en efectivo; reembolsos parciales y cancelación
+  con reembolso por el propio alumno (plazos); varias fechas o sesiones dentro de un evento; acuerdo propio de un evento; aviso
+  de evento nuevo (sin preferencias de avisos; → `MEJORAS.md` si se pide); check-in por QR y tablet; que la asistencia a eventos
+  cuente para racha, horas, badges, ranking o informes; ingresos de eventos en los informes (Dashboard de Stripe); imagen del
+  evento; recibos o facturas propios; que un tutor (rol) o un profesor se inscriban.
+- **Checklist de cierre**:
+  - [ ] B21.0: `028` (tablas nuevas con RLS, funciones), endpoints, webhook (`completed`, `expired`, `refunded`), reembolsos
+    idempotentes, avisos y auditoría; `test:events` y la regresión en verde; `checkout.session.expired` suscrito en el sandbox;
+    `docs/api.md` y `db-architecture.md` al día.
+  - [ ] B21.1: el admin crea, edita y cancela un evento (con reembolsos en el sandbox), inscribe invitados, cancela inscripciones
+    con y sin reembolso, reintenta uno fallido y pasa lista.
+  - [ ] B21.2: un alumno y un tutor (por un hijo) se inscriben gratis y pagando (tarjeta de prueba), cancelan lo que pueden y ven
+    sus inscripciones; el profesor pasa lista y ve las fichas el día del evento.
+  - [ ] Vitest de la lógica; `typecheck`, `lint` y `build:frontend` en verde.
 - **Orden**: después de que el cliente pruebe el staging; no bloquea B20.
 

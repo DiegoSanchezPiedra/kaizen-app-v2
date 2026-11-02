@@ -147,7 +147,7 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 - **Cancelación retroactiva**: el admin cancela una sesión que ya ha empezado (también en curso) y que no llegó a darse, indicando siempre un motivo. Deja de contar como celebrada, anula su lista y sus asistencias, no avisa a nadie y no se recupera. No tiene plazo.
 - **Deshacer un ajuste**: devolver un campo de una sesión a lo que dice su clase para esa sesión, con los cambios de clase que le aplican (el inicio, a la hora que le toca). Desde entonces el campo vuelve a seguir los cambios de su clase. Si cambia el inicio, la duración o el profesor, es un cambio que afecta a la sesión; si sube el aforo, promociona. No existe en una sesión suelta.
 - **Calendario**: las sesiones de la academia. Alumnos, tutores y admin ven el calendario completo, incluidas las disciplinas solo menores, aunque no tengan suscripción; el profesor solo ve sus sesiones. Junto a cada sesión se indica si su suscripción la cubre para el sujeto (para un tutor, por cada hijo); ver no da derecho a reservar.
-- **Evento**: actividad extraordinaria fuera del horario regular (seminario, torneo, examen de grado, quedada). No depende de cubrir: es gratis o se paga aparte, y admite a alumnos aunque su suscripción no cubra nada. Puede no tener disciplina ni profesor de la academia. A un evento uno se **inscribe**, no lo reserva. Un evento no es una sesión.
+- **Evento**: actividad extraordinaria fuera del horario regular (seminario, torneo, examen de grado, quedada). No depende de cubrir: es gratis o se paga aparte, y admite a alumnos aunque su suscripción no cubra nada. Puede no tener disciplina ni profesor de la academia. A un evento uno se **inscribe**, no lo reserva. Un evento no es una sesión (ver «Eventos»).
   _Evitar_: sesión especial.
 
 ## Reservas
@@ -174,6 +174,25 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
   - **sesión cancelada**;
   - **sin cobertura**;
   - **cambio de disciplina**.
+
+## Eventos
+
+- **Evento** (ver «Clases y sesiones»): tiene un inicio y un fin (un solo tramo, aunque dure varios días), lugar, y opcionalmente disciplina, profesor de la academia, aforo y fecha límite de inscripción. Lo crea, cambia y cancela solo el admin; se publica al crearlo y nunca se borra. Lo ve cualquier perfil con sesión iniciada.
+- **Público del evento**: todos, solo menores o solo adultos, según la edad del sujeto al inscribirse.
+- **Inscripción**: plaza de un alumno (sujeto) en un evento. Está **pendiente** mientras se paga, **confirmada** o **cancelada**; la pendiente ya ocupa plaza. Hay como mucho una viva por alumno y evento; tras cancelar se puede volver a inscribir.
+  _Evitar_: reserva (es de sesiones).
+- **Quién se inscribe**: el alumno adulto para sí, cualquier tutor vinculado por sus hijos y el admin por cualquier alumno. Nadie sin perfil: quien no tiene cuenta se registra antes. Un tutor (rol) y un profesor no se inscriben.
+- **Requisitos para inscribirse**: perfil completo (sujeto y actor) siempre, y **cobertura de riesgo** del sujeto solo si el evento la exige (un evento social, no). No hace falta suscripción.
+- **Aforo** (en eventos): opcional; sin aforo no hay límite. Sin lista de espera: un evento lleno está **completo**.
+- **Cierre de inscripciones**: en la fecha límite del evento o, si no tiene, al empezar. El admin inscribe sin cierre.
+- **Precio del evento**: gratis o un precio, impuestos incluidos, y opcionalmente un **precio de socio**. **Socio** es el alumno (sujeto) con suscripción en vigor al inscribirse. Lo pagado queda en la inscripción; un cambio de precio solo vale para las nuevas.
+- **Pagador de una inscripción**: el adulto que la paga: el propio alumno adulto o el tutor que inscribe a su hijo. Paga una vez, en la página de la pasarela; la inscripción solo se confirma cuando la pasarela confirma el pago.
+- **Invitado**: inscripción que hace el admin sin cobro.
+- **Cancelar una inscripción**: el alumno o su tutor cancela, hasta el inicio, una inscripción gratis o pendiente; una pagada no la cancela él: lo pide a la academia. El admin cancela cualquiera y decide si devuelve el importe entero o nada.
+- **Cancelar un evento**: lo hace el admin. Cancela todas sus inscripciones, devuelve entero todo lo pagado y avisa a los inscritos. Cambiar la fecha, la hora o el lugar no devuelve nada: se avisa y quien no pueda venir lo pide a la academia.
+- **Reembolso de una inscripción**: devolución del importe entero de una inscripción pagada. Nunca parcial. Se avisa al pagador.
+- **Asistencia a un evento**: lista de presentes que pasan el profesor del evento y el admin, sin cerrar ni corregir y sin check-in. No cuenta para la racha, las horas, los badges, el ranking ni los informes.
+- **Ficha de salud en un evento**: la ve el profesor del evento, de sus inscritos y solo el día del evento, como en sus sesiones.
 
 ## Asistencia
 
@@ -237,6 +256,7 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 - **Canal**: vía por la que se entrega un aviso: **email** o **push**. Cada tipo de aviso tiene sus canales; un mismo aviso puede ir por varios.
 - **Aviso de facturación**: aviso sobre el dinero de una suscripción o de un seguro (cobro fallido, impagada, baja, renovación o no renovación del seguro, cambio de plan…). Va siempre al **pagador**, nunca al hijo, y siempre y solo por **email** (nunca por push). Es un email de servicio: no se puede dar de baja de él. Nunca incluye datos de salud, edad ni fecha de nacimiento.
 - **Aviso de reservas**: aviso sobre una reserva o una espera (sin cobertura, promoción, sesión cancelada, sesión recuperada, cambio de disciplina, cambio que afecta a la sesión). Va al alumno o, si es un hijo, a todos sus tutores, por push. Caduca al empezar la sesión: lo que llega tarde ya no se envía. Si un mismo cambio afecta a varias reservas de un alumno, sale un solo aviso con todas; caduca al empezar la última y solo cuenta las que aún no han empezado.
+- **Aviso de eventos**: aviso sobre una inscripción (evento cambiado de fecha, hora o lugar, evento cancelado, inscripción cancelada por el admin). Como los de reservas: al alumno o a sus tutores, por push, y caduca al empezar el evento. El reembolso de una inscripción es un aviso de facturación al pagador de esa inscripción. No se avisa de un evento nuevo.
 - **Aviso de re-firma**: al publicarse una versión nueva de un acuerdo, se avisa a quien queda bloqueado: quien había firmado la versión anterior y sigue con una suscripción viva (por un hijo, sus tutores). Del `waiver` no se avisa a quien tiene el seguro en vigor. No se avisa por un hijo con 18 cumplidos sin reclamar su perfil, ni en la primera publicación de un tipo. Por push, como los de reservas.
 - **Dispositivo de push**: navegador o móvil en el que un perfil acepta recibir push. Un perfil puede tener varios; cada uno es de un solo perfil a la vez (si otra persona inicia sesión y acepta en él, pasa a ser suyo). Deja de serlo al cerrar sesión o cuando el navegador lo retira. No es la tablet.
   _Evitar_: dispositivo (a secas).
