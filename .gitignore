@@ -60,3 +60,7 @@ temp/
 # B4.5.1 (PDFs de acuerdos)
 storage/agreements/*
 !storage/agreements/.gitkeep
+
+# Staging
+.env.staging
+storage-staging/

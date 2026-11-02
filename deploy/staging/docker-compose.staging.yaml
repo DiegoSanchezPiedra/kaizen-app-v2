@@ -1,0 +1,44 @@
+# Staging para que el cliente pruebe (por ngrok). BD aparte de la local (puerto 5433, volumen propio) y nginx con la
+# MISMA config de producción (deploy/nginx.conf: un solo origen, la API bajo /api). La API y el frontend compilado
+# corren en el host (npm run staging:api); ngrok apunta al puerto 8080.
+# Uso: docker compose -f deploy/staging/docker-compose.staging.yaml --env-file .env.staging up -d
+services:
+  db:
+    image: postgres:16
+    container_name: kaizen-staging-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MIGRATOR_PASSWORD: ${MIGRATOR_PASSWORD}
+      APP_PASSWORD: ${APP_PASSWORD}
+      SERVICE_PASSWORD: ${SERVICE_PASSWORD}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - kaizen-staging-db:/var/lib/postgresql/data
+      - ./init-roles.sh:/docker-entrypoint-initdb.d/init-roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: kaizen-staging-nginx
+    restart: unless-stopped
+    # host: la config de producción habla con la API en 127.0.0.1:3000. Solo cambian el puerto de escucha (80 → 8080) y el
+    # de la API (3100, para no chocar con la de desarrollo).
+    network_mode: host
+    volumes:
+      - ../nginx.conf:/etc/nginx/templates/prod.conf:ro
+      - ../../frontend/dist:/srv/kaizen/frontend/dist:ro
+    environment:
+      PORT: ${PORT:-3100}
+    command: >
+      sh -c "sed \"s/listen 80;/listen 8080;/; s/127.0.0.1:3000/127.0.0.1:$$PORT/\" /etc/nginx/templates/prod.conf > /etc/nginx/conf.d/default.conf
+      && nginx -g 'daemon off;'"
+
+volumes:
+  kaizen-staging-db:

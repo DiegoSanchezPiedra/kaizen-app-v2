@@ -39,7 +39,14 @@
     "lint": "eslint \"src/**/*.js\" \"scripts/**/*.js\" \"migrations/**/*.js\"",
     "format": "prettier --write \"src/**/*.js\"",
     "build:frontend": "npm --prefix frontend ci && npm --prefix frontend run build",
-    "dev:frontend": "npm --prefix frontend run dev"
+    "dev:frontend": "npm --prefix frontend run dev",
+    "staging:db": "docker compose -f deploy/staging/docker-compose.staging.yaml --env-file .env.staging up -d db",
+    "staging:migrate": "dotenv -e .env.staging -- node-pg-migrate up",
+    "staging:build": "npm --prefix frontend ci && npm --prefix frontend run build",
+    "staging:web": "docker compose -f deploy/staging/docker-compose.staging.yaml --env-file .env.staging up -d nginx",
+    "staging:api": "DOTENV_CONFIG_PATH=.env.staging node src/index.js",
+    "staging:seed": "DOTENV_CONFIG_PATH=.env.staging node --env-file=.env.staging deploy/staging/seed.mjs",
+    "staging:nightly": "DOTENV_CONFIG_PATH=.env.staging dotenv -e .env.staging -- node scripts/nightly.js"
   },
   "keywords": [],
   "author": "",
