@@ -62,6 +62,9 @@ try {
       const short = await createClass(c, {
         body: { ...base, trainer_id: prof2, starts_on: '2999-01-01', ends_on: '2999-01-31' }, actorId: admin });
       assert.equal(short.sessions_created, 0); // fuera del horizonte
+      // Las fechas salen como YYYY-MM-DD, no como Date (que en JSON cae un día antes en UTC).
+      assert.equal(short.starts_on, '2999-01-01');
+      assert.equal(short.ends_on, '2999-01-31');
       const near = await createClass(c, { body: { ...base, trainer_id: prof2, weekday: 2 }, actorId: admin });
       assert.ok(near.sessions_created >= 52);
     });

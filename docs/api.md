@@ -195,7 +195,7 @@ Todas exigen `role = admin` (y el admin entra con MFA si lo tiene activado). El 
 
 | Método y ruta | Cuerpo / query | Respuesta |
 |---|---|---|
-| `GET /admin/classes?discipline_id` | — | `{ classes: [{ id, discipline_id, discipline_name, trainer_id, trainer_name, weekday (1=lun), start_time (HH:MM), duration_min, capacity, location, starts_on, ends_on }] }` |
+| `GET /admin/classes?discipline_id` | — | `{ classes: [{ id, discipline_id, discipline_name, trainer_id, trainer_name, weekday (1=lun), start_time (HH:MM), duration_min, capacity, location, starts_on, ends_on (YYYY-MM-DD, días de Madrid; `ends_on` el último día de la clase o `null`) }] }` |
 | `POST /admin/classes` | `{ discipline_id, trainer_id, weekday, start_time, duration_min, capacity, location?, starts_on?, ends_on? }` | `201 { class }` (genera las sesiones a un año) |
 | `PATCH /admin/classes/:id` | `{ from?, trainer_id?, start_time?, duration_min?, capacity?, location? }` | `{ class, sessions_changed, notified, promoted }` |
 | `POST /admin/classes/:id/retire` | `{ date? }` | `{ class: { …, cancelled_sessions } }` |

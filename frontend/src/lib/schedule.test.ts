@@ -68,9 +68,4 @@ describe('estado de una clase', () => {
     expect(classState({ ends_on: '2026-11-01' }, '2026-11-02')).toBe('retired')
     expect(classState({ ends_on: '2026-11-02' }, '2026-11-02')).toBe('ending')
   })
-  it('lee la fecha como llega de la API: medianoche de Madrid en UTC', () => {
-    // el 1 de noviembre de Madrid llega como 31 de octubre a las 23:00 UTC
-    expect(classState({ ends_on: '2026-10-31T23:00:00.000Z' }, '2026-11-02')).toBe('retired')
-    expect(classState({ ends_on: '2026-11-01T23:00:00.000Z' }, '2026-11-02')).toBe('ending')
-  })
 })

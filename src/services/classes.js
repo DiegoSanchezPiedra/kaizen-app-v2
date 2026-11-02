@@ -9,10 +9,11 @@ import {
 const CHANGE_SPEC = Object.fromEntries(
   ['trainer_id', 'start_time', 'duration_min', 'capacity', 'location'].map((k) => [k, CLASS_SPEC[k]]));
 
+// ::text: pg convierte `date` a Date local y en JSON sale el día anterior en UTC (como en services/profile.js).
 const CLASS_SELECT = `
   SELECT c.id, c.discipline_id, d.name AS discipline_name, c.trainer_id, p.display_name AS trainer_name,
          c.weekday, to_char(c.start_time, 'HH24:MI') AS start_time, c.duration_min, c.capacity,
-         c.location, c.starts_on, c.ends_on
+         c.location, c.starts_on::text AS starts_on, c.ends_on::text AS ends_on
     FROM classes c JOIN disciplines d ON d.id = c.discipline_id JOIN profiles p ON p.id = c.trainer_id`;
 
 export async function listClasses(client, { discipline_id } = {}) {

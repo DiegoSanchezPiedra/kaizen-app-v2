@@ -96,8 +96,6 @@ export type AdminClass = {
   starts_on: string
   ends_on: string | null
 }
-// Las columnas DATE llegan como medianoche de Madrid en UTC (2026-10-31T23:00:00.000Z = el 1 de noviembre): siempre por madridDay.
-export const classState = (c: Pick<AdminClass, 'ends_on'>, today: string = madridDay()): 'active' | 'ending' | 'retired' => {
-  if (!c.ends_on) return 'active'
-  return madridDay(c.ends_on) < today ? 'retired' : 'ending'
-}
+// starts_on y ends_on son días de Madrid (YYYY-MM-DD, la API los manda como texto): se comparan tal cual.
+export const classState = (c: Pick<AdminClass, 'ends_on'>, today: string = madridDay()): 'active' | 'ending' | 'retired' =>
+  !c.ends_on ? 'active' : c.ends_on < today ? 'retired' : 'ending'
