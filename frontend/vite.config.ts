@@ -40,6 +40,8 @@ export default defineConfig({
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },
   server: {
+    // shortcut: solo para enseñar la app por ngrok (preview lo hereda); quitarlo cuando no se use
+    allowedHosts: ['basket-oven-traverse.ngrok-free.dev'],
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:3000',
