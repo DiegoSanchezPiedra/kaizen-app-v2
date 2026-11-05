@@ -67,7 +67,7 @@
 | B18 | Frontend PWA (alumno, tutor, profesor, tablet; sub-bloques B18.0–B18.6) | B13, B15, B17 | CERRADO (con pruebas en dispositivos pendientes) |
 | B19 | Panel admin (métricas, usuarios, auditoría, morosos; sub-bloques B19.0–B19.6) | B11, B17, B10.2, B18 | Diseñado |
 | B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos | Pendiente |
-| B21 | Eventos (inscripción, cobro aparte, panel; sub-bloques B21.0–B21.2) | B10, B18, B19 | En curso (B21.0 hecho) |
+| B21 | Eventos (inscripción, cobro aparte, panel; sub-bloques B21.0–B21.2) | B10, B18, B19 | En curso (B21.0 y B21.1 hechos) |
 
 ---
 
@@ -2204,8 +2204,27 @@
     sale «PREFIJO-DE-MAAT* KAIZEN»; solo una cuenta propia de Kaizen lo evita. **Pendiente**: el pago diferido de un
     evento (solo tarjeta y monederos por el Dashboard); si un reembolso falla después de que el pagador recibiera «te
     hemos devuelto», no se le avisa (lo gestiona la academia).
-  - [ ] B21.1: el admin crea, edita y cancela un evento (con reembolsos en el sandbox), inscribe invitados, cancela inscripciones
+  - [x] B21.1: el admin crea, edita y cancela un evento (con reembolsos en el sandbox), inscribe invitados, cancela inscripciones
     con y sin reembolso, reintenta uno fallido y pasa lista.
+  - **Avance de B21.1** (2026-11-05, commit en `b10-stripe`): `/admin/events` (grupo Horario, entre Clases y Catálogo): lista con
+    «Próximos / Cancelados / Todos» y página en la URL, y **Nuevo evento** en hoja; `/admin/events/:id` con los datos, **Editar**
+    (hoja; solo manda lo que cambia; avisa antes de guardar si cambia inicio, fin o lugar), **Cancelar el evento** (AlertDialog con
+    inscripciones, importe a devolver y motivo; el aviso de éxito dice `reembolsos · fallidos · avisos`), inscritos con estado del
+    pago y del reembolso, **Inscribir invitado** (Combobox), **Cancelar** una inscripción (con el interruptor «devolver el
+    importe» solo si está pagada), **Reintentar el reembolso** y la lista de asistencia desde el inicio (`PUT /events/:id/attendance`).
+    `lib/events.ts` (+ `events.test.ts`: euros, PATCH, reintento, importe al cancelar el evento) y `lib/admin.ts` (avisos,
+    auditoría con categoría «Eventos», detalle de `event.*` y `event_registration.*`); textos de `lib/errors.ts` «propuesto».
+    **Probado** en Chrome contra la API local y el sandbox (`sk_test_`, `stripe listen`): crear; editar con cambio de lugar
+    («2 avisos»); invitado; pago real con 4242 (webhook → confirmada); cancelar sin reembolso y **Reintentar** (→ «Devuelto
+    12,50 €»); cancelar con reembolso; reintento de uno `failed` (marcado a mano en la base: el fallo real del sandbox es
+    aleatorio, como en B21.0); cancelar el evento con un pago («1 reembolso · 2 avisos»); pasar lista; Auditoría y el aviso
+    `notice.event_refund_failed` (generado con `refundFailed`); móvil a 390 px sin scroll horizontal. `typecheck`, `lint`, tests
+    (138) y `build` en verde.
+    **Decidido sin estar en la especificación**: crear está en la lista y editar y cancelar en el detalle (el cancelar necesita
+    las inscripciones); «Reintentar» sale en una cancelada con reembolso `failed` o sin estado cancelada por la academia con
+    importe, porque la API no dice si llegó a pagar (si no pagó, el servidor contesta `already_cancelled` y sale su texto);
+    «Devuelto» sin importe mientras `refunded_cents` es 0 (lo rellena el webhook `charge.refunded`, unos segundos después).
+    **Sin probar**: un reembolso rechazado de verdad por Stripe; la hoja de edición con un evento con disciplina y profesor.
   - [ ] B21.2: un alumno y un tutor (por un hijo) se inscriben gratis y pagando (tarjeta de prueba), cancelan lo que pueden y ven
     sus inscripciones; el profesor pasa lista y ve las fichas el día del evento.
   - [ ] Vitest de la lógica; `typecheck`, `lint` y `build:frontend` en verde.

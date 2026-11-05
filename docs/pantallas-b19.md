@@ -50,7 +50,7 @@ Los de `docs/pantallas-b18.md` (cargando, vacío, error, sin conexión, sin perm
 2. **Usuarios** `/admin/users`
 3. **Cobros** `/admin/billing` (morosos)
 4. **Avisos** `/admin/notices`
-5. **Horario** `/admin/sessions` · **Clases** `/admin/classes`
+5. **Horario** `/admin/sessions` · **Clases** `/admin/classes` · **Eventos** `/admin/events` (B21.1)
 6. **Catálogo** `/admin/catalog`
 7. **Informes** `/admin/reports`
 8. **Documentos legales** `/admin/documents`

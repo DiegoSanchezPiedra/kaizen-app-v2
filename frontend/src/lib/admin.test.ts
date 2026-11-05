@@ -9,6 +9,7 @@ import {
   categoryPrefixes,
   deliveryLabel,
   latestStat,
+  noticeEvent,
   noticeLabel,
   pageHref,
   pageOf,
@@ -154,5 +155,22 @@ describe('auditoría, avisos y cobros (B19.4)', () => {
     expect(pageOf(new URLSearchParams('page=x'))).toBe(1)
     expect(pageHref(new URLSearchParams('tab=grace&page=2'), 3)).toBe('?tab=grace&page=3')
     expect(pageHref(new URLSearchParams('tab=grace&page=2'), 1)).toBe('?tab=grace')
+  })
+})
+
+describe('eventos en avisos y auditoría', () => {
+  it('etiquetas y detalle de event.* y event_registration.*', () => {
+    expect(auditLabel('event.cancel')).toBe('Canceló un evento')
+    expect(auditLabel('event_registration.guest')).toBe('Inscribió a un invitado')
+    expect(auditDetail({ action: 'event.update', changes: { from: { price_cents: 1 }, to: { location: 'x', price_cents: 1000 } } })).toBe('lugar, precio')
+    expect(auditDetail({ action: 'event.cancel', changes: { note: 'lluvia', registrations: 2 } })).toBe('lluvia · 2 inscripciones')
+    expect(auditDetail({ action: 'event_registration.cancel', changes: { from: 'confirmed', refund: true } })).toBe('Con reembolso')
+    expect(auditDetail({ action: 'event_registration.refund', changes: { amount_cents: 1250 } })).toContain('12,50')
+    expect(auditTarget({ resource_type: 'event', resource_id: 'e1' }).to).toBe('/admin/events/e1')
+  })
+  it('el aviso de reembolso fallido tiene texto y enlaza al evento', () => {
+    const n = { id: '1', created_at: '', action: 'notice.event_refund_failed', resource_type: 'event_registration', resource_id: 'r', details: { event_id: 'e1' } }
+    expect(noticeLabel(n.action)).toContain('reembolso')
+    expect(noticeEvent(n)).toBe('e1')
   })
 })

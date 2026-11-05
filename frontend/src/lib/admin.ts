@@ -1,5 +1,7 @@
 import { addDays, madridDay } from '@/lib/dates'
 import type { Role } from '@/lib/paths'
+import { formatEuros } from '@/lib/format'
+import { plural } from '@/lib/professor'
 import type { Insurance, ProfileStatus, Subscription } from '@/lib/types'
 
 // GET /auth/me (B4): el aviso del MFA sale solo si la API dice que no está activo; mientras carga, no.
@@ -37,11 +39,15 @@ const NOTICE_LABEL: Record<string, string> = {
   'notice.stripe_risk': 'Riesgo de Stripe: revísalo en el Dashboard de Stripe',
   'notice.checkout_race_refunded': 'Dos pagos a la vez: se devolvió el duplicado',
   'notice.payer_change_expired': 'Un cambio de pagador ha caducado',
+  'notice.event_refund_failed': 'Stripe ha rechazado el reembolso de una inscripción: reintenta el reembolso desde el evento',
 }
 export const noticeLabel = (action: string): string => NOTICE_LABEL[action] ?? action
 
 // A quién se abre un aviso de la academia: la ficha del alumno si el aviso la trae (`student_id`).
 export const noticeStudent = (n: AcademyNotice): string | null => (typeof n.details.student_id === 'string' ? n.details.student_id : null)
+
+// A qué evento se refiere un aviso de la academia (el de un reembolso fallido lo trae en `event_id`).
+export const noticeEvent = (n: AcademyNotice): string | null => (typeof n.details.event_id === 'string' ? n.details.event_id : null)
 
 // Entregas fallidas: el nombre en español del aviso. Uno desconocido sale tal cual.
 const DELIVERY_LABEL: Record<string, string> = {
@@ -68,6 +74,11 @@ const DELIVERY_LABEL: Record<string, string> = {
   'notice.no_coverage': 'Sin cobertura',
   'notice.discipline_change': 'Cambio de disciplina',
   'notice.agreement_published': 'Documento nuevo para firmar',
+  'notice.event_changed': 'Evento cambiado',
+  'notice.event_cancelled': 'Evento cancelado',
+  'notice.event_registration_cancelled': 'Inscripción cancelada',
+  'notice.event_refunded': 'Reembolso de un evento',
+  'notice.event_refund_failed': 'Reembolso de un evento fallido',
 }
 export const deliveryLabel = (action: string): string => DELIVERY_LABEL[action] ?? action
 export const CHANNEL_LABEL: Record<string, string> = { email: 'Email', push: 'Push' }
@@ -85,6 +96,7 @@ export const AUDIT_CATEGORIES = [
   { value: 'documents', label: 'Documentos', prefixes: ['agreement_document.'] },
   { value: 'settings', label: 'Ajustes', prefixes: ['settings.'] },
   { value: 'bookings', label: 'Reservas', prefixes: ['booking.'] },
+  { value: 'events', label: 'Eventos', prefixes: ['event.', 'event_registration.'] },
 ] as const
 // Una categoría desconocida (URL a mano) no filtra.
 export const categoryPrefixes = (value: string | null): string | undefined => AUDIT_CATEGORIES.find((c) => c.value === value)?.prefixes.join(',')
@@ -127,6 +139,12 @@ const AUDIT_LABEL: Record<string, string> = {
   'settings.discipline_changes': 'Cambió los cambios de disciplina por periodo',
   'booking.create': 'Hizo una reserva',
   'booking.cancel': 'Canceló una reserva',
+  'event.create': 'Creó un evento',
+  'event.update': 'Cambió un evento',
+  'event.cancel': 'Canceló un evento',
+  'event_registration.guest': 'Inscribió a un invitado',
+  'event_registration.cancel': 'Canceló una inscripción',
+  'event_registration.refund': 'Reintentó un reembolso',
 }
 export const auditLabel = (action: string): string => AUDIT_LABEL[action] ?? action
 
@@ -154,15 +172,30 @@ export function auditDetail(a: Pick<AuditRow, 'action' | 'changes'>, roleLabel: 
   if (a.action === 'profile.role_change' && from && to) return `${roleLabel[from] ?? from} → ${roleLabel[to] ?? to}`
   if (/price_change$/.test(a.action) && typeof c.from === 'number' && typeof c.to === 'number') return `${c.from / 100} € → ${c.to / 100} €`
   if (a.action === 'session.cancel') return str(c.note) ?? ''
+  if (a.action === 'event.create') return str(c.title) ?? ''
+  if (a.action === 'event.cancel') return [str(c.note), typeof c.registrations === 'number' && plural(c.registrations, 'inscripción', 'inscripciones')].filter(Boolean).join(' · ')
+  if (a.action === 'event.update') return eventChanges(c.to)
+  if (a.action === 'event_registration.cancel') return c.refund === true ? 'Con reembolso' : 'Sin reembolso'
+  if (a.action === 'event_registration.refund' && typeof c.amount_cents === 'number') return formatEuros(c.amount_cents)
   if (a.action === 'agreement_document.publish') return [str(c.type), str(c.version) && `v${c.version}`].filter(Boolean).join(' ')
   return ''
 }
+
+// event.update trae en `to` solo lo que cambió: se dice qué campos, sin los valores (pueden ser largos).
+const EVENT_FIELD: Record<string, string> = {
+  title: 'título', description: 'descripción', starts_at: 'inicio', ends_at: 'fin', location: 'lugar', discipline_id: 'disciplina', trainer_id: 'profesor',
+  capacity: 'aforo', audience: 'público', requires_risk_cover: 'cobertura de riesgo', price_cents: 'precio', member_price_cents: 'precio de socio',
+  registration_deadline: 'fecha límite',
+}
+const eventChanges = (to: unknown): string =>
+  to && typeof to === 'object' ? Object.keys(to).map((k) => EVENT_FIELD[k] ?? k).join(', ') : ''
 
 // A dónde lleva el recurso: la ficha de un perfil (o el hijo de un tutor) o la sesión. El resto, sin enlace.
 export function auditTarget(a: Pick<AuditRow, 'resource_type' | 'resource_id'>): { to: string | null; label: string } {
   if (a.resource_type === 'profile' || a.resource_type === 'guardian') return { to: `/admin/users/${a.resource_id}`, label: 'Ficha' }
   if (a.resource_type === 'session') return { to: `/admin/sessions/${a.resource_id}`, label: 'Sesión' }
-  const label: Record<string, string> = { class: 'Clase', plan: 'Plan', discipline: 'Disciplina', subscription: 'Suscripción', insurance: 'Seguro', booking: 'Reserva', agreement_document: 'Documento', settings: 'Ajustes' }
+  if (a.resource_type === 'event') return { to: `/admin/events/${a.resource_id}`, label: 'Evento' }
+  const label: Record<string, string> = { class: 'Clase', plan: 'Plan', discipline: 'Disciplina', subscription: 'Suscripción', insurance: 'Seguro', booking: 'Reserva', event_registration: 'Inscripción', agreement_document: 'Documento', settings: 'Ajustes' }
   return { to: null, label: label[a.resource_type] ?? a.resource_type }
 }
 

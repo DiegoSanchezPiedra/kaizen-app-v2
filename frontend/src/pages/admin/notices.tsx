@@ -5,7 +5,7 @@ import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
-import { CHANNEL_LABEL, deliveryLabel, noticeLabel, noticeStudent, pageHref, pageOf, type AcademyNotice, type Delivery, type Paged } from '@/lib/admin'
+import { CHANNEL_LABEL, deliveryLabel, noticeEvent, noticeLabel, noticeStudent, pageHref, pageOf, type AcademyNotice, type Delivery, type Paged } from '@/lib/admin'
 import { api } from '@/lib/api'
 import { formatDeadline } from '@/lib/format'
 import { path } from '@/lib/url'
@@ -55,12 +55,18 @@ function Academy() {
       <ul className="divide-y rounded-2xl border bg-card">
         {list.data.rows.map((n) => {
           const student = noticeStudent(n)
+          const event = noticeEvent(n)
           return (
             <li key={n.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3">
               <time dateTime={n.created_at} className="w-36 shrink-0 text-sm text-muted-foreground tabular-nums">
                 {formatDeadline(n.created_at)}
               </time>
               <span className="min-w-0 flex-1">{noticeLabel(n.action)}</span>
+              {event && (
+                <Link to={`/admin/events/${event}`} className="text-sm font-medium text-link underline-offset-3 hover:underline">
+                  Ver el evento
+                </Link>
+              )}
               {student && (
                 <Link to={`/admin/users/${student}`} className="text-sm font-medium text-link underline-offset-3 hover:underline">
                   Ver la ficha

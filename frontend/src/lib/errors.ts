@@ -176,3 +176,19 @@ Object.assign(TEXTS, {
 Object.assign(TEXTS, {
   rate_limited: 'Demasiados intentos. Espera unos minutos y vuelve a intentarlo.', // propuesto
 })
+
+// B21.1 (docs/api.md § Eventos). Los marcados «propuesto» no tienen texto en el documento.
+Object.assign(TEXTS, {
+  event_not_found: 'No encontramos este evento.', // propuesto
+  registration_not_found: 'No encontramos esta inscripción.', // propuesto
+  event_cancelled: 'El evento está cancelado.', // propuesto
+  event_full: 'El evento está completo.', // propuesto
+  already_registered: 'Ya está inscrito en este evento.', // propuesto
+  audience_mismatch: 'Este evento no es para su edad.', // propuesto
+  registration_closed: 'Las inscripciones de este evento ya están cerradas.', // propuesto
+  capacity_below_registrations: 'Hay más inscripciones que ese aforo.', // propuesto
+  event_not_started: 'La lista se abre cuando empieza el evento.', // propuesto
+  event_started: 'El evento ya ha empezado.', // propuesto
+  already_cancelled: 'Ya estaba cancelada y no hay nada pagado que devolver.', // propuesto
+  paid_registration: 'Está pagada: cancélala desde el panel.', // propuesto
+})
