@@ -4,6 +4,7 @@ import { queryClient } from '@/lib/logout'
 import { path } from '@/lib/url'
 import { getSession } from '@/lib/session'
 import type { AuthMe } from '@/lib/admin'
+import type { EventInfo } from '@/lib/events'
 import type { Booking, Discipline, Insurance, Plan, ProfileStatus, Progress, Subscription } from '@/lib/types'
 
 // GET /bookings también devuelve las que el alumno hizo por sus hijos: cada pantalla enseña solo las del sujeto.
@@ -69,3 +70,15 @@ export { path }
 
 // GET /auth/me: el panel lo lee para el aviso del MFA (ADR 0016).
 export const useAuthMe = () => useQuery({ queryKey: ['auth-me'], queryFn: () => api<AuthMe>('/auth/me') })
+
+// Eventos (B21.2). `registered`: solo aquellos en los que el sujeto tiene inscripción (Reservas e Inicio).
+const eventsOf = (profileId: string | undefined, registered: boolean) =>
+  api<{ events: EventInfo[] }>(path('/events', { profile_id: profileId, registered: registered ? 'true' : undefined })).then((r) => r.events)
+export const useEvents = (profileId: string | undefined, registered = false) =>
+  useQuery({ queryKey: ['events', who(profileId), registered ? 'mine' : 'all'], queryFn: () => eventsOf(profileId, registered) })
+export const eventOf = (id: string, profileId: string | undefined) =>
+  api<{ event: EventInfo }>(path(`/events/${id}`, { profile_id: profileId })).then((r) => r.event)
+export const useEvent = (id: string, profileId: string | undefined) =>
+  useQuery({ queryKey: ['events', who(profileId), 'one', id], queryFn: () => eventOf(id, profileId) })
+// Tras inscribirse o cancelar cambian la lista, el detalle, Reservas e Inicio.
+export const refreshEvents = () => queryClient.invalidateQueries({ queryKey: ['events'] })

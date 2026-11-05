@@ -1,7 +1,8 @@
 import { CalendarIcon, CircleAlertIcon, InfoIcon, TriangleAlertIcon } from 'lucide-react'
 import { Link } from 'react-router'
-import { EmptyState, ListSkeleton, QueryView } from '@/components/screen-state'
+import { EmptyState, ErrorState, ListSkeleton, QueryView } from '@/components/screen-state'
 import { Page } from '@/components/page'
+import { EventCard } from '@/components/event-card'
 import { PushCard } from '@/components/push-card'
 import { SessionCard } from '@/components/session-card'
 import { StreakPanel } from '@/components/streak-panel'
@@ -12,8 +13,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useNow } from '@/hooks/use-now'
 import { useSubject } from '@/hooks/use-subject'
 import { addDays, formatDay, madridDay } from '@/lib/dates'
+import { isUpcomingRegistration, mergeByStart } from '@/lib/events'
 import { homeNotices, type HomeNotice } from '@/lib/notices'
-import { useBookings, useProfileStatus, useProgress, useSubscription } from '@/lib/queries'
+import { useBookings, useEvents, useProfileStatus, useProgress, useSubscription } from '@/lib/queries'
 import type { Subject } from '@/lib/subject'
 
 const ICON = { warning: TriangleAlertIcon, error: CircleAlertIcon, info: InfoIcon }
@@ -52,10 +54,11 @@ function Home({ subject, profileId }: { subject: Subject | null; profileId?: str
     subject: subject && !subject.self ? subject : null,
     self: profileId ? selfStatus.data : undefined,
   })
-  const next = (bookings.data ?? [])
-    .filter((b) => b.status !== 'cancelled' && Date.parse(b.starts_at) > now)
-    .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at))
-    .slice(0, 3)
+  const events = useEvents(profileId, true)
+  const next = mergeByStart(
+    (bookings.data ?? []).filter((b) => b.status !== 'cancelled' && Date.parse(b.starts_at) > now),
+    (events.data ?? []).filter((e) => isUpcomingRegistration(e, now)),
+  ).slice(0, 3)
 
   return (
     <>
@@ -79,36 +82,42 @@ function Home({ subject, profileId }: { subject: Subject | null; profileId?: str
             Ver todas
           </Link>
         </div>
-        <QueryView query={bookings} skeleton={<ListSkeleton rows={2} />}>
-          {() =>
-            next.length === 0 ? (
-              <EmptyState
-                icon={<CalendarIcon />}
-                title={name ? `${name} aún no tiene reservas` : 'Aún no tienes reservas'}
-                text="Mira qué sesiones hay y reserva la que encaje."
-                action={
-                  <Button size="xl" render={<Link to={withSubject('/calendar')} />}>
-                    Ver calendario
-                  </Button>
-                }
-              />
-            ) : (
-              <ul className="flex flex-col gap-3">
-                {next.map((b) => (
-                  <li key={b.id}>
-                    <SessionCard
-                      startsAt={b.starts_at}
-                      endsAt={b.ends_at}
-                      title={b.discipline_name}
-                      meta={`${formatDay(madridDay(b.starts_at))}${b.location ? ` · ${b.location}` : ''}`}
-                      state={b.status === 'waitlisted' ? 'waitlisted' : 'booked'}
-                    />
-                  </li>
-                ))}
-              </ul>
-            )
-          }
-        </QueryView>
+        {bookings.isPending || events.isPending ? (
+          <ListSkeleton rows={2} />
+        ) : bookings.isError || events.isError ? (
+          <ErrorState error={bookings.error ?? events.error} onRetry={() => void Promise.all([bookings.refetch(), events.refetch()])} />
+        ) : next.length === 0 ? (
+          <EmptyState
+            icon={<CalendarIcon />}
+            title={name ? `${name} aún no tiene reservas` : 'Aún no tienes reservas'}
+            text="Mira qué sesiones hay y reserva la que encaje."
+            action={
+              <Button size="xl" render={<Link to={withSubject('/calendar')} />}>
+                Ver calendario
+              </Button>
+            }
+          />
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {next.map((it) =>
+              it.kind === 'event' ? (
+                <li key={it.e.id}>
+                  <EventCard e={it.e} to={withSubject(`/events/${it.e.id}`)} />
+                </li>
+              ) : (
+                <li key={it.s.id}>
+                  <SessionCard
+                    startsAt={it.s.starts_at}
+                    endsAt={it.s.ends_at}
+                    title={it.s.discipline_name}
+                    meta={`${formatDay(madridDay(it.s.starts_at))}${it.s.location ? ` · ${it.s.location}` : ''}`}
+                    state={it.s.status === 'waitlisted' ? 'waitlisted' : 'booked'}
+                  />
+                </li>
+              ),
+            )}
+          </ul>
+        )}
       </section>
       <PushCard place="inicio" />
     </>

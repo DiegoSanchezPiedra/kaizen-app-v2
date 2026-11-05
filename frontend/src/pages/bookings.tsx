@@ -4,6 +4,7 @@ import { Link } from 'react-router'
 import { useCancelBooking } from '@/components/cancel-booking'
 import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
+import { EventCard } from '@/components/event-card'
 import { SessionCard } from '@/components/session-card'
 import { SubjectGate } from '@/components/subject-gate'
 import { Button } from '@/components/ui/button'
@@ -11,7 +12,8 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
 import { useNow } from '@/hooks/use-now'
 import { useSubject } from '@/hooks/use-subject'
 import { addDays, formatDay, madridDay, madridMonth, formatMonth } from '@/lib/dates'
-import { bookingsOf, useBookings } from '@/lib/queries'
+import { isUpcomingRegistration, mergeByStart } from '@/lib/events'
+import { bookingsOf, useBookings, useEvents } from '@/lib/queries'
 import { CANCEL_REASON, PAST_CHUNK_DAYS, groupBy, splitBookings, type SessionState } from '@/lib/sessions'
 import type { Booking } from '@/lib/types'
 
@@ -38,7 +40,12 @@ function Bookings({ profileId }: { profileId?: string }) {
   })
 
   const now = useNow()
-  const next = splitBookings(upcoming.data ?? [], now).upcoming
+  // Sus inscripciones a eventos van mezcladas con las sesiones, por fecha.
+  const events = useEvents(profileId, true)
+  const next = mergeByStart(
+    splitBookings(upcoming.data ?? [], now).upcoming,
+    (events.data ?? []).filter((e) => isUpcomingRegistration(e, now)),
+  )
   const old = splitBookings(past.data?.pages.flat() ?? [], now).past
   const months = groupBy(old, (b) => madridMonth(b.starts_at))
   const lastEmpty = past.data && past.data.pages.at(-1)?.length === 0
@@ -60,15 +67,15 @@ function Bookings({ profileId }: { profileId?: string }) {
         </TabsList>
 
         <TabsPanel value="next" className="flex flex-col gap-3">
-          {upcoming.isPending ? (
+          {upcoming.isPending || events.isPending ? (
             <ListSkeleton rows={3} />
-          ) : upcoming.isError ? (
-            <ErrorState error={upcoming.error} onRetry={() => void upcoming.refetch()} />
+          ) : upcoming.isError || events.isError ? (
+            <ErrorState error={upcoming.error ?? events.error} onRetry={() => void Promise.all([upcoming.refetch(), events.refetch()])} />
           ) : next.length === 0 ? (
             <EmptyState
               icon={<CalendarIcon />}
               title="Aún no tienes reservas"
-              text="Cuando reserves una sesión aparecerá aquí."
+              text="Cuando reserves una sesión o te inscribas a un evento aparecerá aquí."
               action={
                 <Button size="xl" render={<Link to={withSubject('/calendar')} />}>
                   Ver calendario
@@ -76,7 +83,9 @@ function Bookings({ profileId }: { profileId?: string }) {
               }
             />
           ) : (
-            next.map((b) => {
+            next.map((it) => {
+              if (it.kind === 'event') return <EventCard key={it.e.id} e={it.e} to={withSubject(`/events/${it.e.id}`)} />
+              const b = it.s
               const state = stateOf(b, false)
               return (
                 <SessionCard

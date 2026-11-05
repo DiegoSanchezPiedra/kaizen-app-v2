@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import {
   BanIcon,
+  CalendarDaysIcon,
   CalendarIcon,
   CheckIcon,
   ChevronLeftIcon,
@@ -25,6 +26,7 @@ import { Button } from '@/components/ui/button'
 import { useNow } from '@/hooks/use-now'
 import { api, ApiError } from '@/lib/api'
 import { addDays, formatDay, madridDay } from '@/lib/dates'
+import { entryStart, mergeByStart, type Entry, type EventInfo } from '@/lib/events'
 import { formatTime } from '@/lib/format'
 import {
   canSeeHealth,
@@ -47,8 +49,12 @@ import { cn } from '@/lib/utils'
 
 const MAX_PAST_CHUNKS = 8
 
-const range = (from: string, to: string) =>
-  api<{ sessions: TrainerSession[] }>(path('/professor/sessions', { from, to })).then((r) => r.sessions)
+// Sus sesiones y sus eventos, mezclados por fecha (B21.2).
+const range = (from: string, to: string): Promise<Entry<TrainerSession>[]> =>
+  Promise.all([
+    api<{ sessions: TrainerSession[] }>(path('/professor/sessions', { from, to })),
+    api<{ events: EventInfo[] }>(path('/professor/events', { from, to })),
+  ]).then(([s, e]) => mergeByStart(s.sessions, e.events))
 
 const PHASE_BADGE: Record<Phase, { variant: 'outline' | 'info' | 'secondary' | 'error'; Icon: typeof ClockIcon; text: string } | null> = {
   upcoming: null,
@@ -92,19 +98,57 @@ function SessionLink({ s, now }: { s: TrainerSession; now: number }) {
   )
 }
 
-function Days({ sessions, now }: { sessions: TrainerSession[]; now: number }) {
+function EventLink({ e, now }: { e: EventInfo; now: number }) {
+  const phase = phaseOf(e, now)
+  const badge = PHASE_BADGE[phase]
+  const off = phase === 'cancelled'
+  return (
+    <Link
+      to={`/professor/events/${e.id}`}
+      className={cn(
+        'grid grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-x-3 rounded-xl border bg-card p-3 shadow-xs/5 outline-none transition-transform duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98] motion-reduce:active:scale-100',
+        phase === 'now' && 'border-primary/55 shadow-[inset_3px_0_0_var(--primary)]',
+        off && 'bg-transparent shadow-none',
+      )}
+    >
+      <div className="font-mono text-[15px] leading-tight tabular-nums">
+        <div>{formatTime(e.starts_at)}</div>
+        <div className="text-xs text-muted-foreground">{formatTime(e.ends_at)}</div>
+      </div>
+      <div className="min-w-0">
+        <h3 className={cn('text-base leading-snug font-semibold', off && 'text-muted-foreground line-through')}>{e.title}</h3>
+        <p className="text-[13px] leading-snug text-muted-foreground">{[e.location, e.discipline?.name].filter(Boolean).join(' · ')}</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <Badge variant="outline" size="lg">
+            <CalendarDaysIcon aria-hidden="true" />
+            Evento
+          </Badge>
+          {badge && (
+            <Badge variant={badge.variant} size="lg">
+              <badge.Icon aria-hidden="true" />
+              {badge.text}
+            </Badge>
+          )}
+        </div>
+      </div>
+      <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
+    </Link>
+  )
+}
+
+function Days({ sessions, now }: { sessions: Entry<TrainerSession>[]; now: number }) {
   const today = madridDay(now)
   return (
     <>
-      {groupByDay(sessions, (s) => s.starts_at).map(([day, list]) => (
+      {groupByDay(sessions, (it) => (it.kind === 'session' ? it.s : it.e).starts_at).map(([day, list]) => (
         <section key={day} aria-label={formatDay(day)} className="flex flex-col gap-2.5">
           <h2 className="px-0.5 text-[13px] font-bold tracking-wide text-muted-foreground uppercase first-letter:uppercase">
             {day === today ? `Hoy · ${formatDay(day)}` : formatDay(day)}
           </h2>
           <div className="grid gap-2.5 lg:grid-cols-2">
-            {list.map((s) => (
-              <SessionLink key={s.id} s={s} now={now} />
-            ))}
+            {list.map((it) =>
+              it.kind === 'session' ? <SessionLink key={it.s.id} s={it.s} now={now} /> : <EventLink key={it.e.id} e={it.e} now={now} />,
+            )}
           </div>
         </section>
       ))}
@@ -125,7 +169,7 @@ export function ProfessorSessionsPage() {
     queryFn: ({ pageParam: end }) => range(addDays(end, -(PAST_CHUNK_DAYS - 1)), end),
     getNextPageParam: (_l, pages) => (pages.length < MAX_PAST_CHUNKS ? addDays(today, -1 - PAST_CHUNK_DAYS * pages.length) : undefined),
   })
-  const old = (past.data?.pages.flat() ?? []).sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at))
+  const old = (past.data?.pages.flat() ?? []).sort((a, b) => entryStart(a) - entryStart(b))
 
   return (
     <Page title="Sesiones" wide>
@@ -146,10 +190,10 @@ export function ProfessorSessionsPage() {
             </Button>
           ) : null}
           {past.isError && <ErrorState error={past.error} onRetry={() => void past.refetch()} />}
-          {askedPast && past.data && old.length === 0 && <p className="text-center text-sm text-muted-foreground">No hay sesiones anteriores.</p>}
+          {askedPast && past.data && old.length === 0 && <p className="text-center text-sm text-muted-foreground">No hay sesiones ni eventos anteriores.</p>}
           <Days sessions={old} now={now} />
           {upcoming.data.length === 0 ? (
-            <EmptyState icon={<CalendarIcon />} title="No tienes sesiones estos días" text="Cuando la academia te asigne una sesión aparecerá aquí." />
+            <EmptyState icon={<CalendarIcon />} title="No tienes sesiones ni eventos estos días" text="Cuando la academia te asigne una sesión o un evento aparecerá aquí." />
           ) : (
             <Days sessions={upcoming.data} now={now} />
           )}
@@ -160,10 +204,10 @@ export function ProfessorSessionsPage() {
 }
 
 // Fichas de salud: solo se piden al montar esto (tras tocar «Ver fichas»), sin caché ni refetch, y se van al salir.
-function HealthView({ sessionId }: { sessionId: string }) {
+export function HealthView({ sessionId, kind = 'sessions' }: { sessionId: string; kind?: 'sessions' | 'events' }) {
   const query = useQuery({
-    queryKey: ['prof-health', sessionId],
-    queryFn: () => api<{ students: HealthStudent[] }>(`/professor/sessions/${sessionId}/health`).then((r) => r.students),
+    queryKey: ['prof-health', kind, sessionId],
+    queryFn: () => api<{ students: HealthStudent[] }>(`/professor/${kind}/${sessionId}/health`).then((r) => r.students),
     gcTime: 0,
     staleTime: Infinity,
     retry: false,
@@ -173,7 +217,7 @@ function HealthView({ sessionId }: { sessionId: string }) {
   if (query.isPending) return <ListSkeleton rows={3} />
   if (query.isError) {
     if (query.error instanceof ApiError && (query.error.code === 'session_not_found' || query.error.status === 404)) {
-      return <EmptyState icon={<LockIcon />} title="Estas fichas ya no se pueden ver" text="Solo se ven el día de la sesión y si no está cancelada." />
+      return <EmptyState icon={<LockIcon />} title="Estas fichas ya no se pueden ver" text={`Solo se ven ${kind === 'events' ? 'los días del evento' : 'el día de la sesión'} y si no está cancelad${kind === 'events' ? 'o' : 'a'}.`} />
     }
     return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
   }
@@ -237,7 +281,7 @@ function HealthView({ sessionId }: { sessionId: string }) {
   )
 }
 
-function BackLink({ to, onClick, children }: { to?: string; onClick?: () => void; children: React.ReactNode }) {
+export function BackLink({ to, onClick, children }: { to?: string; onClick?: () => void; children: React.ReactNode }) {
   const cls = '-mt-3 inline-flex min-h-11 items-center gap-1 self-start font-semibold text-link'
   const icon = <ChevronLeftIcon className="size-4" aria-hidden="true" />
   return to ? (

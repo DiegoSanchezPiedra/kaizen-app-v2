@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { useSearchParams } from 'react-router'
 import { api } from '@/lib/api'
+import { takeCheckoutSubject } from '@/lib/billing'
 import { useSession } from '@/lib/session'
 import { activeSubject, subjectOptions, type Child } from '@/lib/subject'
 
@@ -36,4 +38,20 @@ export function useSubject() {
     retry: () => void refetch(),
     select,
   }
+}
+
+// La vuelta de Stripe no trae ?para=: se recupera el sujeto que se guardó al ir a pagar.
+export function useCheckoutSubject() {
+  const [params, setParams] = useSearchParams()
+  useEffect(() => {
+    const id = takeCheckoutSubject()
+    if (id && !params.get('para'))
+      setParams(
+        (p) => {
+          p.set('para', id)
+          return p
+        },
+        { replace: true },
+      )
+  }, [params, setParams])
 }

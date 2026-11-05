@@ -13,6 +13,7 @@ import { toastManager } from '@/components/ui/toast'
 import { useIsMobile } from '@/hooks/use-media-query'
 import { api } from '@/lib/api'
 import { errorText } from '@/lib/errors'
+import type { EventStudent } from '@/lib/events'
 import { queryClient } from '@/lib/logout'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
 import { plural, withMark, type Attendance, type AttendanceRow } from '@/lib/professor'
@@ -49,7 +50,25 @@ export function professorError(err: unknown, fallbackOffline = false) {
   else toastError(err)
 }
 
-// Cada interruptor guarda al tocarlo; mientras guarda queda bloqueado y, si falla, no cambia (la caché solo se toca al guardar).
+// El interruptor grande de «Presente»: mientras guarda queda bloqueado.
+function SwitchCell({ on, pending, label, onChange }: { on: boolean; pending: boolean; label: string; onChange: (present: boolean) => void }) {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <Switch
+        checked={on}
+        disabled={pending}
+        onCheckedChange={onChange}
+        aria-label={label}
+        className="relative h-9 w-16 [--thumb-size:34px] after:absolute after:-inset-1.5 after:content-[''] sm:[--thumb-size:34px]"
+      />
+      <span className={cn('text-xs font-semibold', on ? 'text-foreground' : 'text-muted-foreground')} aria-live="polite">
+        {pending ? 'Guardando…' : on ? 'Presente' : 'Sin marcar'}
+      </span>
+    </div>
+  )
+}
+
+// Cada interruptor guarda al tocarlo; si falla, no cambia (la caché solo se toca al guardar).
 function MarkSwitch({ sessionId, row }: { sessionId: string; row: AttendanceRow }) {
   const mark = useMutation({
     mutationFn: (present: boolean) => api(`/sessions/${sessionId}/attendance/${row.student_id}`, { method: 'PUT', body: { present } }),
@@ -60,19 +79,41 @@ function MarkSwitch({ sessionId, row }: { sessionId: string; row: AttendanceRow 
     },
   })
   const on = mark.isPending ? mark.variables : row.status === 'present'
+  return <SwitchCell on={on} pending={mark.isPending} label={`Presente: ${row.display_name}`} onChange={(c) => mark.mutate(c)} />
+}
+
+// Lista de un evento (B21.2): presente sí o no, desde el inicio, sin cerrar ni corregir.
+export const evKey = (id: string) => ['prof-event', id]
+export function EventStudentItem({ eventId, student, open }: { eventId: string; student: EventStudent; open: boolean }) {
+  const mark = useMutation({
+    mutationFn: (present: boolean) => api(`/events/${eventId}/attendance/${student.profile_id}`, { method: 'PUT', body: { present } }),
+    onError: (err) => {
+      professorError(err, true)
+      if (['registration_not_found', 'event_cancelled', 'event_not_started'].includes(errorCode(err))) void queryClient.invalidateQueries({ queryKey: evKey(eventId) })
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: evKey(eventId) }),
+  })
+  const on = mark.isPending ? mark.variables : student.attended === true
   return (
-    <div className="flex flex-col items-center gap-1">
-      <Switch
-        checked={on}
-        disabled={mark.isPending}
-        onCheckedChange={(c) => mark.mutate(c)}
-        aria-label={`Presente: ${row.display_name}`}
-        className="relative h-9 w-16 [--thumb-size:34px] after:absolute after:-inset-1.5 after:content-[''] sm:[--thumb-size:34px]"
-      />
-      <span className={cn('text-xs font-semibold', on ? 'text-foreground' : 'text-muted-foreground')} aria-live="polite">
-        {mark.isPending ? 'Guardando…' : on ? 'Presente' : 'Sin marcar'}
-      </span>
-    </div>
+    <li className="grid min-h-18 grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-x-3 border-b px-3.5 py-2.5 last:border-b-0">
+      <Avatar className="size-10">
+        <AvatarFallback>{initial(student.display_name)}</AvatarFallback>
+      </Avatar>
+      <div className="min-w-0">
+        <p className="truncate text-base font-semibold">{student.display_name}</p>
+        {!student.risk_cover && (
+          <Badge variant="warning" className="mt-1">
+            <ShieldAlertIcon aria-hidden="true" />
+            Sin cobertura de riesgo
+          </Badge>
+        )}
+      </div>
+      {open ? (
+        <SwitchCell on={on} pending={mark.isPending} label={`Presente: ${student.display_name}`} onChange={(c) => mark.mutate(c)} />
+      ) : (
+        <span className="text-[13px] font-semibold text-muted-foreground">Inscrito</span>
+      )}
+    </li>
   )
 }
 

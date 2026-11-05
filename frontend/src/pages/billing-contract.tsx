@@ -12,9 +12,9 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { RadioGroup } from '@/components/ui/radio-group'
 import { usePoll } from '@/hooks/use-poll'
-import { useSubject } from '@/hooks/use-subject'
+import { useCheckoutSubject, useSubject } from '@/hooks/use-subject'
 import { ApiError, api } from '@/lib/api'
-import { eligibleDisciplines, isLive, perMonth, rememberCheckoutSubject, takeCheckoutSubject, visiblePlans } from '@/lib/billing'
+import { eligibleDisciplines, isLive, perMonth, rememberCheckoutSubject, visiblePlans } from '@/lib/billing'
 import { formatDeadline, formatShortDate } from '@/lib/format'
 import { MISSING_TEXT } from '@/lib/notices'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
@@ -294,22 +294,6 @@ export function ContractPage() {
 }
 
 // ── Vuelta del Checkout ──────────────────────────────────────────────────
-
-// La vuelta de Stripe no trae ?para=: se recupera el sujeto que se guardó al ir a pagar.
-function useCheckoutSubject() {
-  const [params, setParams] = useSearchParams()
-  useEffect(() => {
-    const id = takeCheckoutSubject()
-    if (id && !params.get('para'))
-      setParams(
-        (p) => {
-          p.set('para', id)
-          return p
-        },
-        { replace: true },
-      )
-  }, [params, setParams])
-}
 
 function ConfirmInsurance({ profileId }: { profileId?: string }) {
   const insurance = useInsurance(profileId)

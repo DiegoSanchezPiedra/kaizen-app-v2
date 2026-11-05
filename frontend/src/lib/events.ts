@@ -1,6 +1,6 @@
 import { centsToEuros, eurosToCents } from '@/lib/catalog'
-import { madridDay } from '@/lib/dates'
-import { formatEuros, formatTime } from '@/lib/format'
+import { formatDay, madridDay } from '@/lib/dates'
+import { formatDeadline, formatEuros, formatTime } from '@/lib/format'
 import { madridToIso } from '@/lib/schedule'
 
 // docs/api.md § Eventos y § Admin › Eventos.
@@ -186,3 +186,86 @@ export function cancelResult(r: { refunded: number; refund_failed: number; notif
 
 // La asistencia se pasa desde el inicio del evento y solo en uno programado.
 export const attendanceOpen = (e: Pick<AdminEvent, 'status' | 'starts_at'>, now: number): boolean => e.status === 'scheduled' && now >= Date.parse(e.starts_at)
+
+// ── Alumno, tutor y profesor (B21.2) ─────────────────────────────────────────
+
+// docs/api.md § Eventos: la forma que ve el alumno y el profesor. `registration` es la del sujeto (la viva o, si no, la última).
+export type EventInfo = Omit<AdminEvent, 'cancel_note'> & {
+  registration: { id: string; status: 'pending' | 'confirmed' | 'cancelled'; amount_cents: number } | null
+}
+
+// Socio = el sujeto con suscripción en vigor (active o past_due, como register_event en 028): el precio de socio solo se aplica a él.
+export const isMember = (sub: { status: string } | null | undefined): boolean => !!sub && ['active', 'past_due'].includes(sub.status)
+
+// Lo que el servidor cobrará al inscribirse; 0 = confirmada sin Checkout.
+export const amountFor = (e: Pick<EventInfo, 'price_cents' | 'member_price_cents'>, member: boolean): number =>
+  member && e.member_price_cents !== null ? e.member_price_cents : e.price_cents
+
+// El importe que verá el sujeto: el suyo (si ya está inscrito, lo pagado) y, si no es socio y hay precio de socio, el otro como nota.
+// `member` indefinido (aún cargando la cuota) se trata como no socio.
+export function priceView(e: EventInfo, member: boolean | undefined): { main: string; note: string | null } {
+  const r = e.registration
+  if (r && r.status !== 'cancelled') return { main: priceLabel(r.amount_cents), note: null }
+  if (member && e.member_price_cents !== null) return { main: priceLabel(e.member_price_cents), note: e.member_price_cents < e.price_cents ? 'Precio de socio' : null }
+  return { main: priceLabel(e.price_cents), note: e.member_price_cents !== null && e.member_price_cents < e.price_cents ? memberPriceLabel(e) : null }
+}
+
+// Público por edad: solo se nombra el público del evento; la edad del sujeto no se calcula ni se enseña (el servidor responde audience_mismatch).
+export const audienceTag = (a: Audience): string | null => (a === 'all' ? null : AUDIENCE_LABEL[a])
+export const audienceText = (name?: string): string => `Este evento no es para ${name ? `la edad de ${name}` : 'tu edad'}.`
+
+// Plazas libres: sin aforo no se dice nada.
+export function spotsLabel(e: Pick<EventInfo, 'capacity' | 'taken'>): string | null {
+  if (e.capacity === null) return null
+  const left = e.capacity - e.taken
+  return left <= 0 ? 'Completo' : left === 1 ? 'Queda 1 plaza' : `Quedan ${left} plazas`
+}
+
+export type JoinState = 'cancelled' | 'cancellable' | 'pending' | 'paid' | 'registered' | 'closed' | 'full' | 'audience' | 'profile' | 'cover' | 'open'
+// blocked: perfil incompleto (del sujeto o, con un hijo, del tutor); riskCover: false = sin cobertura (solo importa si el evento la exige).
+export type JoinCtx = { now: number; blocked: boolean; riskCover?: boolean; audienceBlocked?: boolean }
+
+// Qué ofrece el botón del detalle. Cancelar solo si es gratis o está pendiente y antes del inicio; una pagada se pide a la academia.
+export function joinState(e: EventInfo, c: JoinCtx): JoinState {
+  if (e.status === 'cancelled') return 'cancelled'
+  const r = e.registration
+  const started = c.now >= Date.parse(e.starts_at)
+  if (r && r.status !== 'cancelled') {
+    if (r.status === 'confirmed' && r.amount_cents > 0) return 'paid'
+    if (started) return 'registered'
+    return r.status === 'pending' ? 'pending' : 'cancellable'
+  }
+  if (c.now >= Date.parse(e.registration_deadline ?? e.starts_at)) return 'closed'
+  if (e.capacity !== null && e.taken >= e.capacity) return 'full'
+  if (c.audienceBlocked) return 'audience'
+  if (c.blocked) return 'profile'
+  if (e.requires_risk_cover && c.riskCover === false) return 'cover'
+  return 'open'
+}
+
+// Inscripción viva y evento aún sin terminar: lo que enseñan Reservas e Inicio.
+export const isUpcomingRegistration = (e: EventInfo, now: number): boolean =>
+  e.status === 'scheduled' && !!e.registration && e.registration.status !== 'cancelled' && Date.parse(e.ends_at) > now
+
+// Las fichas de salud del profesor valen cualquier día del evento (de inicio a fin, en Madrid) y si no está cancelado.
+export const eventHealthDay = (e: Pick<EventInfo, 'status' | 'starts_at' | 'ends_at'>, now: number): boolean =>
+  e.status === 'scheduled' && madridDay(now) >= madridDay(e.starts_at) && madridDay(now) <= madridDay(e.ends_at)
+
+// Lista del profesor: un evento y sus inscritos confirmados.
+export type EventStudent = { profile_id: string; display_name: string; attended: boolean | null; risk_cover: boolean }
+
+// Sesiones y eventos del profesor, por fecha. Hay sesiones y eventos a la misma hora: a igual inicio, primero la sesión.
+export type Entry<S extends { starts_at: string }> = { kind: 'session'; s: S } | { kind: 'event'; e: EventInfo }
+export const entryStart = (it: Entry<{ starts_at: string }>): number => Date.parse(it.kind === 'session' ? it.s.starts_at : it.e.starts_at)
+export function mergeByStart<S extends { starts_at: string }>(sessions: S[], events: EventInfo[]): Entry<S>[] {
+  const all: Entry<S>[] = [...sessions.map((s) => ({ kind: 'session' as const, s })), ...events.map((e) => ({ kind: 'event' as const, e }))]
+  return all.sort((a, b) => entryStart(a) - entryStart(b))
+}
+
+// «sábado, 12 de diciembre · 10:00–14:00» o, si dura varios días, «12 dic a las 10:00 – 14 dic a las 18:00».
+export function eventWhen(e: Pick<EventInfo, 'starts_at' | 'ends_at'>): string {
+  const day = madridDay(e.starts_at)
+  return day === madridDay(e.ends_at)
+    ? `${formatDay(day)} · ${formatTime(e.starts_at)}–${formatTime(e.ends_at)}`
+    : `${formatDeadline(e.starts_at)} – ${formatDeadline(e.ends_at)}`
+}

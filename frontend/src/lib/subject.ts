@@ -17,7 +17,7 @@ export const activeSubject = (options: Subject[], para: string | null): Subject 
   options.find((o) => o.id === para) ?? options[0] ?? null
 
 // Rutas que actúan por un sujeto (docs/pantallas-b18.md); el check-in no.
-const SUBJECT_PATHS = ['/calendar', '/bookings', '/progress', '/account/health', '/agreements', '/billing']
+const SUBJECT_PATHS = ['/calendar', '/bookings', '/progress', '/account/health', '/agreements', '/billing', '/events']
 // La vuelta de Stripe y el cambio de pagador van ligados a un alumno concreto: sin selector (canvas, nota b183n3).
 const NO_PICKER = ['/billing/success', '/billing/cancel', '/billing/payer-changes']
 export const usesSubject = (pathname: string): boolean =>

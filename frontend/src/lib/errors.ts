@@ -190,5 +190,5 @@ Object.assign(TEXTS, {
   event_not_started: 'La lista se abre cuando empieza el evento.', // propuesto
   event_started: 'El evento ya ha empezado.', // propuesto
   already_cancelled: 'Ya estaba cancelada y no hay nada pagado que devolver.', // propuesto
-  paid_registration: 'Está pagada: cancélala desde el panel.', // propuesto
+  paid_registration: 'Está pagada: para cancelarla, pídelo a la academia.', // propuesto (B21.2: el panel nunca llega a este código)
 })

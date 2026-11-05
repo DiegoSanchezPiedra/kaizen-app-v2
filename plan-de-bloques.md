@@ -2227,6 +2227,16 @@
     **Sin probar**: un reembolso rechazado de verdad por Stripe; la hoja de edición con un evento con disciplina y profesor.
   - [ ] B21.2: un alumno y un tutor (por un hijo) se inscriben gratis y pagando (tarjeta de prueba), cancelan lo que pueden y ven
     sus inscripciones; el profesor pasa lista y ve las fichas el día del evento.
+  - **Avance de B21.2** (2026-11-05, parcial, commit en `b10-stripe`): hecho el frontend. Calendario con pestañas Sesiones | Eventos
+    (`?tab=events`), `/events/:id` (precio y de socio, plazas, requisitos, Inscribirse, Checkout y vuelta `?pago=ok` con relectura),
+    cancelar (gratis o pendiente; pagada «pídelo a la academia»), inscripciones en Reservas e Inicio mezcladas por fecha, y para el
+    profesor sus eventos en Sesiones («Evento») con `/professor/events/:id` (lista y fichas de salud). `lib/events.ts` (+ tests:
+    estado del botón, importe de socio o no, público por edad sin cifras); `useCheckoutSubject` pasa a `hooks/use-subject.ts`.
+    **Probado**: `typecheck`, `lint`, tests (159) y `build` en verde; en Chrome contra la API local y el sandbox: lista, inscripción
+    gratis (sin Checkout), Reservas e Inicio, y un pago real con 4242 (hecho por el usuario; el webhook dejó la inscripción
+    confirmada con 12,00 €). **Sin probar**: la vuelta `?pago=ok` con su relectura, cancelar un pendiente (caduca el Checkout), el
+    tutor por un hijo (gratis y pagando; «no es para tu edad»; sin cobertura), el profesor (lista y fichas el día del evento) y el
+    móvil a 390 px. Las capturas de Chrome fallaron y la extensión no puede leer `checkout.stripe.com`.
   - [ ] Vitest de la lógica; `typecheck`, `lint` y `build:frontend` en verde.
 - **Orden**: después de que el cliente pruebe el staging; no bloquea B20.
 

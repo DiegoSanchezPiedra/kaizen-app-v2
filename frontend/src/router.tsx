@@ -11,11 +11,13 @@ import { BillingPage, DisciplinePage, InsurancePage, PlanPage } from '@/pages/bi
 import { CancelPage, ContractPage, PayerChangePage, SuccessPage } from '@/pages/billing-contract'
 import { BookingsPage } from '@/pages/bookings'
 import { CalendarPage } from '@/pages/calendar'
+import { EventPage } from '@/pages/events'
 import { ChildFormPage, ChildrenPage } from '@/pages/children'
 import { CommunityPage, ProfilePage, RankingsPage } from '@/pages/community'
 import { HomePage } from '@/pages/home'
 import { OnboardingPage } from '@/pages/onboarding'
 import { ProfessorSessionPage, ProfessorSessionsPage } from '@/pages/professor'
+import { ProfessorEventPage } from '@/pages/professor-event'
 import { ProfessorReportsPage } from '@/pages/professor-reports'
 import { ProgressPage } from '@/pages/progress'
 import { AppShell, PendingScreen } from '@/pages/app-shell'
@@ -99,11 +101,13 @@ export const router = createBrowserRouter([
       { path: '/', element: <HomePage /> },
       { path: '/onboarding', element: <OnboardingPage /> },
       { path: '/calendar', element: <CalendarPage /> },
+      { path: '/events/:id', element: <EventPage /> },
       { path: '/bookings', element: <BookingsPage /> },
       // El lector de QR solo se baja al abrir el check-in.
       { path: '/checkin', lazy: async () => ({ Component: (await import('@/pages/checkin')).CheckinPage }) },
       { path: '/professor', element: <ProfessorSessionsPage /> },
       { path: '/professor/sessions/:id', element: <ProfessorSessionPage /> },
+      { path: '/professor/events/:id', element: <ProfessorEventPage /> },
       { path: '/professor/reports', element: <ProfessorReportsPage /> },
       { path: '/progress', element: <ProgressPage /> },
       { path: '/profiles', element: <CommunityPage /> },

@@ -1,15 +1,17 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { Page } from '@/components/page'
 import { useCancelBooking } from '@/components/cancel-booking'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { SessionCard } from '@/components/session-card'
 import { SubjectGate } from '@/components/subject-gate'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useMediaQuery } from '@/hooks/use-media-query'
+import { EventList } from '@/pages/events'
 import { useNow } from '@/hooks/use-now'
 import { useSubject } from '@/hooks/use-subject'
 import { api } from '@/lib/api'
@@ -195,10 +197,28 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
 }
 
 export function CalendarPage() {
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'events' ? 'events' : 'sessions'
+  // El sujeto (?para=) se conserva al cambiar de pestaña.
+  const pick = (v: string) =>
+    setParams((p) => {
+      if (v === 'events') p.set('tab', 'events')
+      else p.delete('tab')
+      return p
+    })
   return (
     <Page title="Calendario" wide>
-      <SubjectGate>{(s) => <Calendar {...s} />}</SubjectGate>
+      <Tabs value={tab} onValueChange={(v) => pick(String(v))}>
+        <TabsList className="w-full">
+          <TabsTab value="sessions" className="min-h-11 flex-1">
+            Sesiones
+          </TabsTab>
+          <TabsTab value="events" className="min-h-11 flex-1">
+            Eventos
+          </TabsTab>
+        </TabsList>
+      </Tabs>
+      <SubjectGate>{(s) => (tab === 'events' ? <EventList {...s} /> : <Calendar {...s} />)}</SubjectGate>
     </Page>
   )
 }
-
