@@ -264,7 +264,10 @@ piden a Stripe tras confirmar la base (siempre del importe entero) y el email al
 | `POST /admin/events/:id/registrations` | `{ profile_id }` | `201 { registration }` invitado (`guest`, importe 0): sin cierre de inscripciones, con requisitos y aforo |
 | `POST /admin/event-registrations/:id/cancel` | `{ refund: boolean }` | `{ registration: { …, cancel_reason, refund_status, refunded_cents } }`. Con `refund`, devuelve el importe entero (si estaba pagada) y avisa (`notice.event_registration_cancelled`). Sobre una ya cancelada y pagada, `refund: true` con `refund_status` `null` o `failed` reintenta el reembolso; si no, `409 already_cancelled` |
 
-Un reembolso que Stripe rechaza deja `refund_status: 'failed'` y un `notice.event_refund_failed` en `GET /admin/notices`.
+Un reembolso que Stripe rechaza, al pedirlo o más tarde (`refund.failed`), deja `refund_status: 'failed'` y un
+`notice.event_refund_failed` en `GET /admin/notices`. Uno que se quedó en `requested` (el proceso cayó antes de llamar a
+Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo de la cuenta y el sufijo de
+`STRIPE_STATEMENT_DESCRIPTOR` (sus 10 primeros caracteres).
 
 **Cobros**
 
@@ -330,7 +333,8 @@ reintentar `GET /billing/subscription`). Igual con un evento: la inscripción qu
 (o se cancela con `checkout.session.expired`).
 
 Eventos de Stripe que hay que suscribir en el endpoint (sandbox, staging y producción): los de `HANDLED_EVENTS`
-(`src/services/stripeWebhook.js`), que desde B21.0 incluyen **`checkout.session.expired`**.
+(`src/services/stripeWebhook.js`), que desde B21.0 incluyen **`checkout.session.expired`** y **`refund.failed`** (un
+reembolso que Stripe da por fallido después de aceptarlo vuelve a `refund_status: 'failed'` con su aviso de la academia).
 
 ---
 

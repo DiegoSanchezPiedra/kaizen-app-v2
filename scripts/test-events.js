@@ -13,7 +13,8 @@ const { withRls } = await import('../src/db/rls.js');
 const { stripe } = await import('../src/config/stripe.js');
 const { signToken } = await import('../src/services/jwt.js');
 const { errorHandler } = await import('../src/middleware/errorHandler.js');
-const { handleEvent } = await import('../src/services/stripeWebhook.js');
+const { handleEvent, HANDLED_EVENTS } = await import('../src/services/stripeWebhook.js');
+const { settleRequestedRefunds } = await import('../src/services/events.js');
 const { default: eventsRouter } = await import('../src/routes/events.js');
 const { default: adminEventsRouter } = await import('../src/routes/admin/events.js');
 const { default: professorRouter } = await import('../src/routes/professor.js');
@@ -114,17 +115,34 @@ const evt = (type, object) => {
   return { id, type, data: { object } };
 };
 // Lo que deja un Checkout pagado: un PaymentIntent real del cliente del pagador y la sesión real con el pago.
-const pay = async (registrationId, override = {}) => {
+const pay = async (registrationId, override = {}, pm = 'pm_card_visa') => {
   const r = await reg(registrationId);
   const [{ stripe_customer_id: customer }] = await q(`SELECT stripe_customer_id FROM profiles WHERE id = $1`, [r.payer_id]);
   const pi = await stripe.paymentIntents.create({
-    amount: r.amount_cents, currency: 'eur', customer, payment_method: 'pm_card_visa', confirm: true,
+    amount: r.amount_cents, currency: 'eur', customer, payment_method: pm, confirm: true,
     automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
   });
   const session = await stripe.checkout.sessions.retrieve(r.checkout_session_id);
   const e = evt('checkout.session.completed', { ...session, payment_status: 'paid', payment_intent: pi.id, ...override });
   assert.equal(await handleEvent(e), 'processed');
   return { pi, e, session };
+};
+// Un reembolso que falla después de aceptarse, como se relee en Stripe (la tarjeta pm_card_refundFail tarda minutos).
+const asRefundFailed = async (rf, fn) => {
+  const saved = { retrieve: stripe.refunds.retrieve, list: stripe.refunds.list, charge: stripe.charges.retrieve };
+  stripe.refunds.retrieve = async (...a) => (a[0] === rf.id ? rf : saved.retrieve.apply(stripe.refunds, a));
+  stripe.refunds.list = async (...a) => {
+    const l = await saved.list.apply(stripe.refunds, a);
+    return { ...l, data: l.data.map((x) => (x.id === rf.id ? rf : x)) };
+  };
+  stripe.charges.retrieve = async (...a) => {
+    const c = await saved.charge.apply(stripe.charges, a);
+    return c.id === rf.charge ? { ...c, amount_refunded: 0, refunded: false } : c;
+  };
+  try { await fn(); } finally {
+    Object.assign(stripe.refunds, { retrieve: saved.retrieve, list: saved.list });
+    stripe.charges.retrieve = saved.charge;
+  }
 };
 const refundsOf = async (pi) => (await stripe.refunds.list({ payment_intent: pi })).data;
 const noticesOf = (action, resourceId) =>
@@ -353,6 +371,50 @@ try {
       { payment_intent: pi.id, metadata: { kind: 'event', registration_id: R.alu2Paid2 } },
       { idempotencyKey: `event-refund-${R.alu2Paid2}-1` });
     assert.deepEqual((await refundsOf(pi.id)).map((f) => f.id), [again.id]);
+  });
+
+  await run('refund.failed (asíncrono): vuelve a failed y avisa; un charge.refunded tardío no lo deshace', async () => {
+    assert.ok(HANDLED_EVENTS.includes('refund.failed') && HANDLED_EVENTS.includes('checkout.session.expired'));
+    const r = await register('alu2', E.paid.id);
+    const id = r.body.registration.id;
+    const { pi } = await pay(id, {}, 'pm_card_refundFail'); // el reembolso se acepta y falla después
+    const c = await http('POST', `/admin/event-registrations/${id}/cancel`, 'admin', { refund: true });
+    assert.equal(c.body.registration.refund_status, 'refunded');
+    const before = await stripe.charges.retrieve(pi.latest_charge); // charge.refunded tal como llega antes del fallo
+    const [real] = await refundsOf(pi.id);
+    // El sandbox lo hace fallar cuando quiere (de 2 a más de 5 minutos): se simula lo que se relee después, comprobado
+    // con uno que falló de verdad (refund 'failed' con failure_reason y el cargo con amount_refunded 0).
+    const rf = { ...real, status: 'failed', failure_reason: 'expired_or_canceled_card' };
+    await asRefundFailed(rf, async () => {
+      assert.equal(await handleEvent(evt('refund.failed', rf)), 'processed');
+      const x = await reg(id);
+      assert.deepEqual([x.refund_status, x.refunded_cents], ['failed', 0]);
+      const [n] = await noticesOf('notice.event_refund_failed', id);
+      assert.ok(n.changes.recipients.includes(U.admin) && n.changes.error.includes(rf.id));
+      assert.equal(await handleEvent(evt('charge.refunded', before)), 'processed');
+      assert.equal((await reg(id)).refund_status, 'failed');
+      assert.equal((await noticesOf('notice.event_refunded', id)).length, 0); // al pagador no se le dice «devuelto»
+    });
+    const retry = await http('POST', `/admin/event-registrations/${id}/cancel`, 'admin', { refund: true });
+    // Si el sandbox aún no lo ha hecho fallar de verdad, Stripe responde charge_already_refunded: también es «devuelto».
+    assert.deepEqual([retry.status, retry.body.registration.refund_status], [200, 'refunded']);
+  });
+
+  await run('tarea nocturna: un reembolso pedido que no llegó a Stripe se pide con su clave', async () => {
+    const r = await register('alu2', E.paid.id);
+    const id = r.body.registration.id;
+    const { pi } = await pay(id);
+    // Lo que deja una caída entre el COMMIT de la cancelación y la llamada a Stripe.
+    await q(`UPDATE event_registrations SET status = 'cancelled', cancel_reason = 'admin', cancelled_at = now(),
+                                            refund_status = 'requested' WHERE id = $1`, [id]);
+    const out = await settleRequestedRefunds();
+    assert.ok(out.refunded >= 1);
+    assert.equal((await reg(id)).refund_status, 'refunded');
+    const [rf] = await refundsOf(pi.id);
+    assert.deepEqual([rf.amount, rf.metadata.registration_id], [1500, id]);
+    const same = await stripe.refunds.create({ payment_intent: pi.id, metadata: { kind: 'event', registration_id: id } },
+      { idempotencyKey: `event-refund-${id}` });
+    assert.equal(same.id, rf.id);
   });
 
   await run('charge.refunded: de Kaizen guarda lo devuelto y avisa al pagador sin stripe_risk; del Dashboard, con él', async () => {

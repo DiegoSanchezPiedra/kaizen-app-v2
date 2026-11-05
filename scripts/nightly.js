@@ -1,9 +1,11 @@
-// Tareas nocturnas (ADR 0012): extiende el horizonte de sesiones (ADR 0004) y toma la foto diaria de ayer de Madrid.
+// Tareas nocturnas (ADR 0012): extiende el horizonte de sesiones (ADR 0004), toma la foto diaria de ayer de Madrid y
+// pide los reembolsos de eventos que quedaron pedidos sin llegar a Stripe (B21.0).
 // Lo lanza el cron del sistema a las 03:00 de Madrid (scripts/README.md). Cada tarea en su try: si una falla, la otra
 // corre igual; código de salida 1 si alguna falló. --date=YYYY-MM-DD (solo ayer u hoy) repite la foto a mano.
 import 'dotenv/config';
 import { servicePool, closePools } from '../src/config/database.js';
 import { extendHorizon } from '../src/services/sessions.js';
+import { settleRequestedRefunds } from '../src/services/events.js';
 
 const date = process.argv.find((a) => a.startsWith('--date='))?.slice('--date='.length) ?? null;
 let failed = false;
@@ -25,6 +27,14 @@ try {
     console.log(`foto ${r.d}: ${r.created ? 'creada' : 'ya existía'}`);
   } catch (err) {
     console.error(`foto${date ? ` ${date}` : ''}: ${err.message}`);
+    failed = true;
+  }
+  try {
+    const r = await settleRequestedRefunds();
+    // Uno rechazado no es un fallo de la tarea: queda en el panel (notice.event_refund_failed).
+    console.log(`reembolsos de eventos pendientes: ${r.refunded} hechos, ${r.refund_failed} rechazados`);
+  } catch (err) {
+    console.error(`reembolsos de eventos: ${err.message}`);
     failed = true;
   }
 } finally {

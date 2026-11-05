@@ -2,7 +2,7 @@
 // cancelar y pasar lista viven en las funciones SQL de 028; aquí se traducen sus errores, se lee con RLS, se abre el
 // Checkout y se piden los reembolsos a Stripe después del COMMIT (app_user no escribe event_registrations).
 import { servicePool } from '../config/database.js';
-import { stripe, APP_URL } from '../config/stripe.js';
+import { stripe, APP_URL, STRIPE_STATEMENT_DESCRIPTOR } from '../config/stripe.js';
 import { withRls } from '../db/rls.js';
 import { httpError } from '../lib/errors.js';
 import { ensureCustomer } from './billing.js';
@@ -15,6 +15,11 @@ import { dateParam, assertTrainer, ISO_RE, MAX_RANGE_DAYS } from './sessions.js'
 const TZ = 'Europe/Madrid';
 const CHECKOUT_TTL_S = 30 * 60;
 const INTEGRATION_ID = 'kaizen-evt-rvqkdzmw'; // etiqueta del flujo en el Dashboard, como la de la cuota
+// Un cobro con tarjeta no admite un descriptor propio (solo los de suscripción, por su Product): se añade como sufijo al
+// prefijo de la cuenta («PREFIJO* KAIZEN»). El prefijo es de ≤ 10 caracteres y el total de ≤ 22: el sufijo cabe con ≤ 10.
+// shortcut: en la cuenta compartida el prefijo es el de maat; solo una cuenta propia de Kaizen lo quita (B10.7).
+const SUFFIX = STRIPE_STATEMENT_DESCRIPTOR?.slice(0, 10).trim();
+const DESCRIPTOR_SUFFIX = /[A-Za-z]/.test(SUFFIX ?? '') ? SUFFIX : undefined;
 
 const SQL_ERRORS = {
   not_allowed: [403, 'No puedes hacer esto en este evento'],
@@ -124,7 +129,7 @@ export async function registerEvent(client, { eventId, subjectId, actorId }) {
     line_items: [{ quantity: 1, price_data: { currency: 'eur', unit_amount: reg.amount_cents, product_data: { name: e.title } } }],
     client_reference_id: reg.profile_id,
     metadata,
-    payment_intent_data: { metadata },
+    payment_intent_data: { metadata, statement_descriptor_suffix: DESCRIPTOR_SUFFIX },
     expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_TTL_S,
     success_url: `${APP_URL}/events/${eventId}?pago=ok`,
     cancel_url: `${APP_URL}/events/${eventId}`,
@@ -152,11 +157,21 @@ export async function cancelRegistration(client, id) {
 
 // --- Reembolsos (después del COMMIT, con servicePool) ---
 
+/** Reembolso rechazado (al pedirlo o más tarde, refund.failed): refund_status 'failed' y aviso de la academia. */
+export async function refundFailed(db, r, error) {
+  await db.query(`UPDATE event_registrations SET refund_status = 'failed' WHERE id = $1`, [r.id]);
+  const admins = (await db.query(`SELECT user_id FROM user_roles WHERE role = 'admin'`)).rows.map((a) => a.user_id);
+  await notice(db, {
+    action: 'notice.event_refund_failed', actorId: r.payer_id, type: 'event_registration', resourceId: r.id,
+    recipients: admins, event_id: r.event_id, student_id: r.profile_id, amount_cents: r.amount_cents, error,
+  });
+}
+
 /**
  * Reembolso entero de una inscripción pagada (refund_status = 'requested'). Clave de idempotencia por inscripción;
  * tras cada fallo, la siguiente lleva el número de fallos (Stripe guarda también la respuesta de error de una clave).
- * Si Stripe lo rechaza: refund_status 'failed' y aviso de la academia. El email al pagador sale con charge.refunded.
- * @returns {Promise<boolean>} si Stripe lo ha aceptado
+ * Si Stripe lo rechaza: refundFailed. El email al pagador sale con charge.refunded.
+ * @returns {Promise<boolean|null>} si Stripe lo ha aceptado; null si la misma clave está en curso (sigue 'requested')
  */
 export async function refundRegistration(db, r) {
   const { rows: [{ n }] } = await db.query(
@@ -167,13 +182,9 @@ export async function refundRegistration(db, r) {
       { idempotencyKey: n ? `event-refund-${r.id}-${n}` : `event-refund-${r.id}` });
   } catch (err) {
     if (!err.type) throw err; // no es de Stripe
+    if (err.code === 'idempotency_key_in_use') return null; // otra petición con la misma clave lo está pidiendo
     if (err.code !== 'charge_already_refunded') {
-      await db.query(`UPDATE event_registrations SET refund_status = 'failed' WHERE id = $1`, [r.id]);
-      const admins = (await db.query(`SELECT user_id FROM user_roles WHERE role = 'admin'`)).rows.map((a) => a.user_id);
-      await notice(db, {
-        action: 'notice.event_refund_failed', actorId: r.payer_id, type: 'event_registration', resourceId: r.id,
-        recipients: admins, event_id: r.event_id, student_id: r.profile_id, amount_cents: r.amount_cents, error: err.message,
-      });
+      await refundFailed(db, r, err.message);
       return false;
     }
   }
@@ -189,9 +200,19 @@ async function settle(ids) {
   for (const r of rows) {
     if (r.checkout_session_id && !r.payment_intent_id) await expireCheckout(r.checkout_session_id);
     if (r.refund_status !== 'requested') continue;
-    if (await refundRegistration(servicePool, r)) out.refunded++; else out.refund_failed++;
+    const ok = await refundRegistration(servicePool, r);
+    if (ok) out.refunded++; else if (ok === false) out.refund_failed++;
   }
   return out;
+}
+
+/**
+ * Tarea nocturna: los reembolsos que quedaron pedidos sin llegar a Stripe (el proceso cayó tras el COMMIT). Con la
+ * misma clave de idempotencia, uno que sí llegó no se repite. → { refunded, refund_failed }
+ */
+export async function settleRequestedRefunds() {
+  const { rows } = await servicePool.query(`SELECT id FROM event_registrations WHERE refund_status = 'requested'`);
+  return settle(rows.map((r) => r.id));
 }
 
 // --- Admin ---

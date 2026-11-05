@@ -5,13 +5,16 @@ No van aquí las migraciones: esas viven en `migrations/`.
 
 ## Tareas nocturnas (`npm run nightly`, B16, ADR 0012)
 
-`scripts/nightly.js` lanza, cada una aunque la otra falle:
+`scripts/nightly.js` lanza, cada una aunque otra falle:
 
 1. `extendHorizon`: genera las sesiones de las clases vigentes hasta el horizonte (ADR 0004).
 2. La **foto diaria** de ayer de Madrid en `academy_stats_daily` (`snapshot_academy_stats`).
+3. Los **reembolsos de eventos** que quedaron pedidos (`refund_status = 'requested'`) sin llegar a Stripe porque el
+   proceso cayó tras cancelar (B21.0). Usa la misma clave de idempotencia: uno que sí llegó no se repite.
 
-Imprime `sesiones creadas: N; clases con error: M` y `foto YYYY-MM-DD: creada | ya existía`; los errores van a
-`stderr` y el código de salida es 1 si algo falló. No necesita la API en marcha.
+Imprime `sesiones creadas: N; clases con error: M`, `foto YYYY-MM-DD: creada | ya existía` y `reembolsos de eventos
+pendientes: N hechos, M rechazados` (un rechazo no es un fallo de la tarea: sale en Avisos de la academia); los errores
+van a `stderr` y el código de salida es 1 si algo falló. No necesita la API en marcha, pero sí `STRIPE_SECRET_KEY`.
 
 ### Crontab
 
@@ -46,4 +49,5 @@ fecha → `invalid_date`). Una foto existente no se cambia nunca: relanzar impri
 - **extend-horizon**: cada clase con error sale en `stderr` (p. ej. un solape del profesor). Arregla la clase y
   relanza `npm run nightly` o `npm run extend-horizon`; es idempotente. Si no se corrige, esa clase deja de generar
   sesiones al final de su horizonte.
+- **Reembolsos de eventos**: relanza `npm run nightly`; es idempotente.
 - Nada avisa todavía de un fallo del cron (B20).

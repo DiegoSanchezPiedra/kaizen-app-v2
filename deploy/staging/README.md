@@ -54,8 +54,9 @@ Rellénalo:
 
 La API es local, así que Stripe no puede llamarla directamente: los eventos (pago confirmado, cuota activada, cobro fallido)
 llegan por `stripe listen`. No hace falta registrar ningún endpoint en el Dashboard. `stripe listen` sin `--events` reenvía
-todos los eventos, también `checkout.session.expired` (B21: libera la plaza de una inscripción a un evento sin pagar); si
-lo limitas con `--events`, inclúyelo junto a los de `HANDLED_EVENTS` (`src/services/stripeWebhook.js`).
+todos los eventos, también `checkout.session.expired` (B21: libera la plaza de una inscripción a un evento sin pagar) y
+`refund.failed` (un reembolso de un evento que falla después); si lo limitas con `--events`, inclúyelos junto a los de
+`HANDLED_EVENTS` (`src/services/stripeWebhook.js`).
 
 ```bash
 stripe listen --print-secret    # el whsec_… (es el mismo para cualquier `stripe listen` de tu máquina)

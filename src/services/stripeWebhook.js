@@ -6,7 +6,7 @@ import {
   STATUS, ts, idOf, insuranceSettings, insuranceWontRenew, upsertInsurance, startInsurance, pendingPhase, discardSuccessor,
 } from './billing.js';
 import { notice } from './notices.js';
-import { refundRegistration } from './events.js';
+import { refundRegistration, refundFailed } from './events.js';
 
 const IN_FORCE = ['active', 'past_due'];
 const LIVE = `('active', 'past_due', 'unpaid')`;
@@ -179,17 +179,21 @@ async function onCheckoutExpired(client, session) {
 // charge.refunded de una inscripción: se guarda lo devuelto. Si todos los reembolsos los pidió Kaizen (metadata.kind),
 // email de facturación al pagador y sin aviso de riesgo; si alguno es del Dashboard, el stripe_risk de siempre.
 // @returns {Promise<boolean>} si ya está tratado (no sigue a onRisk)
-async function onEventRefund(client, charge) {
+async function onEventRefund(client, obj) {
   const { rows: [r] } = await client.query(
     `SELECT r.*, e.title FROM event_registrations r JOIN events e ON e.id = r.event_id
-      WHERE r.payment_intent_id = $1 FOR UPDATE OF r`, [idOf(charge.payment_intent)]);
+      WHERE r.payment_intent_id = $1 FOR UPDATE OF r`, [idOf(obj.payment_intent)]);
   if (!r) return false;
+  // Releído: un charge.refunded que llega después de un refund.failed trae el importe de antes del fallo.
+  const charge = await stripe.charges.retrieve(obj.id);
   const { data } = await stripe.refunds.list({ payment_intent: r.payment_intent_id, limit: 100 });
-  const ours = data.filter((f) => !['failed', 'canceled'].includes(f.status)).every((f) => f.metadata?.kind === 'event');
+  const live = data.filter((f) => !['failed', 'canceled'].includes(f.status));
+  const ours = live.every((f) => f.metadata?.kind === 'event');
+  const refunded = ours && live.length > 0; // sin ninguno vivo (todos fallidos), nada que dar por devuelto
   await client.query(
     `UPDATE event_registrations SET refunded_cents = $2, refund_status = CASE WHEN $3 THEN 'refunded' ELSE refund_status END
-      WHERE id = $1`, [r.id, charge.amount_refunded, ours]);
-  if (ours && charge.amount_refunded > r.refunded_cents) {
+      WHERE id = $1`, [r.id, charge.amount_refunded, refunded]);
+  if (refunded && charge.amount_refunded > r.refunded_cents) {
     await notice(client, {
       action: 'notice.event_refunded', actorId: r.payer_id, type: 'event_registration', resourceId: r.id,
       recipients: [r.payer_id], student_id: r.profile_id, event_id: r.event_id, title: r.title,
@@ -197,6 +201,20 @@ async function onEventRefund(client, charge) {
     });
   }
   return ours;
+}
+
+// Un reembolso de Kaizen que Stripe da por fallido después de aceptarlo (en live, los reembolsos son asíncronos): la
+// inscripción vuelve a «fallido» y la academia lo ve en su panel para reintentarlo. Los del Dashboard los avisa Stripe.
+async function onRefundFailed(client, obj) {
+  const refund = await stripe.refunds.retrieve(obj.id);
+  if (refund.metadata?.kind !== 'event' || refund.status !== 'failed') return;
+  const { rows: [r] } = await client.query(
+    `SELECT * FROM event_registrations WHERE id = $1 AND payment_intent_id = $2 FOR UPDATE`,
+    [refund.metadata.registration_id, idOf(refund.payment_intent)]);
+  if (!r) return; // el de un Checkout sin inscripción (ver onEventPaid)
+  const charge = await stripe.charges.retrieve(idOf(refund.charge));
+  await client.query(`UPDATE event_registrations SET refunded_cents = $2 WHERE id = $1`, [r.id, charge.amount_refunded]);
+  await refundFailed(client, r, `refund ${refund.id}: ${refund.failure_reason ?? 'failed'}`);
 }
 
 // --- Cambio de pagador (B11; ADR 0009): Checkout pagado, traspaso en D y caducidad ---
@@ -565,6 +583,7 @@ const HANDLERS = {
   'invoice.voided': onInvoice, // subida rechazada o pending update caducado
   'invoice.upcoming': onUpcoming,
   'charge.refunded': onRisk,
+  'refund.failed': onRefundFailed, // B21.0: hay que suscribirlo en el endpoint de Stripe
   'charge.dispute.created': onRisk,
   'radar.early_fraud_warning.created': onRisk,
   // Bajada programada (B10.5)

@@ -2187,12 +2187,23 @@
     precio colgaba la petición (el `FOR KEY SHARE` de la FK sobre el perfil del pagador bloqueaba el `UPDATE` de
     `stripe_customer_id` de `ensureCustomer` por `servicePool`): el cliente de Stripe se crea antes de inscribir. **Sin
     probar**: el pago de punta a punta con `stripe listen` (B21.2); `stripe listen` reenvía todos los eventos, así que
-    `checkout.session.expired` solo hay que suscribirlo en un endpoint registrado en el Dashboard (B10.7, producción).
+    `checkout.session.expired` (y `refund.failed`, ver abajo) solo hay que suscribirlos en un endpoint registrado en el
+    Dashboard (B10.7, producción).
     **Decidido sin estar en la especificación**: las fichas valen cualquier día del evento si dura varios (entre el día de
     inicio y el de fin, en Madrid); el admin solo inscribe como invitado (`POST /events/:id/registrations` es del alumno y del
-    tutor); `location` es obligatorio (1–200). **Pendiente**: un reembolso que Stripe rechaza más tarde (`refund.failed`) no se
-    trata; tampoco el pago diferido de un evento (solo tarjeta y monederos por el Dashboard); los cobros de eventos llevan el
-    descriptor de la cuenta (en producción, el de maat).
+    tutor); `location` es obligatorio (1–200); la clave del reintento lleva el número de fallos (confirmadas por el usuario el
+    2026-11-05). **Riesgos cerrados después** (2026-11-05): `refund.failed` en `HANDLED_EVENTS` (relee el reembolso; si es
+    de Kaizen y falló, `refund_status` vuelve a `failed`, `refunded_cents` al del cargo y aviso de la academia), y
+    `charge.refunded` relee el cargo y ya no da por devuelto un cargo cuyos reembolsos han fallado todos (llegan
+    desordenados); un reembolso que se queda en `requested` lo pide la tarea nocturna (`settleRequestedRefunds`, con la
+    misma clave; `idempotency_key_in_use` lo deja en `requested`); el cobro lleva `statement_descriptor_suffix` con los 10
+    primeros caracteres de `STRIPE_STATEMENT_DESCRIPTOR`. Probado en `test:events` (20 casos): el fallo asíncrono se simula
+    al releer, porque `pm_card_refundFail` falla en el sandbox cuando quiere (127 s una vez; más de 5 min otra), con los
+    valores de uno que falló de verdad (`failure_reason`, `amount_refunded: 0`). **Límite que el código no quita**: con
+    tarjeta, Stripe no deja sustituir el descriptor entero (solo añadir sufijo), así que en la cuenta compartida el cobro
+    sale «PREFIJO-DE-MAAT* KAIZEN»; solo una cuenta propia de Kaizen lo evita. **Pendiente**: el pago diferido de un
+    evento (solo tarjeta y monederos por el Dashboard); si un reembolso falla después de que el pagador recibiera «te
+    hemos devuelto», no se le avisa (lo gestiona la academia).
   - [ ] B21.1: el admin crea, edita y cancela un evento (con reembolsos en el sandbox), inscribe invitados, cancela inscripciones
     con y sin reembolso, reintenta uno fallido y pasa lista.
   - [ ] B21.2: un alumno y un tutor (por un hijo) se inscriben gratis y pagando (tarjeta de prueba), cancelan lo que pueden y ven
