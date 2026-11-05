@@ -31,6 +31,8 @@ export const setWrongRoleHandler = (fn: () => void) => {
 
 async function once<T>(path: string, { method = 'GET', body, auth = true, blob }: Options): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' }
+  // shortcut: staging por ngrok gratis; sin esto, ngrok contesta a la API con su página de aviso (HTML). Quitar sin ngrok.
+  if (globalThis.location?.hostname.includes('ngrok')) headers['ngrok-skip-browser-warning'] = '1'
   const raw = body instanceof Blob
   if (body !== undefined) headers['Content-Type'] = raw ? body.type : 'application/json'
   const session = getSession()
@@ -45,10 +47,14 @@ async function once<T>(path: string, { method = 'GET', body, auth = true, blob }
 
   if (res.status === 204) return undefined as T
   if (res.ok && blob) return (await res.blob()) as T
-  const data = await res.json().catch(() => ({}))
-  if (res.ok) return data as T
+  const data = await res.json().catch(() => null)
+  // Un 200 que no es JSON (una página de un proxy) no es una respuesta de la API: nunca se da por buena.
+  if (res.ok) {
+    if (data === null) throw new ApiError(res.status, { code: 'bad_response' })
+    return data as T
+  }
 
-  const err = new ApiError(res.status, data)
+  const err = new ApiError(res.status, data ?? {})
   if (res.status === 401 && auth && session && (err.code === 'invalid_token' || err.code === 'missing_token')) {
     onUnauthorized()
   }

@@ -27,5 +27,5 @@ export async function checkRole(): Promise<void> {
   const me = await queryClient
     .fetchQuery({ queryKey: ['me'], queryFn: () => api<{ role: string }>('/me'), staleTime: 0 })
     .catch(() => null)
-  if (me && getSession()?.token === session.token && me.role !== session.role) await logout({ reason: 'role_changed' })
+  if (typeof me?.role === 'string' && getSession()?.token === session.token && me.role !== session.role) await logout({ reason: 'role_changed' })
 }

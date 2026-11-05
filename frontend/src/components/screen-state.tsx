@@ -114,6 +114,8 @@ export function AppCrash() {
           </EmptyMedia>
           <EmptyTitle>Algo ha fallado</EmptyTitle>
           <EmptyDescription>Puede que tengas una versión antigua de la app. Actualízala y vuelve a intentarlo.</EmptyDescription>
+          {/* El error real, para poder mandarlo en una captura: en el móvil no hay consola. */}
+          <p className="break-all font-mono text-xs text-muted-foreground">{error instanceof Error ? error.message : String(error)}</p>
         </EmptyHeader>
         <EmptyContent>
           <Button
