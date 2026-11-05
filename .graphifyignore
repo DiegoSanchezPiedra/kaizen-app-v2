@@ -1,0 +1,5 @@
+# vendored agent skills and static icons: noise for the graph
+.agents/
+frontend/public/
+*.png
+*.svg
