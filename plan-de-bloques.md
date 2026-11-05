@@ -67,7 +67,7 @@
 | B18 | Frontend PWA (alumno, tutor, profesor, tablet; sub-bloques B18.0–B18.6) | B13, B15, B17 | CERRADO (con pruebas en dispositivos pendientes) |
 | B19 | Panel admin (métricas, usuarios, auditoría, morosos; sub-bloques B19.0–B19.6) | B11, B17, B10.2, B18 | Diseñado |
 | B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos | Pendiente |
-| B21 | Eventos (inscripción, cobro aparte, panel; sub-bloques B21.0–B21.2) | B10, B18, B19 | En curso (B21.0 y B21.1 hechos) |
+| B21 | Eventos (inscripción, cobro aparte, panel; sub-bloques B21.0–B21.2) | B10, B18, B19 | CERRADO (con pruebas visuales y en móvil pendientes) |
 
 ---
 
@@ -2225,18 +2225,30 @@
     importe, porque la API no dice si llegó a pagar (si no pagó, el servidor contesta `already_cancelled` y sale su texto);
     «Devuelto» sin importe mientras `refunded_cents` es 0 (lo rellena el webhook `charge.refunded`, unos segundos después).
     **Sin probar**: un reembolso rechazado de verdad por Stripe; la hoja de edición con un evento con disciplina y profesor.
-  - [ ] B21.2: un alumno y un tutor (por un hijo) se inscriben gratis y pagando (tarjeta de prueba), cancelan lo que pueden y ven
+  - [x] B21.2: un alumno y un tutor (por un hijo) se inscriben gratis y pagando (tarjeta de prueba), cancelan lo que pueden y ven
     sus inscripciones; el profesor pasa lista y ve las fichas el día del evento.
-  - **Avance de B21.2** (2026-11-05, parcial, commit en `b10-stripe`): hecho el frontend. Calendario con pestañas Sesiones | Eventos
-    (`?tab=events`), `/events/:id` (precio y de socio, plazas, requisitos, Inscribirse, Checkout y vuelta `?pago=ok` con relectura),
-    cancelar (gratis o pendiente; pagada «pídelo a la academia»), inscripciones en Reservas e Inicio mezcladas por fecha, y para el
-    profesor sus eventos en Sesiones («Evento») con `/professor/events/:id` (lista y fichas de salud). `lib/events.ts` (+ tests:
-    estado del botón, importe de socio o no, público por edad sin cifras); `useCheckoutSubject` pasa a `hooks/use-subject.ts`.
-    **Probado**: `typecheck`, `lint`, tests (159) y `build` en verde; en Chrome contra la API local y el sandbox: lista, inscripción
-    gratis (sin Checkout), Reservas e Inicio, y un pago real con 4242 (hecho por el usuario; el webhook dejó la inscripción
-    confirmada con 12,00 €). **Sin probar**: la vuelta `?pago=ok` con su relectura, cancelar un pendiente (caduca el Checkout), el
-    tutor por un hijo (gratis y pagando; «no es para tu edad»; sin cobertura), el profesor (lista y fichas el día del evento) y el
-    móvil a 390 px. Las capturas de Chrome fallaron y la extensión no puede leer `checkout.stripe.com`.
-  - [ ] Vitest de la lógica; `typecheck`, `lint` y `build:frontend` en verde.
+  - **Avance de B21.2** (2026-11-05, commit en `b10-stripe`): Calendario con pestañas Sesiones | Eventos (`?tab=events`);
+    `/events/:id` (precio y de socio, plazas, requisitos que faltan, Inscribirse, Checkout y vuelta `?pago=ok` que relee hasta
+    ver la inscripción; con aviso a los 20 s y parada a los 2 min); cancelar solo gratis o pendiente (pagada: «pídelo a la
+    academia»); inscripciones en Reservas (Próximas) e Inicio mezcladas por fecha, con el sujeto correcto; para el profesor, sus
+    eventos en Sesiones («Evento») y `/professor/events/:id` con la lista simple y las fichas. `lib/events.ts` (+ tests: estado
+    del botón, importe de socio o no, público por edad sin cifras, plazas, fichas por día, mezcla); `useCheckoutSubject` pasa a
+    `hooks/use-subject.ts`; `paid_registration` en `lib/errors.ts` ya no manda al panel. **Probado** en Chrome contra la API
+    local y el sandbox (`sk_test_`, `stripe listen`), con `typecheck`, `lint`, tests (159) y `build` en verde: alumno gratis, con
+    «no es para tu edad» y con pago real 4242 (hecho por el usuario; vuelta `?pago=ok` → «Pagado 12,00 €»); un pendiente que
+    vuelve sin pagar («Confirmando el pago…» y a los 20 s «Puede tardar unos minutos») y que, al llegar el cobro, se confirma sin
+    recargar; tutor por Pau (sin cobertura, «no es para la edad de Pau», gratis, cancelar gratis, cancelar un pendiente → el
+    Checkout queda `expired` en Stripe y la plaza se libera, pago con el sujeto recuperado en `?para=`); profesor (lista de
+    solo lectura antes del inicio, interruptores desde el inicio, fichas con `health.view`/`event` en `audit_log`); sin
+    desbordamiento horizontal a 500 px en lista, detalle, Reservas, Inicio y el detalle del profesor. **Sin probar / límites**:
+    el cobro del tutor y el segundo del alumno se simularon con un PaymentIntent real y `handleEvent` (no con el formulario del
+    Checkout: la extensión de Chrome no lee `checkout.stripe.com`); las capturas de Chrome fallaron, así que lo visual (colores,
+    espaciado, foco) no está mirado; Chrome no baja de 500 px (no 390); el cambio de sujeto en el selector de una pantalla de
+    evento; un evento completo o con la inscripción cerrada solo está cubierto por Vitest; las fichas de un evento de varios días.
+    **Decidido sin estar en la especificación**: el selector de sujeto sale también en `/events/…` (incluida la vuelta del pago);
+    el público se nombra («Solo menores/adultos») pero la edad no se calcula: el rechazo lo da el servidor (`audience_mismatch`) y
+    la pantalla se queda en «no es para tu edad / la edad de Pau»; las fichas se ofrecen cualquier día del evento (como B21.0);
+    una inscripción pendiente solo se cancela y se vuelve a pedir (la API no devuelve la URL del Checkout abierto).
+  - [x] Vitest de la lógica; `typecheck`, `lint` y `build:frontend` en verde.
 - **Orden**: después de que el cliente pruebe el staging; no bloquea B20.
 

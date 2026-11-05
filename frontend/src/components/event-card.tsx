@@ -73,7 +73,7 @@ export function EventCard({ e, to, member }: { e: EventInfo; to: LinkProps['to']
             {price.note && <span className="ml-1.5 text-xs font-medium text-muted-foreground">{price.note}</span>}
           </span>
           {tag && <Badge variant="secondary">{tag}</Badge>}
-          {spots && spots !== 'Completo' && <span className="text-xs text-muted-foreground">{spots}</span>}
+          {spots && spots !== 'Completo' && !e.registration?.status.match(/^(pending|confirmed)$/) && <span className="text-xs text-muted-foreground">{spots}</span>}
         </div>
       </div>
     </Link>
