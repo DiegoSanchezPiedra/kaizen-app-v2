@@ -2252,3 +2252,60 @@
   - [x] Vitest de la lógica; `typecheck`, `lint` y `build:frontend` en verde.
 - **Orden**: después de que el cliente pruebe el staging; no bloquea B20.
 
+
+### B22 — Rediseño: calendario semanal, menú del catálogo, Clases en móvil y KPIs de usuarios — Diseñado
+- **Objetivo**: mejorar el diseño y la experiencia de la PWA en las pantallas que este bloque toca, y tres cambios
+  funcionales: un calendario semanal con selector de día, «Catálogo» partido en dos entradas del menú y un panel de
+  Usuarios con KPIs y filtros. Pedido el 2026-11-06. maat es referencia de ideas, no de marca ni de aspecto (sin capturas:
+  manda la auditoría).
+- **Diseño** (2026-11-06, Opus alto, grill con el usuario). Pantallas y estados en `docs/pantallas-b22.md`.
+- **De partida** (comprobado en el código):
+  - El catálogo ya está partido en pestañas («Disciplinas», «Planes») en `/admin/catalog`; un plan tiene varias disciplinas
+    elegibles (ninguna = todas las activas que permita la edad) y se sincroniza con Stripe (`stripe_price_id`). No hay
+    cambio de modelo.
+  - Usuarios ya tiene búsqueda, rol y página en la URL, filtrados en el servidor (`/admin/profiles`).
+  - Calendario del alumno: flechas de semana y «Ir a hoy», semana en `useState` (no en la URL); en móvil apila los 7 días.
+    Horario del admin: `?semana=` y 7 columnas. Profesor: lista de días sin navegación por semana.
+  - `/admin/classes` es una tabla de 9 columnas sin vista de tarjetas: incumple la regla de B19 («por debajo de 640 px las
+    tablas pasan a tarjetas»).
+  - Kaizen no tiene prueba gratuita (el `trialing` del webhook es de maat).
+- **Reglas** (decididas 2026-11-06):
+  - **Móvil primero**: clases base para móvil, `sm:`/`lg:` para lo demás; se revisa a 375 px antes que en escritorio. Sin
+    scroll horizontal de la página.
+  - **Alcance visual**: la auditoría (impeccable) recorre toda la PWA; solo se cambian las pantallas de B22 y los tokens
+    compartidos. El resto de hallazgos queda como lista pendiente. Se conserva el sistema de diseño de B18 (paleta, logo,
+    modo oscuro); taste-skill afina densidad y composición dentro de él.
+  - **Calendario semanal** (un componente para los tres roles): tira de lunes a domingo con el día elegido, flechas y
+    deslizar para cambiar de semana, «Hoy», `?semana=` y `?dia=` en la URL. Punto en los días con clases; los días sin clases
+    se pueden elegir (estado vacío); al cambiar de semana se queda el mismo día de la semana (en la actual, hoy); los pasados
+    atenuados. Móvil: la tira y solo el día elegido. Escritorio (`lg`): la tira encima de la rejilla de 7 columnas; pulsar un
+    día lleva a su columna y la resalta. Acción por rol: reservar (alumno y tutor), asistentes (profesor, que deja su lista
+    de días) y editar (admin, en Horario). La tablet queda fuera.
+  - **Membresías y Disciplinas**: dos entradas del menú del admin en el sitio de «Catálogo», primero **Membresías**
+    (`/admin/memberships`) y debajo **Disciplinas** (`/admin/disciplines`); `/admin/catalog?tab=…` redirige a la nueva.
+    En la parte del alumno se sigue diciendo «plan». Sin migración ni cambios en la sincronización con Stripe.
+  - **Clases del admin en móvil**: tarjetas agrupadas por día de la semana por debajo de `sm`; la composición exacta sale de
+    la auditoría de B22.0.
+  - **KPIs de Usuarios**: **activos** (suscripción en vigor), **impago** (la misma definición que «Morosos» en Cobros, para que
+    las cifras coincidan) e **inactivos** (activos sin asistencia en 14 días; son un subconjunto de activos). Sin «prueba
+    gratuita». Solo cuentan alumnos (menores incluidos), no tutores ni profesores. Un selector de disciplina filtra las
+    tarjetas: un alumno es de la disciplina X si `covers(alumno, X)`. Pulsar una tarjeta filtra la lista.
+    `GET /admin/profiles/stats?discipline_id=`, solo admin, por el `client` RLS y sin funciones `SECURITY DEFINER` nuevas;
+    si hiciera falta una migración, se para y se pregunta.
+  - **Lista de Usuarios**: `/admin/profiles` añade filtros de disciplina, plan y estado (activo, impago, inactivo, sin plan)
+    en el servidor y en la URL. Columnas: nombre, rol, plan, estado (el más fuerte: impago > inactivo > activo > sin plan) y
+    última asistencia en relativo («hace 3 días», «—» si nunca). Sin ordenar por columnas ni acciones en bloque; la fila
+    abre la ficha.
+- **Fases** (una sesión por fase, una sola escritora del repo; modelos en `docs/modelos-por-bloque.md`):
+  - [ ] **B22.0** — auditoría de la PWA (impeccable) y dirección visual (taste-skill); el usuario la aprueba antes de seguir.
+  - [ ] **B22.1** — calendario semanal: alumno y tutor, profesor y Horario del admin.
+  - [ ] **B22.1b** — `/admin/classes` en móvil.
+  - [ ] **B22.2** — Membresías y Disciplinas en el menú.
+  - [ ] **B22.3** — KPIs y filtros de Usuarios (backend y frontend).
+- **En cada fase**: las skills en este orden (impeccable revisa, taste-skill para la dirección, emil-design-eng para el
+  movimiento, make-interfaces-feel-better para el repaso final); Vitest de la lógica nueva (semana y día con
+  `madridDay`/`weekStart`, filtros, KPIs); E2E por rol al estilo de B21.2; `typecheck`, `lint`, tests y `build` en verde;
+  `graphify update .`; revisión a 375 px y en escritorio; prueba en el iPhone por el staging.
+- **Pendiente de comprobar en B22.3**: que la definición de «Morosos» se pueda calcular por disciplina sin coste alto; si no,
+  se vuelve a decidir.
+- **Rama**: `b22-rediseno`, desde `b10-stripe`.
