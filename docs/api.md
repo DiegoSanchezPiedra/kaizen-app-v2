@@ -43,6 +43,8 @@ El backend construye enlaces con `APP_URL`; el frontend **tiene** que servir est
 | `/billing/success?session_id=…` y `/billing/cancel` | vuelta del Checkout de la cuota |
 | `/billing/payer-changes/:id[?session_id=…]` | aviso al nuevo pagador y vuelta de su Checkout |
 | `/bookings` | enlace de los avisos de reservas (push y email) |
+| `/events/:id` | enlace de los avisos de eventos y del email de reembolso; `cancel_url` del Checkout de un evento |
+| `/events/:id?pago=ok` | vuelta del Checkout de un evento (la inscripción se confirma con el webhook: releer `GET /events/:id`) |
 | `/agreements` | aviso de re-firma de un documento legal |
 | `/reset-password?token=…` | email de recuperar contraseña (el token, en la URL: `Referrer-Policy: same-origin`) |
 
@@ -104,6 +106,31 @@ Errores de reservas: `403 not_covered`, `403 no_risk_cover`, `409 session_not_bo
 `409 already_booked`, `409 booking_overlap`, `409 booking_not_active`, `409 session_started`,
 `409 booking_conflict_retry` (reintentar), `404 session_not_found|booking_not_found`, `403 not_allowed`.
 
+## Eventos (B21.0)
+
+Un evento no es una sesión: uno se **inscribe** (CONTEXT § Eventos). Lo ve cualquiera con sesión: los programados que no han
+terminado, aquellos en los que el sujeto estuvo inscrito y, el profesor, los que imparte (el admin, todos). Forma de un
+evento (`event`): `{ id, title, description, starts_at, ends_at, location, discipline: { id, name } | null, trainer: { id,
+display_name } | null, capacity (null = sin límite), taken (pendientes + confirmadas), audience ('all'|'minors'|'adults'),
+requires_risk_cover, price_cents (0 = gratis), member_price_cents | null, registration_deadline | null, status
+('scheduled'|'cancelled'), registration: { id, status ('pending'|'confirmed'|'cancelled'), amount_cents } | null }`.
+`registration` es la del sujeto (la viva o, si no, la última). La edad no sale nunca: el público se comprueba al inscribirse.
+
+| Método y ruta | Rol | Cuerpo / query | Respuesta |
+|---|---|---|---|
+| `GET /events?profile_id&registered` | cualquiera (`profile_id`: el admin o su tutor; si no, `403 not_guardian`) | `registered=true`: solo en los que el sujeto tiene inscripción (de cualquier estado) | `{ events: [event] }` por inicio |
+| `GET /events/:id?profile_id` | cualquiera | — | `{ event }`. `404 event_not_found` (también si no lo ve) |
+| `POST /events/:id/registrations` | alumno, tutor | `{ profile_id? }` | importe 0 (gratis o socio a 0 €): `201 { registration }` confirmada; con importe: `201 { registration, url }` pendiente (ocupa plaza) → redirigir al Checkout (caduca a los 30 min). `registration`: `{ id, event_id, profile_id, actor_id, payer_id, status, amount_cents, guest, created_at }` |
+| `DELETE /events/registrations/:id` | alumno, tutor | — | `204`. Solo gratis o pendiente (su Checkout se caduca), hasta el inicio |
+
+Importe: el precio de socio si el sujeto tiene suscripción en vigor al inscribirse y el evento lo tiene; si no, el precio.
+Lo pagado queda en la inscripción. Perfil completo del sujeto y del actor (`403 profile_incomplete { missing }`, como
+`requireCompleteProfile`) y cobertura de riesgo solo si `requires_risk_cover`.
+Errores: `403 not_guardian` (también el hijo con 18 sin reclamar), `403 profile_incomplete`, `403 no_risk_cover`,
+`404 event_not_found|registration_not_found`, `409 event_cancelled`, `409 registration_closed` (fecha límite o inicio),
+`409 event_full`, `409 already_registered`, `409 audience_mismatch`, `409 not_a_student` (un tutor no se inscribe a sí
+mismo), `409 paid_registration` (pagada: «pídelo a la academia»), `409 event_started`, `409 already_cancelled`.
+
 ## Check-in (móvil del alumno o del tutor)
 
 | Método y ruta | Rol | Cuerpo | Respuesta |
@@ -149,6 +176,14 @@ Errores frecuentes: `409 subscription_exists`, `409 risk_cover_required` (sin se
 | `GET /professor/sessions/:id` | — | `{ session }` |
 | `GET /professor/sessions/:id/health` | — | `{ students: [...] }` lesiones, condiciones, alergias, medicación y contacto de emergencia; **solo hoy** y auditado |
 | `GET /professor/reports/sessions` | como `/admin/reports/sessions` | solo sus sesiones, sin dinero ni alumnos |
+| `GET /professor/events?from&to` | días, ≤ 92 (por defecto hoy + 30) | `{ events: [event] }` los que imparte (`registration` siempre `null`) |
+| `GET /professor/events/:id` | — | `{ event, students: [{ profile_id, display_name, attended (null = sin marcar), risk_cover }] }` (inscritos confirmados). `404 event_not_found` |
+| `GET /professor/events/:id/health` | — | `{ students: [...] }` como el de sesiones, de los inscritos confirmados; **solo los días del evento** (Madrid) y auditado (`health.view`, `resource_type: 'event'`). `404 event_not_found` |
+
+**Lista de un evento (profesor del evento y admin)**: `PUT /events/:id/attendance/:profileId { present: boolean }` →
+`{ profile_id, present }`, desde el inicio, sin cerrar ni corregir (se puede volver a marcar). No cuenta para racha, horas,
+badges, ranking ni informes. `404 registration_not_found` (sin inscripción confirmada o no es su evento),
+`409 event_not_started`, `409 event_cancelled`.
 
 **Lista (profesor de la sesión y admin)** — montadas en `/sessions`:
 
@@ -215,6 +250,22 @@ de `/sessions/:id/attendance` y reserva por cualquiera con `POST /bookings { pro
 Errores: `409 trainer_overlap`, `409 capacity_below_bookings { sessions, fits_from }`, `409 session_not_adjustable`,
 `409 class_retired`, `409 discipline_inactive`, `409 slot_passed`, `409 already_retired`, `409 loose_session`.
 
+**Eventos** (B21.0). Cada acción queda en `audit_log` (`event.create`, `event.update` `{ from, to }`, `event.cancel`,
+`event_registration.guest`, `event_registration.cancel` `{ from, refund }`, `event_registration.refund`). Los reembolsos se
+piden a Stripe tras confirmar la base (siempre del importe entero) y el email al pagador sale al llegar `charge.refunded`.
+
+| Método y ruta | Cuerpo / query | Respuesta |
+|---|---|---|
+| `GET /admin/events?from&to&status&limit&offset` | días de Madrid sobre `starts_at`; `status` `scheduled\|cancelled` | `{ events: [event + cancel_note, created_at, updated_at], total, limit, offset }` por inicio, cancelados incluidos |
+| `POST /admin/events` | `{ title (1–120), starts_at (futuro), ends_at, location (1–200), description? (≤2000), discipline_id?, trainer_id? (profesor), capacity? (≥1 o null), audience?, requires_risk_cover? (true), price_cents? (0 o ≥50), member_price_cents? (null, 0 o ≥50, ≤ precio), registration_deadline? (≤ inicio) }` | `201 { event }` (se publica al crearlo; sin aviso) |
+| `GET /admin/events/:id` | — | `{ event, registrations: [{ id, student: { id, display_name }, status, amount_cents, guest, payer: { id, display_name } \| null, refund_status (null\|requested\|refunded\|failed), refunded_cents, attended, cancel_reason (student\|admin\|event_cancelled\|checkout_expired), created_at }] }` por orden de llegada |
+| `PATCH /admin/events/:id` | los campos de `POST`, solo lo que cambia | `{ event, notified }`. Cambiar inicio, fin o lugar avisa a los inscritos vivos (`notice.event_changed`); precio, público y cobertura no tocan a quien ya está dentro. `409 capacity_below_registrations { taken }`, `409 event_cancelled` |
+| `POST /admin/events/:id/cancel` | `{ note? }` (≤500, solo la ve el admin) | `{ refunded, refund_failed, notified }`: cancela todas las inscripciones, devuelve todo lo pagado, caduca los Checkouts abiertos y avisa a los inscritos. `409 event_cancelled` |
+| `POST /admin/events/:id/registrations` | `{ profile_id }` | `201 { registration }` invitado (`guest`, importe 0): sin cierre de inscripciones, con requisitos y aforo |
+| `POST /admin/event-registrations/:id/cancel` | `{ refund: boolean }` | `{ registration: { …, cancel_reason, refund_status, refunded_cents } }`. Con `refund`, devuelve el importe entero (si estaba pagada) y avisa (`notice.event_registration_cancelled`). Sobre una ya cancelada y pagada, `refund: true` con `refund_status` `null` o `failed` reintenta el reembolso; si no, `409 already_cancelled` |
+
+Un reembolso que Stripe rechaza deja `refund_status: 'failed'` y un `notice.event_refund_failed` en `GET /admin/notices`.
+
 **Cobros**
 
 | Método y ruta | Cuerpo / query | Respuesta |
@@ -275,7 +326,11 @@ Errores: `400 invalid_range`, `400 invalid_field`, `400 invalid_pagination`.
 
 `POST /webhooks/stripe`: solo Stripe (firma). El frontend no lo usa, pero de él dependen los estados que la UI ve tras
 volver de Stripe: hasta que llega, la suscripción puede no existir aún (la UI de `/billing/success` debe esperar o
-reintentar `GET /billing/subscription`).
+reintentar `GET /billing/subscription`). Igual con un evento: la inscripción queda `pending` hasta `checkout.session.completed`
+(o se cancela con `checkout.session.expired`).
+
+Eventos de Stripe que hay que suscribir en el endpoint (sandbox, staging y producción): los de `HANDLED_EVENTS`
+(`src/services/stripeWebhook.js`), que desde B21.0 incluyen **`checkout.session.expired`**.
 
 ---
 
@@ -287,4 +342,3 @@ Lo que una pantalla podría pedir y la API **no da hoy**. Se decide en el diseñ
 - **Cuenta**: verificar el email, cambiar email o contraseña con sesión, reclamar el perfil al cumplir 18
   (`pending_claim`). No hay logout de servidor ni revocación de tokens.
 - **Alumno**: no hay detalle de una sesión aparte del calendario; tampoco su historial de recibos (lo da el Portal).
-- **Eventos**: no implementados (no son sesiones). Diseñados en B21 (`plan-de-bloques.md` § B21); se documentan aquí al implementarse en B21.0.

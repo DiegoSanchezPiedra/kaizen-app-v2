@@ -14,7 +14,6 @@ PostgreSQL en VPS con RLS habilitado y FORCE ROW LEVEL SECURITY en todas las tab
 - `attendance_status`: present, absent
 - `attendance_method`: manual, qr
 - `payment_method`: stripe, cash (cash reservado para futuro)
-- `event_payment_status`: free, pending, paid, cash
 
 ## Tablas
 
@@ -174,10 +173,54 @@ Restricción: `UNIQUE (session_id, student_id) WHERE status != 'cancelled'`.
 Restricción: `UNIQUE (session_id, student_id)`.
 Índices: `(student_id, recorded_at DESC)`, `(session_id)`.
 
-### events / event_registrations
-`events`: id, title, description, starts_at, ends_at, capacity, price_cents, location.
-`event_registrations`: id, event_id, student_id, payment_status.
-Índice: `(event_id)`, `(student_id)`.
+### events (B21.0, `028`; las tablas de `001` se borraron, vacías, con el enum `event_payment_status`)
+| Columna | Tipo |
+|---|---|
+| id | uuid PK |
+| title | text (1–120) |
+| description | text NULL (≤ 2000) |
+| starts_at, ends_at | timestamptz (`ends_at > starts_at`) |
+| location | text (1–200) |
+| discipline_id | bigint FK disciplines NULL |
+| trainer_id | uuid FK profiles NULL (profesor; lo comprueba el servicio) |
+| capacity | integer NULL (> 0; NULL = sin límite) |
+| audience | text `all\|minors\|adults` (por defecto `all`) |
+| requires_risk_cover | boolean (por defecto `true`) |
+| price_cents | integer (0 o ≥ 50) |
+| member_price_cents | integer NULL (0 o ≥ 50, ≤ `price_cents`) |
+| registration_deadline | timestamptz NULL (≤ `starts_at`) |
+| status | text `scheduled\|cancelled` |
+| cancel_note | text NULL (≤ 500, solo admin) |
+| created_by | uuid FK profiles |
+| created_at, updated_at | timestamptz |
+
+Índices: `(starts_at)`, `(trainer_id)`. Nunca se borra (sin `DELETE` para `app_user`): se cancela.
+
+### event_registrations (B21.0, `028`)
+| Columna | Tipo |
+|---|---|
+| id | uuid PK |
+| event_id | uuid FK events |
+| profile_id | uuid FK profiles (sujeto) |
+| actor_id | uuid FK profiles |
+| payer_id | uuid FK profiles NULL (NULL si el importe es 0) |
+| status | text `pending\|confirmed\|cancelled` (pendiente solo con importe > 0) |
+| amount_cents | integer ≥ 0 (lo pagado; 0 si `guest`) |
+| guest | boolean (invitado del admin) |
+| cancel_reason | text NULL `student\|admin\|event_cancelled\|checkout_expired` (obligatorio si cancelada, con `cancelled_at`) |
+| checkout_session_id | text NULL UNIQUE |
+| payment_intent_id | text NULL UNIQUE |
+| refund_status | text NULL `requested\|refunded\|failed` |
+| refunded_cents | integer (lo devuelto según `charge.refunded`) |
+| attended | boolean NULL (sin marcar) |
+| created_at, cancelled_at | timestamptz |
+
+Índices: `UNIQUE (event_id, profile_id) WHERE status IN ('pending','confirmed')` (una viva), `(event_id)`, `(profile_id)`.
+Escriben solo las funciones `SECURITY DEFINER` (owner `service_role`) `register_event`, `attach_event_checkout`,
+`cancel_event_registration`, `cancel_event`, `mark_event_attendance` y el `servicePool` (webhook y reembolsos).
+`event_taken` da las plazas ocupadas sin leer inscripciones ajenas; `event_notice` crea los avisos de eventos (solo
+admin); `professor_event_health` da las fichas el día del evento con `health.view`. `teaches_student` (017) incluye a
+los inscritos en los eventos del profesor, que así ve sus nombres.
 
 ### webhook_events
 | Columna | Tipo |
@@ -259,4 +302,6 @@ Una fila por día con el estado de las suscripciones; no cambia nunca y un día 
 - `audit_log`: solo admin lectura; `app_user` no inserta (027): escribe `write_audit(actor, action, resource_type, resource_id, changes)` (`SECURITY DEFINER`, owner `service_role`), que exige que el actor sea el de la sesión, deja al admin anotar cualquier acción y al resto solo `subscription.upgrade|downgrade|downgrade_cancel`; el servicePool y las funciones `SECURITY DEFINER` escriben directo.
 - `notice_deliveries`: RLS forzada; solo el admin lee (`026`, B19.0, para las entregas fallidas del panel); escribe solo `servicePool` y `enqueue_notice`.
 - `academy_stats_daily`: solo el admin lee (lleva dinero, también en `/admin/reports/subscriptions`); el profesor y el alumno, nada. Sin escritura para `app_user`: la escribe `snapshot_academy_stats` (sin `EXECUTE` para `app_user`) con `servicePool`.
+- `events`: lectura para cualquier autenticado (qué ve cada uno lo filtra el servicio); `INSERT`/`UPDATE` solo admin; sin `DELETE` (`028`).
+- `event_registrations`: leen el sujeto, sus tutores (`is_guardian_of(…, true)`), el profesor del evento y el admin; `app_user` no escribe (`028`).
 - `webhook_events`: solo service_role.

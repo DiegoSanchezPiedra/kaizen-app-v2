@@ -67,7 +67,7 @@
 | B18 | Frontend PWA (alumno, tutor, profesor, tablet; sub-bloques B18.0–B18.6) | B13, B15, B17 | CERRADO (con pruebas en dispositivos pendientes) |
 | B19 | Panel admin (métricas, usuarios, auditoría, morosos; sub-bloques B19.0–B19.6) | B11, B17, B10.2, B18 | Diseñado |
 | B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos | Pendiente |
-| B21 | Eventos (inscripción, cobro aparte, panel; sub-bloques B21.0–B21.2) | B10, B18, B19 | Diseñado |
+| B21 | Eventos (inscripción, cobro aparte, panel; sub-bloques B21.0–B21.2) | B10, B18, B19 | En curso (B21.0 hecho) |
 
 ---
 
@@ -2166,9 +2166,33 @@
   cuente para racha, horas, badges, ranking o informes; ingresos de eventos en los informes (Dashboard de Stripe); imagen del
   evento; recibos o facturas propios; que un tutor (rol) o un profesor se inscriban.
 - **Checklist de cierre**:
-  - [ ] B21.0: `028` (tablas nuevas con RLS, funciones), endpoints, webhook (`completed`, `expired`, `refunded`), reembolsos
+  - [x] B21.0: `028` (tablas nuevas con RLS, funciones), endpoints, webhook (`completed`, `expired`, `refunded`), reembolsos
     idempotentes, avisos y auditoría; `test:events` y la regresión en verde; `checkout.session.expired` suscrito en el sandbox;
     `docs/api.md` y `db-architecture.md` al día.
+  - **Avance de B21.0** (2026-11-05, commit en `b10-stripe`): `028` (tablas nuevas con sus CHECK e índices, RLS `ENABLE` +
+    `FORCE`; funciones `register_event`, `cancel_event_registration`, `cancel_event`, `mark_event_attendance`,
+    `professor_event_health` y tres de apoyo: `attach_event_checkout` (guarda el Checkout, porque `app_user` no escribe),
+    `event_taken` (plazas sin leer inscripciones ajenas) y `event_notice` (avisos, solo admin); `teaches_student` incluye a los
+    inscritos en los eventos del profesor para que vea sus nombres). `services/events.js`, `routes/events.js`,
+    `routes/admin/events.js` y las tres rutas de `/professor/events`. Webhook: rama `mode: payment` + `kind = 'event'`,
+    `checkout.session.expired` en `HANDLED_EVENTS` y `charge.refunded` (de Kaizen sin `stripe_risk` y con email al pagador; del
+    Dashboard con él). Reembolsos tras el COMMIT con `servicePool`; clave `event-refund-<id>` y, tras cada fallo,
+    `event-refund-<id>-<n.º de fallos>` (Stripe guarda también la respuesta de error de una clave: con la misma, el reintento
+    repetiría el fallo). Avisos `event_changed|event_cancelled|event_registration_cancelled` (push o email de respaldo,
+    caducan al empezar), `event_refunded` (email de facturación) y `event_refund_failed` (de la academia). Auditoría de las
+    seis acciones del admin. **Probado**: `test:events` (18 casos, todo lo de § Tests, contra el sandbox `sk_test_` con
+    PaymentIntents, Checkouts, caducidades y reembolsos reales y el webhook simulado con `handleEvent`) y la regresión
+    (`test:rls`, `test:webhook`, `test:billing`, `test:minors`, además `test:notices`, `test:push`, `test:profiles`,
+    `test:admin`) y `npm run lint`, en verde; `028` sube, baja y vuelve a subir. **Corregido en el camino**: inscribir con
+    precio colgaba la petición (el `FOR KEY SHARE` de la FK sobre el perfil del pagador bloqueaba el `UPDATE` de
+    `stripe_customer_id` de `ensureCustomer` por `servicePool`): el cliente de Stripe se crea antes de inscribir. **Sin
+    probar**: el pago de punta a punta con `stripe listen` (B21.2); `stripe listen` reenvía todos los eventos, así que
+    `checkout.session.expired` solo hay que suscribirlo en un endpoint registrado en el Dashboard (B10.7, producción).
+    **Decidido sin estar en la especificación**: las fichas valen cualquier día del evento si dura varios (entre el día de
+    inicio y el de fin, en Madrid); el admin solo inscribe como invitado (`POST /events/:id/registrations` es del alumno y del
+    tutor); `location` es obligatorio (1–200). **Pendiente**: un reembolso que Stripe rechaza más tarde (`refund.failed`) no se
+    trata; tampoco el pago diferido de un evento (solo tarjeta y monederos por el Dashboard); los cobros de eventos llevan el
+    descriptor de la cuenta (en producción, el de maat).
   - [ ] B21.1: el admin crea, edita y cancela un evento (con reembolsos en el sandbox), inscribe invitados, cancela inscripciones
     con y sin reembolso, reintenta uno fallido y pasa lista.
   - [ ] B21.2: un alumno y un tutor (por un hijo) se inscriben gratis y pagando (tarjeta de prueba), cancelan lo que pueden y ven

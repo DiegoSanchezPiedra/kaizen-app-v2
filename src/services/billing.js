@@ -21,7 +21,7 @@ const CHECKOUT_TTL_S = 30 * 60;
 const INTEGRATION_ID = 'kaizen-sub-qzmhtrwa';
 
 /** Cliente de Stripe del pagador; lo crea la primera vez. */
-async function ensureCustomer(client, payerId) {
+export async function ensureCustomer(client, payerId) {
   const { rows: [p] } = await client.query(
     `SELECT p.stripe_customer_id, p.display_name, c.email
        FROM profiles p LEFT JOIN auth_credentials c ON c.profile_id = p.id WHERE p.id = $1`, [payerId]);

@@ -1,4 +1,4 @@
-// src/services/stripeWebhook.js — eventos de Stripe (B10, B10.1, B10.3, B10.5, B11). Solo el webhook escribe billing (servicePool).
+// src/services/stripeWebhook.js — eventos de Stripe (B10, B10.1, B10.3, B10.5, B11, B21.0). Solo el webhook escribe billing (servicePool).
 // Los eventos llegan desordenados y repetidos: cada handler relee el objeto actual de Stripe y hace upsert.
 import { servicePool } from '../config/database.js';
 import { stripe } from '../config/stripe.js';
@@ -6,6 +6,7 @@ import {
   STATUS, ts, idOf, insuranceSettings, insuranceWontRenew, upsertInsurance, startInsurance, pendingPhase, discardSuccessor,
 } from './billing.js';
 import { notice } from './notices.js';
+import { refundRegistration } from './events.js';
 
 const IN_FORCE = ['active', 'past_due'];
 const LIVE = `('active', 'past_due', 'unpaid')`;
@@ -47,6 +48,7 @@ const payerOf = async (client, customer) =>
 // --- Contratar: la suscripción local nace aquí (nunca en success_url) ---
 
 async function onCheckoutPaid(client, session) {
+  if (session.mode === 'payment' && session.metadata?.kind === 'event') return onEventPaid(client, session);
   // Con métodos de pago diferidos completed llega sin cobrar: se espera a async_payment_succeeded.
   if (session.mode !== 'subscription' || session.payment_status === 'unpaid') return;
   const sub = await stripe.subscriptions.retrieve(idOf(session.subscription));
@@ -113,6 +115,9 @@ async function onCheckoutPaid(client, session) {
 
 // Pago diferido rechazado: no hay suscripción local; se avisa al pagador.
 async function onCheckoutFailed(client, session) {
+  // shortcut: un evento solo admite tarjeta y monederos (Dashboard), sin pago diferido; si se activara uno, aquí
+  // habría que cancelar la inscripción pendiente.
+  if (session.metadata?.kind === 'event') return;
   const payer = await payerOf(client, session.customer);
   if (!payer) return;
   await notice(client, {
@@ -132,6 +137,66 @@ async function lostRace(client, sub, payer) {
     action: 'notice.checkout_race_refunded', actorId: payer, type: 'subscription', resourceId: sub.id,
     recipients: [payer, ...(await admins(client))], student_id: sub.metadata.student_id,
   });
+}
+
+// --- Eventos (B21.0; ADR 0018): el webhook resuelve la inscripción pendiente ---
+
+// Pago de una inscripción: pendiente → confirmada. Si ya estaba cancelada (evento cancelado, el admin la canceló o el
+// alumno con el Checkout abierto), se devuelve entero; el pago no da plaza.
+async function onEventPaid(client, session) {
+  if (session.payment_status === 'unpaid') return; // diferido: llegará async_payment_succeeded
+  const id = session.metadata.registration_id;
+  const pi = idOf(session.payment_intent);
+  const { rows: [r] } = await client.query(`SELECT * FROM event_registrations WHERE id = $1 FOR UPDATE`, [id]);
+  if (!r) {
+    // Checkout abierto en una transacción que no llegó a confirmarse: no hay inscripción que pagar.
+    await stripe.refunds.create({ payment_intent: pi, metadata: { kind: 'event', registration_id: id } },
+      { idempotencyKey: `event-refund-${id}` });
+    return;
+  }
+  const payer = await payerOf(client, session.customer);
+  if (!payer || payer !== r.payer_id || r.checkout_session_id !== session.id) {
+    throw new Error(`checkout ${session.id}: no es el de la inscripción ${id} de ${r.payer_id}`);
+  }
+  if (r.payment_intent_id) return; // ya procesado (completed y async_payment_succeeded)
+  if (r.status === 'pending') {
+    await client.query(`UPDATE event_registrations SET status = 'confirmed', payment_intent_id = $2 WHERE id = $1`, [id, pi]);
+    return;
+  }
+  const { rows: [late] } = await client.query(
+    `UPDATE event_registrations SET payment_intent_id = $2, refund_status = 'requested' WHERE id = $1 RETURNING *`, [id, pi]);
+  await refundRegistration(client, late);
+}
+
+// Checkout caducado (30 min): la inscripción pendiente se cancela y libera la plaza. Lo decide el webhook, no la hora.
+async function onCheckoutExpired(client, session) {
+  if (session.metadata?.kind !== 'event') return; // la cuota no deja nada pendiente; lo demás es de maat
+  await client.query(
+    `UPDATE event_registrations SET status = 'cancelled', cancel_reason = 'checkout_expired', cancelled_at = now()
+      WHERE id = $1 AND checkout_session_id = $2 AND status = 'pending'`, [session.metadata.registration_id, session.id]);
+}
+
+// charge.refunded de una inscripción: se guarda lo devuelto. Si todos los reembolsos los pidió Kaizen (metadata.kind),
+// email de facturación al pagador y sin aviso de riesgo; si alguno es del Dashboard, el stripe_risk de siempre.
+// @returns {Promise<boolean>} si ya está tratado (no sigue a onRisk)
+async function onEventRefund(client, charge) {
+  const { rows: [r] } = await client.query(
+    `SELECT r.*, e.title FROM event_registrations r JOIN events e ON e.id = r.event_id
+      WHERE r.payment_intent_id = $1 FOR UPDATE OF r`, [idOf(charge.payment_intent)]);
+  if (!r) return false;
+  const { data } = await stripe.refunds.list({ payment_intent: r.payment_intent_id, limit: 100 });
+  const ours = data.filter((f) => !['failed', 'canceled'].includes(f.status)).every((f) => f.metadata?.kind === 'event');
+  await client.query(
+    `UPDATE event_registrations SET refunded_cents = $2, refund_status = CASE WHEN $3 THEN 'refunded' ELSE refund_status END
+      WHERE id = $1`, [r.id, charge.amount_refunded, ours]);
+  if (ours && charge.amount_refunded > r.refunded_cents) {
+    await notice(client, {
+      action: 'notice.event_refunded', actorId: r.payer_id, type: 'event_registration', resourceId: r.id,
+      recipients: [r.payer_id], student_id: r.profile_id, event_id: r.event_id, title: r.title,
+      amount_cents: charge.amount_refunded - r.refunded_cents,
+    });
+  }
+  return ours;
 }
 
 // --- Cambio de pagador (B11; ADR 0009): Checkout pagado, traspaso en D y caducidad ---
@@ -472,6 +537,7 @@ async function onInvoice(client, obj, event) {
 
 async function onRisk(client, obj, event) {
   const charge = obj.object === 'charge' ? obj : await stripe.charges.retrieve(idOf(obj.charge));
+  if (event.type === 'charge.refunded' && await onEventRefund(client, charge)) return;
   const payer = await payerOf(client, charge.customer);
   if (!payer) return; // no es un cliente de Kaizen
   // Suscripción afectada por el grafo: cobro → invoice payment → recibo → suscripción.
@@ -489,6 +555,7 @@ const HANDLERS = {
   'checkout.session.completed': onCheckoutPaid,
   'checkout.session.async_payment_succeeded': onCheckoutPaid,
   'checkout.session.async_payment_failed': onCheckoutFailed,
+  'checkout.session.expired': onCheckoutExpired, // B21.0: hay que suscribirlo en el endpoint de Stripe
   'customer.subscription.created': onSubscriptionChange, // el seguro nace en servidor (la cuota, en el Checkout)
   'customer.subscription.updated': onSubscriptionChange,
   'customer.subscription.deleted': onSubscriptionChange,

@@ -17,6 +17,7 @@ const CHANNELS = Object.fromEntries([
   'plan_downgraded', 'upgrade_requires_action',
   'subscription_unpaid', 'insurance_unpaid', 'subscription_cancelled',
   'insurance_cancelled', 'payer_change_requested', 'payer_change_paid', 'payer_change_expired', 'payer_change_cancelled',
+  'event_refunded',
 ].map((a) => [`notice.${a}`, ['email']]));
 
 /** Aviso + una entrega por destinatario no admin y canal, en una sentencia (también en autocommit). */
@@ -168,6 +169,11 @@ const TEMPLATES = {
     : [`El cambio para que pagues la suscripción de ${d.student} se ha anulado porque `
         + `${CANCELLED[d.c.reason] ?? 'ya no está vigente'}. El enlace que recibiste ya no vale.`,
     ...(d.c.refunded ? refund(d) : ['No se te cobrará nada.'])]),
+  // Reembolso de una inscripción (B21.0): cualquiera que pida Kaizen, siempre entero.
+  'notice.event_refunded': (d) => mail(`Te hemos devuelto el pago de ${d.c.title}`, d, [
+    `Te hemos devuelto ${eur(d.c.amount_cents)} de la inscripción de ${d.student} en ${d.c.title}.`,
+    'El reembolso puede tardar unos días en aparecer en tu cuenta.',
+  ], ['Ver el evento', `${APP_URL}/events/${d.c.event_id}`]),
 };
 
 // --- Avisos de reservas y de re-firma (B15): push { title, body, url, tag } o email de respaldo ---
@@ -201,7 +207,16 @@ const CHANGED_NAMES = { starts_at: 'la hora', duration_min: 'la duración', trai
 const and = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} y ${xs.at(-1)}` : xs[0]);
 const changedFields = (g) => CHANGE_ORDER.filter((f) => g.sessions.some((s) => s.changes.fields?.includes(f)));
 
-// g = { student, sessions: [{ discipline, starts_at, duration_min, trainer, changes }] } o { c: changes } (re-firma)
+// Avisos de eventos (B21.0): uno por inscripción, con el evento como está ahora.
+const eventLabel = (g) => `${g.title}, ${when(g.starts_at)} (${g.student})`;
+const EVENT_CHANGED = {
+  starts_at: (g) => `el inicio (antes ${when(g.c.previous_starts_at)})`,
+  ends_at: () => 'la hora de fin',
+  location: (g) => `el lugar (ahora ${g.location})`,
+};
+
+// g = { student, sessions: [{ discipline, starts_at, duration_min, trainer, changes }] }, { c: changes } (re-firma)
+// o { title, starts_at, location, student, c } (eventos)
 // → { title, body }
 const SERVICE = {
   'notice.no_coverage': (g) => ({
@@ -243,6 +258,17 @@ const SERVICE = {
         + `(${and(fields.map((f) => CHANGED_NAMES[f]))}). Si ya no te vienen bien, puedes cancelarlas sin que cuente como tardía`,
     };
   },
+  'notice.event_changed': (g) => ({
+    title: 'Evento cambiado',
+    body: `${eventLabel(g)}: ha cambiado ${and(g.c.fields.map((f) => EVENT_CHANGED[f](g)))}. `
+      + 'Si no puedes venir, contacta con la academia',
+  }),
+  'notice.event_cancelled': (g) => ({
+    title: 'Evento cancelado', body: `${eventLabel(g)}: la academia ha cancelado el evento`,
+  }),
+  'notice.event_registration_cancelled': (g) => ({
+    title: 'Inscripción cancelada', body: `${eventLabel(g)}: la academia ha cancelado la inscripción`,
+  }),
   'notice.agreement_published': (g) => ({
     title: 'Nueva versión de un acuerdo',
     body: `Hay una versión nueva de ${AGREEMENT_NAMES[g.c.type]}. Fírmala para seguir reservando.`,
@@ -266,13 +292,22 @@ async function bookingGroup(db, { audit_id: id }) {
   return { student: rows[0]?.student ?? 'el alumno', sessions: rows };
 }
 
+// El evento de un aviso de eventos, como está ahora (la caducidad ya la comprobó el worker con expires_at).
+async function eventOf(db, { changes: c }) {
+  const { rows: [e] } = await db.query(
+    `SELECT e.title, e.starts_at, e.location, p.display_name AS student
+       FROM events e JOIN profiles p ON p.id = $2 WHERE e.id = $1`, [c.event_id, c.profile_id]);
+  return { ...e, student: e.student ?? 'el alumno', c };
+}
+
 async function composeService(db, d) {
   const isBooking = d.resource_type === 'booking';
-  const g = isBooking ? await bookingGroup(db, d) : { c: d.changes };
+  const isEvent = d.resource_type === 'event_registration';
+  const g = isBooking ? await bookingGroup(db, d) : isEvent ? await eventOf(db, d) : { c: d.changes };
   // Su última sesión empezó después de comprobar la caducidad: caducado, no fallido.
   if (isBooking && !g.sessions.length) throw Object.assign(new Error('stale'), { stale: true });
   const { title, body } = SERVICE[d.action](g);
-  const url = isBooking ? BOOKINGS : AGREEMENTS_URL;
+  const url = isBooking ? BOOKINGS : isEvent ? `${APP_URL}/events/${d.changes.event_id}` : AGREEMENTS_URL;
   if (d.channel === 'push') return { title, body, url, tag: d.audit_id };
   const { rows: [r] } = await db.query(
     `SELECT pr.display_name AS payer, ac.email FROM profiles pr
@@ -282,6 +317,8 @@ async function composeService(db, d) {
   const msg = isBooking
     ? mail(`${title} de ${g.student}`, r, [`${body}.`, ...list],
       ['Ver las reservas', url], 'Este es un email de servicio sobre tus reservas en Kaizen.')
+    : isEvent ? mail(`${title}: ${g.title}`, r, [`${body}.`], ['Ver el evento', url],
+      'Este es un email de servicio sobre tus eventos en Kaizen.')
     : mail(title, r, [body], ['Ver los acuerdos', url], 'Este es un email de servicio sobre tus acuerdos en Kaizen.');
   return { to: r.email, ...msg };
 }

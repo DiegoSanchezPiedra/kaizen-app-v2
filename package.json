@@ -31,6 +31,7 @@
     "test:nightly": "dotenv -e .env -- node scripts/test-nightly.js",
     "test:reports": "dotenv -e .env -- node scripts/test-reports.js",
     "test:account": "dotenv -e .env -- node scripts/test-account.js",
+    "test:events": "dotenv -e .env -- node scripts/test-events.js",
     "test:admin": "dotenv -e .env -- node scripts/test-admin.js",
     "extend-horizon": "dotenv -e .env -- node scripts/extend-horizon.js",
     "nightly": "dotenv -e .env -- node scripts/nightly.js",

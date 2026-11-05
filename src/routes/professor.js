@@ -5,6 +5,7 @@ import { httpError } from '../lib/errors.js';
 import { listTrainerSessions, getTrainerSession } from '../services/sessions.js';
 import { getSessionHealth } from '../services/attendance.js';
 import { getSessionStats } from '../services/reports.js';
+import { listTrainerEvents, getTrainerEvent, getEventHealth } from '../services/events.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -23,6 +24,14 @@ router.get('/sessions/:id', withRlsContext(async (req, client) => ({
 // Ficha de salud de los alumnos con reserva, solo de sus sesiones de hoy; la BD lo restringe y audita.
 router.get('/sessions/:id/health', withRlsContext(async (req, client) => ({
   students: await getSessionHealth(client, req.params.id),
+})));
+// Eventos que imparte (B21.0): lista, inscritos confirmados y sus fichas el día del evento (auditado en la BD).
+router.get('/events', withRlsContext(async (req, client) => ({
+  events: await listTrainerEvents(client, req.user, req.query),
+})));
+router.get('/events/:id', withRlsContext((req, client) => getTrainerEvent(client, req.user, req.params.id)));
+router.get('/events/:id/health', withRlsContext(async (req, client) => ({
+  students: await getEventHealth(client, req.params.id),
 })));
 // GET /professor/reports/sessions → como /admin/reports/sessions; la RLS deja solo sus sesiones (B17)
 router.get('/reports/sessions', withRlsContext((req, client) => getSessionStats(client, req.query)));
