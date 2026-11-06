@@ -2308,8 +2308,8 @@
   movimiento, make-interfaces-feel-better para el repaso final); Vitest de la lógica nueva (semana y día con
   `madridDay`/`weekStart`, filtros, KPIs); E2E por rol al estilo de B21.2; `typecheck`, `lint`, tests y `build` en verde;
   `graphify update .`; revisión a 375 px y en escritorio; **desplegado en staging** (`npm run staging:build`) y probado
-  en el iPhone por el staging. `staging:build` hace `npm ci` en `frontend/` y vacía `node_modules/.vite`: parar antes el
-  Vite de desarrollo y arrancarlo después (si no, responde 504 «Outdated Optimize Dep»).
+  en el iPhone por el staging. `staging:build` ya no hace `npm ci` (vaciaba `node_modules/.vite` y el Vite de desarrollo
+  respondía 504); si cambia `frontend/package-lock.json`, `npm --prefix frontend ci` a mano con el Vite parado.
 - **Pendiente de comprobar en B22.3**: que la definición de «Morosos» se pueda calcular por disciplina sin coste alto; si no,
   se vuelve a decidir.
 - **Rama**: `b22-rediseno`, desde `b10-stripe`.
