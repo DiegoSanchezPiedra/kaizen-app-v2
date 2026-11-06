@@ -9,6 +9,10 @@ import {
   categoryPrefixes,
   deliveryLabel,
   latestStat,
+  nowFocus,
+  trend,
+  variation,
+  type HomeSession,
   noticeEvent,
   noticeLabel,
   pageHref,
@@ -217,5 +221,36 @@ describe('Usuarios: filtros en la URL y última asistencia (B22.3)', () => {
     expect(lastSeen('2026-11-03T18:00:00Z', now)).toBe('hace 3 días')
     expect(lastSeen('2026-08-01T18:00:00Z', now)).toBe('hace 3 meses')
     expect(lastSeen('2024-10-01T18:00:00Z', now)).toBe('hace 2 años')
+  })
+})
+
+describe('Inicio en vivo (B23)', () => {
+  const at = (id: string, from: string, to: string, status: 'scheduled' | 'cancelled' = 'scheduled'): HomeSession => ({
+    id, starts_at: `2026-11-06T${from}:00Z`, ends_at: `2026-11-06T${to}:00Z`, discipline: { id: 1, name: 'BJJ' }, trainer: null, location: null, capacity: 10, status, booked: 0, present: 0,
+  })
+  const now = Date.parse('2026-11-06T18:30:00Z')
+  const next = at('n', '09:00', '10:00')
+
+  it('«Ahora»: las sesiones en curso, todas', () => {
+    expect(nowFocus([at('a', '17:00', '19:00'), at('b', '18:00', '19:30'), at('c', '20:00', '21:00')], next, now)).toMatchObject({ kind: 'now', sessions: [{ id: 'a' }, { id: 'b' }] })
+  })
+  it('sin ninguna en curso, la próxima de hoy; las canceladas no cuentan', () => {
+    const r = nowFocus([at('x', '19:00', '20:00', 'cancelled'), at('c', '21:00', '22:00'), at('b', '20:00', '21:00')], next, now)
+    expect(r).toMatchObject({ kind: 'upcoming', sessions: [{ id: 'b' }] })
+  })
+  it('sin más hoy, la de otro día; sin nada, null', () => {
+    expect(nowFocus([at('a', '10:00', '11:00')], next, now)).toMatchObject({ kind: 'next', sessions: [{ id: 'n' }] })
+    expect(nowFocus([], null, now)).toBeNull()
+  })
+  it('variación de asistencias: sin base no hay porcentaje', () => {
+    expect(variation(37, 33)).toBe(12)
+    expect(variation(5, 10)).toBe(-50)
+    expect(variation(5, 0)).toBeNull()
+  })
+  it('tendencia de 30 días: huecos fuera, y con una sola foto no hay diferencia', () => {
+    const rows = [day('2026-10-01', 100), day('2026-10-02', null), day('2026-10-03', 106)]
+    expect(trend(rows, 'active')).toBe(6)
+    expect(trend([day('2026-10-01', 100)], 'active')).toBeNull()
+    expect(trend([day('2026-10-01', null)], 'active')).toBeNull()
   })
 })

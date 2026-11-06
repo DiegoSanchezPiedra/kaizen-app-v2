@@ -1,7 +1,7 @@
 import { addDays, madridDay } from '@/lib/dates'
 import type { Role } from '@/lib/paths'
 import { formatEuros } from '@/lib/format'
-import { plural } from '@/lib/professor'
+import { phaseOf, plural } from '@/lib/professor'
 import type { Insurance, ProfileStatus, Subscription } from '@/lib/types'
 
 // GET /auth/me (B4): el aviso del MFA sale solo si la API dice que no está activo; mientras carga, no.
@@ -358,4 +358,44 @@ export function lastSeen(iso: string | null, now: Date = new Date()): string {
   if (days < 31) return relFmt.format(-days, 'day')
   if (days < 365) return relFmt.format(-Math.floor(days / 30), 'month')
   return relFmt.format(-Math.floor(days / 365), 'year')
+}
+
+// ── Inicio en vivo (B23): GET /admin/home ──
+
+export type HomeSession = {
+  id: string
+  starts_at: string
+  ends_at: string
+  discipline: { id: number | string; name: string }
+  trainer: { id: string; display_name: string } | null
+  location: string | null
+  capacity: number
+  status: 'scheduled' | 'cancelled'
+  booked: number
+  present: number
+}
+export type AdminHome = {
+  figures: StatFigures
+  students: ProfileStats
+  attendance: { today: number; last_week: number }
+  sessions: HomeSession[]
+  next: HomeSession | null
+}
+
+// Qué enseña «Ahora»: las sesiones en curso; si no hay, la próxima de hoy; si no, la próxima de otro día (`next`).
+export function nowFocus(sessions: HomeSession[], next: HomeSession | null, now: number): { kind: 'now' | 'upcoming' | 'next'; sessions: HomeSession[] } | null {
+  const live = sessions.filter((s) => phaseOf(s, now) === 'now')
+  if (live.length) return { kind: 'now', sessions: live }
+  const soon = sessions.filter((s) => phaseOf(s, now) === 'upcoming').sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at))[0]
+  if (soon) return { kind: 'upcoming', sessions: [soon] }
+  return next ? { kind: 'next', sessions: [next] } : null
+}
+
+// Variación en % de las asistencias de hoy frente al mismo día de la semana pasada; sin base, sin porcentaje.
+export const variation = (today: number, lastWeek: number): number | null => (lastWeek > 0 ? Math.round(((today - lastWeek) / lastWeek) * 100) : null)
+
+// Diferencia entre la primera y la última foto con dato de una cifra (la línea de 30 días); con menos de dos fotos, null.
+export function trend(rows: DayStat[], key: 'active' | 'mrr_cents'): number | null {
+  const v = rows.map((r) => r[key]).filter((n): n is number => n !== null)
+  return v.length > 1 ? v[v.length - 1] - v[0] : null
 }
