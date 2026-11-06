@@ -2340,3 +2340,24 @@
 - [x] Backend con su test
 - [x] Frontend, comprobado a 375 px y en `lg` (`1237ea6`, Sonnet alto)
 - [x] Migración aplicada en staging (`npm run staging:migrate`), API reiniciada y `npm run staging:build` (2026-11-06)
+
+#### B23.1 — Altas en la auditoría, datos de demo y aviso «Actualizar» en el iPhone — CERRADO (con prueba en iPhone pendiente)
+
+Decisiones del usuario (2026-11-06): alta = cuota contratada; demo de academia mediana con 3 meses y fotos de 90 días,
+con ids falsos de Stripe y sin tocar las cuentas del seed; buscar versión nueva al volver a la app y cada hora, sin
+activarla sola (ADR 0015).
+
+- [x] **Altas** (`a912e5c`, TDD): el webhook escribe `subscription.create` (pagador de actor, `changes: { student_id,
+  payer_id, plan_id }`) solo al nacer la cuota del checkout pagado; un traspaso de pagador no es un alta. `test:webhook`
+  lo comprueba por `listAudit` (y que un traspaso no la escribe). El Inicio la pide en «Hoy en la academia» («Contrató una
+  cuota») y enlaza a la ficha del alumno (`auditTarget`).
+- [x] **Datos de demo** (`5974d25`, Sonnet alto): `npm run staging:demo` (`deploy/staging/demo.mjs`), repetible, solo contra
+  `kaizen_staging` y con clave de test; 56 personas, 50 cuotas `sub_test_demo_*`, sesiones de 90 días, asistencias, 3
+  eventos, auditoría y 90 fotos. Guía en `deploy/staging/README.md` § Datos de demo.
+- [x] **iPhone** (`d2ef483`): causa comprobada con un bucle (build en local, `sw.js` cambiado sin navegar): el navegador
+  solo busca `sw.js` al navegar y la app instalada vuelve del segundo plano sin navegar. `watchForUpdates`
+  (`frontend/src/lib/sw-update.ts`) llama a `registration.update()` al volver a la app y cada hora. Cómo comprobarlo:
+  `deploy/staging/README.md` § 3.
+- [x] **Asistencias del Inicio** (`e2e2b78`): la semana pasada cuenta hasta esta misma hora (por la mañana salía −100 %).
+- [x] Desplegado en staging (API reiniciada, `staging:demo`, `staging:build`); `sw.js` llega como JavaScript por Tailscale.
+- [ ] Prueba en un iPhone real (la hace el usuario).
