@@ -124,7 +124,7 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
   Tiene fecha de inicio (por defecto, hoy) y, opcionalmente, fecha de fin (p. ej. un horario de verano); sin fecha de fin dura hasta que se retira.
   _Evitar_: plantilla, horario (para una sola entrada).
 - **Horizonte**: cuánto tiempo por delante de hoy hay siempre sesiones generadas a partir de las clases. Es deslizante: avanza solo cada día. Es un parámetro de la academia, por defecto 1 año; reducirlo no borra sesiones ya generadas.
-- **Sesión suelta**: sesión que no sale de ninguna clase (p. ej. un open mat puntual).
+- **Sesión suelta**: sesión que no sale de ninguna clase (p. ej. un open mat puntual). En el panel del admin el botón dice «Clase suelta».
 - **Sesión**: una ocurrencia concreta de entrenamiento en una fecha y hora, de una disciplina e impartida por un profesor. Se accede a ella porque la suscripción del alumno **cubre** su disciplina, y se **reserva**.
   Sale de una clase o es una sesión suelta. Se puede ajustar por separado (cancelarla, poner un profesor sustituto, cambiar su aforo).
   _Evitar_: clase (para una ocurrencia concreta), evento.

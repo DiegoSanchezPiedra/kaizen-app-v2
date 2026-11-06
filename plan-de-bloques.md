@@ -2312,6 +2312,11 @@
   - [x] **B22.3** — KPIs y filtros de Usuarios (backend y frontend). `GET /admin/profiles/stats` y filtros en
     `listProfiles` (`users.js`: `IN_DISCIPLINE` con `shortcut:` y el CTE `PEOPLE`; Impago reutiliza `affectedSql` de
     Cobros); `npm run test:user-stats`. Activos = activo + inactivo; un nuevo alumno sin asistencias cuenta como inactivo.
+  - [x] **B22.4** — Horario unificado (`schedule.tsx`): pestañas Semana / Clases / Eventos con `?vista=`, y fuera del
+    menú «Clases» y «Eventos». `/admin/classes` y `/admin/events` redirigen a su pestaña; `/admin/events/:id` sigue y
+    deja Horario activo. Un botón por pestaña: «Clase suelta» (la `LooseSession` de B6.1 con el día de la tira, validación
+    en línea `looseErrors` y quedándose en la semana), «Nueva clase» y «Nuevo evento». `?disciplina=` lo comparten Semana y
+    Clases. Sin backend. Pendiente: `docs/pantallas-b19.md` § Horario aún habla de tres pantallas separadas.
 - **En cada fase**: las skills en este orden (impeccable revisa, taste-skill para la dirección, emil-design-eng para el
   movimiento, make-interfaces-feel-better para el repaso final); Vitest de la lógica nueva (semana y día con
   `madridDay`/`weekStart`, filtros, KPIs); E2E por rol al estilo de B21.2; `typecheck`, `lint`, tests y `build` en verde;

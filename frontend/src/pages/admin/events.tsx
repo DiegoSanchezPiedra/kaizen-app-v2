@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BanIcon, CalendarDaysIcon, PlusIcon, UsersIcon } from 'lucide-react'
+import { BanIcon, CalendarDaysIcon, UsersIcon } from 'lucide-react'
 import { useState } from 'react'
 import type React from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
@@ -56,9 +56,8 @@ const VIEWS = [
   { value: 'all', label: 'Todos' },
 ]
 
-export function AdminEventsPage() {
+export function EventsView({ creating, onClose }: { creating: boolean; onClose: () => void }) {
   const [params, setParams] = useSearchParams()
-  const [creating, setCreating] = useState(false)
   const view = VIEWS.some((v) => v.value === params.get('estado')) ? params.get('estado')! : 'next'
   const page = pageOf(params)
   const today = madridDay()
@@ -75,18 +74,20 @@ export function AdminEventsPage() {
       ),
   })
   return (
-    <Page
-      title="Eventos"
-      wide
-      actions={
-        <Button size="lg" onClick={() => setCreating(true)}>
-          <PlusIcon />
-          Nuevo evento
-        </Button>
-      }
-    >
+    <>
       <div className="sm:w-56">
-        <Filter label="Ver" value={view} onChange={(v) => setParams(v === 'next' ? {} : { estado: v }, { replace: true })} items={VIEWS} />
+        <Filter label="Ver" value={view} onChange={(v) =>
+            setParams(
+              (p) => {
+                const n = new URLSearchParams(p)
+                n.delete('page')
+                if (v === 'next') n.delete('estado')
+                else n.set('estado', v)
+                return n
+              },
+              { replace: true },
+            )
+          } items={VIEWS} />
       </div>
       {list.isPending ? (
         <ListSkeleton rows={4} className="h-16" />
@@ -118,8 +119,8 @@ export function AdminEventsPage() {
           <Pager total={list.data.total} page={page} href={(n) => pageHref(params, n)} />
         </>
       )}
-      <EventSheet open={creating} onClose={() => setCreating(false)} />
-    </Page>
+      <EventSheet open={creating} onClose={onClose} />
+    </>
   )
 }
 
@@ -245,7 +246,7 @@ export function AdminEventPage() {
   if (query.isError) {
     return (
       <Page title="Evento" wide>
-        <Back to="/admin/events">Eventos</Back>
+        <Back to="/admin/sessions?vista=eventos">Eventos</Back>
         <ErrorState error={query.error} onRetry={() => void query.refetch()} />
       </Page>
     )
@@ -273,7 +274,7 @@ function EventDetail({ event: e, registrations }: Detail) {
   ]
   return (
     <Page title={e.title} wide actions={<StateTag e={e} />}>
-      <Back to="/admin/events">Eventos</Back>
+      <Back to="/admin/sessions?vista=eventos">Eventos</Back>
       {!scheduled && (
         <p className="flex items-center gap-2 rounded-xl border bg-card px-4 py-3 text-sm" role="status">
           <BanIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />

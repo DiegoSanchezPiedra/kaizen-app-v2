@@ -48,11 +48,16 @@ export function TextField({
   )
 }
 
-export function SelectField({ label, children }: { label: string; children: React.ReactNode }) {
+export function SelectField({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-sm font-medium">{label}</span>
       {children}
+      {error && (
+        <p role="alert" className="text-xs text-destructive-foreground">
+          {error}
+        </p>
+      )}
     </div>
   )
 }

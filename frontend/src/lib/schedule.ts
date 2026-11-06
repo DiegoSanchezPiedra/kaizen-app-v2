@@ -80,6 +80,28 @@ export function madridToIso(day: string, time: string): string | null {
   return null
 }
 
+export type LooseForm = { discipline: string; trainer: string; day: string; time: string; duration: string; capacity: string }
+const intOf = (v: string) => (/^\d+$/.test(v.trim()) ? Number(v) : NaN)
+
+// Errores de la hoja «Clase suelta», por campo. Vacío = se puede crear.
+export function looseErrors(f: LooseForm, now: number): Partial<Record<keyof LooseForm, string>> {
+  const e: Partial<Record<keyof LooseForm, string>> = {}
+  if (f.discipline === 'none') e.discipline = 'Elige una disciplina.'
+  if (f.trainer === 'none') e.trainer = 'Elige un profesor.'
+  if (!f.day) e.day = 'Elige el día.'
+  else if (!madridToIso(f.day, '00:00')) e.day = 'Esa fecha no existe.'
+  else if (f.day < madridDay(now)) e.day = 'Ese día ya pasó.'
+  if (!f.time) e.time = 'Elige la hora.'
+  else if (!e.day) {
+    const iso = madridToIso(f.day, f.time)
+    if (!iso) e.time = 'Esa hora no existe ese día.'
+    else if (Date.parse(iso) <= now) e.time = 'Esa hora ya pasó.'
+  }
+  if (!(intOf(f.duration) >= 1)) e.duration = 'Mínimo 1 minuto.'
+  if (!(intOf(f.capacity) >= 1)) e.capacity = 'Mínimo 1 plaza.'
+  return e
+}
+
 export const WEEKDAYS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo']
 
 export type AdminClass = {

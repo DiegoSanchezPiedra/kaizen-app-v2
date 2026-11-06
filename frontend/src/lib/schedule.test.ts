@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { adjustedFields, type AdminClass, canAdjust, canRestore, classState, groupByWeekday, isRetroactive, madridToIso, weekRange, weekStart } from '@/lib/schedule'
+import { adjustedFields, type AdminClass, canAdjust, canRestore, classState, groupByWeekday, isRetroactive, looseErrors, madridToIso, weekRange, weekStart } from '@/lib/schedule'
 
 const classValues = { trainer_id: 't1', starts_at: '2026-11-04T18:00:00Z', duration_min: 60, capacity: 20, location: 'Sala 1' }
 
@@ -80,4 +80,25 @@ describe('clases agrupadas por día de la semana', () => {
   it('sin clases no hay grupos', () => {
     expect(groupByWeekday([])).toEqual([])
   })
+})
+
+describe('errores de «Clase suelta»', () => {
+  const now = Date.parse('2026-11-06T10:00:00Z') // 11:00 en Madrid
+  const ok = { discipline: '1', trainer: 't1', day: '2026-11-07', time: '18:00', duration: '60', capacity: '20' }
+  it('un formulario completo no da errores', () => expect(looseErrors(ok, now)).toEqual({}))
+  it('lo vacío pide cada campo', () => {
+    const e = looseErrors({ discipline: 'none', trainer: 'none', day: '', time: '', duration: '', capacity: '0' }, now)
+    expect(Object.keys(e).sort()).toEqual(['capacity', 'day', 'discipline', 'duration', 'time', 'trainer'])
+  })
+  it('un día pasado marca el día y no la hora', () => {
+    const e = looseErrors({ ...ok, day: '2026-11-05' }, now)
+    expect(e.day).toBe('Ese día ya pasó.')
+    expect(e.time).toBeUndefined()
+  })
+  it('hoy vale si la hora no ha pasado', () => {
+    expect(looseErrors({ ...ok, day: '2026-11-06', time: '10:00' }, now).time).toBe('Esa hora ya pasó.')
+    expect(looseErrors({ ...ok, day: '2026-11-06', time: '19:00' }, now)).toEqual({})
+  })
+  it('una fecha imposible no rompe', () => expect(looseErrors({ ...ok, day: '2026-13-45' }, now).day).toBe('Esa fecha no existe.'))
+  it('la hora que no existe en el cambio de hora se avisa', () => expect(looseErrors({ ...ok, day: '2027-03-28', time: '02:30' }, now).time).toBe('Esa hora no existe ese día.'))
 })

@@ -9,11 +9,9 @@ import {
   FileTextIcon,
   HistoryIcon,
   HouseIcon,
-  LayersIcon,
   SettingsIcon,
   ShieldAlertIcon,
   TabletIcon,
-  TicketIcon,
   UserIcon,
   UsersIcon,
   WalletIcon,
@@ -51,8 +49,6 @@ const NAV: Item[] = [
   { to: '/admin/billing', label: 'Cobros', icon: WalletIcon },
   { to: '/admin/notices', label: 'Avisos', icon: BellIcon },
   { to: '/admin/sessions', label: 'Horario', icon: CalendarIcon },
-  { to: '/admin/classes', label: 'Clases', icon: LayersIcon },
-  { to: '/admin/events', label: 'Eventos', icon: TicketIcon },
   { to: '/admin/memberships', label: 'Membresías', icon: CreditCardIcon },
   { to: '/admin/disciplines', label: 'Disciplinas', icon: BookOpenIcon },
   { to: '/admin/reports', label: 'Informes', icon: ChartColumnIcon },
@@ -63,7 +59,9 @@ const NAV: Item[] = [
 ]
 const ACCOUNT: Item = { to: '/admin/account', label: 'Cuenta', icon: UserIcon }
 
-const isActive = (to: string, pathname: string) => (to === '/admin' ? pathname === to : pathname === to || pathname.startsWith(`${to}/`))
+// Los eventos y sus fichas cuelgan de Horario.
+const isActive = (to: string, pathname: string) =>
+  to === '/admin' ? pathname === to : pathname === to || pathname.startsWith(`${to}/`) || (to === '/admin/sessions' && pathname.startsWith('/admin/events/'))
 
 function NavItem({ item }: { item: Item }) {
   const { pathname } = useLocation()

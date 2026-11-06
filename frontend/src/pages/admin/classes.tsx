@@ -1,10 +1,9 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { EllipsisIcon, LayersIcon, PlusIcon } from 'lucide-react'
+import { EllipsisIcon, LayersIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { Tag } from '@/components/billing-bits'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
@@ -29,11 +28,10 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 
 // docs/pantallas-b19.md § Horario › Clases: la tabla por día de la semana y hora, con la disciplina en la URL.
-export function AdminClassesPage() {
+export function ClassesView({ creating, onClose }: { creating: boolean; onClose: () => void }) {
   const [params, setParams] = useSearchParams()
-  const discipline = params.get('discipline_id') ?? 'all'
+  const discipline = params.get('disciplina') ?? 'all'
   const disciplines = useAdminDisciplines()
-  const [creating, setCreating] = useState(false)
   const [changing, setChanging] = useState<AdminClass | null>(null)
   const [retiring, setRetiring] = useState<AdminClass | null>(null)
   const today = madridDay()
@@ -44,16 +42,7 @@ export function AdminClassesPage() {
   })
 
   return (
-    <Page
-      title="Clases"
-      wide
-      actions={
-        <Button size="lg" onClick={() => setCreating(true)}>
-          <PlusIcon />
-          Nueva clase
-        </Button>
-      }
-    >
+    <>
       <div className="sm:w-64">
         <Filter
           label="Disciplina"
@@ -62,8 +51,8 @@ export function AdminClassesPage() {
             setParams(
               (p) => {
                 const n = new URLSearchParams(p)
-                if (v === 'all') n.delete('discipline_id')
-                else n.set('discipline_id', v)
+                if (v === 'all') n.delete('disciplina')
+                else n.set('disciplina', v)
                 return n
               },
               { replace: true },
@@ -184,10 +173,10 @@ export function AdminClassesPage() {
           </Table>
         </div>
       )}
-      <CreateClass open={creating} onClose={() => setCreating(false)} />
+      <CreateClass open={creating} onClose={onClose} />
       {changing && <ChangeClass key={changing.id} c={changing} onClose={() => setChanging(null)} />}
       {retiring && <RetireClass key={retiring.id} c={retiring} onClose={() => setRetiring(null)} />}
-    </Page>
+    </>
   )
 }
 

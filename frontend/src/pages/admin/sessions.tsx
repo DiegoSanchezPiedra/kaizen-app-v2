@@ -1,8 +1,8 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BanIcon, PlusIcon, UsersIcon } from 'lucide-react'
+import { BanIcon, UsersIcon } from 'lucide-react'
 import { useState } from 'react'
 import type React from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
+import { Link, useParams, useSearchParams } from 'react-router'
 import { attKey, AttendanceItem, CorrectDialog, useCloseList } from '@/components/attendance'
 import { Back, Kv, Tag } from '@/components/billing-bits'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -16,7 +16,7 @@ import { WeekBoard } from '@/components/week-board'
 import { useNow } from '@/hooks/use-now'
 import { useWeek } from '@/hooks/use-week'
 import { type Paged, type ProfileRow } from '@/lib/admin'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 import { formatDay, madridDay } from '@/lib/dates'
 import { formatDeadline, formatTime } from '@/lib/format'
 import { queryClient } from '@/lib/logout'
@@ -30,6 +30,7 @@ import {
   FIELD_LABEL,
   fieldValue,
   isRetroactive,
+  looseErrors,
   madridToIso,
   weekRange,
   type AdminSession,
@@ -59,9 +60,8 @@ function StateTag({ s }: { s: Pick<CalendarSession, 'status' | 'held'> }) {
 
 // docs/pantallas-b19.md § Horario › Sesiones y docs/pantallas-b22.md § Calendario semanal: la semana, el día y la
 // disciplina viven en la URL.
-export function AdminSessionsPage() {
+export function WeekView({ creating, onClose }: { creating: boolean; onClose: () => void }) {
   const [params, setParams] = useSearchParams()
-  const [loose, setLoose] = useState(false)
   const w = useWeek()
   const discipline = params.get('disciplina') ?? 'all'
   const { from, to } = weekRange(w.week)
@@ -85,16 +85,7 @@ export function AdminSessionsPage() {
   const byDay = new Map(groupByDay(calendar.data ?? [], (s) => s.starts_at))
 
   return (
-    <Page
-      title="Horario"
-      wide
-      actions={
-        <Button size="lg" onClick={() => setLoose(true)}>
-          <PlusIcon />
-          Sesión suelta
-        </Button>
-      }
-    >
+    <>
       <div className="sm:w-56">
         <Filter
           label="Disciplina"
@@ -130,8 +121,8 @@ export function AdminSessionsPage() {
           </SessionRows>
         )}
       />
-      <LooseSession open={loose} onClose={() => setLoose(false)} />
-    </Page>
+      <LooseSession open={creating} onClose={onClose} defaultDay={w.day} onCreated={w.pick} />
+    </>
   )
 }
 
@@ -139,15 +130,25 @@ export function AdminSessionsPage() {
 
 const intOf = (v: string) => (/^\d+$/.test(v.trim()) ? Number(v) : NaN)
 
-function LooseSession({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const navigate = useNavigate()
+// «Clase suelta» en la interfaz; en el código y en `CONTEXT.md`, sesión suelta. El día sale del elegido en la tira.
+function LooseSession({ open, onClose, defaultDay, onCreated }: { open: boolean; onClose: () => void; defaultDay: string; onCreated: (day: string) => void }) {
   const now = useNow()
   const disciplines = useAdminDisciplines()
   const trainers = useTrainers()
-  const [f, setF] = useState({ discipline: 'none', trainer: 'none', day: '', time: '', duration: '60', capacity: '20', location: '' })
-  const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }))
-  const startsAt = madridToIso(f.day, f.time)
-  const ready = f.discipline !== 'none' && f.trainer !== 'none' && !!startsAt && Date.parse(startsAt) > now && intOf(f.duration) >= 1 && intOf(f.capacity) >= 1
+  const blank = { discipline: 'none', trainer: 'none', day: null as string | null, time: '', duration: '60', capacity: '20', location: '' }
+  const [draft, setF] = useState(blank)
+  // Mientras no se toque el día, vale el de la tira (si no ha pasado).
+  const f = { ...draft, day: draft.day ?? (defaultDay >= madridDay() ? defaultDay : '') }
+  const [seen, setSeen] = useState<Set<string>>(new Set())
+  const [tried, setTried] = useState(false)
+  const [server, setServer] = useState<{ field: 'trainer' | 'time'; text: string } | null>(null)
+  const set = (k: keyof typeof f) => (v: string) => {
+    setF((x) => ({ ...x, [k]: v }))
+    setServer(null)
+  }
+  const errors = looseErrors(f, now)
+  const shown = (k: keyof typeof errors) => (tried || seen.has(k) ? errors[k] : undefined) ?? (server?.field === k ? server.text : undefined)
+  const touch = (k: string) => () => setSeen((x) => new Set(x).add(k))
   const create = useMutation({
     mutationFn: () =>
       api<{ session: { id: string } }>('/admin/sessions', {
@@ -155,31 +156,43 @@ function LooseSession({ open, onClose }: { open: boolean; onClose: () => void })
         body: {
           discipline_id: f.discipline,
           trainer_id: f.trainer,
-          starts_at: startsAt,
+          starts_at: madridToIso(f.day, f.time),
           duration_min: intOf(f.duration),
           capacity: intOf(f.capacity),
           location: f.location.trim() || undefined,
         },
       }),
-    onSuccess: ({ session }) => {
-      toastOk('Sesión suelta creada')
-      void refreshSchedule()
-      void navigate(`/admin/sessions/${session.id}`)
+    onSuccess: () => {
+      toastOk('Clase suelta creada', 'Ya se puede reservar.')
+      setF(blank)
+      setSeen(new Set())
+      setTried(false)
+      onCreated(f.day)
     },
-    onError: (err) => toastError(err),
+    onError: (err) => {
+      if (err instanceof ApiError && err.code === 'trainer_overlap') setServer({ field: 'trainer', text: 'Ese profesor ya imparte otra sesión a esa hora.' })
+      else if (err instanceof ApiError && err.code === 'invalid_field' && err.field === 'starts_at') setServer({ field: 'time', text: 'Revisa la fecha y la hora.' })
+      else toastError(err)
+    },
+    onSettled: () => void refreshSchedule(),
   })
   return (
     <FormSheet
       open={open}
       onClose={onClose}
-      title="Sesión suelta"
-      description="Una sesión que no pertenece a ninguna clase: no se repite."
-      submitLabel="Crear la sesión"
-      disabled={!ready}
+      title="Clase suelta"
+      description="Una clase puntual: no se repite ni sale de una clase semanal."
+      submitLabel="Crear la clase"
       loading={create.isPending}
-      onSubmit={() => create.mutateAsync()}
+      onSubmit={() => {
+        if (Object.keys(errors).length) {
+          setTried(true)
+          return Promise.reject(new Error('invalid'))
+        }
+        return create.mutateAsync()
+      }}
     >
-      <SelectField label="Disciplina">
+      <SelectField label="Disciplina" error={shown('discipline')}>
         <Filter
           label="Disciplina"
           value={f.discipline}
@@ -187,16 +200,16 @@ function LooseSession({ open, onClose }: { open: boolean; onClose: () => void })
           items={[{ value: 'none', label: 'Elige una disciplina' }, ...(disciplines.data ?? []).filter((d) => d.is_active).map((d) => ({ value: String(d.id), label: d.name }))]}
         />
       </SelectField>
-      <SelectField label="Profesor">
+      <SelectField label="Profesor" error={shown('trainer')}>
         <Filter label="Profesor" value={f.trainer} onChange={set('trainer')} items={[{ value: 'none', label: 'Elige un profesor' }, ...(trainers.data ?? []).map((t) => ({ value: t.id, label: name(t) }))]} />
       </SelectField>
       <div className="grid grid-cols-2 gap-3">
-        <TextField label="Día" type="date" value={f.day} onChange={set('day')} />
-        <TextField label="Hora" type="time" value={f.time} onChange={set('time')} hint="Hora de Madrid" />
+        <TextField label="Día" type="date" value={f.day} onChange={set('day')} onBlur={touch('day')} error={shown('day')} />
+        <TextField label="Hora" type="time" value={f.time} onChange={set('time')} onBlur={touch('time')} error={shown('time')} hint="Hora de Madrid" />
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <TextField label="Duración (min)" type="number" min={1} value={f.duration} onChange={set('duration')} />
-        <TextField label="Aforo" type="number" min={1} value={f.capacity} onChange={set('capacity')} />
+        <TextField label="Duración (min)" type="number" min={1} value={f.duration} onChange={set('duration')} onBlur={touch('duration')} error={shown('duration')} />
+        <TextField label="Aforo" type="number" min={1} value={f.capacity} onChange={set('capacity')} onBlur={touch('capacity')} error={shown('capacity')} />
       </div>
       <TextField label="Lugar (opcional)" value={f.location} maxLength={100} onChange={set('location')} />
     </FormSheet>
