@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { LayersIcon, PlusIcon } from 'lucide-react'
+import { EllipsisIcon, LayersIcon, PlusIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { Tag } from '@/components/billing-bits'
@@ -7,15 +7,18 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { useMediaQuery } from '@/hooks/use-media-query'
 import { api } from '@/lib/api'
 import { madridDay } from '@/lib/dates'
 import { formatShortDate } from '@/lib/format'
 import { queryClient } from '@/lib/logout'
 import { toastError, toastOk } from '@/lib/notify'
 import { plural } from '@/lib/professor'
-import { classState, WEEKDAYS, type AdminClass } from '@/lib/schedule'
+import { classState, groupByWeekday, WEEKDAYS, type AdminClass } from '@/lib/schedule'
 import { path } from '@/lib/url'
+import { cn } from '@/lib/utils'
 import { Filter } from '@/pages/community'
 import { FormSheet, SelectField, TextField, useAdminDisciplines, useTrainers } from '@/pages/admin/schedule-bits'
 
@@ -34,6 +37,7 @@ export function AdminClassesPage() {
   const [changing, setChanging] = useState<AdminClass | null>(null)
   const [retiring, setRetiring] = useState<AdminClass | null>(null)
   const today = madridDay()
+  const wide = useMediaQuery('sm')
   const list = useQuery({
     queryKey: ['admin', 'classes', discipline],
     queryFn: () => api<{ classes: AdminClass[] }>(path('/admin/classes', { discipline_id: discipline === 'all' ? undefined : discipline })).then((r) => r.classes),
@@ -74,6 +78,57 @@ export function AdminClassesPage() {
         <ErrorState error={list.error} onRetry={() => void list.refetch()} />
       ) : list.data.length === 0 ? (
         <EmptyState icon={<LayersIcon />} title="No hay clases" text={discipline === 'all' ? 'Crea la primera con «Nueva clase».' : 'Esta disciplina no tiene clases.'} />
+      ) : !wide ? (
+        <div className="flex flex-col gap-5">
+          {groupByWeekday(list.data).map(([weekday, classes]) => (
+            <section key={weekday} aria-label={cap(WEEKDAYS[weekday - 1])} className="flex flex-col gap-2">
+              <h3 className="px-0.5 text-[13px] font-bold tracking-wide text-muted-foreground uppercase">{WEEKDAYS[weekday - 1]}</h3>
+              <ul className="divide-y overflow-hidden rounded-2xl border bg-card">
+                {classes.map((c) => {
+                  const state = classState(c, today)
+                  const what = `la clase de ${WEEKDAYS[c.weekday - 1]} a las ${c.start_time}`
+                  return (
+                    <li key={c.id} className={cn('flex min-h-14 items-start gap-x-4 py-2 ps-4 pe-4', state === 'retired' && 'text-muted-foreground')}>
+                      <span className="w-14 shrink-0 tabular-nums">
+                        <span className="block font-semibold">{c.start_time}</span>
+                        <span className="block text-sm text-muted-foreground">{c.duration_min} min</span>
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-baseline gap-x-3">
+                          <span className="min-w-0 flex-1 font-semibold">{c.discipline_name}</span>
+                          <span className="shrink-0 text-sm text-muted-foreground tabular-nums">{plural(c.capacity, 'plaza', 'plazas')}</span>
+                        </span>
+                        <span className="block text-sm text-muted-foreground">{[c.trainer_name ?? 'Sin nombre', c.location].filter(Boolean).join(' · ')}</span>
+                        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground tabular-nums">
+                          {c.ends_on ? `${formatShortDate(c.starts_on)} – ${formatShortDate(c.ends_on)}` : `Desde ${formatShortDate(c.starts_on)}`}
+                          {state === 'retired' && <Tag variant="secondary">Retirada</Tag>}
+                          {state === 'ending' && <Tag variant="warning">Se retira</Tag>}
+                        </span>
+                      </span>
+                      {state !== 'retired' && (
+                        <Menu>
+                          <MenuTrigger render={<Button variant="ghost" size="icon-xl" className="-my-1 -me-3" aria-label={`Acciones de ${what}`} />}>
+                            <EllipsisIcon />
+                          </MenuTrigger>
+                          <MenuPopup align="end">
+                            <MenuItem aria-label={`Cambiar ${what}`} onClick={() => setChanging(c)}>
+                              Cambiar
+                            </MenuItem>
+                            {state === 'active' && (
+                              <MenuItem aria-label={`Retirar ${what}`} onClick={() => setRetiring(c)}>
+                                Retirar
+                              </MenuItem>
+                            )}
+                          </MenuPopup>
+                        </Menu>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          ))}
+        </div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border bg-card">
           <Table>

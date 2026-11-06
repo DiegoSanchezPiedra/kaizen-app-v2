@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { adjustedFields, canAdjust, canRestore, classState, isRetroactive, madridToIso, weekRange, weekStart } from '@/lib/schedule'
+import { adjustedFields, type AdminClass, canAdjust, canRestore, classState, groupByWeekday, isRetroactive, madridToIso, weekRange, weekStart } from '@/lib/schedule'
 
 const classValues = { trainer_id: 't1', starts_at: '2026-11-04T18:00:00Z', duration_min: 60, capacity: 20, location: 'Sala 1' }
 
@@ -67,5 +67,16 @@ describe('estado de una clase', () => {
     expect(classState({ ends_on: null }, '2026-11-02')).toBe('active')
     expect(classState({ ends_on: '2026-11-01' }, '2026-11-02')).toBe('retired')
     expect(classState({ ends_on: '2026-11-02' }, '2026-11-02')).toBe('ending')
+  })
+})
+
+describe('clases agrupadas por día de la semana', () => {
+  const c = (id: string, weekday: number, start_time: string) => ({ id, weekday, start_time }) as AdminClass
+  it('junta las clases de cada día y conserva el orden de la API', () => {
+    const groups = groupByWeekday([c('a', 1, '10:00'), c('b', 1, '18:00'), c('c', 3, '09:00')])
+    expect(groups.map(([day, list]) => [day, list.map((x) => x.id)])).toEqual([[1, ['a', 'b']], [3, ['c']]])
+  })
+  it('sin clases no hay grupos', () => {
+    expect(groupByWeekday([])).toEqual([])
   })
 })
