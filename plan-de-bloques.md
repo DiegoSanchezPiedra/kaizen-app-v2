@@ -70,7 +70,7 @@
 | B21 | Eventos (inscripción, cobro aparte, panel; sub-bloques B21.0–B21.2) | B10, B18, B19 | CERRADO (con pruebas visuales y en móvil pendientes) |
 | B22 | Rediseño (calendario semanal, Membresías y Disciplinas, Clases en móvil, KPIs de Usuarios) | B18, B19, B21 | CERRADO (con pruebas en iPhone pendientes) |
 | B23 | Inicio del admin en vivo (`GET /admin/home`, «Ahora», cifras de ahora, accesos directos) | B16, B19, B22 | En curso |
-| B24 | Perfil: foto de perfil y cambio de contraseña (verificación de email solo diseñada) | B13, B18, B19 | En curso |
+| B24 | Perfil: foto de perfil y cambio de contraseña (verificación de email solo diseñada) | B13, B18, B19 | CERRADO (con prueba en iPhone pendiente) |
 
 ---
 
@@ -2363,7 +2363,7 @@ activarla sola (ADR 0015).
 - [x] Desplegado en staging (API reiniciada, `staging:demo`, `staging:build`); `sw.js` llega como JavaScript por Tailscale.
 - [ ] Prueba en un iPhone real (la hace el usuario).
 
-### B24 — Perfil: foto y cambio de contraseña — En curso
+### B24 — Perfil: foto y cambio de contraseña — CERRADO (con prueba en iPhone pendiente)
 
 Rama `b24-perfil` (desde `b22-rediseno`, para no mezclarlo con lo que revisa el cliente). Diseño con grilling el
 2026-11-06; ADR 0019 (fotos en disco con URL secreta del mismo origen), 0020 (cambiar o restablecer la contraseña invalida
@@ -2378,6 +2378,8 @@ diseñada). `CONTEXT.md`: Foto de perfil, Cambio de contraseña, `photo` como ca
 - [x] **Backend** (Opus alto, TDD; `bd17b59`): migración `030`; `POST /me/password`, `PUT/DELETE /me/avatar`,
   `DELETE /admin/profiles/:id/avatar`, `GET /avatars/:name`; `401 session_revoked`; `test:password` y `test:avatar`.
   nginx: `/api/avatars/` con caché.
-- [ ] **Frontend** (Sonnet alto): Cuenta (foto con recorte, contraseña), la foto con iniciales de respaldo donde se acordó.
-- [ ] `security-review` sin hallazgos abiertos.
-- [ ] Staging: `staging:migrate`, API reiniciada, `staging:build`, nginx recargado, guía al día.
+- [x] **Frontend** (Sonnet alto, `e55a171`; Opus `3899336`: foto y contraseña también en la Cuenta del admin, foto en el
+  selector del tutor): Cuenta con recorte y contraseña, la foto con iniciales de respaldo donde se acordó. Visto a 375 y 1280 px.
+- [x] `security-review` del diff de B24: sin hallazgos (2026-11-06).
+- [x] Staging: `staging:migrate`, API reiniciada, `staging:build`, nginx reiniciado (fotos en `storage-staging/avatars`).
+- [ ] Prueba en un iPhone real (subir con la cámara, recorte táctil).

@@ -122,6 +122,7 @@ Para apagar: Ctrl+C en las tres terminales y
 | Frontend | `npm run staging:build`: nginx sirve el `dist` nuevo al momento |
 | Backend | Ctrl+C y `npm run staging:api` |
 | Migraciones nuevas | `npm run staging:migrate` y reinicia la API |
+| `deploy/nginx.conf` | `docker restart kaizen-staging-nginx` (la config se copia al arrancar) |
 | `.env.staging` | reinicia la API (solo lo lee al arrancar). Si cambias `VITE_*`, también `npm run staging:build` |
 
 **La PWA no se actualiza sola, a propósito**: el navegador sigue con la versión que tenía guardada hasta que la persona toca el
@@ -236,3 +237,8 @@ Se niega a correr si la `DATABASE_URL_SERVICE` no es `kaizen_staging` en el `:54
 
 **No toca Stripe.** Las cuotas llevan ids falsos (`sub_test_demo_*`, `cus_test_demo_*`): no tienen portal de facturación ni reciben
 webhooks, y no hay facturas. Sirven para mirar, no para cobrar, cancelar ni cambiar de plan desde la app.
+
+## Fotos de perfil (B24)
+
+Se guardan en `storage-staging/avatars/` (junto a `agreements/`) y se sirven en `/api/avatars/<nombre>` sin token (ADR 0019).
+Si reinicias staging de cero, borra también esa carpeta: las fotos huérfanas no se limpian solas.
