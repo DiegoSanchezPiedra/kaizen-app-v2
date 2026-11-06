@@ -28,3 +28,23 @@ export async function updateAndReload(d: Deps = browser()): Promise<void> {
   else sw.addEventListener('statechange', () => sw.state === 'installed' && activate())
   d.later(d.reload, 5000) // si el cambio de controlador no llega (Safari a veces), se recarga igual
 }
+
+// El navegador solo busca sw.js al navegar, y la app instalada en el iPhone vuelve del segundo plano sin navegar: sin
+// esto, el aviso «Actualizar» no salía nunca allí. Busca al volver a la app y cada hora con ella a la vista; la versión
+// nueva sigue esperando al «Actualizar» (ADR 0015).
+type WatchDeps = {
+  isVisible: () => boolean
+  onVisibilityChange: (fn: () => void) => void
+  every: (fn: () => void, ms: number) => void
+}
+const page = (): WatchDeps => ({
+  isVisible: () => document.visibilityState === 'visible',
+  onVisibilityChange: (fn) => document.addEventListener('visibilitychange', fn),
+  every: (fn, ms) => void setInterval(fn, ms),
+})
+
+export function watchForUpdates(reg: { update: () => Promise<unknown> }, d: WatchDeps = page()): void {
+  const check = () => d.isVisible() && void reg.update().catch(() => {})
+  d.onVisibilityChange(check)
+  d.every(check, 60 * 60 * 1000)
+}

@@ -133,6 +133,12 @@ saliendo, es esto. (Para saber qué versión tiene: el nombre `index-XXXX.js` de
 HTML y la actualización fallaba en silencio. Por eso se pasó a Tailscale Funnel. Cualquier túnel o proxy que meta una página
 intermedia rompe igual las actualizaciones de la PWA.)
 
+**Cuándo busca la versión nueva** (`watchForUpdates`, `frontend/src/lib/sw-update.ts`): al abrir la app, al volver a ella desde
+otra app o desde la pantalla de bloqueo, y cada hora con la app a la vista. El navegador por sí solo solo busca `sw.js` al
+navegar, y la app instalada en el iPhone vuelve del segundo plano sin navegar: antes de esto el aviso solo salía en Safari.
+Para comprobarlo en el iPhone: con la app instalada y abierta, publica un cambio (`npm run staging:build`), pasa a otra app y
+vuelve; en unos segundos tiene que salir «Hay una versión nueva · Actualizar». La versión nueva solo se activa al tocarlo.
+
 ---
 
 ## 4. Antes de pasarle la URL al cliente

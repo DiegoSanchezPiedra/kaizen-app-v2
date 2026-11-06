@@ -8,6 +8,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { ToastProvider, toastManager } from '@/components/ui/toast'
 import { queryClient } from '@/lib/logout'
 import { router } from '@/router'
+import { watchForUpdates } from '@/lib/sw-update'
 
 // El modo oscuro sigue la preferencia del sistema (fijarlo en Cuenta queda para B18.2); la tablet siempre es oscura.
 const dark = window.matchMedia('(prefers-color-scheme: dark)')
@@ -17,6 +18,7 @@ dark.addEventListener('change', applyTheme)
 
 // ADR 0015: una versión nueva espera al «Actualizar» (también en /tablet, lo toca el profesor); nunca se activa sola.
 const updateSW = registerSW({
+  onRegisteredSW: (_url, reg) => reg && watchForUpdates(reg),
   onNeedRefresh() {
     const id = toastManager.add({
       type: 'info',
