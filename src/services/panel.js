@@ -6,6 +6,7 @@ import { dateParam } from './sessions.js';
 import { pagination } from './reports.js';
 import { getCheckinSettings } from './checkin.js';
 import { getInsuranceSettings, getDisciplineChangeSettings } from './billing.js';
+import { getProfileStats } from './users.js';
 
 const TZ = 'Europe/Madrid';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -80,4 +81,33 @@ export async function listFailedDeliveries(client, { from, ...page }) {
        ${where} ORDER BY d.created_at DESC, d.id LIMIT $2 OFFSET $3`, [...params, limit, offset]);
   const { rows: [{ total }] } = await client.query(`SELECT count(*)::int AS total FROM notice_deliveries d ${where}`, params);
   return { rows, total, limit, offset };
+}
+
+const HOME_SESSION = `SELECT s.id, s.starts_at, s.ends_at, jsonb_build_object('id', d.id, 'name', d.name) AS discipline,
+         CASE WHEN tn.id IS NOT NULL THEN jsonb_build_object('id', tn.id, 'display_name', tn.display_name) END AS trainer,
+         s.location, s.capacity, s.status,
+         (SELECT count(*)::int FROM bookings b WHERE b.session_id = s.id AND b.status = 'confirmed') AS booked,
+         (SELECT count(*)::int FROM attendance a WHERE a.session_id = s.id AND a.status = 'present') AS present
+    FROM class_sessions s JOIN disciplines d ON d.id = s.discipline_id LEFT JOIN trainer_names tn ON tn.id = s.trainer_id`;
+const MADRID_DAY = (offset) => `((now() AT TIME ZONE '${TZ}')::date + ${offset})::timestamp AT TIME ZONE '${TZ}'`;
+
+/**
+ * Inicio del admin (B23), en vivo: las cifras de ahora (academy_stats_now, solo admin), las de alumnos de Usuarios, las
+ * asistencias de hoy y del mismo día de la semana pasada, las sesiones de hoy con reservas y entradas, y la próxima
+ * sesión programada que aún no ha empezado (para «Ahora» cuando no hay ninguna en curso).
+ */
+export async function getHome(client) {
+  const { rows: [figures] } = await client.query(
+    `SELECT active, past_due, unpaid, new_subscriptions, cancelled_subscriptions, mrr_cents FROM academy_stats_now()`);
+  const students = await getProfileStats(client, {});
+  const { rows: [attendance] } = await client.query(
+    `SELECT count(*) FILTER (WHERE s.starts_at >= ${MADRID_DAY(0)} AND s.starts_at < ${MADRID_DAY(1)})::int AS today,
+            count(*) FILTER (WHERE s.starts_at >= ${MADRID_DAY(-7)} AND s.starts_at < ${MADRID_DAY(-6)})::int AS last_week
+       FROM attendance a JOIN class_sessions s ON s.id = a.session_id
+      WHERE a.status = 'present' AND s.status <> 'cancelled' AND s.starts_at >= ${MADRID_DAY(-7)}`);
+  const { rows: sessions } = await client.query(
+    `${HOME_SESSION} WHERE s.starts_at >= ${MADRID_DAY(0)} AND s.starts_at < ${MADRID_DAY(1)} ORDER BY s.starts_at, s.id`);
+  const { rows: [next] } = await client.query(
+    `${HOME_SESSION} WHERE s.status = 'scheduled' AND s.starts_at > now() ORDER BY s.starts_at, s.id LIMIT 1`);
+  return { figures, students, attendance, sessions, next: next ?? null };
 }

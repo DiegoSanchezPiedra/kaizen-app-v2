@@ -1,11 +1,13 @@
 // src/routes/admin/panel.js — lecturas del panel (B19.1): ajustes, auditoría, avisos de la academia y entregas fallidas.
 import { Router } from 'express';
 import { requireAuth, requireRole, withRlsContext } from '../../middleware/auth.js';
-import { getSettings, listAudit, listNotices, listFailedDeliveries } from '../../services/panel.js';
+import { getSettings, listAudit, listNotices, listFailedDeliveries, getHome } from '../../services/panel.js';
 
 const router = Router();
 router.use(requireAuth, requireRole('admin'));
 
+// GET /admin/home → { figures, students, attendance, sessions, next }: el Inicio en vivo (B23)
+router.get('/home', withRlsContext((req, client) => getHome(client)));
 // GET /admin/settings → { checkin, insurance, discipline_changes }: lo que devuelven los tres PUT
 router.get('/settings', withRlsContext((req, client) => getSettings(client)));
 // GET /admin/audit?action&actor_id&resource_type&resource_id&from&to&limit&offset → { rows, total, limit, offset } (sin notice.*)
