@@ -70,6 +70,7 @@
 | B21 | Eventos (inscripción, cobro aparte, panel; sub-bloques B21.0–B21.2) | B10, B18, B19 | CERRADO (con pruebas visuales y en móvil pendientes) |
 | B22 | Rediseño (calendario semanal, Membresías y Disciplinas, Clases en móvil, KPIs de Usuarios) | B18, B19, B21 | CERRADO (con pruebas en iPhone pendientes) |
 | B23 | Inicio del admin en vivo (`GET /admin/home`, «Ahora», cifras de ahora, accesos directos) | B16, B19, B22 | En curso |
+| B24 | Perfil: foto de perfil y cambio de contraseña (verificación de email solo diseñada) | B13, B18, B19 | En curso |
 
 ---
 
@@ -2361,3 +2362,22 @@ activarla sola (ADR 0015).
 - [x] **Asistencias del Inicio** (`e2e2b78`): la semana pasada cuenta hasta esta misma hora (por la mañana salía −100 %).
 - [x] Desplegado en staging (API reiniciada, `staging:demo`, `staging:build`); `sw.js` llega como JavaScript por Tailscale.
 - [ ] Prueba en un iPhone real (la hace el usuario).
+
+### B24 — Perfil: foto y cambio de contraseña — En curso
+
+Rama `b24-perfil` (desde `b22-rediseno`, para no mezclarlo con lo que revisa el cliente). Diseño con grilling el
+2026-11-06; ADR 0019 (fotos en disco con URL secreta del mismo origen), 0020 (cambiar o restablecer la contraseña invalida
+los tokens de antes: `credentials_changed_at` frente al `iat`) y 0021 (verificación de email en producción, solo
+diseñada). `CONTEXT.md`: Foto de perfil, Cambio de contraseña, `photo` como campo visible.
+
+- **Decisiones**: todos los roles suben la suya; el tutor, la de sus hijos menores (permitidas, nunca públicas); el admin
+  solo quita, con aviso sin motivo. Se ve en Cuenta, Usuarios (lista y ficha), asistentes del profesor, selector del tutor
+  y, si el dueño lo elige, en el perfil público. Recorte a 512×512 JPEG en el navegador; el servidor acepta JPEG, PNG o
+  WebP ≤ 1 MB comprobando la firma, sin `sharp`. Contraseña: pide la actual; cuenta solo con Google → email de restablecer;
+  cierra las demás sesiones; email de aviso; sin código MFA extra.
+- [x] **Backend** (Opus alto, TDD; `bd17b59`): migración `030`; `POST /me/password`, `PUT/DELETE /me/avatar`,
+  `DELETE /admin/profiles/:id/avatar`, `GET /avatars/:name`; `401 session_revoked`; `test:password` y `test:avatar`.
+  nginx: `/api/avatars/` con caché.
+- [ ] **Frontend** (Sonnet alto): Cuenta (foto con recorte, contraseña), la foto con iniciales de respaldo donde se acordó.
+- [ ] `security-review` sin hallazgos abiertos.
+- [ ] Staging: `staging:migrate`, API reiniciada, `staging:build`, nginx recargado, guía al día.
