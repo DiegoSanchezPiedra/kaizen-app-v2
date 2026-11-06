@@ -2306,7 +2306,9 @@
     `/admin/catalog?tab=` redirige con `catalogRedirect`. En móvil la tarjeta abre la hoja de editar, y esa hoja lleva
     «Elegir disciplinas» (desactivado con cambios sin guardar). Pendiente: `docs/pantallas-b19.md` § Catálogo aún habla
     de `/admin/catalog`.
-  - [ ] **B22.3** — KPIs y filtros de Usuarios (backend y frontend).
+  - [x] **B22.3** — KPIs y filtros de Usuarios (backend y frontend). `GET /admin/profiles/stats` y filtros en
+    `listProfiles` (`users.js`: `IN_DISCIPLINE` con `shortcut:` y el CTE `PEOPLE`; Impago reutiliza `affectedSql` de
+    Cobros); `npm run test:user-stats`. Activos = activo + inactivo; un nuevo alumno sin asistencias cuenta como inactivo.
 - **En cada fase**: las skills en este orden (impeccable revisa, taste-skill para la dirección, emil-design-eng para el
   movimiento, make-interfaces-feel-better para el repaso final); Vitest de la lógica nueva (semana y día con
   `madridDay`/`weekStart`, filtros, KPIs); E2E por rol al estilo de B21.2; `typecheck`, `lint`, tests y `build` en verde;
