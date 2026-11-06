@@ -207,6 +207,11 @@ try {
     assert.equal(ad.status, 200);
     assert.equal(ad.body.sessions.find((r) => r.id === S.b).covered, true);
   });
+  await run('class_id distingue la sesión de una clase (id) de la suelta (null)', async () => {
+    const s = await cal('aluNone');
+    assert.equal(s.b.class_id, classB);
+    assert.equal(s.a.class_id, null);
+  });
   await run('HTTP: profesor 403, sin token 401, 400 de rango y de profile_id', async () => {
     assert.equal((await http('/sessions/calendar', 'prof1')).status, 403);
     assert.equal((await http('/sessions/calendar')).status, 401);

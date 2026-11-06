@@ -2312,11 +2312,16 @@
   - [x] **B22.3** — KPIs y filtros de Usuarios (backend y frontend). `GET /admin/profiles/stats` y filtros en
     `listProfiles` (`users.js`: `IN_DISCIPLINE` con `shortcut:` y el CTE `PEOPLE`; Impago reutiliza `affectedSql` de
     Cobros); `npm run test:user-stats`. Activos = activo + inactivo; un nuevo alumno sin asistencias cuenta como inactivo.
-  - [x] **B22.4** — Horario unificado (`schedule.tsx`): pestañas Semana / Clases / Eventos con `?vista=`, y fuera del
-    menú «Clases» y «Eventos». `/admin/classes` y `/admin/events` redirigen a su pestaña; `/admin/events/:id` sigue y
-    deja Horario activo. Un botón por pestaña: «Clase suelta» (la `LooseSession` de B6.1 con el día de la tira, validación
-    en línea `looseErrors` y quedándose en la semana), «Nueva clase» y «Nuevo evento». `?disciplina=` lo comparten Semana y
-    Clases. Sin backend. Pendiente: `docs/pantallas-b19.md` § Horario aún habla de tres pantallas separadas.
+  - [x] **B22.4** — primer Horario unificado (pestañas Semana / Clases / Eventos). Sustituido por B22.5.
+  - [x] **B22.5** — Horario siempre en calendario (`schedule.tsx`): la tira y el día, o las 7 columnas en `lg`, con las
+    sesiones de clase, las sueltas («Suelta») y los eventos («Evento», franja `primary`, el día de inicio) mezclados por
+    hora (`agendaByDay`; los eventos de `GET /admin/events?from&to&limit=100`). Tres botones a la vez, «Clase», «Clase
+    suelta» y «Evento» (bajo el título en móvil, en la cabecera desde `sm`), cada uno con su hoja: `CreateClass`,
+    `LooseSession` y `EventSheet`, con el día del calendario y validación en línea (`classErrors`, `looseErrors`,
+    `eventErrors`); tras crear, el calendario se queda en ese día. `/sessions/calendar` devuelve `class_id` (null = suelta).
+    La lista de clases (cambiar y retirar) sigue en `?vista=clases` («Gestionar clases»). `/admin/classes` redirige ahí y
+    `/admin/events` a Horario; la ficha del evento sigue. `?disciplina=` filtra también los eventos que tienen una.
+    Pendiente: `docs/pantallas-b19.md` § Horario aún habla de pantallas separadas.
 - **En cada fase**: las skills en este orden (impeccable revisa, taste-skill para la dirección, emil-design-eng para el
   movimiento, make-interfaces-feel-better para el repaso final); Vitest de la lógica nueva (semana y día con
   `madridDay`/`weekStart`, filtros, KPIs); E2E por rol al estilo de B21.2; `typecheck`, `lint`, tests y `build` en verde;

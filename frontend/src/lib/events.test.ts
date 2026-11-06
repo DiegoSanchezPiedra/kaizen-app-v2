@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   amountFor, audienceTag, audienceText, entryStart, eventHealthDay, eventWhen, isMember, isUpcomingRegistration, joinState, mergeByStart, priceView, spotsLabel,
-  attendanceOpen, canRefund, canRetryRefund, cancelResult, cancelSummary, draftOf, emptyDraft, eventBody, eventPatch, notifiesOnPatch, refundLabel,
+  attendanceOpen, canRefund, canRetryRefund, cancelResult, cancelSummary, draftOf, emptyDraft, eventBody, eventErrors, eventPatch, notifiesOnPatch, refundLabel,
   type AdminEvent, type EventDraft, type EventInfo, type EventRegistration,
 } from '@/lib/events'
 
@@ -238,5 +238,31 @@ describe('plazas, fechas y listas', () => {
     const merged = mergeByStart([s('a', '2026-12-12T08:00:00Z'), s('b', '2026-12-12T09:00:00Z')], [ev({ id: 'e', starts_at: '2026-12-12T09:00:00Z' })])
     expect(merged.map((m) => (m.kind === 'session' ? m.s.id : m.e.id))).toEqual(['a', 'b', 'e'])
     expect(entryStart(merged[2])).toBe(Date.parse('2026-12-12T09:00:00Z'))
+  })
+})
+
+describe('errores del formulario de evento', () => {
+  it('vacío exactamente cuando eventBody da el cuerpo', () => {
+    const drafts: EventDraft[] = [
+      base,
+      { ...base, title: '  ' },
+      { ...base, location: '' },
+      { ...base, day: '2026-11-04' }, // pasado
+      { ...base, endTime: '09:00' }, // fin antes del inicio
+      { ...base, price: '0,30' },
+      { ...base, price: '10', memberPrice: '12' },
+      { ...base, price: '10', memberPrice: '8' },
+      { ...base, capacity: '0' },
+      { ...base, deadlineDay: '2026-12-13', deadlineTime: '10:00' },
+      { ...base, deadlineDay: '2026-12-10' }, // falta la hora
+      { ...base, day: '2026-13-45' },
+    ]
+    for (const d of drafts) expect(Object.keys(eventErrors(d, now)).length === 0).toBe(eventBody(d, now) !== null)
+  })
+  it('dice el campo y el motivo', () => {
+    expect(eventErrors({ ...base, title: '' }, now).title).toBe('Pon un título.')
+    expect(eventErrors({ ...base, day: '2026-11-04' }, now).time).toBe('El inicio ya pasó.')
+    expect(eventErrors({ ...base, price: '10', memberPrice: '12' }, now).memberPrice).toBe('No puede superar el precio.')
+    expect(eventErrors({ ...base, day: '2026-11-04' }, now, false)).toEqual({})
   })
 })

@@ -1,58 +1,77 @@
 import { PlusIcon } from 'lucide-react'
 import { useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { Page } from '@/components/page'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
-import { ClassesView } from '@/pages/admin/classes'
-import { EventsView } from '@/pages/admin/events'
-import { WeekView } from '@/pages/admin/sessions'
+import { useWeek } from '@/hooks/use-week'
+import { ClassesView, CreateClass } from '@/pages/admin/classes'
+import { EventSheet } from '@/pages/admin/events'
+import { LooseSession, WeekView } from '@/pages/admin/sessions'
+import { cn } from '@/lib/utils'
 
-// Horario: la semana, las clases (que se repiten) y los eventos, en una entrada. La vista vive en `?vista=` (la semana, sin param).
-// El botón de la cabecera crea lo propio de cada vista.
-const VIEWS = [
-  { value: 'semana', label: 'Semana', action: 'Clase suelta' },
-  { value: 'clases', label: 'Clases', action: 'Nueva clase' },
-  { value: 'eventos', label: 'Eventos', action: 'Nuevo evento' },
-] as const
-type View = (typeof VIEWS)[number]['value']
+// Horario: siempre el calendario semanal, con las clases, las sueltas y los eventos, y tres botones para crear cada cosa.
+// `?vista=clases` abre la lista de clases (cambiar y retirar), que no cabe en el calendario.
+type Kind = 'clase' | 'suelta' | 'evento'
+const CREATE: { kind: Kind; label: string }[] = [
+  { kind: 'clase', label: 'Clase' },
+  { kind: 'suelta', label: 'Clase suelta' },
+  { kind: 'evento', label: 'Evento' },
+]
+
+// Mismo peso los tres: ninguno es «el» principal.
+function CreateButtons({ onPick, className }: { onPick: (k: Kind) => void; className?: string }) {
+  return (
+    <div className={cn('gap-2', className)}>
+      {CREATE.map((c) => (
+        <Button key={c.kind} variant="outline" size="xl" className="px-2 active:not-disabled:scale-[0.96] sm:px-3" onClick={() => onPick(c.kind)}>
+          <PlusIcon />
+          {c.label}
+        </Button>
+      ))}
+    </div>
+  )
+}
+
+// Lunes = 1 … domingo = 7, del día AAAA-MM-DD.
+const weekdayOf = (day: string) => ((new Date(`${day}T12:00:00Z`).getUTCDay() + 6) % 7) + 1
 
 export function AdminSchedulePage() {
-  const [params, setParams] = useSearchParams()
-  const [creating, setCreating] = useState(false)
-  const view: View = VIEWS.find((v) => v.value === params.get('vista'))?.value ?? 'semana'
-  const current = VIEWS.find((v) => v.value === view)!
-  // Al cambiar de vista se quedan solo `vista` y, entre semana y clases, la disciplina.
-  const go = (to: View) => {
-    const n = new URLSearchParams()
-    if (to !== 'semana') n.set('vista', to)
-    const d = params.get('disciplina')
-    if (d && to !== 'eventos') n.set('disciplina', d)
-    setCreating(false)
-    setParams(n, { replace: true })
-  }
-  const close = () => setCreating(false)
+  const [params] = useSearchParams()
+  const w = useWeek()
+  const [creating, setCreating] = useState<Kind | null>(null)
+  const classes = params.get('vista') === 'clases'
+  const close = () => setCreating(null)
   return (
     <Page
       title="Horario"
       wide
       actions={
-        <Button size="lg" onClick={() => setCreating(true)}>
-          <PlusIcon />
-          {current.action}
-        </Button>
+        classes ? (
+          <Button size="lg" className="active:not-disabled:scale-[0.96]" onClick={() => setCreating('clase')}>
+            <PlusIcon />
+            Nueva clase
+          </Button>
+        ) : (
+          <CreateButtons className="hidden sm:flex" onPick={setCreating} />
+        )
       }
     >
-      <Tabs value={view} onValueChange={(v) => go(v as View)}>
-        <TabsList className="w-full sm:w-fit" aria-label="Vista del horario">
-          {VIEWS.map((v) => (
-            <TabsTab key={v.value} value={v.value} className="min-h-11 flex-1 px-4">
-              {v.label}
-            </TabsTab>
-          ))}
-        </TabsList>
-      </Tabs>
-      {view === 'semana' ? <WeekView creating={creating} onClose={close} /> : view === 'clases' ? <ClassesView creating={creating} onClose={close} /> : <EventsView creating={creating} onClose={close} />}
+      {classes ? (
+        <>
+          <Link to="/admin/sessions" className="font-semibold text-link underline underline-offset-3">
+            Volver al horario
+          </Link>
+          <ClassesView />
+        </>
+      ) : (
+        <>
+          <CreateButtons className="grid grid-cols-3 sm:hidden" onPick={setCreating} />
+          <WeekView w={w} />
+        </>
+      )}
+      <CreateClass open={creating === 'clase'} onClose={close} defaultWeekday={weekdayOf(w.day)} />
+      <LooseSession open={creating === 'suelta'} onClose={close} defaultDay={w.day} onCreated={w.pick} />
+      <EventSheet open={creating === 'evento'} onClose={close} defaultDay={w.day} onCreated={w.pick} />
     </Page>
   )
 }

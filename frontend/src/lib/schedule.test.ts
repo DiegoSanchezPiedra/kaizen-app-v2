@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { adjustedFields, type AdminClass, canAdjust, canRestore, classState, groupByWeekday, isRetroactive, looseErrors, madridToIso, weekRange, weekStart } from '@/lib/schedule'
+import { adjustedFields, type AdminClass, canAdjust, canRestore, classState, groupByWeekday, classErrors, isRetroactive, looseErrors, madridToIso, weekRange, weekStart } from '@/lib/schedule'
 
 const classValues = { trainer_id: 't1', starts_at: '2026-11-04T18:00:00Z', duration_min: 60, capacity: 20, location: 'Sala 1' }
 
@@ -101,4 +101,18 @@ describe('errores de «Clase suelta»', () => {
   })
   it('una fecha imposible no rompe', () => expect(looseErrors({ ...ok, day: '2026-13-45' }, now).day).toBe('Esa fecha no existe.'))
   it('la hora que no existe en el cambio de hora se avisa', () => expect(looseErrors({ ...ok, day: '2027-03-28', time: '02:30' }, now).time).toBe('Esa hora no existe ese día.'))
+})
+
+describe('errores de «Nueva clase»', () => {
+  const ok = { discipline: '1', trainer: 't1', time: '18:00', duration: '60', capacity: '20', starts_on: '', ends_on: '' }
+  it('lo opcional vacío no da errores', () => expect(classErrors(ok)).toEqual({}))
+  it('lo obligatorio vacío se pide', () => {
+    const e = classErrors({ ...ok, discipline: 'none', trainer: 'none', time: '', duration: '0', capacity: '' })
+    expect(Object.keys(e).sort()).toEqual(['capacity', 'discipline', 'duration', 'time', 'trainer'])
+  })
+  it('«Hasta» no puede ser antes de «Desde» ni una fecha imposible', () => {
+    expect(classErrors({ ...ok, starts_on: '2026-12-10', ends_on: '2026-12-01' }).ends_on).toBe('No puede ser antes del inicio.')
+    expect(classErrors({ ...ok, starts_on: '2026-12-10', ends_on: '2026-12-10' })).toEqual({})
+    expect(classErrors({ ...ok, ends_on: '2026-13-45' }).ends_on).toBe('Esa fecha no existe.')
+  })
 })

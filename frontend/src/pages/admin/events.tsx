@@ -1,8 +1,8 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BanIcon, CalendarDaysIcon, UsersIcon } from 'lucide-react'
+import { BanIcon, UsersIcon } from 'lucide-react'
 import { useState } from 'react'
 import type React from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
+import { Link, useParams } from 'react-router'
 import { Back, Kv, Tag } from '@/components/billing-bits'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Page } from '@/components/page'
@@ -13,11 +13,11 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { toastManager } from '@/components/ui/toast'
 import { useNow } from '@/hooks/use-now'
-import { pageHref, pageOf, type Paged, type ProfileRow } from '@/lib/admin'
+import { type Paged, type ProfileRow } from '@/lib/admin'
 import { api } from '@/lib/api'
 import { madridDay } from '@/lib/dates'
 import {
-  attendanceOpen, AUDIENCE_LABEL, cancelResult, cancelSummary, CANCEL_REASON_LABEL, canRefund, canRetryRefund, draftOf, emptyDraft, eventBody,
+  attendanceOpen, AUDIENCE_LABEL, cancelResult, cancelSummary, CANCEL_REASON_LABEL, canRefund, canRetryRefund, draftOf, emptyDraft, eventBody, eventErrors, eventSeats,
   eventPatch, isLive, memberPriceLabel, notifiesOnPatch, payLabel, priceLabel, refundLabel,
   type AdminEvent, type Audience, type EventDraft, type EventRegistration,
 } from '@/lib/events'
@@ -29,7 +29,6 @@ import { path } from '@/lib/url'
 import { cn } from '@/lib/utils'
 import { Filter, useDebounced } from '@/pages/community'
 import { FormSheet, SelectField, SwitchRow, TextField, useAdminDisciplines, useFieldError, useTrainers } from '@/pages/admin/schedule-bits'
-import { PAGE_SIZE, Pager } from '@/pages/admin/shell'
 import { useConfirm } from '@/pages/admin/user-billing'
 
 const name = (p: { display_name: string | null } | undefined) => p?.display_name ?? 'Sin nombre'
@@ -41,100 +40,30 @@ function when(e: Pick<AdminEvent, 'starts_at' | 'ends_at'>): string {
   if (madridDay(e.starts_at) === madridDay(e.ends_at)) return `${formatDate(e.starts_at)} · ${formatTime(e.starts_at)}–${formatTime(e.ends_at)}`
   return `${formatShortDate(e.starts_at)}, ${formatTime(e.starts_at)} → ${formatShortDate(e.ends_at)}, ${formatTime(e.ends_at)}`
 }
-const seats = (e: Pick<AdminEvent, 'taken' | 'capacity'>) => (e.capacity === null ? `${e.taken} inscritos` : `${e.taken} de ${plural(e.capacity, 'plaza', 'plazas')}`)
 
-function StateTag({ e }: { e: Pick<AdminEvent, 'status' | 'taken' | 'capacity'> }) {
+export function StateTag({ e }: { e: Pick<AdminEvent, 'status' | 'taken' | 'capacity'> }) {
   return e.status === 'cancelled' ? <Tag variant="error">Cancelado</Tag> : e.capacity !== null && e.taken >= e.capacity ? <Tag variant="warning">Completo</Tag> : <Tag>Programado</Tag>
-}
-
-// ── Lista ────────────────────────────────────────────────────────────────────
-
-// «Próximos» = programados desde hoy; el estado y la página viven en la URL.
-const VIEWS = [
-  { value: 'next', label: 'Próximos' },
-  { value: 'cancelled', label: 'Cancelados' },
-  { value: 'all', label: 'Todos' },
-]
-
-export function EventsView({ creating, onClose }: { creating: boolean; onClose: () => void }) {
-  const [params, setParams] = useSearchParams()
-  const view = VIEWS.some((v) => v.value === params.get('estado')) ? params.get('estado')! : 'next'
-  const page = pageOf(params)
-  const today = madridDay()
-  const list = useQuery({
-    queryKey: ['admin', 'events', view, page, view === 'next' ? today : null],
-    queryFn: () =>
-      api<Paged<'events', AdminEvent>>(
-        path('/admin/events', {
-          status: view === 'next' ? 'scheduled' : view === 'cancelled' ? 'cancelled' : undefined,
-          from: view === 'next' ? today : undefined,
-          limit: String(PAGE_SIZE),
-          offset: String((page - 1) * PAGE_SIZE),
-        }),
-      ),
-  })
-  return (
-    <>
-      <div className="sm:w-56">
-        <Filter label="Ver" value={view} onChange={(v) =>
-            setParams(
-              (p) => {
-                const n = new URLSearchParams(p)
-                n.delete('page')
-                if (v === 'next') n.delete('estado')
-                else n.set('estado', v)
-                return n
-              },
-              { replace: true },
-            )
-          } items={VIEWS} />
-      </div>
-      {list.isPending ? (
-        <ListSkeleton rows={4} className="h-16" />
-      ) : list.isError ? (
-        <ErrorState error={list.error} onRetry={() => void list.refetch()} />
-      ) : list.data.events.length === 0 ? (
-        <EmptyState icon={<CalendarDaysIcon />} title={view === 'cancelled' ? 'No hay eventos cancelados' : 'No hay eventos'} text={view === 'next' ? 'Crea uno con «Nuevo evento».' : undefined} />
-      ) : (
-        <>
-          <ul className="divide-y overflow-hidden rounded-2xl border bg-card">
-            {list.data.events.map((e) => (
-              <li key={e.id}>
-                <Link
-                  to={`/admin/events/${e.id}`}
-                  className="flex min-h-16 flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 outline-none hover:bg-accent/40 active:bg-accent/60 focus-visible:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-                >
-                  <span className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
-                    <span className={cn('block font-semibold', e.status === 'cancelled' && 'text-muted-foreground line-through')}>{e.title}</span>
-                    <span className="block text-sm text-muted-foreground first-letter:uppercase">{when(e)}</span>
-                    <span className="block text-sm text-muted-foreground">{e.location}</span>
-                  </span>
-                  <span className="text-sm text-muted-foreground tabular-nums">{seats(e)}</span>
-                  <span className="text-sm font-semibold tabular-nums">{priceLabel(e.price_cents)}</span>
-                  <StateTag e={e} />
-                </Link>
-              </li>
-            ))}
-          </ul>
-          <Pager total={list.data.total} page={page} href={(n) => pageHref(params, n)} />
-        </>
-      )}
-      <EventSheet open={creating} onClose={onClose} />
-    </>
-  )
 }
 
 // ── Crear y editar ───────────────────────────────────────────────────────────
 
 // Sin `event` crea; con `event` solo manda lo que cambia. Inicio, fin o lugar avisan a los inscritos: lo dice antes de guardar.
-function EventSheet({ event, open, onClose }: { event?: AdminEvent; open: boolean; onClose: () => void }) {
-  const navigate = useNavigate()
+export function EventSheet({ event, open, onClose, defaultDay = '', onCreated }: { event?: AdminEvent; open: boolean; onClose: () => void; defaultDay?: string; onCreated?: (day: string) => void }) {
   const now = useNow()
   const disciplines = useAdminDisciplines()
   const trainers = useTrainers()
   const field = useFieldError()
   const initial = event ? draftOf(event) : emptyDraft()
-  const [d, setD] = useState<EventDraft>(initial)
+  const [draft, setD] = useState<EventDraft>(initial)
+  // Al crear, el día de inicio y de fin son el elegido en el calendario (si no ha pasado) hasta que se toquen.
+  // shortcut: vaciar un día a mano lo vuelve a rellenar; si molesta, guardar si se tocó.
+  const dd = defaultDay >= madridDay() ? defaultDay : ''
+  const d = event ? draft : { ...draft, day: draft.day || dd, endDay: draft.endDay || dd }
+  const [seen, setSeen] = useState<Set<string>>(new Set())
+  const [tried, setTried] = useState(false)
+  const errors = event ? {} : eventErrors(d, now)
+  const shown = (k: keyof typeof errors) => (tried || seen.has(k) ? errors[k] : undefined)
+  const touch = (k: string) => () => setSeen((x) => new Set(x).add(k))
   const set = <K extends keyof EventDraft>(k: K) => (v: EventDraft[K]) => {
     field.clear()
     setD((x) => ({ ...x, [k]: v }))
@@ -150,7 +79,10 @@ function EventSheet({ event, open, onClose }: { event?: AdminEvent; open: boolea
     onSuccess: (r) => {
       if (!event) {
         toastOk('Evento creado', 'Ya lo ven todos; no se avisa a nadie.')
-        void navigate(`/admin/events/${r.event.id}`)
+        setD(initial)
+        setSeen(new Set())
+        setTried(false)
+        onCreated?.(d.day)
       } else toastOk('Evento guardado', r.notified ? plural(r.notified, 'aviso', 'avisos') : undefined)
     },
     onError: field.fail,
@@ -158,6 +90,8 @@ function EventSheet({ event, open, onClose }: { event?: AdminEvent; open: boolea
   })
   const close = () => {
     setD(initial)
+    setSeen(new Set())
+    setTried(false)
     field.clear()
     onClose()
   }
@@ -172,7 +106,7 @@ function EventSheet({ event, open, onClose }: { event?: AdminEvent; open: boolea
           : 'Se publica al crearlo: lo ve cualquier perfil con sesión, sin avisar a nadie.'
       }
       submitLabel={event ? 'Guardar' : 'Crear el evento'}
-      disabled={!body || (event ? Object.keys(body).length === 0 || movedToPast : false)}
+      disabled={event ? !body || Object.keys(body).length === 0 || movedToPast : false}
       loading={save.isPending}
       confirm={
         patch && notifiesOnPatch(patch)
@@ -183,9 +117,15 @@ function EventSheet({ event, open, onClose }: { event?: AdminEvent; open: boolea
             }
           : undefined
       }
-      onSubmit={() => save.mutateAsync()}
+      onSubmit={() => {
+        if (Object.keys(errors).length) {
+          setTried(true)
+          return Promise.reject(new Error('invalid'))
+        }
+        return save.mutateAsync()
+      }}
     >
-      <TextField label="Título" value={d.title} maxLength={120} onChange={set('title')} error={field.error('title')} />
+      <TextField label="Título" value={d.title} maxLength={120} onChange={set('title')} onBlur={touch('title')} error={shown('title') ?? field.error('title')} />
       <div className="flex flex-col gap-1.5">
         <label htmlFor="event-description" className="text-sm font-medium">
           Descripción (opcional)
@@ -193,14 +133,14 @@ function EventSheet({ event, open, onClose }: { event?: AdminEvent; open: boolea
         <Textarea id="event-description" value={d.description} maxLength={2000} onChange={(e) => set('description')(e.target.value)} />
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <TextField label="Día de inicio" type="date" value={d.day} onChange={set('day')} error={field.error('starts_at')} />
-        <TextField label="Hora de inicio" type="time" value={d.time} onChange={set('time')} hint="Hora de Madrid" />
+        <TextField label="Día de inicio" type="date" value={d.day} onChange={set('day')} onBlur={touch('day')} error={shown('day') ?? field.error('starts_at')} />
+        <TextField label="Hora de inicio" type="time" value={d.time} onChange={set('time')} onBlur={touch('time')} error={shown('time')} hint="Hora de Madrid" />
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <TextField label="Día de fin" type="date" value={d.endDay} onChange={set('endDay')} error={field.error('ends_at')} />
-        <TextField label="Hora de fin" type="time" value={d.endTime} onChange={set('endTime')} />
+        <TextField label="Día de fin" type="date" value={d.endDay} onChange={set('endDay')} onBlur={touch('endDay')} error={shown('endDay') ?? field.error('ends_at')} />
+        <TextField label="Hora de fin" type="time" value={d.endTime} onChange={set('endTime')} onBlur={touch('endTime')} error={shown('endTime')} />
       </div>
-      <TextField label="Lugar" value={d.location} maxLength={200} onChange={set('location')} error={field.error('location')} />
+      <TextField label="Lugar" value={d.location} maxLength={200} onChange={set('location')} onBlur={touch('location')} error={shown('location') ?? field.error('location')} />
       <SelectField label="Disciplina (opcional)">
         <Filter
           label="Disciplina"
@@ -212,17 +152,17 @@ function EventSheet({ event, open, onClose }: { event?: AdminEvent; open: boolea
       <SelectField label="Profesor (opcional)">
         <Filter label="Profesor" value={d.trainer} onChange={set('trainer')} items={[{ value: 'none', label: 'Sin profesor de la academia' }, ...(trainers.data ?? []).map((t) => ({ value: t.id, label: name(t) }))]} />
       </SelectField>
-      <TextField label="Aforo (opcional)" type="number" min={1} value={d.capacity} onChange={set('capacity')} hint="Vacío = sin límite. Nunca por debajo de las inscripciones." error={field.error('capacity')} />
+      <TextField label="Aforo (opcional)" type="number" min={1} value={d.capacity} onChange={set('capacity')} onBlur={touch('capacity')} hint="Vacío = sin límite. Nunca por debajo de las inscripciones." error={shown('capacity') ?? field.error('capacity')} />
       <SelectField label="Público">
         <Filter label="Público" value={d.audience} onChange={(v) => set('audience')(v as Audience)} items={(Object.keys(AUDIENCE_LABEL) as Audience[]).map((a) => ({ value: a, label: AUDIENCE_LABEL[a] }))} />
       </SelectField>
       <SwitchRow label="Exige cobertura de riesgo" hint="Apágalo en los eventos sociales. Un no socio solo la tiene con la exención firmada." checked={d.risk} onChange={set('risk')} />
       <div className="grid grid-cols-2 gap-3">
-        <TextField label="Precio (€)" inputMode="decimal" value={d.price} onChange={set('price')} hint="Vacío = gratis. Mínimo 0,50 €." error={field.error('price_cents')} />
-        <TextField label="Precio de socio (€)" inputMode="decimal" value={d.memberPrice} onChange={set('memberPrice')} hint="Opcional; no más que el precio." error={field.error('member_price_cents')} />
+        <TextField label="Precio (€)" inputMode="decimal" value={d.price} onChange={set('price')} onBlur={touch('price')} hint="Vacío = gratis. Mínimo 0,50 €." error={shown('price') ?? field.error('price_cents')} />
+        <TextField label="Precio de socio (€)" inputMode="decimal" value={d.memberPrice} onChange={set('memberPrice')} onBlur={touch('memberPrice')} hint="Opcional; no más que el precio." error={shown('memberPrice') ?? field.error('member_price_cents')} />
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <TextField label="Fecha límite (opcional)" type="date" value={d.deadlineDay} onChange={set('deadlineDay')} error={field.error('registration_deadline')} />
+        <TextField label="Fecha límite (opcional)" type="date" value={d.deadlineDay} onChange={set('deadlineDay')} onBlur={touch('deadlineDay')} error={shown('deadlineDay') ?? field.error('registration_deadline')} />
         <TextField label="Hora límite" type="time" value={d.deadlineTime} onChange={set('deadlineTime')} hint="Sin ella, hasta el inicio" />
       </div>
     </FormSheet>
@@ -246,7 +186,7 @@ export function AdminEventPage() {
   if (query.isError) {
     return (
       <Page title="Evento" wide>
-        <Back to="/admin/sessions?vista=eventos">Eventos</Back>
+        <Back to="/admin/sessions">Horario</Back>
         <ErrorState error={query.error} onRetry={() => void query.refetch()} />
       </Page>
     )
@@ -265,7 +205,7 @@ function EventDetail({ event: e, registrations }: Detail) {
     ['Lugar', e.location],
     ['Disciplina', e.discipline?.name ?? '—'],
     ['Profesor', e.trainer ? name(e.trainer) : '—'],
-    ['Aforo', seats(e)],
+    ['Aforo', eventSeats(e)],
     ['Público', AUDIENCE_LABEL[e.audience]],
     ['Cobertura de riesgo', e.requires_risk_cover ? 'Exigida' : 'No exigida'],
     ['Precio', priceLabel(e.price_cents)],
@@ -274,7 +214,7 @@ function EventDetail({ event: e, registrations }: Detail) {
   ]
   return (
     <Page title={e.title} wide actions={<StateTag e={e} />}>
-      <Back to="/admin/sessions?vista=eventos">Eventos</Back>
+      <Back to="/admin/sessions">Horario</Back>
       {!scheduled && (
         <p className="flex items-center gap-2 rounded-xl border bg-card px-4 py-3 text-sm" role="status">
           <BanIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -376,7 +316,7 @@ function Registrations({ e, registrations }: { e: AdminEvent; registrations: Eve
   return (
     <section aria-label="Inscritos" className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
       <h2 className="font-semibold">
-        Inscritos <span className="font-normal text-muted-foreground tabular-nums">{seats({ taken: live.length, capacity: e.capacity })}</span>
+        Inscritos <span className="font-normal text-muted-foreground tabular-nums">{eventSeats({ taken: live.length, capacity: e.capacity })}</span>
       </h2>
       {registrations.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nadie se ha inscrito todavía.</p>

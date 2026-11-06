@@ -14,11 +14,12 @@ import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, Com
 import { Textarea } from '@/components/ui/textarea'
 import { WeekBoard } from '@/components/week-board'
 import { useNow } from '@/hooks/use-now'
-import { useWeek } from '@/hooks/use-week'
+import { type Week } from '@/hooks/use-week'
+import { agendaByDay, isLoose } from '@/lib/agenda'
 import { type Paged, type ProfileRow } from '@/lib/admin'
 import { api, ApiError } from '@/lib/api'
 import { formatDay, madridDay } from '@/lib/dates'
-import { formatDeadline, formatTime } from '@/lib/format'
+import { formatDeadline, formatShortDate, formatTime } from '@/lib/format'
 import { queryClient } from '@/lib/logout'
 import { toastError, toastOk } from '@/lib/notify'
 import { isClosed, plural, presentCount, unmarked, type Attendance, type AttendanceRow } from '@/lib/professor'
@@ -37,11 +38,12 @@ import {
   type Field,
   type SessionBooking,
 } from '@/lib/schedule'
-import { groupByDay } from '@/lib/sessions'
 import type { CalendarSession } from '@/lib/types'
 import { path } from '@/lib/url'
 import { cn } from '@/lib/utils'
+import { eventSeats, type AdminEvent } from '@/lib/events'
 import { Filter, useDebounced } from '@/pages/community'
+import { StateTag as EventStateTag } from '@/pages/admin/events'
 import { FormSheet, SelectField, TextField, useAdminDisciplines, useTrainers } from '@/pages/admin/schedule-bits'
 import { useConfirm } from '@/pages/admin/user-billing'
 
@@ -60,9 +62,8 @@ function StateTag({ s }: { s: Pick<CalendarSession, 'status' | 'held'> }) {
 
 // docs/pantallas-b19.md § Horario › Sesiones y docs/pantallas-b22.md § Calendario semanal: la semana, el día y la
 // disciplina viven en la URL.
-export function WeekView({ creating, onClose }: { creating: boolean; onClose: () => void }) {
+export function WeekView({ w }: { w: Week }) {
   const [params, setParams] = useSearchParams()
-  const w = useWeek()
   const discipline = params.get('disciplina') ?? 'all'
   const { from, to } = weekRange(w.week)
   const disciplines = useAdminDisciplines()
@@ -82,46 +83,83 @@ export function WeekView({ creating, onClose }: { creating: boolean; onClose: ()
     queryFn: () =>
       api<{ sessions: CalendarSession[] }>(path('/sessions/calendar', { from, to, discipline_id: discipline === 'all' ? undefined : discipline })).then((r) => r.sessions),
   })
-  const byDay = new Map(groupByDay(calendar.data ?? [], (s) => s.starts_at))
+  // Los eventos de la semana (por día de inicio). shortcut: tope de la API, 100 por consulta; sobra para una semana.
+  const events = useQuery({
+    queryKey: ['admin', 'events', 'week', from],
+    queryFn: () => api<Paged<'events', AdminEvent>>(path('/admin/events', { from, to, limit: '100' })).then((r) => r.events),
+  })
+  const byDay = agendaByDay(calendar.data ?? [], events.data ?? [], discipline)
+  const both = {
+    isPending: calendar.isPending || events.isPending,
+    isError: calendar.isError || events.isError,
+    error: calendar.error ?? events.error,
+    refetch: () => Promise.all([calendar.isError && calendar.refetch(), events.isError && events.refetch()]),
+  }
 
   return (
     <>
-      <div className="sm:w-56">
-        <Filter
-          label="Disciplina"
-          value={discipline}
-          onChange={setDiscipline}
-          items={[{ value: 'all', label: 'Todas las disciplinas' }, ...(disciplines.data ?? []).map((d) => ({ value: String(d.id), label: d.name }))]}
-        />
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="w-full sm:w-56">
+          <Filter
+            label="Disciplina"
+            value={discipline}
+            onChange={setDiscipline}
+            items={[{ value: 'all', label: 'Todas las disciplinas' }, ...(disciplines.data ?? []).map((d) => ({ value: String(d.id), label: d.name }))]}
+          />
+        </div>
+        <Link to="/admin/sessions?vista=clases" className="font-semibold text-link underline underline-offset-3">
+          Gestionar clases
+        </Link>
       </div>
       <WeekBoard
         w={w}
-        query={calendar}
+        query={both}
         marked={new Set(byDay.keys())}
+        noun="clases ni eventos"
         top="top-14"
         renderDay={(day) => (
           <SessionRows>
-            {(byDay.get(day) ?? []).map((s) => (
-              <SessionRow
-                key={s.id}
-                to={`/admin/sessions/${s.id}`}
-                start={s.starts_at}
-                end={s.ends_at}
-                title={s.discipline.name}
-                meta={[s.trainer ? name(s.trainer) : 'Sin profesor', s.location].filter(Boolean).join(' · ')}
-                off={s.status === 'cancelled'}
-                aside={
-                  <>
-                    <StateTag s={s} />
-                    <span className="text-sm text-muted-foreground tabular-nums">{plural(s.capacity, 'plaza', 'plazas')}</span>
-                  </>
-                }
-              />
-            ))}
+            {(byDay.get(day) ?? []).map((x) =>
+              x.kind === 'event' ? (
+                <SessionRow
+                  key={`e-${x.e.id}`}
+                  to={`/admin/events/${x.e.id}`}
+                  start={x.e.starts_at}
+                  end={x.e.ends_at}
+                  title={x.e.title}
+                  meta={[x.e.location, madridDay(x.e.starts_at) !== madridDay(x.e.ends_at) ? `hasta el ${formatShortDate(x.e.ends_at)}` : null].filter(Boolean).join(' · ')}
+                  below={<Tag variant="info">Evento</Tag>}
+                  accent="primary"
+                  off={x.e.status === 'cancelled'}
+                  aside={
+                    <>
+                      <EventStateTag e={x.e} />
+                      <span className="text-sm text-muted-foreground tabular-nums">{eventSeats(x.e)}</span>
+                    </>
+                  }
+                />
+              ) : (
+                <SessionRow
+                  key={x.s.id}
+                  to={`/admin/sessions/${x.s.id}`}
+                  start={x.s.starts_at}
+                  end={x.s.ends_at}
+                  title={x.s.discipline.name}
+                  meta={[x.s.trainer ? name(x.s.trainer) : 'Sin profesor', x.s.location].filter(Boolean).join(' · ')}
+                  below={isLoose(x.s) ? <Tag variant="secondary">Suelta</Tag> : undefined}
+                  off={x.s.status === 'cancelled'}
+                  aside={
+                    <>
+                      <StateTag s={x.s} />
+                      <span className="text-sm text-muted-foreground tabular-nums">{plural(x.s.capacity, 'plaza', 'plazas')}</span>
+                    </>
+                  }
+                />
+              ),
+            )}
           </SessionRows>
         )}
       />
-      <LooseSession open={creating} onClose={onClose} defaultDay={w.day} onCreated={w.pick} />
     </>
   )
 }
@@ -131,7 +169,7 @@ export function WeekView({ creating, onClose }: { creating: boolean; onClose: ()
 const intOf = (v: string) => (/^\d+$/.test(v.trim()) ? Number(v) : NaN)
 
 // «Clase suelta» en la interfaz; en el código y en `CONTEXT.md`, sesión suelta. El día sale del elegido en la tira.
-function LooseSession({ open, onClose, defaultDay, onCreated }: { open: boolean; onClose: () => void; defaultDay: string; onCreated: (day: string) => void }) {
+export function LooseSession({ open, onClose, defaultDay, onCreated }: { open: boolean; onClose: () => void; defaultDay: string; onCreated: (day: string) => void }) {
   const now = useNow()
   const disciplines = useAdminDisciplines()
   const trainers = useTrainers()

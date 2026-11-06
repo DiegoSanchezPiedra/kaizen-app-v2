@@ -102,6 +102,23 @@ export function looseErrors(f: LooseForm, now: number): Partial<Record<keyof Loo
   return e
 }
 
+export type ClassForm = { discipline: string; trainer: string; time: string; duration: string; capacity: string; starts_on: string; ends_on: string }
+const dayOk = (d: string) => !!madridToIso(d, '00:00')
+
+// Errores de la hoja «Nueva clase», por campo. Vacío = se puede crear.
+export function classErrors(f: ClassForm): Partial<Record<keyof ClassForm, string>> {
+  const e: Partial<Record<keyof ClassForm, string>> = {}
+  if (f.discipline === 'none') e.discipline = 'Elige una disciplina.'
+  if (f.trainer === 'none') e.trainer = 'Elige un profesor.'
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(f.time)) e.time = 'Elige la hora.'
+  if (!(intOf(f.duration) >= 1)) e.duration = 'Mínimo 1 minuto.'
+  if (!(intOf(f.capacity) >= 1)) e.capacity = 'Mínimo 1 plaza.'
+  if (f.starts_on && !dayOk(f.starts_on)) e.starts_on = 'Esa fecha no existe.'
+  if (f.ends_on && !dayOk(f.ends_on)) e.ends_on = 'Esa fecha no existe.'
+  else if (f.ends_on && f.starts_on && !e.starts_on && f.ends_on < f.starts_on) e.ends_on = 'No puede ser antes del inicio.'
+  return e
+}
+
 export const WEEKDAYS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo']
 
 export type AdminClass = {

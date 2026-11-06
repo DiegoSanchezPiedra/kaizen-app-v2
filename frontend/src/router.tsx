@@ -85,9 +85,9 @@ export const router = createBrowserRouter([
           { path: 'users/:id', lazy: async () => ({ Component: (await import('@/pages/admin/users')).UserPage }) },
           { path: 'sessions', lazy: async () => ({ Component: (await import('@/pages/admin/schedule')).AdminSchedulePage }) },
           { path: 'sessions/:id', lazy: async () => ({ Component: (await import('@/pages/admin/sessions')).AdminSessionPage }) },
-          // Clases y Eventos viven ahora dentro de Horario; las rutas viejas siguen llegando (avisos, marcadores).
+          // Clases y Eventos viven ahora en Horario (los eventos en su calendario); las rutas viejas siguen llegando (avisos, marcadores).
           { path: 'classes', element: <Navigate to="/admin/sessions?vista=clases" replace /> },
-          { path: 'events', element: <Navigate to="/admin/sessions?vista=eventos" replace /> },
+          { path: 'events', element: <Navigate to="/admin/sessions" replace /> },
           { path: 'events/:id', lazy: async () => ({ Component: (await import('@/pages/admin/events')).AdminEventPage }) },
           { path: 'billing', lazy: async () => ({ Component: (await import('@/pages/admin/billing')).AdminBillingPage }) },
           { path: 'notices', lazy: async () => ({ Component: (await import('@/pages/admin/notices')).AdminNoticesPage }) },

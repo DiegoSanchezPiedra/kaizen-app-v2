@@ -132,6 +132,49 @@ export function eventBody(d: EventDraft, now: number, checkStart = true): EventB
   }
 }
 
+export type EventField = 'title' | 'description' | 'day' | 'time' | 'endDay' | 'endTime' | 'location' | 'capacity' | 'price' | 'memberPrice' | 'deadlineDay'
+
+// Lo que `eventBody` rechaza, con su campo y su mensaje: vacío ⇔ `eventBody` da el cuerpo.
+export function eventErrors(d: EventDraft, now: number, checkStart = true): Partial<Record<EventField, string>> {
+  const e: Partial<Record<EventField, string>> = {}
+  const starts = madridToIso(d.day, d.time)
+  const ends = madridToIso(d.endDay, d.endTime)
+  if (!d.day) e.day = 'Elige el día de inicio.'
+  else if (!d.time) e.time = 'Elige la hora de inicio.'
+  else if (!starts) e.time = 'Esa fecha u hora no existe.'
+  else if (checkStart && Date.parse(starts) <= now) e.time = 'El inicio ya pasó.'
+  if (!d.endDay) e.endDay = 'Elige el día de fin.'
+  else if (!d.endTime) e.endTime = 'Elige la hora de fin.'
+  else if (!ends) e.endTime = 'Esa fecha u hora no existe.'
+  else if (starts && Date.parse(ends) <= Date.parse(starts)) e.endTime = 'El fin tiene que ser después del inicio.'
+  const title = d.title.trim()
+  if (!title) e.title = 'Pon un título.'
+  else if (title.length > 120) e.title = 'Máximo 120 caracteres.'
+  const location = d.location.trim()
+  if (!location) e.location = 'Pon el lugar.'
+  else if (location.length > 200) e.location = 'Máximo 200 caracteres.'
+  if (d.description.trim().length > 2000) e.description = 'Máximo 2000 caracteres.'
+  const price = d.price.trim() === '' ? 0 : eurosToCents(d.price)
+  if (!validPrice(price)) e.price = 'Gratis, o 0,50 € como mínimo.'
+  if (d.memberPrice.trim() !== '') {
+    const member = eurosToCents(d.memberPrice)
+    if (!validPrice(member)) e.memberPrice = 'Gratis, o 0,50 € como mínimo.'
+    else if (validPrice(price) && member > price) e.memberPrice = 'No puede superar el precio.'
+  }
+  const cap = d.capacity.trim()
+  if (cap !== '' && !(/^\d{1,6}$/.test(cap) && Number(cap) >= 1)) e.capacity = 'Mínimo 1 plaza.'
+  if (d.deadlineDay !== '' || d.deadlineTime !== '') {
+    const deadline = madridToIso(d.deadlineDay, d.deadlineTime)
+    if (!deadline) e.deadlineDay = 'Pon el día y la hora.'
+    else if (starts && Date.parse(deadline) > Date.parse(starts)) e.deadlineDay = 'Tiene que ser antes del inicio.'
+  }
+  return e
+}
+
+// «3 de 20 plazas» o «3 inscritos» si no hay tope.
+export const eventSeats = (e: Pick<AdminEvent, 'taken' | 'capacity'>): string =>
+  e.capacity === null ? `${e.taken} inscritos` : `${e.taken} de ${e.capacity} ${e.capacity === 1 ? 'plaza' : 'plazas'}`
+
 const TIME_FIELDS = ['starts_at', 'ends_at', 'registration_deadline']
 const same = (k: string, a: unknown, b: unknown) => (TIME_FIELDS.includes(k) && a && b ? Date.parse(String(a)) === Date.parse(String(b)) : a === b)
 

@@ -6,6 +6,7 @@ export type CancelReason = 'student' | 'late' | 'admin' | 'session_cancelled' | 
 
 export type CalendarSession = {
   id: string
+  class_id?: string | null // null = sesión suelta
   starts_at: string
   ends_at: string
   discipline: { id: number | string; name: string }

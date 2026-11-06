@@ -292,7 +292,7 @@ export async function listCalendar(client, user, { from, to, discipline_id, prof
                 AS covered
          FROM (SELECT DISTINCT discipline_id FROM s) dd LEFT JOIN unnest($4::uuid[]) x ON true
         GROUP BY dd.discipline_id)
-     SELECT s.id, s.starts_at, s.ends_at, jsonb_build_object('id', d.id, 'name', d.name) AS discipline,
+     SELECT s.id, s.class_id, s.starts_at, s.ends_at, jsonb_build_object('id', d.id, 'name', d.name) AS discipline,
             CASE WHEN tn.id IS NOT NULL THEN jsonb_build_object('id', tn.id, 'display_name', tn.display_name) END AS trainer,
             s.location, s.capacity, s.status, (s.status = 'scheduled' AND s.ends_at < now()) AS held,
             cov.covered,

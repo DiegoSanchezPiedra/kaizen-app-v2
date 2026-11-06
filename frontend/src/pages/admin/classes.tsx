@@ -15,7 +15,7 @@ import { formatShortDate } from '@/lib/format'
 import { queryClient } from '@/lib/logout'
 import { toastError, toastOk } from '@/lib/notify'
 import { plural } from '@/lib/professor'
-import { classState, groupByWeekday, WEEKDAYS, type AdminClass } from '@/lib/schedule'
+import { classErrors, classState, groupByWeekday, WEEKDAYS, type AdminClass } from '@/lib/schedule'
 import { path } from '@/lib/url'
 import { cn } from '@/lib/utils'
 import { Filter } from '@/pages/community'
@@ -28,7 +28,7 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 
 // docs/pantallas-b19.md § Horario › Clases: la tabla por día de la semana y hora, con la disciplina en la URL.
-export function ClassesView({ creating, onClose }: { creating: boolean; onClose: () => void }) {
+export function ClassesView() {
   const [params, setParams] = useSearchParams()
   const discipline = params.get('disciplina') ?? 'all'
   const disciplines = useAdminDisciplines()
@@ -173,7 +173,6 @@ export function ClassesView({ creating, onClose }: { creating: boolean; onClose:
           </Table>
         </div>
       )}
-      <CreateClass open={creating} onClose={onClose} />
       {changing && <ChangeClass key={changing.id} c={changing} onClose={() => setChanging(null)} />}
       {retiring && <RetireClass key={retiring.id} c={retiring} onClose={() => setRetiring(null)} />}
     </>
@@ -182,14 +181,19 @@ export function ClassesView({ creating, onClose }: { creating: boolean; onClose:
 
 // ── Crear ────────────────────────────────────────────────────────────────────
 
-function CreateClass({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function CreateClass({ open, onClose, defaultWeekday = 1 }: { open: boolean; onClose: () => void; defaultWeekday?: number }) {
   const disciplines = useAdminDisciplines()
   const trainers = useTrainers()
-  const blank = { discipline: 'none', trainer: 'none', weekday: '1', time: '', duration: '60', capacity: '20', location: '', starts_on: '', ends_on: '' }
-  const [f, setF] = useState(blank)
+  const blank = { discipline: 'none', trainer: 'none', weekday: null as string | null, time: '', duration: '60', capacity: '20', location: '', starts_on: '', ends_on: '' }
+  const [draft, setF] = useState(blank)
+  // Mientras no se toque, el día de la semana del día elegido en el calendario.
+  const f = { ...draft, weekday: draft.weekday ?? String(defaultWeekday) }
+  const [seen, setSeen] = useState<Set<string>>(new Set())
+  const [tried, setTried] = useState(false)
   const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }))
-  const dates = (!f.starts_on || DAY_RE.test(f.starts_on)) && (!f.ends_on || (DAY_RE.test(f.ends_on) && f.ends_on >= (f.starts_on || f.ends_on)))
-  const ready = f.discipline !== 'none' && f.trainer !== 'none' && TIME_RE.test(f.time) && intOf(f.duration) >= 1 && intOf(f.capacity) >= 1 && dates
+  const touch = (k: string) => () => setSeen((x) => new Set(x).add(k))
+  const errors = classErrors(f)
+  const shown = (k: keyof typeof errors) => (tried || seen.has(k) ? errors[k] : undefined)
   const create = useMutation({
     mutationFn: () =>
       api<{ class: { sessions_created: number } }>('/admin/classes', {
@@ -209,6 +213,8 @@ function CreateClass({ open, onClose }: { open: boolean; onClose: () => void }) 
     onSuccess: (r) => {
       toastOk('Clase creada', `${plural(r.class.sessions_created, 'sesión generada', 'sesiones generadas')}`)
       setF(blank)
+      setSeen(new Set())
+      setTried(false)
     },
     onError: (err) => toastError(err),
     onSettled: () => void refreshClasses(),
@@ -220,11 +226,16 @@ function CreateClass({ open, onClose }: { open: boolean; onClose: () => void }) 
       title="Nueva clase"
       description="Una clase se repite cada semana: genera sus sesiones para el próximo año."
       submitLabel="Crear la clase"
-      disabled={!ready}
       loading={create.isPending}
-      onSubmit={() => create.mutateAsync()}
+      onSubmit={() => {
+        if (Object.keys(errors).length) {
+          setTried(true)
+          return Promise.reject(new Error('invalid'))
+        }
+        return create.mutateAsync()
+      }}
     >
-      <SelectField label="Disciplina">
+      <SelectField label="Disciplina" error={shown('discipline')}>
         <Filter
           label="Disciplina"
           value={f.discipline}
@@ -232,23 +243,23 @@ function CreateClass({ open, onClose }: { open: boolean; onClose: () => void }) 
           items={[{ value: 'none', label: 'Elige una disciplina' }, ...(disciplines.data ?? []).filter((d) => d.is_active).map((d) => ({ value: String(d.id), label: d.name }))]}
         />
       </SelectField>
-      <SelectField label="Profesor">
+      <SelectField label="Profesor" error={shown('trainer')}>
         <Filter label="Profesor" value={f.trainer} onChange={set('trainer')} items={[{ value: 'none', label: 'Elige un profesor' }, ...(trainers.data ?? []).map((t) => ({ value: t.id, label: t.display_name ?? 'Sin nombre' }))]} />
       </SelectField>
       <div className="grid grid-cols-2 gap-3">
         <SelectField label="Día de la semana">
           <Filter label="Día de la semana" value={f.weekday} onChange={set('weekday')} items={WEEKDAYS.map((d, i) => ({ value: String(i + 1), label: d[0].toUpperCase() + d.slice(1) }))} />
         </SelectField>
-        <TextField label="Hora" type="time" value={f.time} onChange={set('time')} hint="Hora de Madrid" />
+        <TextField label="Hora" type="time" value={f.time} onChange={set('time')} onBlur={touch('time')} error={shown('time')} hint="Hora de Madrid" />
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <TextField label="Duración (min)" type="number" min={1} value={f.duration} onChange={set('duration')} />
-        <TextField label="Aforo" type="number" min={1} value={f.capacity} onChange={set('capacity')} />
+        <TextField label="Duración (min)" type="number" min={1} value={f.duration} onChange={set('duration')} onBlur={touch('duration')} error={shown('duration')} />
+        <TextField label="Aforo" type="number" min={1} value={f.capacity} onChange={set('capacity')} onBlur={touch('capacity')} error={shown('capacity')} />
       </div>
       <TextField label="Lugar (opcional)" value={f.location} maxLength={100} onChange={set('location')} />
       <div className="grid grid-cols-2 gap-3">
-        <TextField label="Desde (opcional)" type="date" value={f.starts_on} onChange={set('starts_on')} hint="Por defecto, hoy" />
-        <TextField label="Hasta (opcional)" type="date" value={f.ends_on} onChange={set('ends_on')} hint="Por defecto, sin fin" />
+        <TextField label="Desde (opcional)" type="date" value={f.starts_on} onChange={set('starts_on')} onBlur={touch('starts_on')} error={shown('starts_on')} hint="Por defecto, hoy" />
+        <TextField label="Hasta (opcional)" type="date" value={f.ends_on} onChange={set('ends_on')} onBlur={touch('ends_on')} error={shown('ends_on')} hint="Por defecto, sin fin" />
       </div>
     </FormSheet>
   )
