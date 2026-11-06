@@ -127,6 +127,11 @@ aviso **«Hay una versión nueva · Actualizar»**. Si no sale, cerrar todas las
 caso, DevTools → Application → Service workers → «Unregister» y recargar. Díselo al cliente: si un error ya arreglado le sigue
 saliendo, es esto. (Para saber qué versión tiene: el nombre `index-XXXX.js` del error debe coincidir con el de `frontend/dist/assets`.)
 
+**En iPhone, con ngrok gratis, el aviso no sale nunca**: el navegador pide `sw.js` sin la cabecera que salta la página de aviso
+de ngrok y la app instalada no tiene la cookie de Safari, así que recibe HTML y la actualización falla en silencio (en Android
+la PWA comparte las cookies de Chrome y funciona). Para ver la versión nueva: borrar la app de la pantalla de inicio, abrir la
+URL en Safari, tocar «Visit Site» y volver a añadirla. Fuera de ngrok (producción) no pasa.
+
 ---
 
 ## 4. Antes de pasarle la URL al cliente
