@@ -173,12 +173,19 @@ function CreatePassword({ email }: { email: string }) {
   )
 }
 
-export function PasswordPage() {
+// También en la Cuenta del admin (pages/admin/account.tsx).
+export function PasswordSection() {
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/me') })
+  if (me.isPending) return <ListSkeleton rows={2} />
+  if (me.isError) return <ErrorState error={me.error} onRetry={() => void me.refetch()} />
+  return me.data.has_password ? <PasswordForm /> : <CreatePassword email={me.data.email} />
+}
+
+export function PasswordPage() {
   return (
     <Page title="Contraseña">
       <Back />
-      {me.isPending ? <ListSkeleton rows={2} /> : me.isError ? <ErrorState error={me.error} onRetry={() => void me.refetch()} /> : me.data.has_password ? <PasswordForm /> : <CreatePassword email={me.data.email} />}
+      <PasswordSection />
     </Page>
   )
 }

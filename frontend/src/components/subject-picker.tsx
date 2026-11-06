@@ -1,3 +1,4 @@
+import { ProfileAvatar } from '@/components/profile-avatar'
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useSubject } from '@/hooks/use-subject'
 
@@ -10,6 +11,7 @@ export function SubjectPicker() {
       <span id="subject-label" className="text-sm font-semibold text-muted-foreground">
         Para
       </span>
+      {!subject.self && <ProfileAvatar name={subject.label} avatar={subject.avatar} className="size-8" />}
       <Select
         value={subject.id}
         onValueChange={(id) => id && select(id)}
@@ -21,7 +23,10 @@ export function SubjectPicker() {
         <SelectPopup>
           {options.map((o) => (
             <SelectItem key={o.id} value={o.id} className="min-h-11 sm:min-h-11">
-              {o.label}
+              <span className="flex items-center gap-2">
+                <ProfileAvatar name={o.label} avatar={o.self ? null : o.avatar} className="size-6" />
+                {o.label}
+              </span>
             </SelectItem>
           ))}
         </SelectPopup>
