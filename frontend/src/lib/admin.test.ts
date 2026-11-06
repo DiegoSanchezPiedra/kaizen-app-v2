@@ -15,7 +15,8 @@ import {
   pageOf,
   payerCandidates,
   safeInvoiceUrl,
-  showMfaNotice, type DayStat, type ProfileFile } from '@/lib/admin'
+  showMfaNotice, type DayStat, type ProfileFile,
+  hasFilters, lastSeen, profilesQuery, setFilter, toggleEstado, userFilters } from '@/lib/admin'
 import { loginPath, redirectFor } from '@/lib/paths'
 
 describe('a dónde va cada rol (B19)', () => {
@@ -172,5 +173,49 @@ describe('eventos en avisos y auditoría', () => {
     const n = { id: '1', created_at: '', action: 'notice.event_refund_failed', resource_type: 'event_registration', resource_id: 'r', details: { event_id: 'e1' } }
     expect(noticeLabel(n.action)).toContain('reembolso')
     expect(noticeEvent(n)).toBe('e1')
+  })
+})
+
+describe('Usuarios: filtros en la URL y última asistencia (B22.3)', () => {
+  const url = (s: string) => new URLSearchParams(s)
+  it('lee los filtros válidos e ignora los que la API rechazaría', () => {
+    expect(userFilters(url('q=ana&role=tutor&discipline=3&plan=7&estado=impago&page=2'))).toEqual({
+      q: 'ana', role: 'tutor', discipline: '3', plan: '7', estado: 'impago', page: 2,
+    })
+    expect(userFilters(url('role=jefe&discipline=x&plan=-1&estado=prueba&page=0'))).toEqual({
+      q: '', role: null, discipline: null, plan: null, estado: null, page: 1,
+    })
+  })
+  it('ida y vuelta: lo que se pone se vuelve a leer igual y la página vuelve a la 1', () => {
+    let p = url('page=3')
+    p = setFilter(p, 'discipline', '3')
+    p = setFilter(p, 'plan', '7')
+    p = setFilter(p, 'estado', 'inactivo')
+    expect(userFilters(p)).toMatchObject({ discipline: '3', plan: '7', estado: 'inactivo', page: 1 })
+    expect(p.has('page')).toBe(false)
+    expect(userFilters(setFilter(p, 'plan', 'all')).plan).toBeNull()
+    expect(profilesQuery(userFilters(url('discipline=3&estado=activo&page=2')), 25)).toEqual({
+      q: undefined, role: undefined, discipline_id: '3', plan_id: undefined, estado: 'activo', limit: '25', offset: '25',
+    })
+  })
+  it('una tarjeta pone su estado y, pulsada otra vez, lo quita', () => {
+    const on = toggleEstado(url('discipline=3'), 'impago')
+    expect(on.get('estado')).toBe('impago')
+    expect(toggleEstado(on, 'activo').get('estado')).toBe('activo')
+    const off = toggleEstado(on, 'impago')
+    expect(off.has('estado')).toBe(false)
+    expect(off.get('discipline')).toBe('3')
+    expect(hasFilters(userFilters(off))).toBe(true)
+    expect(hasFilters(userFilters(url('page=2')))).toBe(false)
+  })
+  it('última asistencia en relativo, por días de Madrid', () => {
+    const now = new Date('2026-11-06T10:00:00Z')
+    expect(lastSeen(null, now)).toBe('—')
+    expect(lastSeen('2026-11-06T08:00:00Z', now)).toBe('hoy')
+    expect(lastSeen('2026-11-05T22:30:00Z', now)).toBe('ayer') // 23:30 del 5 en Madrid
+    expect(lastSeen('2026-11-05T23:30:00Z', now)).toBe('hoy') // 00:30 del 6 en Madrid
+    expect(lastSeen('2026-11-03T18:00:00Z', now)).toBe('hace 3 días')
+    expect(lastSeen('2026-08-01T18:00:00Z', now)).toBe('hace 3 meses')
+    expect(lastSeen('2024-10-01T18:00:00Z', now)).toBe('hace 2 años')
   })
 })

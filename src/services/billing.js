@@ -918,7 +918,8 @@ export async function getInsurance(client, { userId, studentId }) {
 }
 
 // Una suscripción o seguro afectado = en periodo de gracia (past_due) o impagado (unpaid).
-const AFFECTED_SQL = `
+// `delinquent`: el placeholder o literal booleano (true = morosos). Lo reusa el KPI «Impago» de Usuarios (users.js).
+export const affectedSql = (delinquent) => `
   affected AS (
     SELECT 'subscription' AS kind, s.id, s.payer_id, s.student_id, s.status, pl.name AS label,
            s.current_period_end, s.cancel_at_period_end
@@ -930,7 +931,7 @@ const AFFECTED_SQL = `
   ),
   -- Moroso = algo unpaid; en gracia = solo past_due. Un pagador sale en una sola lista.
   payers AS (
-    SELECT payer_id FROM affected GROUP BY payer_id HAVING bool_or(status = 'unpaid') = $1
+    SELECT payer_id FROM affected GROUP BY payer_id HAVING bool_or(status = 'unpaid') = ${delinquent}
   )`;
 
 /**
@@ -945,7 +946,7 @@ export async function listOverduePayers(client, { list, limit = 25, offset = 0 }
   }
   const delinquent = list === 'delinquent';
   const { rows } = await client.query(
-    `WITH ${AFFECTED_SQL},
+    `WITH ${affectedSql('$1')},
      pending AS (
        SELECT a.payer_id, a.id AS item_id, v.id, v.period_start, v.amount_due_cents, v.attempt_count,
               v.next_payment_attempt, v.last_payment_error, v.hosted_invoice_url
@@ -968,6 +969,6 @@ export async function listOverduePayers(client, { list, limit = 25, offset = 0 }
       ORDER BY (SELECT min(n.period_start) FROM pending n WHERE n.payer_id = p.payer_id) NULLS LAST, p.payer_id
       LIMIT $2 OFFSET $3`, [delinquent, limit, offset]);
   const { rows: [{ total }] } = await client.query(
-    `WITH ${AFFECTED_SQL} SELECT count(*)::int AS total FROM payers`, [delinquent]);
+    `WITH ${affectedSql('$1')} SELECT count(*)::int AS total FROM payers`, [delinquent]);
   return { payers: rows, total, limit, offset };
 }
