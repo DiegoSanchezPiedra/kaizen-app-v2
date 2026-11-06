@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
 import { AppCrash } from '@/components/screen-state'
-import { createBrowserRouter, Navigate, Outlet, useLocation, useSearchParams } from 'react-router'
+import { createBrowserRouter, Navigate, Outlet, redirect, useLocation, useSearchParams } from 'react-router'
 import { setUnauthorizedHandler, setWrongRoleHandler } from '@/lib/api'
+import { catalogRedirect } from '@/lib/catalog'
 import { checkRole, logout } from '@/lib/logout'
 import { loginPath, redirectFor, safeReturnPath } from '@/lib/paths'
 import { getEndReason, isExpired, useSession } from '@/lib/session'
@@ -90,7 +91,9 @@ export const router = createBrowserRouter([
           { path: 'billing', lazy: async () => ({ Component: (await import('@/pages/admin/billing')).AdminBillingPage }) },
           { path: 'notices', lazy: async () => ({ Component: (await import('@/pages/admin/notices')).AdminNoticesPage }) },
           { path: 'audit', lazy: async () => ({ Component: (await import('@/pages/admin/audit')).AdminAuditPage }) },
-          { path: 'catalog', lazy: async () => ({ Component: (await import('@/pages/admin/catalog')).AdminCatalogPage }) },
+          { path: 'catalog', loader: ({ request }) => redirect(catalogRedirect(new URL(request.url).searchParams.get('tab'))) },
+          { path: 'memberships', lazy: async () => ({ Component: (await import('@/pages/admin/memberships')).AdminMembershipsPage }) },
+          { path: 'disciplines', lazy: async () => ({ Component: (await import('@/pages/admin/disciplines')).AdminDisciplinesPage }) },
           { path: 'documents', lazy: async () => ({ Component: (await import('@/pages/admin/documents')).AdminDocumentsPage }) },
           { path: 'tablets', lazy: async () => ({ Component: (await import('@/pages/admin/tablets')).AdminTabletsPage }) },
           { path: 'settings', lazy: async () => ({ Component: (await import('@/pages/admin/settings')).AdminSettingsPage }) },
