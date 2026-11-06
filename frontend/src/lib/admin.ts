@@ -255,9 +255,13 @@ export type ProfileRow = {
   pending_claim: boolean
   created_at: string
   subscription_status: string | null
+  plan_id: string | null
+  plan_name: string | null
+  estado: Estado | null
+  last_attendance_at: string | null
 }
 export type ProfileFile = {
-  profile: Omit<ProfileRow, 'subscription_status'> & { is_public: boolean; has_password: boolean; has_google: boolean }
+  profile: Omit<ProfileRow, 'subscription_status' | 'plan_id' | 'plan_name' | 'estado' | 'last_attendance_at'> & { is_public: boolean; has_password: boolean; has_google: boolean }
   status: ProfileStatus | null
   guardians: Person[]
   children: { id: string; display_name: string | null; pending_claim: boolean }[]
@@ -287,3 +291,71 @@ export function pageHref(params: URLSearchParams, page: number): string {
   return `?${n}`
 }
 export const pageOf = (params: URLSearchParams): number => Math.max(1, Math.floor(Number(params.get('page'))) || 1)
+
+// ── Usuarios: KPIs y filtros (B22.3). El estado (el más fuerte) lo calcula la API. ──
+
+export const ESTADOS = ['activo', 'impago', 'inactivo', 'sin_plan'] as const
+export type Estado = (typeof ESTADOS)[number]
+export type ProfileStats = { activos: number; impago: number; inactivos: number }
+export const ESTADO_TAG: Record<Estado, [string, 'success' | 'warning' | 'error' | 'outline']> = {
+  activo: ['Activo', 'success'],
+  inactivo: ['Inactivo', 'warning'],
+  impago: ['Impago', 'error'],
+  sin_plan: ['Sin plan', 'outline'],
+}
+
+const ID_RE = /^\d{1,18}$/
+const ROLES: Role[] = ['alumno', 'tutor', 'profesor', 'admin']
+export type UserFilters = { q: string; role: Role | null; discipline: string | null; plan: string | null; estado: Estado | null; page: number }
+
+// La URL es la fuente: lo que no es válido se ignora (no se manda a la API, que respondería 400).
+export function userFilters(params: URLSearchParams): UserFilters {
+  const pick = <T extends string>(k: string, ok: (v: string) => boolean) => {
+    const v = params.get(k)
+    return v !== null && ok(v) ? (v as T) : null
+  }
+  return {
+    q: params.get('q') ?? '',
+    role: pick<Role>('role', (v) => ROLES.includes(v as Role)),
+    discipline: pick('discipline', (v) => ID_RE.test(v)),
+    plan: pick('plan', (v) => ID_RE.test(v)),
+    estado: pick<Estado>('estado', (v) => ESTADOS.includes(v as Estado)),
+    page: pageOf(params),
+  }
+}
+
+// Cambiar un filtro vuelve a la primera página; vacío o «all» lo quita.
+export function setFilter(params: URLSearchParams, key: keyof Omit<UserFilters, 'page'>, value: string | null): URLSearchParams {
+  const n = new URLSearchParams(params)
+  if (value && value !== 'all') n.set(key, value)
+  else n.delete(key)
+  n.delete('page')
+  return n
+}
+
+// Pulsar una tarjeta KPI pone su estado; volver a pulsarla lo quita.
+export const toggleEstado = (params: URLSearchParams, estado: Estado): URLSearchParams =>
+  setFilter(params, 'estado', userFilters(params).estado === estado ? null : estado)
+
+export const hasFilters = (f: UserFilters): boolean => !!(f.q || f.role || f.discipline || f.plan || f.estado)
+
+// Parámetros de GET /admin/profiles (los de los KPIs: solo discipline_id).
+export const profilesQuery = (f: UserFilters, pageSize: number): Record<string, string | undefined> => ({
+  q: f.q || undefined,
+  role: f.role ?? undefined,
+  discipline_id: f.discipline ?? undefined,
+  plan_id: f.plan ?? undefined,
+  estado: f.estado ?? undefined,
+  limit: String(pageSize),
+  offset: String((f.page - 1) * pageSize),
+})
+
+const relFmt = new Intl.RelativeTimeFormat('es', { numeric: 'auto' })
+// «hoy», «ayer», «hace 3 días», «hace 2 meses»; «—» si nunca. Por días de Madrid.
+export function lastSeen(iso: string | null, now: Date = new Date()): string {
+  if (!iso) return '—'
+  const days = Math.round((Date.parse(madridDay(now)) - Date.parse(madridDay(iso))) / 864e5)
+  if (days < 31) return relFmt.format(-days, 'day')
+  if (days < 365) return relFmt.format(-Math.floor(days / 30), 'month')
+  return relFmt.format(-Math.floor(days / 365), 'year')
+}

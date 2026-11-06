@@ -8,11 +8,30 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxPopup } from '@/components/ui/combobox'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
-import { ageMarks, canChangeRole, isChild, ROLE_LABEL, type Paged, type ProfileFile, type ProfileRow } from '@/lib/admin'
+import {
+  ageMarks,
+  canChangeRole,
+  ESTADO_TAG,
+  hasFilters,
+  isChild,
+  lastSeen,
+  pageHref,
+  profilesQuery,
+  ROLE_LABEL,
+  setFilter,
+  toggleEstado,
+  userFilters,
+  type Estado,
+  type Paged,
+  type ProfileFile,
+  type ProfileRow,
+  type ProfileStats,
+} from '@/lib/admin'
 import { ApiError, api } from '@/lib/api'
 import { addDays, madridDay } from '@/lib/dates'
 import { formatShortDate, formatTime } from '@/lib/format'
@@ -20,13 +39,14 @@ import { queryClient } from '@/lib/logout'
 import { toastError, toastOk } from '@/lib/notify'
 import type { Role } from '@/lib/paths'
 import { AGREEMENT_TITLE, type AgreementType } from '@/lib/profile'
-import { bookingsOf, refreshBookings, useBookings } from '@/lib/queries'
+import { bookingsOf, refreshBookings, useBookings, useDisciplines } from '@/lib/queries'
 import { CANCEL_REASON, PAST_CHUNK_DAYS } from '@/lib/sessions'
 import { path } from '@/lib/url'
-import type { Booking } from '@/lib/types'
+import type { Booking, Plan } from '@/lib/types'
+import { cn } from '@/lib/utils'
 import { Filter, useDebounced } from '@/pages/community'
 import { PAGE_SIZE, Pager } from '@/pages/admin/shell'
-import { BillingTab, SubBadge, useConfirm } from '@/pages/admin/user-billing'
+import { BillingTab, useConfirm } from '@/pages/admin/user-billing'
 
 const name = (p: { display_name: string | null }) => p.display_name ?? 'Sin nombre'
 const Marks = ({ p }: { p: { is_minor: boolean; pending_claim: boolean } }) => (
@@ -48,78 +68,167 @@ const UserLink = ({ p }: { p: { id: string; display_name: string | null } }) => 
 // ── Lista ────────────────────────────────────────────────────────────────
 
 const ROLES = [{ value: 'all', label: 'Todos los roles' }, ...Object.entries(ROLE_LABEL).map(([value, label]) => ({ value, label }))]
+const STATE_ITEMS = [
+  { value: 'all', label: 'Todos los estados' },
+  { value: 'activo', label: 'Activos' },
+  { value: 'inactivo', label: 'Inactivos' },
+  { value: 'impago', label: 'Impago' },
+  { value: 'sin_plan', label: 'Sin plan' },
+]
+const KPIS: [Estado, string, keyof ProfileStats][] = [
+  ['activo', 'Activos', 'activos'],
+  ['impago', 'Impago', 'impago'],
+  ['inactivo', 'Inactivos ·\u00a014\u00a0d', 'inactivos'],
+]
+const useAdminPlans = () => useQuery({ queryKey: ['admin', 'plans'], queryFn: () => api<{ plans: Plan[] }>('/admin/plans').then((r) => r.plans) })
 
-// docs/pantallas-b19.md § Usuarios › Lista: búsqueda, rol y página en la URL.
+const EstadoTag = ({ estado }: { estado: Estado | null }) => (estado ? <Tag variant={ESTADO_TAG[estado][1]}>{ESTADO_TAG[estado][0]}</Tag> : null)
+const roleLine = (p: ProfileRow) => [ROLE_LABEL[p.role], ...ageMarks(p), p.role === 'alumno' && (p.plan_name ?? 'Sin plan')].filter(Boolean).join(' · ')
+
+// Activos, Impago e Inactivos de los alumnos de la disciplina elegida; pulsar una filtra la lista por ese estado.
+function Kpis({ params, setParams }: { params: URLSearchParams; setParams: (p: URLSearchParams) => void }) {
+  const f = userFilters(params)
+  const stats = useQuery({
+    queryKey: ['admin', 'profiles', 'stats', f.discipline],
+    queryFn: () => api<ProfileStats>(path('/admin/profiles/stats', { discipline_id: f.discipline ?? undefined })),
+  })
+  if (stats.isError) return <ErrorState error={stats.error} onRetry={() => void stats.refetch()} />
+  return (
+    // Caben 3 a 375 px; por debajo de unos 340, scroll dentro de su marco (el margen deja ver el anillo de foco).
+    <div className="-m-1 overflow-x-auto p-1">
+      <div className="grid min-w-[19.25rem] grid-cols-3 gap-2" role="group" aria-label="Alumnos por estado">
+        {KPIS.map(([estado, label, key]) => {
+          const n = stats.data?.[key]
+          return (
+            <button
+              key={estado}
+              type="button"
+              aria-pressed={f.estado === estado}
+              onClick={() => setParams(toggleEstado(params, estado))}
+              className={cn(
+                'flex min-h-24 flex-col items-start gap-2 rounded-2xl border bg-card p-3 text-left outline-none transition-[background-color,border-color,box-shadow,transform] duration-150 ease-out hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background active:scale-[0.96] motion-reduce:active:scale-100',
+                f.estado === estado && 'border-primary ring-1 ring-primary',
+              )}
+            >
+              {n === undefined ? (
+                <Skeleton className="h-9 w-12 rounded-md" />
+              ) : (
+                <span className={cn('font-heading text-4xl leading-none font-bold tabular-nums', estado === 'impago' && n > 0 && 'text-destructive-foreground')}>{n}</span>
+              )}
+              <span className="text-sm leading-tight text-muted-foreground">
+                {label}
+                {estado === 'impago' && <span className="mt-0.5 block text-xs text-balance">Por alumno, no pagador</span>}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// docs/pantallas-b22.md § Usuarios y docs/auditoria-b22.md § 4: KPIs arriba; búsqueda y filtros en la URL.
 export function UsersPage() {
   const [params, setParams] = useSearchParams()
-  const [q, setQ] = useState(params.get('q') ?? '')
+  const f = userFilters(params)
+  const [q, setQ] = useState(f.q)
   const search = useDebounced(q.trim())
-  const role = params.get('role') ?? 'all'
-  const page = Math.max(1, Number(params.get('page')) || 1)
-  const set = (k: string, v: string) =>
-    setParams(
-      (p) => {
-        const n = new URLSearchParams(p)
-        if (v && v !== 'all') n.set(k, v)
-        else n.delete(k)
-        n.delete('page')
-        return n
-      },
-      { replace: k === 'q' },
-    )
+  const disciplines = useDisciplines()
+  const plans = useAdminPlans()
+  const set = (k: Parameters<typeof setFilter>[1], v: string | null) => setParams((p) => setFilter(p, k, v), { replace: k === 'q' })
   useEffect(() => {
     if (search !== (params.get('q') ?? '')) set('q', search)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al cambiar la búsqueda ya escrita
   }, [search])
 
   const list = useQuery({
-    queryKey: ['admin', 'profiles', params.get('q') ?? '', role, page],
-    queryFn: () =>
-      api<Paged<'profiles', ProfileRow>>(
-        path('/admin/profiles', {
-          q: params.get('q') || undefined,
-          role: role === 'all' ? undefined : role,
-          limit: String(PAGE_SIZE),
-          offset: String((page - 1) * PAGE_SIZE),
-        }),
-      ),
+    queryKey: ['admin', 'profiles', f],
+    queryFn: () => api<Paged<'profiles', ProfileRow>>(path('/admin/profiles', profilesQuery(f, PAGE_SIZE))),
   })
-  const href = (p: number) => {
-    const n = new URLSearchParams(params)
-    n.set('page', String(p))
-    return `?${n}`
+  const clear = () => {
+    setQ('')
+    setParams(new URLSearchParams())
   }
 
   return (
     <Page title="Usuarios" wide>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <InputGroup className="sm:max-w-sm">
+      <section className="flex flex-col gap-3" aria-label="Resumen de alumnos">
+        <div className="sm:w-64">
+          <Filter
+            label="Disciplina"
+            value={f.discipline ?? 'all'}
+            onChange={(v) => set('discipline', v)}
+            items={[{ value: 'all', label: 'Todas las disciplinas' }, ...(disciplines.data ?? []).map((d) => ({ value: String(d.id), label: d.name }))]}
+          />
+        </div>
+        <Kpis params={params} setParams={(p) => setParams(p)} />
+      </section>
+      <div className="flex flex-col gap-2">
+        <InputGroup>
           <InputGroupAddon aria-hidden="true">
             <SearchIcon />
           </InputGroupAddon>
           <InputGroupInput type="search" aria-label="Buscar por nombre o email" placeholder="Buscar por nombre o email" value={q} onChange={(e) => setQ(e.target.value)} />
         </InputGroup>
-        <div className="sm:w-52">
-          <Filter label="Rol" value={role} onChange={(v) => set('role', v)} items={ROLES} />
+        <div className="flex flex-wrap gap-2 *:min-w-36 *:flex-1 sm:*:max-w-52">
+          <div>
+            <Filter label="Rol" value={f.role ?? 'all'} onChange={(v) => set('role', v)} items={ROLES} />
+          </div>
+          <div>
+            <Filter
+              label="Plan"
+              value={f.plan ?? 'all'}
+              onChange={(v) => set('plan', v)}
+              items={[{ value: 'all', label: 'Cualquier plan' }, ...(plans.data ?? []).map((p) => ({ value: String(p.id), label: p.name }))]}
+            />
+          </div>
+          <div>
+            <Filter label="Estado" value={f.estado ?? 'all'} onChange={(v) => set('estado', v)} items={STATE_ITEMS} />
+          </div>
         </div>
       </div>
       {list.isPending ? (
-        <ListSkeleton rows={6} className="h-10" />
+        <ListSkeleton rows={6} className="h-16 sm:h-10" />
       ) : list.isError ? (
         <ErrorState error={list.error} onRetry={() => void list.refetch()} />
       ) : list.data.total === 0 ? (
         <EmptyState
           icon={<UsersIcon />}
-          title={params.get('q') ? `Nadie coincide con «${params.get('q')}»` : 'Nadie con ese rol'}
-          text="Prueba con otra búsqueda o quita el filtro."
+          title={f.q ? `Nadie coincide con «${f.q}»` : hasFilters(f) ? 'Nadie con estos filtros' : 'Aún no hay usuarios'}
+          text={hasFilters(f) ? 'Prueba con otra búsqueda o quita los filtros.' : undefined}
+          action={
+            hasFilters(f) && (
+              <Button variant="outline" onClick={clear}>
+                Quitar filtros
+              </Button>
+            )
+          }
         />
       ) : (
         <>
-          <div className="overflow-x-auto rounded-2xl border bg-card">
+          {/* Móvil: una fila por persona en un solo marco (auditoría § 4); toda la fila abre la ficha. */}
+          <ul className="flex flex-col divide-y overflow-hidden rounded-2xl border bg-card sm:hidden">
+            {list.data.profiles.map((p) => (
+              <li key={p.id}>
+                <Link
+                  to={toFile(p.id)}
+                  className="flex min-h-16 flex-col px-4 py-2.5 transition-colors duration-150 hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:outline-none active:bg-accent"
+                >
+                  <span className="flex items-center justify-between gap-3">
+                    <span className="truncate font-semibold">{name(p)}</span>
+                    <EstadoTag estado={p.estado} />
+                  </span>
+                  <span className="truncate text-sm text-muted-foreground">{roleLine(p)}</span>
+                  {p.role === 'alumno' && <span className="text-sm text-muted-foreground">Última asistencia {lastSeen(p.last_attendance_at)}</span>}
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto rounded-2xl border bg-card sm:block">
             <Table>
               <TableHeader className="sticky top-0 bg-card">
                 <TableRow>
-                  {['Nombre', 'Email', 'Rol', 'Cuota', 'Alta'].map((h, i) => (
+                  {['Nombre', 'Rol', 'Plan', 'Estado', 'Última asistencia'].map((h, i) => (
                     <TableHead key={h} className={i ? undefined : 'ps-4'}>
                       {h}
                     </TableHead>
@@ -135,16 +244,16 @@ export function UsersPage() {
                         <Marks p={p} />
                       </span>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{p.email ?? '—'}</TableCell>
                     <TableCell>{ROLE_LABEL[p.role]}</TableCell>
-                    <TableCell>{p.role === 'alumno' ? <SubBadge status={p.subscription_status} /> : '—'}</TableCell>
-                    <TableCell className="tabular-nums">{formatShortDate(p.created_at)}</TableCell>
+                    <TableCell className={p.plan_name ? undefined : 'text-muted-foreground'}>{p.plan_name ?? '—'}</TableCell>
+                    <TableCell>{p.estado ? <EstadoTag estado={p.estado} /> : <span className="text-muted-foreground">—</span>}</TableCell>
+                    <TableCell className="text-muted-foreground tabular-nums">{p.role === 'alumno' ? lastSeen(p.last_attendance_at) : '—'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
-          <Pager total={list.data.total} page={page} href={href} />
+          <Pager total={list.data.total} page={f.page} href={(n) => pageHref(params, n)} />
         </>
       )}
     </Page>

@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole, withRlsContext } from '../../middleware/auth.js';
 import { httpError } from '../../lib/errors.js';
 import { unpublishProfile } from '../../services/profiles.js';
-import { listProfiles, getProfile, changeRole, addGuardian, removeGuardian } from '../../services/users.js';
+import { listProfiles, getProfileStats, getProfile, changeRole, addGuardian, removeGuardian } from '../../services/users.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const checkId = (req, res, next, v) => (UUID_RE.test(v) ? next() : next(httpError(400, 'invalid_id', 'id inválido')));
@@ -13,8 +13,11 @@ router.use(requireAuth, requireRole('admin'));
 router.param('id', checkId);
 router.param('tutorId', checkId);
 
-// GET /admin/profiles?q&role&limit&offset → { profiles, total, limit, offset }
+// GET /admin/profiles?q&role&discipline_id&plan_id&estado&limit&offset → { profiles, total, limit, offset }
 router.get('/profiles', withRlsContext((req, client) => listProfiles(client, req.query)));
+
+// GET /admin/profiles/stats?discipline_id → { activos, impago, inactivos } (antes de /:id)
+router.get('/profiles/stats', withRlsContext((req, client) => getProfileStats(client, req.query)));
 
 // GET /admin/profiles/:id → { profile, status, guardians, children, subscription, insurance } (sin birth_date ni salud)
 router.get('/profiles/:id', withRlsContext((req, client) => getProfile(client, { id: req.params.id, actorId: req.user.id })));

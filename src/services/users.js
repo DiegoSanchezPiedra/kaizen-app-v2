@@ -3,12 +3,14 @@
 import { httpError } from '../lib/errors.js';
 import { invalid, audit } from './catalog.js';
 import { getProfileStatus } from './profile.js';
-import { getSubscription, getInsurance } from './billing.js';
+import { getSubscription, getInsurance, affectedSql } from './billing.js';
 
 const LIVE = `('active', 'past_due', 'unpaid')`;
 const ROLES = ['alumno', 'tutor', 'profesor', 'admin'];
 const SETTABLE = ['alumno', 'tutor', 'profesor'];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ID_RE = /^\d{1,18}$/;
+const STATES = ['activo', 'impago', 'inactivo', 'sin_plan'];
 
 const MINOR = `COALESCE(p.birth_date > CURRENT_DATE - interval '18 years', false)`;
 // Hijo que cumplió 18 sin acceso propio (D16). Un hijo es un perfil sin credenciales con algún tutor (ADR 0002).
@@ -21,8 +23,52 @@ const ROLE = `COALESCE(r.role::text, 'alumno')`;
 const notFound = () => httpError(404, 'profile_not_found', 'Perfil no encontrado');
 const conflict = (code, message) => httpError(409, code, message);
 
-/** Lista con búsqueda en nombre y email: `{ profiles, total, limit, offset }`, por nombre. */
-export async function listProfiles(client, { q, role, limit = 25, offset = 0 }) {
+// Alumno de la disciplina $1 (NULL = cualquiera) por su suscripción viva.
+// shortcut: copia la regla de covers() (migrations/019) pero sobre la suscripción viva (covers solo mira la en vigor y
+// así un impagado no sería de ninguna disciplina); unificar en una función común la próxima vez que se migre covers.
+const IN_DISCIPLINE = `($1::bigint IS NULL OR EXISTS (
+  SELECT 1 FROM subscriptions s JOIN plans pl ON pl.id = s.plan_id JOIN disciplines d ON d.id = $1 AND d.is_active
+   WHERE s.student_id = p.id AND s.status IN ${LIVE}
+     AND (NOT (p.birth_date IS NULL OR p.birth_date <= CURRENT_DATE - interval '18 years')
+          OR NOT (d.minors_only OR pl.minors_only))
+     AND (d.is_open OR CASE WHEN pl.max_disciplines IS NULL
+            THEN NOT EXISTS (SELECT 1 FROM plan_disciplines pd WHERE pd.plan_id = pl.id)
+              OR EXISTS (SELECT 1 FROM plan_disciplines pd WHERE pd.plan_id = pl.id AND pd.discipline_id = d.id)
+            ELSE EXISTS (SELECT 1 FROM subscription_disciplines sd WHERE sd.subscription_id = s.id AND sd.discipline_id = d.id)
+          END)))`;
+
+// Cada perfil con su plan (suscripción viva), última asistencia y estado (solo alumnos), el más fuerte:
+// impago (sale en Cobros › Morosos: CONTEXT § Moroso) > inactivo (en vigor sin asistencia en 14 días) > activo > sin plan.
+const PEOPLE = `${affectedSql('true')},
+  impago AS (SELECT DISTINCT a.student_id FROM affected a JOIN payers USING (payer_id)),
+  people AS (
+    SELECT p.id, p.display_name, c.email, ${ROLE} AS role, ${MINOR} AS is_minor, ${PENDING_CLAIM} AS pending_claim,
+           p.created_at, ls.status AS subscription_status, ls.plan_id, ls.plan_name, la.at AS last_attendance_at,
+           CASE WHEN ${ROLE} <> 'alumno' THEN NULL
+                WHEN p.id IN (SELECT student_id FROM impago) THEN 'impago'
+                WHEN ls.status IN ('active', 'past_due')
+                  THEN CASE WHEN la.at >= now() - interval '14 days' THEN 'activo' ELSE 'inactivo' END
+                ELSE 'sin_plan' END AS estado
+      ${FROM}
+      LEFT JOIN LATERAL (SELECT s.status, s.plan_id, pl.name AS plan_name
+                           FROM subscriptions s JOIN plans pl ON pl.id = s.plan_id
+                          WHERE s.student_id = p.id AND s.status IN ${LIVE} ORDER BY s.created_at DESC LIMIT 1) ls ON true
+      LEFT JOIN LATERAL (SELECT max(cs.starts_at) AS at
+                           FROM attendance a JOIN class_sessions cs ON cs.id = a.session_id
+                          WHERE a.student_id = p.id AND a.status = 'present' AND cs.status <> 'cancelled') la ON true
+     WHERE ${IN_DISCIPLINE})`;
+
+const idParam = (field, v) => {
+  if (v === undefined) return null;
+  if (typeof v !== 'string' || !ID_RE.test(v)) throw invalid(field, `${field} debe ser un id`);
+  return v;
+};
+
+/**
+ * Lista con búsqueda en nombre y email y filtros de rol, disciplina, plan y estado: `{ profiles, total, limit, offset }`,
+ * por nombre. `estado=activo` incluye a los inactivos (son un subconjunto, como en los KPIs).
+ */
+export async function listProfiles(client, { q, role, discipline_id: disciplineId, plan_id: planId, estado, limit = 25, offset = 0 }) {
   limit = Number(limit);
   offset = Number(offset);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0) {
@@ -30,18 +76,33 @@ export async function listProfiles(client, { q, role, limit = 25, offset = 0 }) 
   }
   if (q !== undefined && (typeof q !== 'string' || q.length > 100)) throw invalid('q', 'q debe ser un texto');
   if (role !== undefined && !ROLES.includes(role)) throw invalid('role', 'role debe ser alumno, tutor, profesor o admin');
-  const where = `WHERE ($1::text IS NULL OR p.display_name ILIKE '%' || $1 || '%' OR c.email ILIKE '%' || $1 || '%')
-                   AND ($2::text IS NULL OR ${ROLE} = $2)`;
-  const params = [q ? q.replace(/[\\%_]/g, '\\$&') : null, role ?? null];
+  if (estado !== undefined && !STATES.includes(estado)) {
+    throw invalid('estado', 'estado debe ser activo, impago, inactivo o sin_plan');
+  }
+  const where = `WHERE ($2::text IS NULL OR display_name ILIKE '%' || $2 || '%' OR email ILIKE '%' || $2 || '%')
+                   AND ($3::text IS NULL OR role = $3) AND ($4::bigint IS NULL OR plan_id = $4)
+                   AND ($5::text IS NULL OR estado = $5 OR ($5 = 'activo' AND estado = 'inactivo'))`;
+  const params = [idParam('discipline_id', disciplineId), q ? q.replace(/[\\%_]/g, '\\$&') : null, role ?? null,
+    idParam('plan_id', planId), estado ?? null];
   const { rows } = await client.query(
-    `SELECT p.id, p.display_name, c.email, ${ROLE} AS role, ${MINOR} AS is_minor, ${PENDING_CLAIM} AS pending_claim,
-            p.created_at,
-            (SELECT s.status FROM subscriptions s WHERE s.student_id = p.id AND s.status IN ${LIVE}
-              ORDER BY s.created_at DESC LIMIT 1) AS subscription_status
-       ${FROM} ${where}
-      ORDER BY p.display_name, p.id LIMIT $3 OFFSET $4`, [...params, limit, offset]);
-  const { rows: [{ total }] } = await client.query(`SELECT count(*)::int AS total ${FROM} ${where}`, params);
+    `WITH ${PEOPLE}
+     SELECT id, display_name, email, role, is_minor, pending_claim, created_at, subscription_status, plan_id, plan_name,
+            estado, last_attendance_at
+       FROM people ${where}
+      ORDER BY display_name, id LIMIT $6 OFFSET $7`, [...params, limit, offset]);
+  const { rows: [{ total }] } = await client.query(`WITH ${PEOPLE} SELECT count(*)::int AS total FROM people ${where}`, params);
   return { profiles: rows, total, limit, offset };
+}
+
+/** KPIs de Usuarios, solo alumnos: activos (en vigor y sin impago), impago e inactivos (subconjunto de activos). */
+export async function getProfileStats(client, { discipline_id: disciplineId }) {
+  const { rows: [stats] } = await client.query(
+    `WITH ${PEOPLE}
+     SELECT count(*) FILTER (WHERE estado IN ('activo', 'inactivo'))::int AS activos,
+            count(*) FILTER (WHERE estado = 'impago')::int AS impago,
+            count(*) FILTER (WHERE estado = 'inactivo')::int AS inactivos
+       FROM people WHERE role = 'alumno'`, [idParam('discipline_id', disciplineId)]);
+  return stats;
 }
 
 async function profileRow(client, id) {
