@@ -3,6 +3,8 @@ import { Router } from 'express';
 import { requireAuth, requireRole, withRlsContext } from '../../middleware/auth.js';
 import { httpError } from '../../lib/errors.js';
 import { unpublishProfile } from '../../services/profiles.js';
+import { withRls } from '../../db/rls.js';
+import { setAvatar, deleteAvatarFile, noticeAvatarRemoved } from '../../services/avatar.js';
 import { listProfiles, getProfileStats, getProfile, changeRole, addGuardian, removeGuardian } from '../../services/users.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -35,5 +37,17 @@ router.delete('/profiles/:id/guardians/:tutorId', withRlsContext((req, client) =
 // POST /admin/profiles/:id/unpublish → { id, is_public: false } (idempotente; audit_log profile.unpublish)
 router.post('/profiles/:id/unpublish', withRlsContext(async (req, client) =>
   unpublishProfile(client, { id: req.params.id, actorId: req.user.id })));
+
+// DELETE /admin/profiles/:id/avatar → 204: quita una foto inadecuada (B24). Aviso al dueño o a sus tutores, sin motivo.
+router.delete('/profiles/:id/avatar', async (req, res, next) => {
+  try {
+    const old = await withRls({ uid: req.user.id, role: req.user.role }, (client) => setAvatar(client, req.user.id, req.params.id, null));
+    await deleteAvatarFile(old);
+    if (old) await noticeAvatarRemoved(req.user.id, req.params.id);
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;

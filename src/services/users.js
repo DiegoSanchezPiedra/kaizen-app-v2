@@ -42,7 +42,7 @@ const IN_DISCIPLINE = `($1::bigint IS NULL OR EXISTS (
 const PEOPLE = `${affectedSql('true')},
   impago AS (SELECT DISTINCT a.student_id FROM affected a JOIN payers USING (payer_id)),
   people AS (
-    SELECT p.id, p.display_name, c.email, ${ROLE} AS role, ${MINOR} AS is_minor, ${PENDING_CLAIM} AS pending_claim,
+    SELECT p.id, p.display_name, p.avatar, c.email, ${ROLE} AS role, ${MINOR} AS is_minor, ${PENDING_CLAIM} AS pending_claim,
            p.created_at, ls.status AS subscription_status, ls.plan_id, ls.plan_name, la.at AS last_attendance_at,
            CASE WHEN ${ROLE} <> 'alumno' THEN NULL
                 WHEN p.id IN (SELECT student_id FROM impago) THEN 'impago'
@@ -86,7 +86,7 @@ export async function listProfiles(client, { q, role, discipline_id: disciplineI
     idParam('plan_id', planId), estado ?? null];
   const { rows } = await client.query(
     `WITH ${PEOPLE}
-     SELECT id, display_name, email, role, is_minor, pending_claim, created_at, subscription_status, plan_id, plan_name,
+     SELECT id, display_name, avatar, email, role, is_minor, pending_claim, created_at, subscription_status, plan_id, plan_name,
             estado, last_attendance_at
        FROM people ${where}
       ORDER BY display_name, id LIMIT $6 OFFSET $7`, [...params, limit, offset]);
@@ -107,7 +107,7 @@ export async function getProfileStats(client, { discipline_id: disciplineId }) {
 
 async function profileRow(client, id) {
   const { rows: [row] } = await client.query(
-    `SELECT p.id, p.display_name, c.email, ${ROLE} AS role, p.created_at, ${MINOR} AS is_minor,
+    `SELECT p.id, p.display_name, p.avatar, c.email, ${ROLE} AS role, p.created_at, ${MINOR} AS is_minor,
             ${PENDING_CLAIM} AS pending_claim, COALESCE(p.is_public, false) AS is_public,
             COALESCE(c.password_hash IS NOT NULL, false) AS has_password,
             COALESCE(c.google_sub IS NOT NULL, false) AS has_google

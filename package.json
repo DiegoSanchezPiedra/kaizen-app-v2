@@ -35,6 +35,8 @@
     "test:admin": "dotenv -e .env -- node scripts/test-admin.js",
     "test:user-stats": "dotenv -e .env -- node scripts/test-user-stats.js",
     "test:home": "dotenv -e .env -- node scripts/test-home.js",
+    "test:password": "dotenv -e .env -- node scripts/test-password.js",
+    "test:avatar": "dotenv -e .env -- node scripts/test-avatar.js",
     "extend-horizon": "dotenv -e .env -- node scripts/extend-horizon.js",
     "nightly": "dotenv -e .env -- node scripts/nightly.js",
     "sync-stripe-plans": "dotenv -e .env -- node scripts/sync-stripe-plans.js",

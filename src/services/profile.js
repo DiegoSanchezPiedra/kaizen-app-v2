@@ -55,7 +55,7 @@ const TUTOR_REQUIRED = ['display_name', 'data_protection'];
 export async function getMe(client, user) {
   const { rows } = await client.query(
     `SELECT p.id, $2::text AS role, p.display_name, c.email, p.birth_date::text AS birth_date,
-            c.password_hash IS NOT NULL AS has_password
+            c.password_hash IS NOT NULL AS has_password, p.avatar
        FROM profiles p LEFT JOIN auth_credentials c ON c.profile_id = p.id
       WHERE p.id = $1`,
     [user.id, user.role]
@@ -81,7 +81,7 @@ export async function assertGuardianOf(client, profileId) {
 }
 
 // birth_date::text: pg convierte `date` a Date local y en JSON sale el día anterior en UTC.
-const CHILD_COLUMNS = `id, display_name, birth_date::text AS birth_date, NOT is_guardian_of(id) AS pending_claim`;
+const CHILD_COLUMNS = `id, display_name, birth_date::text AS birth_date, NOT is_guardian_of(id) AS pending_claim, avatar`;
 
 /** Hijos del tutor, incluidos los que cumplieron 18 sin reclamar su perfil (pending_claim, D16). */
 export async function listChildren(client, tutorId) {

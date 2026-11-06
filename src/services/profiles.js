@@ -4,17 +4,17 @@ import { httpError } from '../lib/errors.js';
 import { invalid, audit } from './catalog.js';
 
 // B14: ranking no es columna de la ficha (decide salir en los rankings); achievements, NULL si no se enseña.
-export const VISIBLE_FIELDS = ['bio', 'social_links', 'disciplines', 'member_since', 'ranking', 'achievements'];
+export const VISIBLE_FIELDS = ['bio', 'social_links', 'disciplines', 'member_since', 'ranking', 'achievements', 'photo'];
 export const SOCIAL_NETWORKS = ['instagram', 'tiktok', 'youtube', 'web'];
 const ROLES = ['alumno', 'profesor'];
 const ID_RE = /^\d{1,18}$/;
-const CARD = `SELECT id, display_name, role, bio, social_links, disciplines, member_since, achievements
+const CARD = `SELECT id, display_name, role, bio, social_links, disciplines, member_since, achievements, avatar
                 FROM public_profiles`;
 
 const notFound = () => httpError(404, 'profile_not_found', 'Perfil no encontrado');
 // Un campo oculto no aparece (la vista lo da NULL).
 const card = (row) => {
-  for (const k of VISIBLE_FIELDS) if (row[k] === null) delete row[k];
+  for (const k of [...VISIBLE_FIELDS, 'avatar']) if (row[k] === null) delete row[k]; // avatar: la columna del campo photo
   return row;
 };
 

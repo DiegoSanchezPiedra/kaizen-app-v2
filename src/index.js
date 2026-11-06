@@ -22,6 +22,7 @@ import adminReportsRouter from './routes/admin/reports.js';
 import adminPanelRouter from './routes/admin/panel.js';
 import adminEventsRouter from './routes/admin/events.js';
 import eventsRouter from './routes/events.js';
+import avatarsRouter from './routes/avatars.js';
 import profilesRouter from './routes/profiles.js';
 import rankingsRouter from './routes/rankings.js';
 import tabletRouter from './routes/tablet.js';
@@ -73,6 +74,7 @@ app.use('/billing', billingRouter);
 app.use('/sessions', sessionsRouter); // antes que attendanceRouter: su requireRole cierra todo /sessions
 app.use('/sessions', attendanceRouter);
 app.use('/profiles', profilesRouter);
+app.use('/avatars', avatarsRouter); // sin token (ADR 0019)
 app.use('/rankings', rankingsRouter);
 app.use('/push', pushRouter);
 app.use('/', catalogRouter);

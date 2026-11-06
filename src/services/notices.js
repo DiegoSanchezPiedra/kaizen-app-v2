@@ -17,7 +17,7 @@ const CHANNELS = Object.fromEntries([
   'plan_downgraded', 'upgrade_requires_action',
   'subscription_unpaid', 'insurance_unpaid', 'subscription_cancelled',
   'insurance_cancelled', 'payer_change_requested', 'payer_change_paid', 'payer_change_expired', 'payer_change_cancelled',
-  'event_refunded',
+  'event_refunded', 'avatar_removed',
 ].map((a) => [`notice.${a}`, ['email']]));
 
 /** Aviso + una entrega por destinatario no admin y canal, en una sentencia (también en autocommit). */
@@ -269,6 +269,10 @@ const SERVICE = {
   'notice.event_registration_cancelled': (g) => ({
     title: 'Inscripción cancelada', body: `${eventLabel(g)}: la academia ha cancelado la inscripción`,
   }),
+  'notice.avatar_removed': (g) => ({
+    title: 'Foto de perfil quitada',
+    body: `La academia ha quitado la foto de perfil de ${g.c.profile_name ?? 'tu cuenta'}. Puedes subir otra desde Cuenta.`,
+  }),
   'notice.agreement_published': (g) => ({
     title: 'Nueva versión de un acuerdo',
     body: `Hay una versión nueva de ${AGREEMENT_NAMES[g.c.type]}. Fírmala para seguir reservando.`,
@@ -307,7 +311,8 @@ async function composeService(db, d) {
   // Su última sesión empezó después de comprobar la caducidad: caducado, no fallido.
   if (isBooking && !g.sessions.length) throw Object.assign(new Error('stale'), { stale: true });
   const { title, body } = SERVICE[d.action](g);
-  const url = isBooking ? BOOKINGS : isEvent ? `${APP_URL}/events/${d.changes.event_id}` : AGREEMENTS_URL;
+  const isAvatar = d.action === 'notice.avatar_removed';
+  const url = isBooking ? BOOKINGS : isEvent ? `${APP_URL}/events/${d.changes.event_id}` : isAvatar ? `${APP_URL}/account` : AGREEMENTS_URL;
   if (d.channel === 'push') return { title, body, url, tag: d.audit_id };
   const { rows: [r] } = await db.query(
     `SELECT pr.display_name AS payer, ac.email FROM profiles pr
@@ -319,6 +324,7 @@ async function composeService(db, d) {
       ['Ver las reservas', url], 'Este es un email de servicio sobre tus reservas en Kaizen.')
     : isEvent ? mail(`${title}: ${g.title}`, r, [`${body}.`], ['Ver el evento', url],
       'Este es un email de servicio sobre tus eventos en Kaizen.')
+    : isAvatar ? mail(title, r, [body], ['Ir a Cuenta', url], 'Este es un email de servicio sobre tu cuenta en Kaizen.')
     : mail(title, r, [body], ['Ver los acuerdos', url], 'Este es un email de servicio sobre tus acuerdos en Kaizen.');
   return { to: r.email, ...msg };
 }

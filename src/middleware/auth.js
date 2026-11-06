@@ -24,10 +24,16 @@ export async function requireAuth(req, res, next) {
   }
   // B19: el rol es el de user_roles en cada petición, no el del token (un cambio de rol vale al momento).
   // Se lee con el contexto RLS del propio perfil (user_roles_select deja leer la fila propia); sin fila, alumno.
+  // ADR 0020: un token emitido antes del último cambio de contraseña ya no vale (auth_credentials propia, también por RLS).
   try {
-    const { rows } = await withRls({ uid: payload.sub, role: 'alumno' }, (client) =>
-      client.query(`SELECT role FROM user_roles WHERE user_id = $1`, [payload.sub]));
-    req.user = { id: payload.sub, role: rows[0]?.role ?? 'alumno' };
+    const { rows: [u] } = await withRls({ uid: payload.sub, role: 'alumno' }, (client) => client.query(
+      `SELECT (SELECT role FROM user_roles WHERE user_id = $1) AS role,
+              (SELECT extract(epoch FROM credentials_changed_at)::bigint FROM auth_credentials WHERE profile_id = $1) AS changed`,
+      [payload.sub]));
+    if (u.changed !== null && payload.iat < Number(u.changed)) {
+      return next(httpError(401, 'session_revoked', 'session revoked'));
+    }
+    req.user = { id: payload.sub, role: u.role ?? 'alumno' };
   } catch (err) {
     return next(err);
   }

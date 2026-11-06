@@ -1,5 +1,5 @@
 // src/routes/me.js
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { httpError } from '../lib/errors.js';
 import { requireAuth, requireRole, withRlsContext } from '../middleware/auth.js';
 import {
@@ -18,7 +18,11 @@ import {
 import { signAgreement } from '../services/agreements.js';
 import { getMyProfile, updateMyProfile, VISIBLE_FIELDS, SOCIAL_NETWORKS } from '../services/profiles.js';
 import { getProgress } from '../services/progress.js';
-import { isValidPastDate, isAdultBirthDate } from '../services/auth.js';
+import { isValidPastDate, isAdultBirthDate, changePassword, sendPasswordChanged } from '../services/auth.js';
+import { signToken } from '../services/jwt.js';
+import { withRls } from '../db/rls.js';
+import { storeAvatar, setAvatar, deleteAvatarFile, AVATAR_MAX_BYTES } from '../services/avatar.js';
+import { authLimit, avatarLimit } from '../middleware/rateLimit.js';
 
 const router = Router();
 
@@ -353,5 +357,53 @@ router.delete(
     return { status: 204, body: null };
   })
 );
+
+// ------------------------------------------------------------
+// Contraseña (B24, ADR 0020). POST /me/password { current_password, new_password } → { token }: el token nuevo de esta
+// sesión; los de antes (también los de otros dispositivos) dejan de valer. 400 invalid_field | wrong_password |
+// weak_password; 409 no_password (cuenta solo con Google). Con el límite del login. Avisa por email.
+// ------------------------------------------------------------
+router.post(
+  '/password',
+  requireAuth,
+  authLimit,
+  withRlsContext(async (req, client) => {
+    const { iat, email } = await changePassword(client, req.user.id, req.body ?? {});
+    sendPasswordChanged(email);
+    return { token: signToken({ sub: req.user.id, role: req.user.role, iat }) };
+  }),
+);
+
+// ------------------------------------------------------------
+// Foto de perfil (B24, ADR 0019). Con profile_id, la de un hijo del tutor (403 not_guardian si no lo es).
+// PUT    /me/avatar[?profile_id] cuerpo crudo image/jpeg|png|webp, ≤ 1 MB → { avatar }; 400 invalid_image, 413 too_large
+// DELETE /me/avatar[?profile_id] → 204 (también sin foto)
+// El fichero viejo se borra después del COMMIT.
+// ------------------------------------------------------------
+const rawImage = (req, res, next) => express.raw({ type: () => true, limit: AVATAR_MAX_BYTES })(req, res, (err) =>
+  next(err?.type === 'entity.too.large' ? httpError(413, 'too_large', 'la foto pasa de 1 MB') : err));
+
+const avatarRoute = (put) => async (req, res, next) => {
+  try {
+    const subject = req.query.profile_id ?? req.user.id;
+    const name = put ? await storeAvatar(req.body, req.get('content-type')?.split(';')[0].trim()) : null;
+    let old;
+    try {
+      old = await withRls({ uid: req.user.id, role: req.user.role }, async (client) => {
+        if (subject !== req.user.id) await assertGuardianOf(client, subject);
+        return setAvatar(client, req.user.id, subject, name);
+      });
+    } catch (err) {
+      await deleteAvatarFile(name); // no llegó a la base: el nuevo sobra
+      throw err;
+    }
+    await deleteAvatarFile(old);
+    return put ? res.json({ avatar: name }) : res.status(204).end();
+  } catch (err) {
+    return next(err);
+  }
+};
+router.put('/avatar', requireAuth, avatarLimit, validateSubject, rawImage, avatarRoute(true));
+router.delete('/avatar', requireAuth, validateSubject, avatarRoute(false));
 
 export default router;

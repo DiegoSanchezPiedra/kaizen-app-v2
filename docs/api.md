@@ -17,7 +17,7 @@
   `/auth/login`, `/auth/google`, `/auth/mfa/verify` y `/auth/password/reset`: 30 cada 15 min (contador común); `/auth/password/forgot`:
   5 por hora; `/tablet/link`: 10 cada 15 min; todo `/admin/agreements/*`: 60 cada 15 min. La IP sale de `TRUST_PROXY` (saltos de proxy:
   1 en el VPS con Nginx, 2 en el staging con Tailscale Funnel + Nginx).
-- **Comunes**: `401 missing_token|invalid_token`, `403 insufficient_role` (rol no permitido), `400 invalid_id` (uuid o id
+- **Comunes**: `401 missing_token|invalid_token|session_revoked` (`session_revoked`: el token se emitió antes del último cambio o restablecimiento de la contraseña, ADR 0020), `403 insufficient_role` (rol no permitido), `400 invalid_id` (uuid o id
   numérico mal formado), `404 not_found` (ruta inexistente).
 - **Perfil completo** (`requireCompleteProfile`): reservar, contratar y el Checkout del cambio de pagador fallan con
   `403 profile_incomplete { missing: [...] }` si al sujeto (y al tutor que actúa por un hijo) le falta algo.
@@ -72,8 +72,12 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 
 | Método y ruta | Rol | Cuerpo / query | Respuesta |
 |---|---|---|---|
-| `GET /me` | cualquiera | — | `{ id, role, display_name, email, birth_date, has_password }` (`birth_date` y `display_name` pueden ser `null` tras el alta con Google) |
+| `GET /me` | cualquiera | — | `{ id, role, display_name, email, birth_date, has_password, avatar }` (`avatar`: nombre de la foto o `null`; la imagen está en `GET /avatars/<avatar>`) (`birth_date` y `display_name` pueden ser `null` tras el alta con Google) |
 | `PATCH /me` | cualquiera | `{ display_name?, birth_date? }` | como `GET /me`. `display_name` no vacío (`invalid_field_type`); `birth_date` solo si estaba vacía (`409 birth_date_already_set`) y de un adulto (`minor_cannot_register`, `invalid_birth_date`); `no_fields` |
+| `POST /me/password` | cualquiera | `{ current_password, new_password }` | `{ token }` (B24, ADR 0020): el token nuevo de esta sesión; los anteriores, también los de otros dispositivos, dan `401 session_revoked`. Email de aviso. `400 invalid_field`, `wrong_password`, `weak_password` (< 8); `409 no_password` (cuenta solo con Google: se crea con `POST /auth/password/forgot`). Con el límite del login. `audit_log` `auth.password_change` |
+| `PUT /me/avatar?profile_id` | cualquiera (tutor con `profile_id` de un hijo menor) | cuerpo crudo `image/jpeg`, `image/png` o `image/webp`, ≤ 1 MB | `{ avatar }` (B24, ADR 0019). El frontend la recorta a 512×512 JPEG. `400 invalid_image` (tipo no admitido o la firma no cuadra), `413 too_large`, `403 not_guardian`. 20 por hora. `audit_log` `profile.avatar_set` |
+| `DELETE /me/avatar?profile_id` | igual | — | `204` (también sin foto). Borra el fichero. `audit_log` `profile.avatar_remove` |
+| `GET /avatars/:name` | **sin token** | — | la imagen, con su tipo, `nosniff`, CSP `default-src 'none'` y caché de un año (el nombre cambia con la foto). `404 avatar_not_found`. La URL solo llega en respuestas que quien mira puede ver: `GET /me`, `/me/children`, `/admin/profiles` (lista y ficha), asistentes de `/sessions/:id/attendance`, alumnos de `GET /admin/sessions/:id` y el perfil público con `visible_fields.photo` |
 | `GET /me/profile-status?profile_id=` | cualquiera | — | `{ ok, missing?, risk_cover? }` (`risk_cover`: tiene seguro o waiver) |
 | `GET /me/health?profile_id=` | cualquiera (propia o de un hijo) | — | `{ health }` (los campos de `POST /me/health` y `updated_at`) o `{ health: null }`. `403 not_guardian` |
 | `POST /me/health` | alumno, tutor | `{ profile_id?, injuries?, conditions?, previous_experience?, previous_discipline?, medication?, allergies?, emergency_contact_name?, emergency_contact_phone? }` (strings o null) | `{ health }`. `no_fields`, `invalid_field_type`, `403 not_guardian` |
@@ -89,7 +93,7 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 | `DELETE /me/push-subscriptions` | alumno, tutor | `{ endpoint }` | `204` (llamar **antes** de borrar el token) |
 | `GET /push/vapid-public-key` | cualquiera | — | `{ key }`; `503 push_disabled` |
 
-`visible_fields` admite `bio`, `social_links`, `disciplines`, `member_since`, `achievements` y `ranking`.
+`visible_fields` admite `bio`, `social_links`, `disciplines`, `member_since`, `achievements`, `ranking` y `photo` (B24: la foto en el perfil público, columna `avatar`).
 
 ## Catálogo, calendario y reservas
 
@@ -316,6 +320,7 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 | `GET /admin/agreements/documents/:id/file` | — | el PDF (`application/pdf`, con `X-Agreement-Type` y `X-Agreement-Version`) de cualquier estado: borrador, vigente o retirado. `404 document_not_found` |
 | `POST /admin/agreements/documents/:id/publish` | — | `{ document }` (retira la vigente y avisa para re-firmar) |
 | `POST /admin/profiles/:id/unpublish` | — | `{ id, is_public: false }` |
+| `DELETE /admin/profiles/:id/avatar` | — | `204`: quita una foto inadecuada (B24). Aviso `notice.avatar_removed` (email) al dueño o, si es un menor sin acceso propio, a sus tutores, sin el motivo. `audit_log` `profile.avatar_remove` |
 
 **Informes** (B17)
 

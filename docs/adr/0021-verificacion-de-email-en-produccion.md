@@ -8,7 +8,7 @@ Decisión del 2026-11-06, en el diseño de B24. **Solo diseñada**: se construye
   inscribirse en un evento: lo que cuesta dinero u ocupa plaza espera a la verificación.
 - **Cambiar la contraseña** con la sesión iniciada pedirá, además de la actual, confirmar con un enlace del email. Recuperarla
   ya pasa por el email (B18.0).
-- **Piezas que ya existen y se reutilizan**: los tokens de un solo uso con solo su SHA-256 guardado (`password_resets`,
+- **Piezas que ya existen y se reutilizan**: la columna `auth_credentials.email_verified` (de la migración 002, sin usar todavía), los tokens de un solo uso con solo su SHA-256 guardado (`password_resets`,
   migración 025), el envío directo de emails (`send`) y la invalidación de tokens del ADR 0020.
 
 ## Considered Options

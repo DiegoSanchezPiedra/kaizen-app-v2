@@ -247,7 +247,7 @@ export async function getSessionDetail(client, id) {
       WHERE s.id = $1`, [id]);
   if (!session) throw httpError(404, 'session_not_found', 'Sesión no encontrada');
   const { rows: bookings } = await client.query(
-    `SELECT b.id, jsonb_build_object('id', p.id, 'display_name', p.display_name) AS student, b.status, b.created_at
+    `SELECT b.id, jsonb_build_object('id', p.id, 'display_name', p.display_name, 'avatar', p.avatar) AS student, b.status, b.created_at
        FROM bookings b JOIN profiles p ON p.id = b.student_id
       WHERE b.session_id = $1 AND b.status IN ('confirmed', 'waitlisted')
       ORDER BY b.status, b.created_at, b.id`, [id]);

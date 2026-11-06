@@ -219,3 +219,35 @@ export async function resetPassword({ token, password }) {
   const { rows: [r] } = await appPool.query(`SELECT consume_password_reset($1, $2) AS ok`, [sha256(token), passwordHash]);
   if (!r.ok) throw httpError(400, 'invalid_reset_token', 'token inválido, caducado o ya usado');
 }
+
+// ---------------------------------------------------------------------------
+// Cambiar la contraseña con la sesión iniciada (B24, ADR 0020). Pide la actual; una cuenta solo con Google la crea con
+// el email de restablecer (409 no_password). Cierra las demás sesiones: devuelve el iat (hora de la base) del token nuevo.
+// ---------------------------------------------------------------------------
+export async function changePassword(client, userId, { current_password: current, new_password: next } = {}) {
+  for (const [field, v] of [['current_password', current], ['new_password', next]]) {
+    if (typeof v !== 'string' || !v) throw httpError(400, 'invalid_field', `${field} es obligatorio`, { field });
+  }
+  const { rows: [cred] } = await client.query(`SELECT email, password_hash FROM auth_credentials WHERE profile_id = $1`, [userId]);
+  if (!cred?.password_hash) throw httpError(409, 'no_password', 'la cuenta no tiene contraseña: créala con el email de restablecer');
+  if (!(await verifyPassword(cred.password_hash, current))) throw httpError(400, 'wrong_password', 'la contraseña actual no es correcta');
+  assertStrongPassword(next);
+  const { rows: [r] } = await client.query(
+    `UPDATE auth_credentials SET password_hash = $2, credentials_changed_at = date_trunc('second', now())
+      WHERE profile_id = $1 RETURNING extract(epoch FROM credentials_changed_at)::bigint AS iat`,
+    [userId, await hashPassword(next)]);
+  await client.query(`SELECT write_audit($1, 'auth.password_change', 'profile', $2, '{}'::jsonb)`, [userId, userId]);
+  return { iat: Number(r.iat), email: cred.email };
+}
+
+/** Aviso de seguridad tras el cambio; directo, como el de recuperar (un fallo de envío no deshace el cambio). */
+export function sendPasswordChanged(email) {
+  send({
+    to: email,
+    ...mail('Tu contraseña de Kaizen ha cambiado', {}, [
+      'La contraseña de tu cuenta de Kaizen se acaba de cambiar y se han cerrado las sesiones abiertas en otros dispositivos.',
+      'Si no has sido tú, recupera el acceso ahora con «He olvidado mi contraseña» y escríbenos.',
+    ], ['Recuperar el acceso', `${APP_URL}/forgot-password`], 'Este es un email de servicio sobre tu cuenta en Kaizen.'),
+    idempotencyKey: crypto.randomUUID(),
+  }).catch((err) => console.error('[auth] email de contraseña cambiada:', err.message));
+}

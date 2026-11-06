@@ -117,11 +117,11 @@ try {
   console.error = (...a) => (String(a[0]).startsWith('[error]') || String(a[0]).startsWith('Error:') ? null : realError(...a));
 
   // ---------- Vista ----------
-  await run('public_profiles tiene exactamente las 8 columnas; app_user solo lee las vistas', async () => {
+  await run('public_profiles tiene exactamente las 9 columnas (B24: avatar); app_user solo lee las vistas', async () => {
     const { rows } = await servicePool.query(
       `SELECT column_name FROM information_schema.columns WHERE table_name = 'public_profiles' ORDER BY ordinal_position`);
     assert.deepEqual(rows.map((r) => r.column_name),
-      ['id', 'display_name', 'role', 'bio', 'social_links', 'disciplines', 'member_since', 'achievements']);
+      ['id', 'display_name', 'role', 'bio', 'social_links', 'disciplines', 'member_since', 'achievements', 'avatar']);
     const { rows: [p] } = await servicePool.query(
       `SELECT has_table_privilege('app_user', 'public_profiles', 'INSERT, UPDATE, DELETE') AS pw,
               has_table_privilege('app_user', 'trainer_names', 'INSERT, UPDATE, DELETE') AS tw,
@@ -282,18 +282,18 @@ try {
       await as(c, U.aluPriv, 'alumno');
       assert.equal((await getMyProfile(c, U.aluPriv)).eligible, true);
     });
-    await run('visible_fields se fusiona con lo guardado; los 6 flags siempre presentes', async () => {
+    await run('visible_fields se fusiona con lo guardado; los 7 flags siempre presentes (B24: photo)', async () => {
       await sp(c, async () => {
         await as(c, U.aluPriv, 'alumno');
         await c.query(`UPDATE profiles SET visible_fields = NULL WHERE id = $1`, [U.aluPriv]);
           assert.deepEqual((await getMyProfile(c, U.aluPriv)).visible_fields,
-            { bio: false, social_links: false, disciplines: false, member_since: false, ranking: false, achievements: false });
+            { bio: false, social_links: false, disciplines: false, member_since: false, ranking: false, achievements: false, photo: false });
           await updateMyProfile(c, U.aluPriv, { visible_fields: { bio: true } });
           const me = await updateMyProfile(c, U.aluPriv, { is_public: true, visible_fields: { member_since: true } });
           assert.deepEqual(me, {
             is_public: true, eligible: true, bio: `bio de ${tag}-aluPriv`, social_links: { web: 'https://example.com' },
             visible_fields: { bio: true, social_links: false, disciplines: false, member_since: true, ranking: false,
-              achievements: false },
+              achievements: false, photo: false },
           });
           await as(c, U.aluOther, 'alumno');
           assert.deepEqual(Object.keys(await getPublicProfile(c, U.aluPriv)).sort(),
