@@ -2301,8 +2301,11 @@
     Aprobada el 2026-11-06 con las cuatro recomendaciones: `docs/auditoria-b22.md` (§ 4 dirección, § 5 decisiones, § 6
     pendientes fuera de alcance). Manda sobre `docs/pantallas-b22.md` donde concreta más.
   - [x] **B22.1** — calendario semanal: alumno y tutor, profesor y Horario del admin. `useWeek` + `WeekBoard` + `SessionRow`; `ui/tabs` con el aspecto de `SectionTabs`.
-  - [ ] **B22.1b** — `/admin/classes` en móvil.
-  - [ ] **B22.2** — Membresías y Disciplinas en el menú.
+  - [x] **B22.1b** — `/admin/classes` en móvil. Tarjetas por día con la fila de Horario y menú «⋯» (`groupByWeekday`).
+  - [x] **B22.2** — Membresías y Disciplinas en el menú. `memberships.tsx`, `disciplines.tsx` y `catalog-bits.tsx`;
+    `/admin/catalog?tab=` redirige con `catalogRedirect`. En móvil la tarjeta abre la hoja de editar, y esa hoja lleva
+    «Elegir disciplinas» (desactivado con cambios sin guardar). Pendiente: `docs/pantallas-b19.md` § Catálogo aún habla
+    de `/admin/catalog`.
   - [ ] **B22.3** — KPIs y filtros de Usuarios (backend y frontend).
 - **En cada fase**: las skills en este orden (impeccable revisa, taste-skill para la dirección, emil-design-eng para el
   movimiento, make-interfaces-feel-better para el repaso final); Vitest de la lógica nueva (semana y día con
@@ -2310,6 +2313,10 @@
   `graphify update .`; revisión a 375 px y en escritorio; **desplegado en staging** (`npm run staging:build`) y probado
   en el iPhone por el staging. `staging:build` ya no hace `npm ci` (vaciaba `node_modules/.vite` y el Vite de desarrollo
   respondía 504); si cambia `frontend/package-lock.json`, `npm --prefix frontend ci` a mano con el Vite parado.
-- **Pendiente de comprobar en B22.3**: que la definición de «Morosos» se pueda calcular por disciplina sin coste alto; si no,
-  se vuelve a decidir.
+- **Comprobado en B22.3** (2026-11-06): con `covers` no se puede, porque solo mira suscripciones en vigor (activa o en
+  gracia) y un alumno impagado nunca «es» de una disciplina. **Decidido por el usuario**: (A) «es de la disciplina X»
+  copia la regla de `covers` en el servicio sobre la suscripción viva (activa, en gracia o impagada), sin migración,
+  `SECURITY DEFINER` ni RLS nueva, con un `shortcut:` que lo señala; (i) «Impago» son los alumnos distintos que salen en
+  Cobros › Morosos. Morosos cuenta pagadores y el KPI cuenta alumnos, así que las cifras pueden no ser iguales (la
+  tarjeta lo aclara). Un impagado no es «activo».
 - **Rama**: `b22-rediseno`, desde `b10-stripe`.
