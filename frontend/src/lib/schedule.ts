@@ -99,3 +99,10 @@ export type AdminClass = {
 // starts_on y ends_on son días de Madrid (YYYY-MM-DD, la API los manda como texto): se comparan tal cual.
 export const classState = (c: Pick<AdminClass, 'ends_on'>, today: string = madridDay()): 'active' | 'ending' | 'retired' =>
   !c.ends_on ? 'active' : c.ends_on < today ? 'retired' : 'ending'
+
+// La API ya manda las clases por día de la semana y hora: se agrupan por día sin reordenar.
+export const groupByWeekday = (classes: AdminClass[]): [number, AdminClass[]][] => {
+  const groups = new Map<number, AdminClass[]>()
+  for (const c of classes) groups.set(c.weekday, [...(groups.get(c.weekday) ?? []), c])
+  return [...groups]
+}
