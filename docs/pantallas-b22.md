@@ -1,5 +1,8 @@
 # Pantallas de B22 (rediseño)
 
+> **Ver también `docs/auditoria-b22.md`** (B22.0, aprobada el 2026-11-06): la composición de cada pantalla (§ 4) y las
+> decisiones (§ 5) concretan lo de aquí.
+
 > Fase técnica de B22, cerrada el 2026-11-06 (`plan-de-bloques.md` § B22). **Móvil primero**: cada pantalla se diseña a
 > 375 px y después se amplía con `sm:`/`lg:`. Mismo sistema de diseño de B18; las reglas de UI de `docs/pantallas-b19.md`
 > siguen valiendo (solo español, nada de salud ni edad en el panel, errores por `code`, confirmación en lo que cobra o avisa).

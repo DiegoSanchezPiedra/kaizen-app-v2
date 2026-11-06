@@ -2297,7 +2297,9 @@
     última asistencia en relativo («hace 3 días», «—» si nunca). Sin ordenar por columnas ni acciones en bloque; la fila
     abre la ficha.
 - **Fases** (una sesión por fase, una sola escritora del repo; modelos en `docs/modelos-por-bloque.md`):
-  - [ ] **B22.0** — auditoría de la PWA (impeccable) y dirección visual (taste-skill); el usuario la aprueba antes de seguir.
+  - [x] **B22.0** — auditoría de la PWA (impeccable) y dirección visual (taste-skill); el usuario la aprueba antes de seguir.
+    Aprobada el 2026-11-06 con las cuatro recomendaciones: `docs/auditoria-b22.md` (§ 4 dirección, § 5 decisiones, § 6
+    pendientes fuera de alcance). Manda sobre `docs/pantallas-b22.md` donde concreta más.
   - [ ] **B22.1** — calendario semanal: alumno y tutor, profesor y Horario del admin.
   - [ ] **B22.1b** — `/admin/classes` en móvil.
   - [ ] **B22.2** — Membresías y Disciplinas en el menú.
@@ -2305,7 +2307,9 @@
 - **En cada fase**: las skills en este orden (impeccable revisa, taste-skill para la dirección, emil-design-eng para el
   movimiento, make-interfaces-feel-better para el repaso final); Vitest de la lógica nueva (semana y día con
   `madridDay`/`weekStart`, filtros, KPIs); E2E por rol al estilo de B21.2; `typecheck`, `lint`, tests y `build` en verde;
-  `graphify update .`; revisión a 375 px y en escritorio; prueba en el iPhone por el staging.
+  `graphify update .`; revisión a 375 px y en escritorio; **desplegado en staging** (`npm run staging:build`) y probado
+  en el iPhone por el staging. `staging:build` hace `npm ci` en `frontend/` y vacía `node_modules/.vite`: parar antes el
+  Vite de desarrollo y arrancarlo después (si no, responde 504 «Outdated Optimize Dep»).
 - **Pendiente de comprobar en B22.3**: que la definición de «Morosos» se pueda calcular por disciplina sin coste alto; si no,
   se vuelve a decidir.
 - **Rama**: `b22-rediseno`, desde `b10-stripe`.
