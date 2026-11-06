@@ -122,7 +122,7 @@ Para apagar: Ctrl+C en las tres terminales y
 | Frontend | `npm run staging:build`: nginx sirve el `dist` nuevo al momento |
 | Backend | Ctrl+C y `npm run staging:api` |
 | Migraciones nuevas | `npm run staging:migrate` y reinicia la API |
-| `deploy/nginx.conf` | `docker restart kaizen-staging-nginx` (la config se copia al arrancar) |
+| `deploy/nginx.conf` | `docker restart kaizen-staging-nginx` (la config se copia al arrancar). Ojo: el service worker guarda `index.html` con sus cabeceras; un cambio de CSP no llega a quien ya tiene la app hasta el siguiente build del frontend |
 | `.env.staging` | reinicia la API (solo lo lee al arrancar). Si cambias `VITE_*`, también `npm run staging:build` |
 
 **La PWA no se actualiza sola, a propósito**: el navegador sigue con la versión que tenía guardada hasta que la persona toca el

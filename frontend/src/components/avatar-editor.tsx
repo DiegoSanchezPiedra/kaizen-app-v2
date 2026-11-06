@@ -109,10 +109,7 @@ export function AvatarEditor({ name, avatar, profileId, children }: { name: stri
   const url = path('/me/avatar', { profile_id: profileId })
   const done = () => queryClient.invalidateQueries({ queryKey: ['me'] }) // /me y /me/children
 
-  const close = () => {
-    if (picked) URL.revokeObjectURL(picked.src)
-    setPicked(null)
-  }
+  const close = () => setPicked(null)
   const upload = useMutation({
     mutationFn: (blob: Blob) => api(url, { method: 'PUT', body: blob }), // body Blob: api() manda su tipo (image/jpeg)
     onSuccess: async () => {
@@ -138,11 +135,16 @@ export function AvatarEditor({ name, avatar, profileId, children }: { name: stri
   function choose(file: File | undefined) {
     if (!file) return
     if (!file.type.startsWith('image/')) return unreadable()
-    const src = URL.createObjectURL(file)
-    const img = new Image()
-    img.onload = () => (img.naturalWidth && img.naturalHeight ? setPicked(img) : (URL.revokeObjectURL(src), unreadable()))
-    img.onerror = () => (URL.revokeObjectURL(src), unreadable())
-    img.src = src
+    // data: y no blob:: la CSP de nginx (img-src 'self' data:) no deja cargar un blob: en un <img>.
+    const reader = new FileReader()
+    reader.onerror = unreadable
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => (img.naturalWidth && img.naturalHeight ? setPicked(img) : unreadable())
+      img.onerror = unreadable
+      img.src = reader.result as string
+    }
+    reader.readAsDataURL(file)
   }
 
   return (
