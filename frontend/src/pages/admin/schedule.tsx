@@ -23,7 +23,7 @@ function CreateButtons({ onPick, className }: { onPick: (k: Kind) => void; class
   return (
     <div className={cn('gap-2', className)}>
       {CREATE.map((c) => (
-        <Button key={c.kind} variant="outline" size="xl" className="px-2 active:not-disabled:scale-[0.96] sm:px-3" onClick={() => onPick(c.kind)}>
+        <Button key={c.kind} variant="outline" size="xl" className="gap-1.5 px-2 text-sm active:not-disabled:scale-[0.96] sm:px-3" onClick={() => onPick(c.kind)}>
           <PlusIcon />
           {c.label}
         </Button>
@@ -65,7 +65,7 @@ export function AdminSchedulePage() {
         </>
       ) : (
         <>
-          <CreateButtons className="grid grid-cols-3 sm:hidden" onPick={setCreating} />
+          <CreateButtons className="grid grid-cols-[1fr_1.4fr_1fr] sm:hidden" onPick={setCreating} />
           <WeekView w={w} />
         </>
       )}
