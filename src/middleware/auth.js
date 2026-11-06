@@ -30,7 +30,7 @@ export async function requireAuth(req, res, next) {
       `SELECT (SELECT role FROM user_roles WHERE user_id = $1) AS role,
               (SELECT extract(epoch FROM credentials_changed_at)::bigint FROM auth_credentials WHERE profile_id = $1) AS changed`,
       [payload.sub]));
-    if (u.changed !== null && payload.iat < Number(u.changed)) {
+    if (u.changed !== null && !(payload.iat >= Number(u.changed))) { // sin iat, también fuera
       return next(httpError(401, 'session_revoked', 'session revoked'));
     }
     req.user = { id: payload.sub, role: u.role ?? 'alumno' };
