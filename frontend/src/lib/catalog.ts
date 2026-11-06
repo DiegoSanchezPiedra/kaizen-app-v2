@@ -12,6 +12,9 @@ export const centsToEuros = (cents: number): string => (cents / 100).toFixed(2).
 // «1», «2»… o «Todas» (null) en el campo «cuántas disciplinas» de un plan.
 export const maxDisciplinesLabel = (max: number | null): string => (max === null ? 'Todas' : String(max))
 
+// El catálogo era /admin/catalog con pestañas (?tab=plans | disciplines); ahora son dos rutas. Un enlace viejo, sin pestaña o con una desconocida, va a Disciplinas.
+export const catalogRedirect = (tab: string | null): string => (tab === 'plans' ? '/admin/memberships' : '/admin/disciplines')
+
 // ── Ajustes: tres grupos con su «Guardar» ────────────────────────────────────
 
 export type CheckinSettings = { opens_minutes: number | null; closes_minutes: number | null; qr_seconds: number | null }

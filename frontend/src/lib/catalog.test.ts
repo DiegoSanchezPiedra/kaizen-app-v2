@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   centsToEuros,
+  catalogRedirect,
   changed,
   checkinBody,
   eurosToCents,
@@ -108,5 +109,14 @@ describe('estado de una tablet', () => {
     expect(tabletState({ linked_at: '2026-11-01T10:00:00Z', revoked_at: null })).toBe('linked')
     expect(tabletState({ linked_at: '2026-11-01T10:00:00Z', revoked_at: '2026-11-02T10:00:00Z' })).toBe('revoked')
     expect(tabletState({ linked_at: null, revoked_at: '2026-11-02T10:00:00Z' })).toBe('revoked')
+  })
+})
+
+describe('redirección de /admin/catalog', () => {
+  it('?tab=plans va a Membresías; el resto, a Disciplinas', () => {
+    expect(catalogRedirect('plans')).toBe('/admin/memberships')
+    expect(catalogRedirect('disciplines')).toBe('/admin/disciplines')
+    expect(catalogRedirect(null)).toBe('/admin/disciplines')
+    expect(catalogRedirect('otra')).toBe('/admin/disciplines')
   })
 })
