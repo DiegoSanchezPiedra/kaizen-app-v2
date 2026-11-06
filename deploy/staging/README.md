@@ -208,3 +208,25 @@ Y repite el paso 1.4. Los roles de la BD solo se crean cuando el volumen está v
 - Solo claves de **prueba** de Stripe. Nada de este staging toca la cuenta live.
 - `frontend/vite.config.ts` no necesita `allowedHosts` para esto: nginx sirve el `dist` compilado. Solo haría falta para exponer el
   servidor de Vite (`npm run dev`) por el túnel.
+
+---
+
+## Datos de demo
+
+`npm run staging:demo` llena el staging con una academia mediana de 3 meses, para ver el panel del admin con cifras. Necesita el
+seed hecho (`npm run staging:seed`: disciplinas, planes, clases y profes) y la BD de staging en marcha. Crea:
+
+- 40 alumnos adultos con cuota (30 activas, 3 en gracia `past_due`, 3 impagadas `unpaid`, 4 bajas repartidas en los 3 meses), 6 tutores
+  con 10 menores (cuota Infantil activa), altas repartidas en 90 días y 3 de hoy. 6 alumnos activos no vienen desde hace más de 14 días.
+- Sesiones pasadas (90 días) de las clases que ya hay, reservas confirmadas (sin pasar el aforo) en pasadas y futuras (hasta +14 días)
+  y asistencia `present`/`absent` (~80 % presentes) en las que ya han empezado.
+- 3 eventos: 2 próximos (uno gratis, otro de pago) con inscritos confirmados, y 1 pasado.
+- Auditoría `subscription.create` / `subscription.cancel_now` por cada alta y baja (alimenta «Hoy en la academia»), y las fotos diarias
+  de `academy_stats_daily` de los 90 días anteriores a ayer (sintéticas); ayer y hoy salen de `academy_stats_of`.
+
+Es **repetible**: todo lo de demo lleva un id que empieza por `de0a0000-` (emails `@demo.kaizen.test`, sin contraseña: no se puede
+entrar con ellos) y cada ejecución lo borra y lo recrea en una transacción; lo que no es de demo no se toca (ni las cuentas del seed).
+Se niega a correr si la `DATABASE_URL_SERVICE` no es `kaizen_staging` en el `:5433` o si la clave de Stripe no es de prueba.
+
+**No toca Stripe.** Las cuotas llevan ids falsos (`sub_test_demo_*`, `cus_test_demo_*`): no tienen portal de facturación ni reciben
+webhooks, y no hay facturas. Sirven para mirar, no para cobrar, cancelar ni cambiar de plan desde la app.
