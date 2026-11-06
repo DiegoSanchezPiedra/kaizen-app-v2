@@ -1,6 +1,6 @@
-# Staging para que el cliente pruebe (por ngrok). BD aparte de la local (puerto 5433, volumen propio) y nginx con la
+# Staging para que el cliente pruebe (por Tailscale Funnel). BD aparte de la local (puerto 5433, volumen propio) y nginx con la
 # MISMA config de producción (deploy/nginx.conf: un solo origen, la API bajo /api). La API y el frontend compilado
-# corren en el host (npm run staging:api); ngrok apunta al puerto 8080.
+# corren en el host (npm run staging:api); Tailscale Funnel apunta al puerto 8080.
 # Uso: docker compose -f deploy/staging/docker-compose.staging.yaml --env-file .env.staging up -d
 services:
   db:

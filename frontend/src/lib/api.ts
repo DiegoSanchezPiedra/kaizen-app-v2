@@ -31,8 +31,6 @@ export const setWrongRoleHandler = (fn: () => void) => {
 
 async function once<T>(path: string, { method = 'GET', body, auth = true, blob }: Options): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' }
-  // shortcut: staging por ngrok gratis; sin esto, ngrok contesta a la API con su página de aviso (HTML). Quitar sin ngrok.
-  if (globalThis.location?.hostname.includes('ngrok')) headers['ngrok-skip-browser-warning'] = '1'
   const raw = body instanceof Blob
   if (body !== undefined) headers['Content-Type'] = raw ? body.type : 'application/json'
   const session = getSession()

@@ -1,10 +1,11 @@
-# Staging por ngrok (para que el cliente pruebe)
+# Staging por Tailscale Funnel (para que el cliente pruebe)
 
-Una instancia aparte de la de desarrollo, en tu máquina, publicada por ngrok. No es el despliegue final (VPS, ADR 0017):
+Una instancia aparte de la de desarrollo, en tu máquina, publicada por Tailscale Funnel (antes ngrok: su página de aviso del plan gratuito
+rompía la app instalada en iPhone). No es el despliegue final (VPS, ADR 0017):
 sirve para enseñar la app y que el cliente pruebe todo. **Stripe siempre en modo prueba** (la cuenta es la de maat).
 
 ```
-cliente ──https──▶ ngrok ──▶ nginx :8080 ──┬─▶ frontend/dist (PWA)
+cliente ──https──▶ Funnel ─▶ nginx :8080 ──┬─▶ frontend/dist (PWA)
                                            └─▶ /api → API :3100 ──▶ Postgres :5433
                     Stripe (sandbox) ──webhooks──▶ stripe listen ──▶ API :3100
 ```
@@ -34,8 +35,8 @@ Rellénalo:
   de las tres `DATABASE_URL*`. Genéralas con `openssl rand -hex 24`: sin `@ : / # %`, que rompen las URLs.
 - **Secretos de la API** (`JWT_SECRET`, `QR_HMAC_SECRET`, `TOTP_ENCRYPTION_KEY`, `MFA_ENCRYPTION_KEY`): `openssl rand -base64 32`.
 - `GOOGLE_CLIENT_ID`: obligatoria para arrancar. Sin login con Google, déjala en `staging-sin-google` (ver § Google).
-- `TRUST_PROXY=2` (ngrok + nginx). Sin esto, todos los clientes cuentan como la misma IP en el límite de intentos.
-- `APP_URL` = la URL https de ngrok (paso 1.2). De ella salen los enlaces de los emails y las vueltas de Stripe.
+- `TRUST_PROXY=2` (Funnel + nginx). Sin esto, todos los clientes cuentan como la misma IP en el límite de intentos.
+- `APP_URL` = la URL https de Funnel (paso 1.2). De ella salen los enlaces de los emails y las vueltas de Stripe.
 - **Stripe**: `STRIPE_SECRET_KEY` **solo `sk_test_` o `rk_test_`** (el seed se niega con otra). `STRIPE_WEBHOOK_SECRET` en el
   paso 1.3. `STRIPE_PORTAL_CONFIGURATION_ID`: copia el `bpc_…` de tu `.env` de desarrollo (es del mismo sandbox; lo usa
   «Gestionar pagos»).
@@ -43,12 +44,14 @@ Rellénalo:
 - **Push**: `PUSH_TRANSPORT=webpush` y las claves de `npx web-push generate-vapid-keys`.
 - `SEED_PASSWORD`: la contraseña de todas las cuentas de demo (≥ 8 caracteres).
 
-### 1.2 ngrok con dominio fijo
+### 1.2 Tailscale Funnel (URL fija y gratis, sin página de aviso)
 
-1. Cuenta en [ngrok.com](https://ngrok.com) y, en el dashboard, tu **dominio fijo gratuito** (Domains). Con él la URL no cambia
-   al reiniciar, y no se rompen los enlaces de los emails ya enviados.
-2. Una vez por máquina: `ngrok config add-authtoken TU_TOKEN` (el token está en el dashboard).
-3. Pon `APP_URL=https://TU-DOMINIO.ngrok-free.dev` en `.env.staging`.
+1. Instala Tailscale ([tailscale.com/download](https://tailscale.com/download)) y entra: `sudo tailscale up`.
+2. `sudo tailscale funnel --bg 8080`. La primera vez da un enlace para activar Funnel (y HTTPS) en la consola de Tailscale.
+   `--bg` lo deja puesto también tras reiniciar; `tailscale funnel status` enseña la URL y `tailscale funnel --https=443 off`
+   lo quita.
+3. Pon `APP_URL=https://TU-MAQUINA.TU-RED.ts.net` en `.env.staging`. La URL es la del nombre de la máquina: no cambia al
+   reiniciar, y no se rompen los enlaces de los emails ya enviados.
 
 ### 1.3 Webhook de Stripe
 
@@ -98,12 +101,11 @@ npm run staging:api
 # Terminal 2 · webhooks de Stripe hacia la API de staging
 stripe listen --forward-to localhost:3100/webhooks/stripe
 
-# Terminal 3 · ngrok
-ngrok http --url=TU-DOMINIO.ngrok-free.dev 8080
+# Funnel no necesita terminal: con --bg sigue puesto (paso 1.2)
 ```
 
 Comprueba: `docker ps` enseña `kaizen-staging-db` (healthy) y `kaizen-staging-nginx`; `curl localhost:8080/api/health` da
-`"status":"ok"`; y `https://TU-DOMINIO.ngrok-free.dev` enseña el login.
+`"status":"ok"`; y `https://TU-MAQUINA.TU-RED.ts.net` enseña el login.
 
 > **Un solo `stripe listen` a la vez.** Si tienes el de desarrollo (`--forward-to localhost:3000/…`) abierto, páralo (Ctrl+C):
 > con los dos, cada evento del sandbox llega a las dos APIs y cada una recibe pagos que no conoce.
@@ -127,10 +129,9 @@ aviso **«Hay una versión nueva · Actualizar»**. Si no sale, cerrar todas las
 caso, DevTools → Application → Service workers → «Unregister» y recargar. Díselo al cliente: si un error ya arreglado le sigue
 saliendo, es esto. (Para saber qué versión tiene: el nombre `index-XXXX.js` del error debe coincidir con el de `frontend/dist/assets`.)
 
-**En iPhone, con ngrok gratis, el aviso no sale nunca**: el navegador pide `sw.js` sin la cabecera que salta la página de aviso
-de ngrok y la app instalada no tiene la cookie de Safari, así que recibe HTML y la actualización falla en silencio (en Android
-la PWA comparte las cookies de Chrome y funciona). Para ver la versión nueva: borrar la app de la pantalla de inicio, abrir la
-URL en Safari, tocar «Visit Site» y volver a añadirla. Fuera de ngrok (producción) no pasa.
+(Con ngrok gratis el aviso no salía nunca en iPhone: el navegador pedía `sw.js`, ngrok le contestaba con su página de aviso en
+HTML y la actualización fallaba en silencio. Por eso se pasó a Tailscale Funnel. Cualquier túnel o proxy que meta una página
+intermedia rompe igual las actualizaciones de la PWA.)
 
 ---
 
@@ -154,7 +155,7 @@ Ensayo de punta a punta, con las cuentas del seed:
 | Entrar, reservar, calendario, check-in con QR, progreso, panel | nada más |
 | Pagos | `stripe listen` en marcha y `STRIPE_WEBHOOK_SECRET` correcto; `STRIPE_PORTAL_CONFIGURATION_ID` para «Gestionar pagos» |
 | Emails | Resend (ver abajo) |
-| Push | claves VAPID; solo con HTTPS (ngrok) y la app instalada |
+| Push | claves VAPID; solo con HTTPS (Funnel) y la app instalada |
 | Login con Google | ver abajo |
 | Tablet | otro dispositivo con `/tablet` |
 
@@ -166,7 +167,7 @@ propia cuenta de Resend**. Para que le lleguen al cliente: verifica un dominio t
 
 ### Google
 
-En Google Cloud, un cliente OAuth (Web) con `https://TU-DOMINIO.ngrok-free.dev` como origen de JavaScript autorizado. Su id va en
+En Google Cloud, un cliente OAuth (Web) con `https://TU-MAQUINA.TU-RED.ts.net` como origen de JavaScript autorizado. Su id va en
 `GOOGLE_CLIENT_ID` (`.env.staging`) y en `VITE_GOOGLE_CLIENT_ID` (`frontend/.env.production`) **antes** de
 `npm run staging:build`. Sin eso, el botón de Google no sale y se entra con email y contraseña.
 
@@ -181,11 +182,10 @@ En Google Cloud, un cliente OAuth (Web) con `https://TU-DOMINIO.ngrok-free.dev` 
 | `502 Bad Gateway` en `/api` | la API de staging no está en marcha o no escucha en el `:3100` |
 | Pagas y la cuota no pasa a «Activa» | `stripe listen` parado, apuntando a otro puerto, o `STRIPE_WEBHOOK_SECRET` distinto del de `stripe listen --print-secret` |
 | Un error ya arreglado sigue saliendo | la PWA guardada: § 3 |
-| iPhone: «Unexpected Application Error!» o no deja entrar tras un cambio | versión vieja guardada en Safari. Desde la versión con «Actualizar y recargar» en la pantalla de error basta con tocarlo; si el iPhone aún tiene una anterior, una vez a mano: Ajustes → Safari → Avanzado → Datos de sitios web → borrar el dominio de ngrok (y, si la añadiste a la pantalla de inicio, borrar el icono y volver a añadirla) |
-| iPhone (app en pantalla de inicio): entra y vuelve al login con «Tu acceso ha cambiado», o «Algo ha fallado» en bucle | la página de aviso de ngrok gratis («You are about to visit…», un 200 de texto): la app del iPhone no comparte cookies con Safari y nunca la pasa. El frontend manda `ngrok-skip-browser-warning` a la API en hosts de ngrok; si vuelve a pasar, la versión instalada es anterior a ese arreglo (§ 3). Para comprobarlo: `curl -A 'iPhone' <url>/api/me` debe dar JSON, no ese texto |
+| iPhone: «Unexpected Application Error!» o no deja entrar tras un cambio | versión vieja guardada en Safari. Desde la versión con «Actualizar y recargar» en la pantalla de error basta con tocarlo; si el iPhone aún tiene una anterior, una vez a mano: Ajustes → Safari → Avanzado → Datos de sitios web → borrar el dominio de staging (y, si la añadiste a la pantalla de inicio, borrar el icono y volver a añadirla) |
+| iPhone (app en pantalla de inicio): entra y vuelve al login con «Tu acceso ha cambiado», o «Algo ha fallado» en bucle | algo delante de nginx contesta con una página propia (así pasaba con el aviso de ngrok gratis). Para comprobarlo: `curl -A 'iPhone' <url>/api/me` y `<url>/sw.js` deben dar JSON y JavaScript, no HTML |
 | `429` «Demasiados intentos» | límite por IP (30 entradas cada 15 min; 5 «olvidé la contraseña» por hora). Una oficina comparte IP; reiniciar la API pone los contadores a cero |
 | El email no llega | remitente de pruebas de Resend: § Emails. Mira también `storage-staging/emails.log` y la terminal de la API |
-| ngrok enseña una página de aviso | normal en el plan gratuito, la primera vez: «Visit Site» |
 
 ### Reiniciar de cero
 
@@ -203,8 +203,8 @@ Y repite el paso 1.4. Los roles de la BD solo se crean cuando el volumen está v
 
 ## Cuidado
 
-- La URL de ngrok es **pública**: cualquiera que la tenga ve la pantalla de entrada. Pasa solo las cuentas de demo y no metas
+- La URL de Funnel es **pública**: cualquiera que la tenga ve la pantalla de entrada. Pasa solo las cuentas de demo y no metas
   datos reales de clientes de maat.
 - Solo claves de **prueba** de Stripe. Nada de este staging toca la cuenta live.
 - `frontend/vite.config.ts` no necesita `allowedHosts` para esto: nginx sirve el `dist` compilado. Solo haría falta para exponer el
-  servidor de Vite (`npm run dev`) por ngrok.
+  servidor de Vite (`npm run dev`) por el túnel.

@@ -36,7 +36,7 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use('/webhooks', webhooksRouter); // antes de express.json: necesita el cuerpo crudo
 app.use(express.json({ limit: '1mb' }));
-// Saltos de proxy de confianza para req.ip (el rate limiting depende de ella): 1 = Nginx en el VPS; 2 = ngrok + Nginx.
+// Saltos de proxy de confianza para req.ip (el rate limiting depende de ella): 1 = Nginx en el VPS; 2 = Tailscale Funnel + Nginx (staging).
 app.set('trust proxy', Number(process.env.TRUST_PROXY ?? 1));
 
 // GET /health — comprueba ambos pools
