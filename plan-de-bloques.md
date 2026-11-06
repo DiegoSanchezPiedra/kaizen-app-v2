@@ -2338,5 +2338,5 @@
 - **Frontend** (Sonnet alto): `frontend/src/pages/admin/home.tsx` según la propuesta §§ 3–5; refresco cada 30 s con la
   pestaña visible.
 - [x] Backend con su test
-- [ ] Frontend, comprobado a 375 px y en `lg`
-- [ ] Migración aplicada en staging (`npm run staging:migrate`), API reiniciada y `npm run staging:build`
+- [x] Frontend, comprobado a 375 px y en `lg` (`1237ea6`, Sonnet alto)
+- [x] Migración aplicada en staging (`npm run staging:migrate`), API reiniciada y `npm run staging:build` (2026-11-06)
