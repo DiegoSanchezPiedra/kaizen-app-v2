@@ -93,7 +93,7 @@ const MADRID_DAY = (offset) => `((now() AT TIME ZONE '${TZ}')::date + ${offset})
 
 /**
  * Inicio del admin (B23), en vivo: las cifras de ahora (academy_stats_now, solo admin), las de alumnos de Usuarios, las
- * asistencias de hoy y del mismo día de la semana pasada, las sesiones de hoy con reservas y entradas, y la próxima
+ * asistencias de hoy y del mismo día de la semana pasada hasta esta misma hora, las sesiones de hoy con reservas y entradas, y la próxima
  * sesión programada que aún no ha empezado (para «Ahora» cuando no hay ninguna en curso).
  */
 export async function getHome(client) {
@@ -102,7 +102,7 @@ export async function getHome(client) {
   const students = await getProfileStats(client, {});
   const { rows: [attendance] } = await client.query(
     `SELECT count(*) FILTER (WHERE s.starts_at >= ${MADRID_DAY(0)} AND s.starts_at < ${MADRID_DAY(1)})::int AS today,
-            count(*) FILTER (WHERE s.starts_at >= ${MADRID_DAY(-7)} AND s.starts_at < ${MADRID_DAY(-6)})::int AS last_week
+            count(*) FILTER (WHERE s.starts_at >= ${MADRID_DAY(-7)} AND s.starts_at < now() - interval '7 days')::int AS last_week
        FROM attendance a JOIN class_sessions s ON s.id = a.session_id
       WHERE a.status = 'present' AND s.status <> 'cancelled' AND s.starts_at >= ${MADRID_DAY(-7)}`);
   const { rows: sessions } = await client.query(

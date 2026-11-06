@@ -68,10 +68,10 @@ try {
   await sub('ana', 'active');
   await sub('leo', 'past_due');
 
-  const session = async (days, status = 'scheduled') => {
+  const session = async (days, status = 'scheduled', at = noon(days)) => {
     const { rows: [s] } = await q(
       `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status, cancelled_at)
-       VALUES ($1, $2, ${noon(days)}, ${noon(days)} + interval '60 min', 60, 12, $3::session_status,
+       VALUES ($1, $2, ${at}, ${at} + interval '60 min', 60, 12, $3::session_status,
                CASE WHEN $3::session_status = 'cancelled' THEN now() END) RETURNING id`, [disc, U.prof, status]);
     sessions.push(s.id);
     return s.id;
@@ -90,9 +90,14 @@ try {
   await book(today, 'leo', false);
   const cancelled = await session(0, 'cancelled');
   await book(cancelled, 'leo', true); // sesión cancelada: no cuenta como asistencia
-  const lastWeek = await session(-7);
+  // Hace 7 días, una hora antes y un minuto después de esta hora (sin solaparse: mismo profesor): solo cuenta lo que ya
+  // había empezado a esta hora.
+  // shortcut: en la primera hora del día la de antes cae en el día anterior y el test fallaría; no lanzarlo de madrugada.
+  const lastWeek = await session(-7, 'scheduled', `now() - interval '7 days 61 minutes'`);
   await book(lastWeek, 'ana', true);
   await book(lastWeek, 'leo', true);
+  const lastWeekLater = await session(-7, 'scheduled', `now() - interval '7 days' + interval '1 minute'`);
+  await book(lastWeekLater, 'ana', true);
   await session(-6); // la sesión de ayer de hace una semana no es «el mismo día»
 
   const home = (await http('/admin/home')).body;
@@ -106,7 +111,7 @@ try {
     assert.equal(home.students.activos - before.students.activos, 2);
   });
 
-  await run('asistencias de hoy y del mismo día de la semana pasada (sin las canceladas)', async () => {
+  await run('asistencias de hoy y del mismo día de la semana pasada hasta esta hora (sin las canceladas)', async () => {
     assert.equal(home.attendance.today - before.attendance.today, 1);
     assert.equal(home.attendance.last_week - before.attendance.last_week, 2);
   });
