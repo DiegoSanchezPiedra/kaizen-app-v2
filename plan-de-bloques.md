@@ -68,6 +68,8 @@
 | B19 | Panel admin (métricas, usuarios, auditoría, morosos; sub-bloques B19.0–B19.6) | B11, B17, B10.2, B18 | Diseñado |
 | B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos | Pendiente |
 | B21 | Eventos (inscripción, cobro aparte, panel; sub-bloques B21.0–B21.2) | B10, B18, B19 | CERRADO (con pruebas visuales y en móvil pendientes) |
+| B22 | Rediseño (calendario semanal, Membresías y Disciplinas, Clases en móvil, KPIs de Usuarios) | B18, B19, B21 | CERRADO (con pruebas en iPhone pendientes) |
+| B23 | Inicio del admin en vivo (`GET /admin/home`, «Ahora», cifras de ahora, accesos directos) | B16, B19, B22 | En curso |
 
 ---
 
@@ -2322,3 +2324,19 @@
   Cobros › Morosos. Morosos cuenta pagadores y el KPI cuenta alumnos, así que las cifras pueden no ser iguales (la
   tarjeta lo aclara). Un impagado no es «activo».
 - **Rama**: `b22-rediseno`, desde `b10-stripe`.
+
+### B23 — Inicio del admin en vivo — En curso
+
+- **Diseño**: `docs/propuesta-inicio-admin.md` (aprobada el 2026-11-06, «ok a todas tus mejoras»). Sin capturas de MAAT: la
+  dirección visual es la de `docs/auditoria-b22.md`. Sustituye a `docs/pantallas-b19.md` § Inicio.
+- **Backend** (Opus medio; hecho el 2026-11-06, `cd3d628`): migración `029_academy_stats_now`. `academy_stats_of` es
+  `SECURITY DEFINER` sin mirar el rol (solo la llamaba el job), así que no se le da `EXECUTE` a `app_user`: la nueva
+  `academy_stats_now()` comprueba admin (`42501 not_allowed` si no) y llama a la de hoy de Madrid. `GET /admin/home`
+  (`src/services/panel.js` `getHome`): cifras de ahora, `getProfileStats`, asistencias de hoy y del mismo día de hace 7,
+  sesiones de hoy con `booked`/`present` y `next`. `npm run test:home` (6 casos, incluido el 42501 a alumno, tutor y
+  profesor). `docs/api.md`.
+- **Frontend** (Sonnet alto): `frontend/src/pages/admin/home.tsx` según la propuesta §§ 3–5; refresco cada 30 s con la
+  pestaña visible.
+- [x] Backend con su test
+- [ ] Frontend, comprobado a 375 px y en `lg`
+- [ ] Migración aplicada en staging (`npm run staging:migrate`), API reiniciada y `npm run staging:build`

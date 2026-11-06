@@ -70,6 +70,8 @@ Los de `docs/pantallas-b18.md` (cargando, vacío, error, sin conexión, sin perm
 
 ## Inicio `/admin`
 
+> **Sustituido por `docs/propuesta-inicio-admin.md` (B23, 2026-11-06).** Lo de abajo es el Inicio de B19.
+
 Un vistazo y lo que pide atención. Todo enlaza a su pantalla. Sin MFA, el aviso de «Activa el doble factor» va arriba del todo.
 
 - **Cifras** (cuatro tarjetas): suscripciones activas, en periodo de gracia, impagadas y MRR del último día con foto
