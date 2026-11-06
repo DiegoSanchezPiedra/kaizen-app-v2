@@ -1,7 +1,7 @@
 export type Role = 'alumno' | 'tutor' | 'profesor' | 'admin'
 export type Session = { token: string; id: string; role: Role; exp: number }
 // Por qué terminó la sesión en esta pestaña: decide a dónde lleva el router.
-export type EndReason = 'logout' | 'expired' | 'role_changed' | null
+export type EndReason = 'logout' | 'expired' | 'role_changed' | 'password_changed' | null
 
 // Lee el JWT sin verificarlo (lo verifica el backend): solo para el rol y la caducidad.
 export function decode(token: string): Session | null {
@@ -27,6 +27,7 @@ export function loginPath(reason: EndReason, back: string): string {
   if (reason === 'role_changed') return '/login?acceso=1'
   const params = new URLSearchParams()
   if (reason === 'expired') params.set('caducada', '1')
+  if (reason === 'password_changed') params.set('clave', '1')
   if (back !== '/') params.set('volver', back)
   const q = params.toString()
   return q ? `/login?${q}` : '/login'

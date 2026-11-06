@@ -1,6 +1,6 @@
 import type { Role } from '@/lib/paths'
 
-export type Child = { id: string; display_name: string; birth_date: string | null; pending_claim: boolean }
+export type Child = { id: string; display_name: string; avatar?: string | null; birth_date: string | null; pending_claim: boolean }
 export type Subject = { id: string; label: string; self: boolean }
 
 // Selector de sujeto (CONTEXT.md): un tutor, entre sus hijos; un alumno, él y sus hijos. Nunca un hijo pending_claim.

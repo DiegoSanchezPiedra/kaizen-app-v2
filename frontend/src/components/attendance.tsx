@@ -2,7 +2,7 @@ import { useMutation } from '@tanstack/react-query'
 import { CheckIcon, QrCodeIcon, ShieldAlertIcon, XIcon } from 'lucide-react'
 import { useState } from 'react'
 import { StatusAlert } from '@/components/status-alert'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { ProfileAvatar } from '@/components/profile-avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
@@ -20,7 +20,6 @@ import { plural, withMark, type Attendance, type AttendanceRow } from '@/lib/pro
 import { cn } from '@/lib/utils'
 
 // La lista de asistencia (B18.4) que comparten el profesor y el panel. Aquí no hay salud: eso es solo del profesor.
-const initial = (name: string) => name.trim().charAt(0).toUpperCase()
 
 // Cerrar la lista: la pide el botón de cada pantalla, con su confirmación.
 export function useCloseList(sessionId: string, onDone: () => void) {
@@ -96,9 +95,7 @@ export function EventStudentItem({ eventId, student, open }: { eventId: string; 
   const on = mark.isPending ? mark.variables : student.attended === true
   return (
     <li className="grid min-h-18 grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-x-3 border-b px-3.5 py-2.5 last:border-b-0">
-      <Avatar className="size-10">
-        <AvatarFallback>{initial(student.display_name)}</AvatarFallback>
-      </Avatar>
+      <ProfileAvatar name={student.display_name} className="size-10" />
       <div className="min-w-0">
         <p className="truncate text-base font-semibold">{student.display_name}</p>
         {!student.risk_cover && (
@@ -120,9 +117,7 @@ export function EventStudentItem({ eventId, student, open }: { eventId: string; 
 export function AttendanceItem({ sessionId, row, mode, onCorrect }: { sessionId: string; row: AttendanceRow; mode: 'switch' | 'read' | 'closed'; onCorrect: (r: AttendanceRow) => void }) {
   return (
     <li className="grid min-h-18 grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b px-3.5 py-2.5 last:border-b-0">
-      <Avatar className="size-10">
-        <AvatarFallback>{initial(row.display_name)}</AvatarFallback>
-      </Avatar>
+      <ProfileAvatar name={row.display_name} avatar={row.avatar} className="size-10" />
       <div className={cn('min-w-0', mode === 'closed' && 'col-span-2')}>
         <p className="truncate text-base font-semibold">{row.display_name}</p>
         <div className="mt-1 flex flex-wrap gap-1.5 empty:hidden">

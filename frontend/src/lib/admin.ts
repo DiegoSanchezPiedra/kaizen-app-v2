@@ -253,6 +253,7 @@ type Person = { id: string; display_name: string | null; email?: string | null }
 export type ProfileRow = {
   id: string
   display_name: string | null
+  avatar: string | null
   email: string | null
   role: Role
   is_minor: boolean

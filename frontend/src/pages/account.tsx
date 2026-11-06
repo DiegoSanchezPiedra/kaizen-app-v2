@@ -1,22 +1,29 @@
-import { useQuery } from '@tanstack/react-query'
-import { ChevronLeftIcon, ChevronRightIcon, FileSignatureIcon, GlobeIcon, HeartPulseIcon, IdCardIcon, LogOutIcon, UsersIcon, WalletIcon } from 'lucide-react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { ChevronLeftIcon, ChevronRightIcon, FileSignatureIcon, GlobeIcon, HeartPulseIcon, IdCardIcon, KeyRoundIcon, LogOutIcon, UsersIcon, WalletIcon } from 'lucide-react'
+import { useState } from 'react'
 import type React from 'react'
 import { Link, useNavigate, type LinkProps } from 'react-router'
+import { PasswordInput } from '@/components/password-input'
+import { AvatarEditor } from '@/components/avatar-editor'
 import { AgreementsPanel } from '@/components/agreements-panel'
 import { HealthForm } from '@/components/health-form'
 import { MyDataForm } from '@/components/my-data-form'
 import { Page } from '@/components/page'
 import { PushCard } from '@/components/push-card'
 import { ErrorState, ListSkeleton } from '@/components/screen-state'
+import { FieldMessage } from '@/components/status-alert'
 import { SubjectGate, subjectName } from '@/components/subject-gate'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Form } from '@/components/ui/form'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
+import { errorText } from '@/lib/errors'
 import { logout } from '@/lib/logout'
 import { agreementsFor } from '@/lib/profile'
 import { useProfileStatus } from '@/lib/queries'
-import { useSession } from '@/lib/session'
+import { errorCode, toastError, toastOk } from '@/lib/notify'
+import { setToken, useSession } from '@/lib/session'
 import type { Me } from '@/lib/types'
 import { useSubject } from '@/hooks/use-subject'
 
@@ -49,17 +56,17 @@ export function AccountPage() {
   const family = role === 'alumno' || role === 'tutor'
   return (
     <Page title="Cuenta">
-      <div className="flex items-center gap-3 rounded-2xl border bg-card p-4">
-        <Avatar className="size-12 text-lg">
-          <AvatarFallback>{me.data?.display_name?.charAt(0).toUpperCase() ?? '·'}</AvatarFallback>
-        </Avatar>
-        <div className="min-w-0">
-          {me.isPending ? <Skeleton className="h-10 w-40" /> : <p className="truncate font-semibold">{me.data?.display_name ?? 'Sin nombre'}</p>}
-          {me.data && <p className="truncate text-sm text-muted-foreground">{me.data.email}</p>}
-        </div>
+      <div className="rounded-2xl border bg-card p-4">
+        <AvatarEditor name={me.data?.display_name ?? null} avatar={me.data?.avatar}>
+          <div className="min-w-0">
+            {me.isPending ? <Skeleton className="h-10 w-40" /> : <p className="truncate font-semibold">{me.data?.display_name ?? 'Sin nombre'}</p>}
+            {me.data && <p className="truncate text-sm text-muted-foreground">{me.data.email}</p>}
+          </div>
+        </AvatarEditor>
       </div>
       <Group title="Tú">
         <Row to="/account/data" icon={IdCardIcon} label="Mis datos" />
+        <Row to="/account/password" icon={KeyRoundIcon} label="Contraseña" />
         {role !== 'tutor' && <Row to="/account/profile" icon={GlobeIcon} label="Perfil público" hint="Qué ven los demás de ti" />}
         {family && <Row to="/account/children" icon={UsersIcon} label="Mis hijos" />}
       </Group>
@@ -98,6 +105,80 @@ export function DataPage() {
     <Page title="Mis datos">
       <Back />
       <MyDataForm showEmail onSaved={() => void navigate('/account')} />
+    </Page>
+  )
+}
+
+// ADR 0020: cambiar la contraseña cierra las demás sesiones; la respuesta trae el token que mantiene esta.
+function PasswordForm() {
+  const navigate = useNavigate()
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const change = useMutation({
+    mutationFn: (body: { current_password: string; new_password: string }) => api<{ token: string }>('/me/password', { method: 'POST', body }),
+    onSuccess: ({ token }) => {
+      setToken(token)
+      toastOk('Contraseña cambiada. Se han cerrado tus otras sesiones.')
+      void navigate('/account')
+    },
+    onError: (err) => {
+      const code = errorCode(err)
+      if (code === 'wrong_password') setErrors({ current_password: errorText(code) })
+      else if (code === 'weak_password' || code === 'invalid_field') setErrors({ new_password: errorText('weak_password') })
+      else toastError(err)
+    },
+  })
+  return (
+    <Form
+      className="flex flex-col gap-4"
+      errors={errors}
+      onFormSubmit={(v) => {
+        setErrors({})
+        change.mutate({ current_password: String(v.current_password), new_password: String(v.new_password) })
+      }}
+    >
+      <Field name="current_password" className="items-stretch">
+        <FieldLabel>Contraseña actual</FieldLabel>
+        <PasswordInput autoComplete="current-password" required />
+        <FieldMessage match="valueMissing">Escribe tu contraseña actual.</FieldMessage>
+        {errors.current_password && <FieldMessage>{errors.current_password}</FieldMessage>}
+      </Field>
+      <Field name="new_password" className="items-stretch">
+        <FieldLabel>Contraseña nueva</FieldLabel>
+        <PasswordInput autoComplete="new-password" required minLength={8} />
+        <FieldMessage match="valueMissing">Escribe la contraseña nueva.</FieldMessage>
+        <FieldMessage match="tooShort">Usa al menos 8 caracteres.</FieldMessage>
+        {errors.new_password ? <FieldMessage>{errors.new_password}</FieldMessage> : <FieldDescription>Mínimo 8 caracteres.</FieldDescription>}
+      </Field>
+      <Button type="submit" size="xl" loading={change.isPending}>
+        Cambiar contraseña
+      </Button>
+    </Form>
+  )
+}
+
+// Una cuenta solo con Google no tiene contraseña que cambiar: la crea con el email de «restablecer».
+function CreatePassword({ email }: { email: string }) {
+  const create = useMutation({
+    mutationFn: () => api('/auth/password/forgot', { method: 'POST', auth: false, body: { email } }),
+    onSuccess: () => toastOk('Te hemos enviado un email para crearla'),
+    onError: (err) => toastError(err),
+  })
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-muted-foreground">Entras con Google y aún no tienes contraseña. Te enviamos un email a {email} para que la crees.</p>
+      <Button size="xl" loading={create.isPending} onClick={() => create.mutate()}>
+        Crear contraseña
+      </Button>
+    </div>
+  )
+}
+
+export function PasswordPage() {
+  const me = useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/me') })
+  return (
+    <Page title="Contraseña">
+      <Back />
+      {me.isPending ? <ListSkeleton rows={2} /> : me.isError ? <ErrorState error={me.error} onRetry={() => void me.refetch()} /> : me.data.has_password ? <PasswordForm /> : <CreatePassword email={me.data.email} />}
     </Page>
   )
 }

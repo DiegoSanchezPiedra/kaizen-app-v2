@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { errorText } from '@/lib/errors'
 import { formatDate, formatEuros, formatTime, maskSpanishDate, parseSpanishDate } from '@/lib/format'
 import { decode, isExpired, loginPath, safeReturnPath } from '@/lib/paths'
+import { cropRect, initials } from '@/lib/avatar'
 import { activeSubject, subjectOptions, usesSubject } from '@/lib/subject'
 
 const b64 = (o: object) => btoa(JSON.stringify(o)).replace(/=+$/, '')
@@ -98,5 +99,18 @@ describe('selector de sujeto', () => {
     expect(usesSubject('/billing/payer-changes/x')).toBe(false)
     expect(usesSubject('/checkin')).toBe(false)
     expect(usesSubject('/bookingsx')).toBe(false)
+  })
+})
+
+describe('foto de perfil', () => {
+  it('iniciales: primera y última palabra, o un punto sin nombre', () => {
+    expect(initials('Ana García Pérez')).toBe('AP')
+    expect(initials('  ana ')).toBe('A')
+    expect(initials(null)).toBe('·')
+  })
+  it('recorte: el cuadrado no se sale de la imagen', () => {
+    expect(cropRect(400, 200, 1, 0, 0)).toEqual({ sx: 0, sy: 0, size: 200 })
+    expect(cropRect(400, 200, 2, 400, 200)).toEqual({ sx: 300, sy: 100, size: 100 })
+    expect(cropRect(400, 200, 1, 200, 100).sx).toBe(100)
   })
 })

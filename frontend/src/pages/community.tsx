@@ -3,9 +3,9 @@ import { ChevronLeftIcon, ExternalLinkIcon, SearchIcon, TrophyIcon, UsersIcon } 
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { Page } from '@/components/page'
+import { ProfileAvatar } from '@/components/profile-avatar'
 import { EmptyState, ErrorState, ListSkeleton, QueryView } from '@/components/screen-state'
 import { SectionTabs } from '@/components/section-tabs'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
@@ -17,7 +17,6 @@ import { useSession } from '@/lib/session'
 import type { Discipline, MyProfile, PublicProfile } from '@/lib/types'
 
 const PAGE = 25
-const initial = (name: string) => name.trim().charAt(0).toUpperCase()
 const ROLE_LABEL: Record<string, string> = { alumno: 'Alumno', profesor: 'Profesor' }
 
 export function useDebounced(value: string, ms = 300) {
@@ -92,9 +91,7 @@ export function CommunityPage() {
             {profiles.map((p) => (
               <li key={p.id} className="border-b last:border-b-0">
                 <Link to={`/profiles/${p.id}`} className="flex min-h-14 items-center gap-3 px-4 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
-                  <Avatar className="size-10">
-                    <AvatarFallback>{initial(p.display_name)}</AvatarFallback>
-                  </Avatar>
+                  <ProfileAvatar name={p.display_name} avatar={p.avatar} className="size-10" />
                   <span className="min-w-0 flex-1 truncate font-semibold">{p.display_name}</span>
                   <Badge variant="outline" size="lg">{ROLE_LABEL[p.role] ?? p.role}</Badge>
                 </Link>
@@ -133,9 +130,7 @@ export function ProfilePage() {
           return (
             <article className="flex flex-col gap-4 rounded-2xl border bg-card p-5">
               <div className="flex items-center gap-4">
-                <Avatar className="size-16 text-2xl">
-                  <AvatarFallback>{initial(p.display_name)}</AvatarFallback>
-                </Avatar>
+                <ProfileAvatar name={p.display_name} avatar={p.avatar} className="size-16" />
                 <div>
                   <h2 className="font-heading text-2xl font-bold">{p.display_name}</h2>
                   <p className="text-sm text-muted-foreground">

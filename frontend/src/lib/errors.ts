@@ -174,6 +174,7 @@ Object.assign(TEXTS, {
 
 // B20 (rate limiting): 429 en el login, el MFA, recuperar contraseña y vincular la tablet.
 Object.assign(TEXTS, {
+  too_many_requests: 'Demasiados intentos. Espera unos minutos y vuelve a intentarlo.',
   rate_limited: 'Demasiados intentos. Espera unos minutos y vuelve a intentarlo.', // propuesto
 })
 
@@ -191,4 +192,12 @@ Object.assign(TEXTS, {
   event_started: 'El evento ya ha empezado.', // propuesto
   already_cancelled: 'Ya estaba cancelada y no hay nada pagado que devolver.', // propuesto
   paid_registration: 'Está pagada: para cancelarla, pídelo a la academia.', // propuesto (B21.2: el panel nunca llega a este código)
+})
+
+// B24 (foto de perfil y cambio de contraseña).
+Object.assign(TEXTS, {
+  invalid_image: 'No hemos podido usar esa foto. Prueba con otra.',
+  too_large: 'La foto pesa demasiado. Prueba con otra.',
+  wrong_password: 'La contraseña actual no es correcta.',
+  no_password: 'Tu cuenta no tiene contraseña: créala con el email que te enviamos.',
 })

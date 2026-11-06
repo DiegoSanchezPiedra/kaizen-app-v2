@@ -18,6 +18,7 @@ export type AttendanceRow = {
   booking_id: string
   student_id: string
   display_name: string
+  avatar?: string | null
   status: 'present' | 'absent' | null
   method: 'manual' | 'qr' | null
   corrected_at: string | null

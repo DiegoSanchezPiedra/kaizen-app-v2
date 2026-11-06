@@ -2,10 +2,11 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, UsersIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
+import { AvatarEditor } from '@/components/avatar-editor'
 import { Page } from '@/components/page'
+import { ProfileAvatar } from '@/components/profile-avatar'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { FieldMessage, StatusAlert } from '@/components/status-alert'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Field, FieldLabel } from '@/components/ui/field'
@@ -50,9 +51,7 @@ export function ChildrenPage() {
               {children.data.map((c) => (
                 <li key={c.id} className="border-b last:border-b-0">
                   <Link to={`/account/children/${c.id}`} className="flex min-h-14 items-center gap-3 px-4 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
-                    <Avatar className="size-10">
-                      <AvatarFallback>{c.display_name.charAt(0).toUpperCase()}</AvatarFallback>
-                    </Avatar>
+                    <ProfileAvatar name={c.display_name} avatar={c.avatar} className="size-10" />
                     <span className="min-w-0 flex-1 truncate font-semibold">{c.display_name}</span>
                     {c.pending_claim && <Badge variant="info" size="lg">Mayor de edad</Badge>}
                     <ChevronRightIcon className="size-4 text-muted-foreground" aria-hidden="true" />
@@ -119,6 +118,7 @@ export function ChildFormPage() {
   return (
     <Page title={id ? 'Editar hijo o hija' : 'Añadir hijo o hija'}>
       <Back />
+      {child && <AvatarEditor name={child.display_name} avatar={child.avatar} profileId={child.id} />}
       <Form className="flex flex-col gap-4" errors={errors} onFormSubmit={submit}>
         <Field name="display_name" className="items-stretch">
           <FieldLabel>Nombre y apellidos</FieldLabel>

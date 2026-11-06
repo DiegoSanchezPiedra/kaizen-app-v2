@@ -6,7 +6,7 @@ import { catalogRedirect } from '@/lib/catalog'
 import { checkRole, logout } from '@/lib/logout'
 import { loginPath, redirectFor, safeReturnPath } from '@/lib/paths'
 import { getEndReason, isExpired, useSession } from '@/lib/session'
-import { AccountPage, AgreementsPage, DataPage, HealthPage } from '@/pages/account'
+import { AccountPage, AgreementsPage, DataPage, HealthPage, PasswordPage } from '@/pages/account'
 import { PublicProfilePage } from '@/pages/account-profile'
 import { BillingPage, DisciplinePage, InsurancePage, PlanPage } from '@/pages/billing'
 import { CancelPage, ContractPage, PayerChangePage, SuccessPage } from '@/pages/billing-contract'
@@ -119,6 +119,7 @@ export const router = createBrowserRouter([
       { path: '/rankings/:id', element: <RankingsPage /> },
       { path: '/account', element: <AccountPage /> },
       { path: '/account/data', element: <DataPage /> },
+      { path: '/account/password', element: <PasswordPage /> },
       { path: '/account/profile', element: <PublicProfilePage /> },
       { path: '/account/children', element: <ChildrenPage /> },
       { path: '/account/children/new', element: <ChildFormPage /> },
@@ -138,5 +139,5 @@ export const router = createBrowserRouter([
   },
 ])
 
-setUnauthorizedHandler(() => void logout({ expired: true }))
+setUnauthorizedHandler((reason) => void logout({ expired: true, reason }))
 setWrongRoleHandler(() => void checkRole())

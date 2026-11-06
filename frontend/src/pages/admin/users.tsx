@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Back, Kv, Tag } from '@/components/billing-bits'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { ProfileAvatar } from '@/components/profile-avatar'
 import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
@@ -46,7 +47,7 @@ import type { Booking, Plan } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { Filter, useDebounced } from '@/pages/community'
 import { PAGE_SIZE, Pager } from '@/pages/admin/shell'
-import { BillingTab, useConfirm } from '@/pages/admin/user-billing'
+import { BillingTab, del, useConfirm } from '@/pages/admin/user-billing'
 
 const name = (p: { display_name: string | null }) => p.display_name ?? 'Sin nombre'
 const Marks = ({ p }: { p: { is_minor: boolean; pending_claim: boolean } }) => (
@@ -212,14 +213,17 @@ export function UsersPage() {
               <li key={p.id}>
                 <Link
                   to={toFile(p.id)}
-                  className="flex min-h-16 flex-col px-4 py-2.5 transition-colors duration-150 hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:outline-none active:bg-accent"
+                  className="flex min-h-16 items-center gap-3 px-4 py-2.5 transition-colors duration-150 hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:outline-none active:bg-accent"
                 >
-                  <span className="flex items-center justify-between gap-3">
-                    <span className="truncate font-semibold">{name(p)}</span>
-                    <EstadoTag estado={p.estado} />
+                  <ProfileAvatar name={p.display_name} avatar={p.avatar} className="size-10" />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="flex items-center justify-between gap-3">
+                      <span className="truncate font-semibold">{name(p)}</span>
+                      <EstadoTag estado={p.estado} />
+                    </span>
+                    <span className="truncate text-sm text-muted-foreground">{roleLine(p)}</span>
+                    {p.role === 'alumno' && <span className="text-sm text-muted-foreground">Última asistencia {lastSeen(p.last_attendance_at)}</span>}
                   </span>
-                  <span className="truncate text-sm text-muted-foreground">{roleLine(p)}</span>
-                  {p.role === 'alumno' && <span className="text-sm text-muted-foreground">Última asistencia {lastSeen(p.last_attendance_at)}</span>}
                 </Link>
               </li>
             ))}
@@ -240,6 +244,7 @@ export function UsersPage() {
                   <TableRow key={p.id} className="h-10">
                     <TableCell className="ps-4">
                       <span className="flex flex-wrap items-center gap-1.5">
+                        <ProfileAvatar name={p.display_name} avatar={p.avatar} className="me-1 size-7" />
                         <UserLink p={p} />
                         <Marks p={p} />
                       </span>
@@ -358,6 +363,28 @@ function Summary({ file, refresh }: { file: ProfileFile; refresh: () => void }) 
       ),
     ],
   ]
+  if (p.avatar) {
+    rows.push([
+      'Foto',
+      <Button
+        key="avatar"
+        variant="outline"
+        size="sm"
+        onClick={() =>
+          ask({
+            title: 'Quitar la foto',
+            description: 'Se avisará a la persona (o a su tutor) sin decir el motivo.',
+            label: 'Quitar foto',
+            done: 'Foto quitada',
+            destructive: true,
+            run: del(`/admin/profiles/${p.id}/avatar`),
+          })
+        }
+      >
+        Quitar foto
+      </Button>,
+    ])
+  }
   if (file.status) {
     rows.push(['Perfil', file.status.ok ? 'Completo' : `Le falta: ${(file.status.missing ?? []).map((m) => MISSING[m as AgreementType] ?? m).join(', ')}`])
     if (file.status.risk_cover !== undefined) rows.push(['Cobertura de riesgo', file.status.risk_cover ? 'Sí' : 'No'])
@@ -604,10 +631,13 @@ export function UserPage() {
   return (
     <Page title={name(p)} wide>
       <Back to="/admin/users">Usuarios</Back>
-      <div className="-mt-3 flex flex-wrap items-center gap-2 text-muted-foreground">
-        <Tag>{ROLE_LABEL[p.role]}</Tag>
-        <Marks p={p} />
-        {p.email && <span className="text-sm">{p.email}</span>}
+      <div className="-mt-3 flex items-center gap-3">
+        <ProfileAvatar name={p.display_name} avatar={p.avatar} className="size-14" />
+        <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
+          <Tag>{ROLE_LABEL[p.role]}</Tag>
+          <Marks p={p} />
+          {p.email && <span className="text-sm">{p.email}</span>}
+        </div>
       </div>
       <Tabs value={tab} onValueChange={(v) => setParams({ tab: String(v) }, { replace: true })} className="gap-5">
         <TabsList className="w-full sm:w-auto">

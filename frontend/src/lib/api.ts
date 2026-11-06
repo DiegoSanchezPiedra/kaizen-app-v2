@@ -19,10 +19,10 @@ export class ApiError extends Error {
 // `body` Blob: cuerpo crudo con su propio tipo (el PDF de un documento). `blob`: la respuesta es un archivo, no JSON.
 type Options = { method?: string; body?: unknown; auth?: boolean; blob?: boolean }
 
-let onUnauthorized: () => void = () => {}
+let onUnauthorized: (reason?: 'password_changed') => void = () => {}
 let onWrongRole: () => void = () => {}
 // La sesión caducada y el rol que ya no vale los resuelve quien monta el router (cierra sesión y va a /login).
-export const setUnauthorizedHandler = (fn: () => void) => {
+export const setUnauthorizedHandler = (fn: (reason?: 'password_changed') => void) => {
   onUnauthorized = fn
 }
 export const setWrongRoleHandler = (fn: () => void) => {
@@ -53,9 +53,9 @@ async function once<T>(path: string, { method = 'GET', body, auth = true, blob }
   }
 
   const err = new ApiError(res.status, data ?? {})
-  if (res.status === 401 && auth && session && (err.code === 'invalid_token' || err.code === 'missing_token')) {
-    onUnauthorized()
-  }
+  // session_revoked: el token es anterior a un cambio de contraseña (ADR 0020).
+  if (res.status === 401 && auth && session && (err.code === 'invalid_token' || err.code === 'missing_token')) onUnauthorized()
+  if (res.status === 401 && auth && session && err.code === 'session_revoked') onUnauthorized('password_changed')
   if (res.status === 403 && auth && session && err.code === 'insufficient_role') onWrongRole()
   throw err
 }

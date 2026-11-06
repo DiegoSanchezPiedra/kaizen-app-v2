@@ -42,9 +42,11 @@ export function LoginPage() {
       ? { kind: 'info', title: 'Tu acceso ha cambiado', text: 'Vuelve a entrar.' }
       : params.get('caducada')
         ? { kind: 'info', icon: 'clock', title: 'Tu sesión ha caducado', text: 'Vuelve a entrar y seguirás donde estabas.' }
-        : params.get('cambiada')
-          ? { kind: 'success', title: 'Contraseña cambiada', text: 'Ya puedes entrar con la nueva.' }
-          : null,
+        : params.get('clave')
+          ? { kind: 'info', title: 'Tu contraseña ha cambiado: vuelve a entrar' }
+          : params.get('cambiada')
+            ? { kind: 'success', title: 'Contraseña cambiada', text: 'Ya puedes entrar con la nueva.' }
+            : null,
   )
 
   function finish(res: AuthResponse) {

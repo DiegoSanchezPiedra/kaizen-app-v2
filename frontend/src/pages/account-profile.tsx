@@ -18,6 +18,7 @@ import { useSession } from '@/lib/session'
 import type { MyProfile } from '@/lib/types'
 
 const FIELDS: [string, string][] = [
+  ['photo', 'Mi foto'],
   ['bio', 'Mi presentación'],
   ['social_links', 'Mis redes'],
   ['disciplines', 'Mis disciplinas'],

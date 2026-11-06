@@ -96,7 +96,7 @@ export type Health = {
   emergency_contact_phone: string | null
 }
 
-export type Me = { id: string; role: string; display_name: string | null; email: string; birth_date: string | null; has_password: boolean }
+export type Me = { id: string; role: string; display_name: string | null; email: string; birth_date: string | null; has_password: boolean; avatar: string | null }
 
 export type MyProfile = {
   is_public: boolean
@@ -109,6 +109,7 @@ export type MyProfile = {
 export type PublicProfile = {
   id: string
   display_name: string
+  avatar?: string | null
   role: string
   bio?: string | null
   social_links?: unknown
