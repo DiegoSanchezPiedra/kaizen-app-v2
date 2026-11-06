@@ -258,7 +258,7 @@ function Detail({ session }: { session: TrainerSession }) {
 
   return (
     <Page title={session.discipline_name} wide>
-      <BackLink to="/professor">Sesiones</BackLink>
+      <BackLink to={`/professor?dia=${day}`}>Sesiones</BackLink>
       <div className={cn('grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-7', open && 'pb-24 lg:pb-0')}>
         <div className="flex flex-col gap-3">
           <div className="rounded-xl border bg-card p-3.5">
