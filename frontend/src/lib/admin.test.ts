@@ -144,6 +144,12 @@ describe('auditoría, avisos y cobros (B19.4)', () => {
     expect(auditTarget({ resource_type: 'session', resource_id: '7' }).to).toBe('/admin/sessions/7')
     expect(auditTarget({ resource_type: 'plan', resource_id: '2' })).toEqual({ to: null, label: 'Plan' })
   })
+  it('un alta: «Contrató una cuota» y enlace a la ficha del alumno, no del pagador', () => {
+    expect(auditLabel('subscription.create')).toBe('Contrató una cuota')
+    const alta = { resource_type: 'subscription', resource_id: 's1', changes: { student_id: 'kid', payer_id: 'tutor' } }
+    expect(auditTarget(alta)).toEqual({ to: '/admin/users/kid', label: 'Ficha' })
+    expect(auditTarget({ ...alta, changes: {} })).toEqual({ to: null, label: 'Suscripción' })
+  })
   it('solo se anula un cambio de pagador sin pagar', () => {
     expect(canCancelPayerChange({ status: 'requested' })).toBe(true)
     expect(canCancelPayerChange({ status: 'paid' })).toBe(false)

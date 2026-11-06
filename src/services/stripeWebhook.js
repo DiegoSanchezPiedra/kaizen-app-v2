@@ -79,6 +79,9 @@ async function onCheckoutPaid(client, session) {
     return lostRace(client, sub, payer);
   }
   if (!row) return; // ya existía
+  // El alta (Inicio › «Hoy en la academia»): solo aquí; un traspaso de pagador no es un alta, como en la foto.
+  await client.query(`SELECT write_audit($1, 'subscription.create', 'subscription', $2, $3)`,
+    [payer, row.id, { student_id: m.student_id, payer_id: payer, plan_id: m.plan_id }]);
 
   const ids = m.discipline_ids ? m.discipline_ids.split(',') : [];
   if (ids.length) {

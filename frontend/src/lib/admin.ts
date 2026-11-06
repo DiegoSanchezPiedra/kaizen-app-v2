@@ -118,6 +118,7 @@ const AUDIT_LABEL: Record<string, string> = {
   'plan.retire': 'Retiró un plan',
   'plan.set_eligible': 'Cambió las disciplinas de un plan',
   'discipline.update': 'Editó una disciplina',
+  'subscription.create': 'Contrató una cuota',
   'subscription.cancel_now': 'Dio de baja una suscripción',
   'subscription.cancel_at_period_end': 'Programó la baja de una suscripción',
   'subscription.upgrade': 'Subió de plan',
@@ -191,8 +192,11 @@ const eventChanges = (to: unknown): string =>
   to && typeof to === 'object' ? Object.keys(to).map((k) => EVENT_FIELD[k] ?? k).join(', ') : ''
 
 // A dónde lleva el recurso: la ficha de un perfil (o el hijo de un tutor) o la sesión. El resto, sin enlace.
-export function auditTarget(a: Pick<AuditRow, 'resource_type' | 'resource_id'>): { to: string | null; label: string } {
+export function auditTarget(a: Pick<AuditRow, 'resource_type' | 'resource_id'> & { changes?: AuditRow['changes'] }): { to: string | null; label: string } {
   if (a.resource_type === 'profile' || a.resource_type === 'guardian') return { to: `/admin/users/${a.resource_id}`, label: 'Ficha' }
+  // Un alta trae el alumno en changes: la ficha es la suya, no la del pagador.
+  const student = str(a.changes?.student_id)
+  if (a.resource_type === 'subscription' && student) return { to: `/admin/users/${student}`, label: 'Ficha' }
   if (a.resource_type === 'session') return { to: `/admin/sessions/${a.resource_id}`, label: 'Sesión' }
   if (a.resource_type === 'event') return { to: `/admin/events/${a.resource_id}`, label: 'Evento' }
   const label: Record<string, string> = { class: 'Clase', plan: 'Plan', discipline: 'Disciplina', subscription: 'Suscripción', insurance: 'Seguro', booking: 'Reserva', event_registration: 'Inscripción', agreement_document: 'Documento', settings: 'Ajustes' }

@@ -12,6 +12,7 @@ import {
   cancelSubscription, updateInsuranceSettings, changePlan, cancelScheduledChange, getSubscription,
   cancelInsurance, listOverduePayers, requestPayerChange, cancelPayerChange,
 } from '../src/services/billing.js';
+import { listAudit } from '../src/services/panel.js';
 import webhooksRouter from '../src/routes/webhooks.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 
@@ -67,6 +68,9 @@ const completed = (sub, extra = {}) => evt('checkout.session.completed', {
   subscription: sub.id, customer: sub.customer, ...extra,
 });
 const localSub = async (stripeId) => (await q(`SELECT * FROM subscriptions WHERE stripe_subscription_id = $1`, [stripeId]))[0];
+// Las altas, como las ve el admin en Auditoría (y en «Hoy en la academia» del Inicio).
+const altasOf = (subId) => withRls({ uid: U.admin, role: 'admin' }, (c) =>
+  listAudit(c, { action: 'subscription.create', resource_id: subId })).then((r) => r.rows);
 
 // La ruta real sobre un puerto efímero.
 const app = express();
@@ -137,6 +141,10 @@ try {
     assert.ok(inv.hosted_invoice_url && inv.invoice_pdf && inv.paid_at);
     assert.equal(await handleEvent(e), 'duplicate');
     assert.equal((await q(`SELECT 1 FROM subscriptions WHERE student_id = $1`, [U.alu])).length, 1);
+    const [alta, ...more] = await altasOf(s.id);
+    assert.equal(more.length, 0, 'una sola alta, también con el evento repetido');
+    assert.deepEqual([alta.actor.id, alta.resource_type, alta.changes],
+      [U.alu, 'subscription', { student_id: U.alu, payer_id: U.alu, plan_id: String(plan.id) }]);
   });
   await run('el cliente de Stripe no es el pagador de metadata → error y nada guardado (Stripe reintenta)', async () => {
     const s = await paidSub(cusAlu, 'child', 'tutor');
@@ -233,7 +241,7 @@ try {
     await assert.rejects(admin((c) => cancelSubscription(c, { id: crypto.randomUUID(), atPeriodEnd: false, actorId: U.admin })),
       (e) => e.status === 404);
     const actions = (await q(`SELECT action FROM audit_log WHERE resource_id = $1 ORDER BY created_at`, [id])).map((r) => r.action);
-    assert.deepEqual(actions, ['subscription.cancel_at_period_end', 'notice.subscription_cancelled',
+    assert.deepEqual(actions, ['subscription.create', 'subscription.cancel_at_period_end', 'notice.subscription_cancelled',
       'subscription.cancel_now', 'notice.subscription_cancelled']);
     // B10.6: aviso al pagador con la fecha de fin (fin de periodo o ahora), sin bajada descartada.
     const [atEnd, now] = await noticeOf('notice.subscription_cancelled', id);
@@ -717,6 +725,7 @@ try {
       [U.t2, down.id, 'active', pc1.starts_at.getTime()]);
     assert.deepEqual(await discsOf(row.id), [disc]);
     assert.equal((await pcOf(pc1.id)).status, 'completed');
+    assert.deepEqual(await altasOf(row.id), [], 'un traspaso no es un alta');
     assert.deepEqual(Object.values(await bookingOf(bk)), ['confirmed', null], 'la cobertura no se interrumpe');
     assert.equal((await stripe.subscriptions.retrieve(kidIns.id)).cancel_at_period_end, true);
     const [w] = await noticeOf('notice.insurance_wont_renew', kidInsId);

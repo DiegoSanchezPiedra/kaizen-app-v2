@@ -419,7 +419,7 @@ function Events({ today, className }: { today: string; className?: string }) {
 
 // Solo lo que el audit_log guarda de verdad: bajas y subidas de plan, y sesiones y eventos cancelados (las altas y los
 // cobros fallidos no pasan por la auditoría: los fallidos son avisos, que la API de auditoría nunca devuelve).
-const TODAY_ACTIONS = 'subscription.cancel,subscription.upgrade,session.cancel,event.cancel'
+const TODAY_ACTIONS = 'subscription.create,subscription.cancel,subscription.upgrade,session.cancel,event.cancel'
 
 function Activity({ today, className }: { today: string; className?: string }) {
   const rows = useQuery({
