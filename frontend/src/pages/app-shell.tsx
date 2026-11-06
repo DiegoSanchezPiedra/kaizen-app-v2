@@ -70,7 +70,7 @@ export function AppShell() {
           </NavLink>
         ))}
       </nav>
-      <main className="flex-1 px-4 pt-6 pb-28 lg:px-10 lg:pb-10">
+      <main className="min-w-0 flex-1 px-4 pt-6 pb-28 lg:px-10 lg:pb-10">
         {usesSubject(pathname) && <SubjectPicker />}
         <Outlet />
       </main>

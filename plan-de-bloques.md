@@ -2300,7 +2300,7 @@
   - [x] **B22.0** — auditoría de la PWA (impeccable) y dirección visual (taste-skill); el usuario la aprueba antes de seguir.
     Aprobada el 2026-11-06 con las cuatro recomendaciones: `docs/auditoria-b22.md` (§ 4 dirección, § 5 decisiones, § 6
     pendientes fuera de alcance). Manda sobre `docs/pantallas-b22.md` donde concreta más.
-  - [ ] **B22.1** — calendario semanal: alumno y tutor, profesor y Horario del admin.
+  - [x] **B22.1** — calendario semanal: alumno y tutor, profesor y Horario del admin. `useWeek` + `WeekBoard` + `SessionRow`; `ui/tabs` con el aspecto de `SectionTabs`.
   - [ ] **B22.1b** — `/admin/classes` en móvil.
   - [ ] **B22.2** — Membresías y Disciplinas en el menú.
   - [ ] **B22.3** — KPIs y filtros de Usuarios (backend y frontend).

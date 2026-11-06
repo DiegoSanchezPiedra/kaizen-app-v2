@@ -27,3 +27,5 @@ export const formatMonth = (month: string): string => monthFmt.format(new Date(`
 export const shortWeekday = (day: string): string =>
   new Intl.DateTimeFormat('es-ES', { timeZone: 'UTC', weekday: 'short' }).format(new Date(`${day}T12:00:00Z`)).replace('.', '')
 export const dayOfMonth = (day: string): number => Number(day.slice(8))
+export const longWeekday = (day: string): string =>
+  new Intl.DateTimeFormat('es-ES', { timeZone: 'UTC', weekday: 'long' }).format(new Date(`${day}T12:00:00Z`))

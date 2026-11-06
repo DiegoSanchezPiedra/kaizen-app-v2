@@ -1,8 +1,7 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import {
   BanIcon,
   CalendarDaysIcon,
-  CalendarIcon,
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -19,14 +18,17 @@ import { Link, useParams } from 'react-router'
 import { attKey, AttendanceItem, CorrectDialog, useCloseList } from '@/components/attendance'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Page } from '@/components/page'
+import { SessionRow, SessionRows } from '@/components/session-row'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { StatusAlert } from '@/components/status-alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { WeekBoard } from '@/components/week-board'
 import { useNow } from '@/hooks/use-now'
+import { useWeek } from '@/hooks/use-week'
 import { api, ApiError } from '@/lib/api'
 import { addDays, formatDay, madridDay } from '@/lib/dates'
-import { entryStart, mergeByStart, type Entry, type EventInfo } from '@/lib/events'
+import { mergeByStart, type Entry, type EventInfo } from '@/lib/events'
 import { formatTime } from '@/lib/format'
 import {
   canSeeHealth,
@@ -43,11 +45,9 @@ import {
   type Phase,
   type TrainerSession,
 } from '@/lib/professor'
-import { groupByDay, PAST_CHUNK_DAYS } from '@/lib/sessions'
+import { groupByDay } from '@/lib/sessions'
 import { path } from '@/lib/url'
 import { cn } from '@/lib/utils'
-
-const MAX_PAST_CHUNKS = 8
 
 // Sus sesiones y sus eventos, mezclados por fecha (B21.2).
 const range = (from: string, to: string): Promise<Entry<TrainerSession>[]> =>
@@ -63,142 +63,78 @@ const PHASE_BADGE: Record<Phase, { variant: 'outline' | 'info' | 'secondary' | '
   cancelled: { variant: 'error', Icon: BanIcon, text: 'Cancelada' },
 }
 
+const chevron = <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
+
+function phaseBadge(phase: Phase) {
+  const badge = PHASE_BADGE[phase]
+  return badge ? (
+    <Badge variant={badge.variant} size="lg">
+      <badge.Icon aria-hidden="true" />
+      {badge.text}
+    </Badge>
+  ) : (
+    chevron
+  )
+}
+
 function SessionLink({ s, now }: { s: TrainerSession; now: number }) {
   const phase = phaseOf(s, now)
-  const badge = PHASE_BADGE[phase]
-  const off = phase === 'cancelled'
   return (
-    <Link
+    <SessionRow
       to={`/professor/sessions/${s.id}`}
-      className={cn(
-        'grid grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-x-3 rounded-xl border bg-card p-3 shadow-xs/5 outline-none transition-transform duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98] motion-reduce:active:scale-100',
-        phase === 'now' && 'border-primary/55 shadow-[inset_3px_0_0_var(--primary)]',
-        off && 'bg-transparent shadow-none',
-      )}
-    >
-      <div className="font-mono text-[15px] leading-tight tabular-nums">
-        <div>{formatTime(s.starts_at)}</div>
-        <div className="text-xs text-muted-foreground">{formatTime(s.ends_at)}</div>
-      </div>
-      <div className="min-w-0">
-        <h3 className={cn('text-base leading-snug font-semibold', off && 'text-muted-foreground line-through')}>{s.discipline_name}</h3>
-        <p className="text-[13px] leading-snug text-muted-foreground">
-          {s.location ? `${s.location} · ` : ''}
-          {plural(s.capacity, 'plaza', 'plazas')}
-        </p>
-        {badge && (
-          <Badge variant={badge.variant} size="lg" className="mt-2">
-            <badge.Icon aria-hidden="true" />
-            {badge.text}
-          </Badge>
-        )}
-      </div>
-      <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
-    </Link>
+      start={s.starts_at}
+      end={s.ends_at}
+      title={s.discipline_name}
+      meta={`${s.location ? `${s.location} · ` : ''}${plural(s.capacity, 'plaza', 'plazas')}`}
+      off={phase === 'cancelled'}
+      accent={phase === 'now' ? 'primary' : undefined}
+      aside={phaseBadge(phase)}
+    />
   )
 }
 
 function EventLink({ e, now }: { e: EventInfo; now: number }) {
   const phase = phaseOf(e, now)
-  const badge = PHASE_BADGE[phase]
-  const off = phase === 'cancelled'
   return (
-    <Link
+    <SessionRow
       to={`/professor/events/${e.id}`}
-      className={cn(
-        'grid grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-x-3 rounded-xl border bg-card p-3 shadow-xs/5 outline-none transition-transform duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98] motion-reduce:active:scale-100',
-        phase === 'now' && 'border-primary/55 shadow-[inset_3px_0_0_var(--primary)]',
-        off && 'bg-transparent shadow-none',
-      )}
-    >
-      <div className="font-mono text-[15px] leading-tight tabular-nums">
-        <div>{formatTime(e.starts_at)}</div>
-        <div className="text-xs text-muted-foreground">{formatTime(e.ends_at)}</div>
-      </div>
-      <div className="min-w-0">
-        <h3 className={cn('text-base leading-snug font-semibold', off && 'text-muted-foreground line-through')}>{e.title}</h3>
-        <p className="text-[13px] leading-snug text-muted-foreground">{[e.location, e.discipline?.name].filter(Boolean).join(' · ')}</p>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          <Badge variant="outline" size="lg">
-            <CalendarDaysIcon aria-hidden="true" />
-            Evento
-          </Badge>
-          {badge && (
-            <Badge variant={badge.variant} size="lg">
-              <badge.Icon aria-hidden="true" />
-              {badge.text}
-            </Badge>
-          )}
-        </div>
-      </div>
-      <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
-    </Link>
+      start={e.starts_at}
+      end={e.ends_at}
+      title={e.title}
+      meta={[e.location, e.discipline?.name].filter(Boolean).join(' · ')}
+      off={phase === 'cancelled'}
+      accent={phase === 'now' ? 'primary' : undefined}
+      below={
+        <Badge variant="outline" size="lg">
+          <CalendarDaysIcon aria-hidden="true" />
+          Evento
+        </Badge>
+      }
+      aside={phaseBadge(phase)}
+    />
   )
 }
 
-function Days({ sessions, now }: { sessions: Entry<TrainerSession>[]; now: number }) {
-  const today = madridDay(now)
-  return (
-    <>
-      {groupByDay(sessions, (it) => (it.kind === 'session' ? it.s : it.e).starts_at).map(([day, list]) => (
-        <section key={day} aria-label={formatDay(day)} className="flex flex-col gap-2.5">
-          <h2 className="px-0.5 text-[13px] font-bold tracking-wide text-muted-foreground uppercase first-letter:uppercase">
-            {day === today ? `Hoy · ${formatDay(day)}` : formatDay(day)}
-          </h2>
-          <div className="grid gap-2.5 lg:grid-cols-2">
-            {list.map((it) =>
-              it.kind === 'session' ? <SessionLink key={it.s.id} s={it.s} now={now} /> : <EventLink key={it.e.id} e={it.e} now={now} />,
-            )}
-          </div>
-        </section>
-      ))}
-    </>
-  )
-}
-
-// Sesiones: de hoy a 30 días (el defecto de la API). Las pasadas se piden por tramos de 92 días hacia atrás.
+// Sesiones y eventos de la semana elegida (docs/pantallas-b22.md § Calendario semanal); antes y después, con las flechas.
 export function ProfessorSessionsPage() {
   const now = useNow()
-  const today = madridDay(now)
-  const upcoming = useQuery({ queryKey: ['prof-sessions', today], queryFn: () => range(today, addDays(today, 30)) })
-  const [askedPast, setAskedPast] = useState(false)
-  const past = useInfiniteQuery({
-    queryKey: ['prof-sessions', 'past'],
-    enabled: askedPast,
-    initialPageParam: addDays(today, -1),
-    queryFn: ({ pageParam: end }) => range(addDays(end, -(PAST_CHUNK_DAYS - 1)), end),
-    getNextPageParam: (_l, pages) => (pages.length < MAX_PAST_CHUNKS ? addDays(today, -1 - PAST_CHUNK_DAYS * pages.length) : undefined),
-  })
-  const old = (past.data?.pages.flat() ?? []).sort((a, b) => entryStart(a) - entryStart(b))
+  const w = useWeek()
+  const query = useQuery({ queryKey: ['prof-sessions', w.week], queryFn: () => range(w.week, addDays(w.week, 6)) })
+  const byDay = new Map(groupByDay(query.data ?? [], (it) => (it.kind === 'session' ? it.s : it.e).starts_at))
 
   return (
     <Page title="Sesiones" wide>
-      {upcoming.isPending ? (
-        <ListSkeleton rows={4} />
-      ) : upcoming.isError ? (
-        <ErrorState error={upcoming.error} onRetry={() => void upcoming.refetch()} />
-      ) : (
-        <>
-          {!askedPast || past.hasNextPage || past.isFetchingNextPage ? (
-            <Button
-              size="xl"
-              variant="outline"
-              loading={past.isFetching}
-              onClick={() => (askedPast ? void past.fetchNextPage() : setAskedPast(true))}
-            >
-              {askedPast ? 'Cargar meses anteriores' : 'Ver sesiones anteriores'}
-            </Button>
-          ) : null}
-          {past.isError && <ErrorState error={past.error} onRetry={() => void past.refetch()} />}
-          {askedPast && past.data && old.length === 0 && <p className="text-center text-sm text-muted-foreground">No hay sesiones ni eventos anteriores.</p>}
-          <Days sessions={old} now={now} />
-          {upcoming.data.length === 0 ? (
-            <EmptyState icon={<CalendarIcon />} title="No tienes sesiones ni eventos estos días" text="Cuando la academia te asigne una sesión o un evento aparecerá aquí." />
-          ) : (
-            <Days sessions={upcoming.data} now={now} />
-          )}
-        </>
-      )}
+      <WeekBoard
+        w={w}
+        query={query}
+        marked={new Set(byDay.keys())}
+        noun="sesiones"
+        renderDay={(day) => (
+          <SessionRows>
+            {(byDay.get(day) ?? []).map((it) => (it.kind === 'session' ? <SessionLink key={it.s.id} s={it.s} now={now} /> : <EventLink key={it.e.id} e={it.e} now={now} />))}
+          </SessionRows>
+        )}
+      />
     </Page>
   )
 }

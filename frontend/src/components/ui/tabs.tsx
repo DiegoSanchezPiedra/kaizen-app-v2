@@ -5,7 +5,6 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import {
   type SegmentedControlSize,
-  segmentedControlIndicatorSurfaceClassName,
   segmentedControlItemLayoutClassName,
   segmentedControlItemSizeClassNames,
 } from "@/components/ui/segmented-control";
@@ -48,7 +47,7 @@ export function TabsList({
         "relative z-0 flex w-fit max-w-full items-center justify-start gap-x-0.5 overflow-x-auto text-muted-foreground [scrollbar-width:none]",
         "data-[orientation=vertical]:flex-col",
         variant === "default"
-          ? "rounded-lg bg-muted p-0.5 text-muted-foreground/72"
+          ? "gap-1 rounded-xl bg-foreground/6 p-1"
           : "data-[orientation=vertical]:px-1 data-[orientation=horizontal]:py-1 *:data-[slot=tabs-tab]:hover:bg-accent",
         className,
       )}
@@ -64,7 +63,7 @@ export function TabsList({
           "absolute bottom-0 left-0 h-(--active-tab-height) w-(--active-tab-width) translate-x-(--active-tab-left) -translate-y-(--active-tab-bottom) transition-[width,translate] duration-200 ease-in-out motion-reduce:transition-none",
           variant === "underline"
             ? "z-10 bg-primary data-[orientation=horizontal]:h-0.5 data-[orientation=vertical]:w-0.5 data-[orientation=vertical]:-translate-x-px data-[orientation=horizontal]:translate-y-px"
-            : cn("-z-1", segmentedControlIndicatorSurfaceClassName),
+            : "-z-1 rounded-lg bg-card shadow-sm ring-1 ring-border",
         )}
         data-slot="tab-indicator"
       />
@@ -85,7 +84,7 @@ export function TabsTab({
   return (
     <TabsPrimitive.Tab
       className={cn(
-        "relative flex shrink-0 grow cursor-pointer items-center justify-center whitespace-nowrap rounded-md border border-transparent font-medium text-base outline-none transition-[color,background-color,box-shadow] hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-[orientation=vertical]:w-full data-[orientation=vertical]:justify-start data-active:text-foreground data-disabled:opacity-64 sm:text-sm",
+        "relative flex shrink-0 grow cursor-pointer items-center justify-center whitespace-nowrap rounded-lg border border-transparent font-semibold text-[15px] outline-none transition-[color,background-color,box-shadow] hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-[orientation=vertical]:w-full data-[orientation=vertical]:justify-start data-active:text-foreground data-disabled:opacity-64",
         segmentedControlItemLayoutClassName,
         segmentedControlItemSizeClassNames[resolvedSize],
         className,

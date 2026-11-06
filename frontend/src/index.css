@@ -85,6 +85,7 @@
   --animate-toast-error-odd: toast-error-odd 0.28s cubic-bezier(0.5, 1, 0.89, 1);
   --animate-toast-error-even: toast-error-even 0.28s cubic-bezier(0.5, 1, 0.89, 1);
   --animate-power-up: power-up 720ms var(--ease-power) both;
+  --animate-day-in: day-in 180ms var(--ease-out) both;
 
   @keyframes skeleton {
     to { background-position: -200% 0; }
@@ -104,6 +105,10 @@
   }
   @keyframes toast-error-even {
     0% { translate: 0 0; } 25% { translate: -3px 0; } 50% { translate: 3px 0; } 75% { translate: -3px 0; } 100% { translate: 0 0; }
+  }
+  @keyframes day-in {
+    from { opacity: 0; transform: translateX(var(--day-dx, 10px)); }
+    to { opacity: 1; transform: none; }
   }
   @keyframes power-up {
     0% { transform: scale(0.92); opacity: 0.4; }

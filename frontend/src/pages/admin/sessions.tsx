@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BanIcon, CalendarIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, UsersIcon } from 'lucide-react'
+import { BanIcon, PlusIcon, UsersIcon } from 'lucide-react'
 import { useState } from 'react'
 import type React from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
@@ -7,14 +7,17 @@ import { attKey, AttendanceItem, CorrectDialog, useCloseList } from '@/component
 import { Back, Kv, Tag } from '@/components/billing-bits'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Page } from '@/components/page'
+import { SessionRow, SessionRows } from '@/components/session-row'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
 import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxPopup } from '@/components/ui/combobox'
 import { Textarea } from '@/components/ui/textarea'
+import { WeekBoard } from '@/components/week-board'
 import { useNow } from '@/hooks/use-now'
+import { useWeek } from '@/hooks/use-week'
 import { type Paged, type ProfileRow } from '@/lib/admin'
 import { api } from '@/lib/api'
-import { addDays, dayOfMonth, formatDay, madridDay, shortWeekday } from '@/lib/dates'
+import { formatDay, madridDay } from '@/lib/dates'
 import { formatDeadline, formatTime } from '@/lib/format'
 import { queryClient } from '@/lib/logout'
 import { toastError, toastOk } from '@/lib/notify'
@@ -29,7 +32,6 @@ import {
   isRetroactive,
   madridToIso,
   weekRange,
-  weekStart,
   type AdminSession,
   type Field,
   type SessionBooking,
@@ -42,8 +44,6 @@ import { Filter, useDebounced } from '@/pages/community'
 import { FormSheet, SelectField, TextField, useAdminDisciplines, useTrainers } from '@/pages/admin/schedule-bits'
 import { useConfirm } from '@/pages/admin/user-billing'
 
-const weekFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'UTC', day: 'numeric', month: 'short' })
-const weekLabel = (start: string) => `${weekFmt.format(new Date(`${start}T12:00:00Z`))} – ${weekFmt.format(new Date(`${addDays(start, 6)}T12:00:00Z`))}`
 const name = (p: { display_name: string | null } | undefined) => p?.display_name ?? 'Sin nombre'
 const userLink = 'font-medium text-link underline-offset-3 hover:underline'
 
@@ -57,22 +57,22 @@ function StateTag({ s }: { s: Pick<CalendarSession, 'status' | 'held'> }) {
 
 // ── Semana ───────────────────────────────────────────────────────────────────
 
-// docs/pantallas-b19.md § Horario › Sesiones: la semana (lunes a domingo) y la disciplina viven en la URL.
+// docs/pantallas-b19.md § Horario › Sesiones y docs/pantallas-b22.md § Calendario semanal: la semana, el día y la
+// disciplina viven en la URL.
 export function AdminSessionsPage() {
   const [params, setParams] = useSearchParams()
   const [loose, setLoose] = useState(false)
-  const today = madridDay()
-  const week = weekStart(params.get('semana'))
+  const w = useWeek()
   const discipline = params.get('disciplina') ?? 'all'
-  const { from, to } = weekRange(week)
+  const { from, to } = weekRange(w.week)
   const disciplines = useAdminDisciplines()
 
-  const set = (k: string, v: string | null) =>
+  const setDiscipline = (v: string) =>
     setParams(
       (p) => {
         const n = new URLSearchParams(p)
-        if (v && v !== 'all') n.set(k, v)
-        else n.delete(k)
+        if (v !== 'all') n.set('disciplina', v)
+        else n.delete('disciplina')
         return n
       },
       { replace: true },
@@ -95,81 +95,41 @@ export function AdminSessionsPage() {
         </Button>
       }
     >
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="icon-lg" aria-label="Semana anterior" onClick={() => set('semana', addDays(week, -7))}>
-          <ChevronLeftIcon />
-        </Button>
-        <h2 className="min-w-36 text-center text-base font-semibold tabular-nums" aria-live="polite">
-          {weekLabel(week)}
-        </h2>
-        <Button variant="outline" size="icon-lg" aria-label="Semana siguiente" onClick={() => set('semana', addDays(week, 7))}>
-          <ChevronRightIcon />
-        </Button>
-        {week !== weekStart(today) && (
-          <Button variant="link" onClick={() => set('semana', null)}>
-            Ir a hoy
-          </Button>
-        )}
-        <div className="w-full sm:ml-auto sm:w-56">
-          <Filter
-            label="Disciplina"
-            value={discipline}
-            onChange={(v) => set('disciplina', v)}
-            items={[{ value: 'all', label: 'Todas las disciplinas' }, ...(disciplines.data ?? []).map((d) => ({ value: String(d.id), label: d.name }))]}
-          />
-        </div>
+      <div className="sm:w-56">
+        <Filter
+          label="Disciplina"
+          value={discipline}
+          onChange={setDiscipline}
+          items={[{ value: 'all', label: 'Todas las disciplinas' }, ...(disciplines.data ?? []).map((d) => ({ value: String(d.id), label: d.name }))]}
+        />
       </div>
-
-      {calendar.isPending ? (
-        <ListSkeleton rows={4} className="h-14" />
-      ) : calendar.isError ? (
-        <ErrorState error={calendar.error} onRetry={() => void calendar.refetch()} />
-      ) : calendar.data.length === 0 ? (
-        <EmptyState icon={<CalendarIcon />} title="No hay sesiones esta semana" text={discipline === 'all' ? 'Prueba con otra semana.' : 'Prueba con otra disciplina o con otra semana.'} />
-      ) : (
-        <div className="flex flex-col gap-5">
-          {Array.from({ length: 7 }, (_, i) => addDays(week, i)).map((day) => {
-            const list = byDay.get(day) ?? []
-            return (
-              <section key={day} aria-label={formatDay(day)} className="flex flex-col gap-2">
-                <h3 className={cn('px-0.5 text-[13px] font-bold tracking-wide text-muted-foreground uppercase', day === today && 'text-link')}>
-                  <span className="first-letter:uppercase">
-                    {shortWeekday(day)} {dayOfMonth(day)}
-                  </span>
-                  {day === today && <span> · hoy</span>}
-                </h3>
-                {list.length === 0 ? (
-                  <p className="px-0.5 text-sm text-muted-foreground">Sin sesiones</p>
-                ) : (
-                  <ul className="divide-y overflow-hidden rounded-2xl border bg-card">
-                    {list.map((s) => (
-                      <li key={s.id}>
-                        <Link
-                          to={`/admin/sessions/${s.id}`}
-                          className="flex min-h-14 flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 outline-none hover:bg-accent/40 active:bg-accent/60 focus-visible:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-                        >
-                          <span className="shrink-0 font-semibold tabular-nums sm:w-28">
-                            {formatTime(s.starts_at)}–{formatTime(s.ends_at)}
-                          </span>
-                          <span className="order-last min-w-0 basis-full sm:order-none sm:flex-1 sm:basis-auto">
-                            <span className={cn('block font-semibold sm:inline', s.status === 'cancelled' && 'text-muted-foreground line-through')}>{s.discipline.name}</span>
-                            <span className="block text-sm text-muted-foreground sm:inline">
-                              <span className="hidden sm:inline">{' · '}</span>
-                              {[s.trainer ? name(s.trainer) : 'Sin profesor', s.location].filter(Boolean).join(' · ')}
-                            </span>
-                          </span>
-                          <span className="ml-auto text-sm text-muted-foreground tabular-nums sm:ml-0">{plural(s.capacity, 'plaza', 'plazas')}</span>
-                          <StateTag s={s} />
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-            )
-          })}
-        </div>
-      )}
+      <WeekBoard
+        w={w}
+        query={calendar}
+        marked={new Set(byDay.keys())}
+        top="top-14"
+        renderDay={(day) => (
+          <SessionRows>
+            {(byDay.get(day) ?? []).map((s) => (
+              <SessionRow
+                key={s.id}
+                to={`/admin/sessions/${s.id}`}
+                start={s.starts_at}
+                end={s.ends_at}
+                title={s.discipline.name}
+                meta={[s.trainer ? name(s.trainer) : 'Sin profesor', s.location].filter(Boolean).join(' · ')}
+                off={s.status === 'cancelled'}
+                aside={
+                  <>
+                    <StateTag s={s} />
+                    <span className="text-sm text-muted-foreground tabular-nums">{plural(s.capacity, 'plaza', 'plazas')}</span>
+                  </>
+                }
+              />
+            ))}
+          </SessionRows>
+        )}
+      />
       <LooseSession open={loose} onClose={() => setLoose(false)} />
     </Page>
   )
@@ -323,7 +283,7 @@ function SessionDetail({ session: s, bookings }: Detail) {
 
   return (
     <Page title={s.discipline.name} wide actions={<StateTag s={s} />}>
-      <Back to={`/admin/sessions?semana=${day}`}>Horario</Back>
+      <Back to={`/admin/sessions?dia=${day}`}>Horario</Back>
       {s.status === 'cancelled' && (
         <p className="flex items-center gap-2 rounded-xl border bg-card px-4 py-3 text-sm" role="status">
           <BanIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />

@@ -12,6 +12,7 @@ describe('semana de lunes a domingo', () => {
   it('una URL rota o vacía cae en la semana de hoy', () => {
     expect(weekStart(null, '2026-11-04')).toBe('2026-11-02')
     expect(weekStart('mañana', '2026-11-04')).toBe('2026-11-02')
+    expect(weekStart('2026-13-45', '2026-11-04')).toBe('2026-11-02') // fecha imposible: no revienta
     expect(weekStart('2026-02-31', '2026-11-04')).toBe('2026-11-02')
   })
   it('el rango son siete días, cruzando fin de año', () => {

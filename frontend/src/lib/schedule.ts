@@ -4,7 +4,7 @@ import { formatTime } from '@/lib/format'
 // Horario del panel (docs/pantallas-b19.md § Horario). La forma de la API sale de docs/api.md § Admin.
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
-const isDay = (s: string | null): s is string => !!s && DAY_RE.test(s) && new Date(`${s}T00:00:00Z`).toISOString().startsWith(s)
+export const isDay = (s: string | null): s is string => !!s && DAY_RE.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && new Date(`${s}T00:00:00Z`).toISOString().startsWith(s)
 
 // `?semana=` es cualquier día de la semana; una URL a mano rota cae en la semana de hoy. Siempre su lunes.
 export const weekStart = (raw: string | null, today: string = madridDay()): string => mondayOf(isDay(raw) ? raw : today)
