@@ -12,6 +12,9 @@ export const MISSING_TEXT: Record<string, string> = {
 }
 const list = (items: string[]): string => items.join(', ').replace(/, ([^,]*)$/, ' y $1')
 
+// Sin cuota: en Inicio y encima del Calendario, que es donde se intenta reservar.
+export const NO_SUBSCRIPTION: HomeNotice = { id: 'nosub', kind: 'info', title: 'Contrata una cuota para reservar', text: 'Sin cuota no se puede reservar ninguna sesión.', to: '/billing', cta: 'Contratar cuota' }
+
 // Avisos de estado de Inicio, en el orden del canvas: perfil o acuerdo, impagado, gracia, sin cobertura, sin suscripción.
 // `subject`: null si es uno mismo, o el hijo; `self`: el estado del tutor cuando actúa por un hijo.
 export function homeNotices({
@@ -63,7 +66,7 @@ export function homeNotices({
     out.push({ id: 'risk', kind: 'warning', title: 'Sin cobertura de riesgo', text: 'Necesitas el seguro o firmar la exención de responsabilidad para reservar.', to: '/agreements', cta: 'Ver opciones' })
   }
   if (subscription === null) {
-    out.push({ id: 'nosub', kind: 'info', title: 'Contrata una cuota para reservar', text: 'Sin cuota no se puede reservar ninguna sesión.', to: '/billing', cta: 'Contratar' })
+    out.push(NO_SUBSCRIPTION)
   }
   return out
 }

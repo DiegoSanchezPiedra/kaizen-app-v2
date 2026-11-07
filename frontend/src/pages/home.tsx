@@ -20,7 +20,7 @@ import type { Subject } from '@/lib/subject'
 
 const ICON = { warning: TriangleAlertIcon, error: CircleAlertIcon, info: InfoIcon }
 
-function NoticeCard({ n }: { n: HomeNotice }) {
+export function NoticeCard({ n }: { n: HomeNotice }) {
   const { withSubject } = useSubject()
   const Icon = ICON[n.kind]
   return (

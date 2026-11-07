@@ -12,6 +12,7 @@ import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
 import { WeekBoard } from '@/components/week-board'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { EventList } from '@/pages/events'
+import { NoticeCard } from '@/pages/home'
 import { useNow } from '@/hooks/use-now'
 import { useWeek } from '@/hooks/use-week'
 import { useSubject } from '@/hooks/use-subject'
@@ -19,7 +20,8 @@ import { api } from '@/lib/api'
 import { addDays } from '@/lib/dates'
 import { toastManager } from '@/components/ui/toast'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
-import { path, refreshBookings } from '@/lib/queries'
+import { NO_SUBSCRIPTION } from '@/lib/notices'
+import { path, refreshBookings, useSubscription } from '@/lib/queries'
 import { canCancel, groupByDay, seatsOf, sessionState, type SessionState } from '@/lib/sessions'
 import type { Subject } from '@/lib/subject'
 import type { Booking, CalendarSession, Discipline } from '@/lib/types'
@@ -33,6 +35,7 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
   const [blockedFrom, setBlockedFrom] = useState<number>()
   const cancel = useCancelBooking()
   const now = useNow()
+  const noSub = useSubscription(profileId).data === null
 
   const disciplines = useQuery({ queryKey: ['disciplines'], queryFn: () => api<{ disciplines: Discipline[] }>('/disciplines').then((r) => r.disciplines) })
   const calendar = useQuery({
@@ -56,9 +59,11 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
       const action =
         code === 'no_risk_cover'
           ? { label: 'Ver opciones', onClick: () => void navigate(withSubject('/agreements')) }
-          : code === 'profile_incomplete'
-            ? { label: 'Completar', onClick: () => void navigate(profileId ? withSubject('/account/health') : '/onboarding') }
-            : undefined
+          : code === 'not_covered'
+            ? { label: 'Ver cuota', onClick: () => void navigate(withSubject('/billing')) }
+            : code === 'profile_incomplete'
+              ? { label: 'Completar', onClick: () => void navigate(profileId ? withSubject('/account/health') : '/onboarding') }
+              : undefined
       toastError(err, action)
     },
     onSettled: () => refreshBookings(),
@@ -108,7 +113,8 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
   const day = (d: string) => {
     const list = byDay.get(d) ?? []
     // El motivo de «No cubierta» se dice una vez por día, no en cada sesión.
-    const uncovered = list.some((s) => sessionState(s, now, blockedFrom) === 'uncovered')
+    // Sin cuota ya lo dice el aviso de arriba.
+    const uncovered = !noSub && list.some((s) => sessionState(s, now, blockedFrom) === 'uncovered')
     return (
       <>
         {uncovered && <p className="px-0.5 text-[13px] text-muted-foreground">«No cubierta»: tu cuota no incluye esa disciplina.</p>}
@@ -119,6 +125,7 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
 
   return (
     <>
+      {noSub && <NoticeCard n={NO_SUBSCRIPTION} />}
       {options.length > 1 && (
         <ToggleGroup
           aria-label="Disciplina"
