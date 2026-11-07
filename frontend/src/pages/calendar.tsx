@@ -75,7 +75,8 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
   function actions(s: CalendarSession, state: SessionState) {
     if (state === 'available')
       return (
-        <Button size="lg" loading={reserve.isPending && reserve.variables === s.id} onClick={() => reserve.mutate(s.id)}>
+        // En las 7 columnas de lg «Lista de espera» no cabe en una línea: se parte en dos.
+        <Button size="lg" className="h-auto min-h-10 whitespace-normal py-1.5 leading-tight sm:h-auto sm:min-h-9" loading={reserve.isPending && reserve.variables === s.id} onClick={() => reserve.mutate(s.id)}>
           {seatsOf(s.taken, s.capacity).full ? 'Lista de espera' : 'Reservar'}
         </Button>
       )

@@ -5,11 +5,11 @@ import { cn } from '@/lib/utils'
 export function Seats({ taken, capacity, fullText = 'Completa' }: { taken: number; capacity: number; fullText?: string }) {
   const { label, full, ratio } = seatsOf(taken, capacity)
   return (
-    <span className={cn('inline-flex items-center gap-2 text-xs tabular-nums', full ? 'font-semibold text-foreground' : 'text-muted-foreground')}>
+    <span className={cn('inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-xs tabular-nums', full ? 'font-semibold text-foreground' : 'text-muted-foreground')}>
       <span aria-hidden="true" className="h-1 w-10 overflow-hidden rounded-full bg-muted">
         <span className={cn('block h-full rounded-full', full ? 'bg-foreground' : 'bg-primary')} style={{ width: `${ratio * 100}%` }} />
       </span>
-      {full ? `${label} · ${fullText}` : `${label} plazas`}
+      <span className="whitespace-nowrap">{full ? `${label} · ${fullText}` : `${label} plazas`}</span>
     </span>
   )
 }
