@@ -5,7 +5,7 @@ import { homeNotices } from '@/lib/notices'
 import { onboardingSteps, profileNotice } from '@/lib/profile'
 import { BADGES } from '@/lib/progress'
 import { path } from '@/lib/url'
-import { groupByDay, sessionState, splitBookings } from '@/lib/sessions'
+import { groupByDay, seatsOf, sessionState, splitBookings } from '@/lib/sessions'
 import type { Booking, CalendarSession } from '@/lib/types'
 
 const session = (o: Partial<CalendarSession> = {}): CalendarSession => ({
@@ -16,6 +16,7 @@ const session = (o: Partial<CalendarSession> = {}): CalendarSession => ({
   trainer: null,
   location: null,
   capacity: 10,
+  taken: 0,
   status: 'scheduled',
   held: false,
   covered: true,
@@ -127,4 +128,13 @@ describe('utilidades', () => {
   it('los diez badges de la lista cerrada', () => expect(BADGES.map((x) => x.code)).toEqual([
     'hours_10', 'hours_50', 'hours_100', 'hours_250', 'hours_500', 'hours_1000', 'streak_4', 'streak_12', 'streak_26', 'streak_52',
   ]))
+})
+
+describe('seatsOf', () => {
+  it('ocupadas/aforo; llena al llegar o pasar del aforo, con la barra a tope', () => {
+    expect(seatsOf(10, 13)).toEqual({ label: '10/13', full: false, ratio: 10 / 13 })
+    expect(seatsOf(13, 13)).toMatchObject({ label: '13/13', full: true, ratio: 1 })
+    expect(seatsOf(15, 13)).toMatchObject({ full: true, ratio: 1 })
+    expect(seatsOf(0, 8)).toMatchObject({ label: '0/8', full: false, ratio: 0 })
+  })
 })

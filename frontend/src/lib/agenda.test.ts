@@ -4,7 +4,7 @@ import type { AdminEvent } from '@/lib/events'
 import type { CalendarSession } from '@/lib/types'
 
 const session = (id: string, starts_at: string, over: Partial<CalendarSession> = {}): CalendarSession => ({
-  id, class_id: 'c1', starts_at, ends_at: starts_at, discipline: { id: 1, name: 'Judo' }, trainer: null, location: null, capacity: 10, status: 'scheduled', held: false, ...over,
+  id, class_id: 'c1', starts_at, ends_at: starts_at, discipline: { id: 1, name: 'Judo' }, trainer: null, location: null, capacity: 10, taken: 0, status: 'scheduled', held: false, ...over,
 })
 const event = (id: string, starts_at: string, over: Partial<AdminEvent> = {}): AdminEvent =>
   ({ id, title: id, starts_at, ends_at: starts_at, discipline: null, status: 'scheduled', ...over }) as AdminEvent

@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import { Page } from '@/components/page'
 import { useCancelBooking } from '@/components/cancel-booking'
 import { StateBadge } from '@/components/session-card'
+import { Seats } from '@/components/seats'
 import { SessionRow, SessionRows } from '@/components/session-row'
 import { SubjectGate } from '@/components/subject-gate'
 import { Button } from '@/components/ui/button'
@@ -19,7 +20,7 @@ import { addDays } from '@/lib/dates'
 import { toastManager } from '@/components/ui/toast'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
 import { path, refreshBookings } from '@/lib/queries'
-import { canCancel, groupByDay, sessionState, type SessionState } from '@/lib/sessions'
+import { canCancel, groupByDay, seatsOf, sessionState, type SessionState } from '@/lib/sessions'
 import type { Subject } from '@/lib/subject'
 import type { Booking, CalendarSession, Discipline } from '@/lib/types'
 
@@ -70,7 +71,7 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
     if (state === 'available')
       return (
         <Button size="lg" loading={reserve.isPending && reserve.variables === s.id} onClick={() => reserve.mutate(s.id)}>
-          Reservar
+          {seatsOf(s.taken, s.capacity).full ? 'Lista de espera' : 'Reservar'}
         </Button>
       )
     if ((state === 'booked' || state === 'waitlisted') && s.booking && canCancel(s, now))
@@ -87,6 +88,8 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
     const state = sessionState(s, now, blockedFrom)
     const action = actions(s, state)
     const tag = state === 'available' ? null : <StateBadge state={state} />
+    // Aforo solo mientras se puede reservar o ya se tiene plaza; en una pasada o cancelada no aporta.
+    const seats = !['cancelled', 'held', 'started'].includes(state) && <Seats taken={s.taken} capacity={s.capacity} />
     return (
       <SessionRow
         key={s.id}
@@ -96,7 +99,7 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
         meta={[s.trainer?.display_name, s.location].filter(Boolean).join(' · ')}
         off={state === 'cancelled'}
         accent={state === 'booked' ? 'success' : state === 'waitlisted' ? 'warning' : undefined}
-        below={action ? tag : undefined}
+        below={action ? <>{tag}{seats}</> : seats || undefined}
         aside={action ?? tag}
       />
     )

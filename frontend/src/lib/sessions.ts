@@ -17,6 +17,11 @@ export function sessionState(s: CalendarSession, now: number, blockedFrom?: numb
   return 'available'
 }
 
+// Plazas: «10/13». Por encima del aforo (un admin reduce plazas) cuenta como llena y la barra no se sale.
+export function seatsOf(taken: number, capacity: number): { label: string; full: boolean; ratio: number } {
+  return { label: `${taken}/${capacity}`, full: taken >= capacity, ratio: capacity > 0 ? Math.min(taken / capacity, 1) : 1 }
+}
+
 // Cancelar o salir de la espera solo antes de empezar (después, session_started).
 export const canCancel = (s: CalendarSession, now: number): boolean => Date.parse(s.starts_at) > now
 

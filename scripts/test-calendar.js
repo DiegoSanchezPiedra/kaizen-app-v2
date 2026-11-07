@@ -212,6 +212,12 @@ try {
     assert.equal(s.b.class_id, classB);
     assert.equal(s.a.class_id, null);
   });
+  await run('taken: confirmadas de todos (no la cancelada), aunque la RLS esconda las ajenas', async () => {
+    const s = await cal('aluNone');
+    assert.equal(s.a.taken, 1); // la de aluN; la cancelada de aluNone no cuenta
+    assert.equal(s.b.taken, 1);
+    assert.equal(s.m.taken, 0);
+  });
   await run('HTTP: profesor 403, sin token 401, 400 de rango y de profile_id', async () => {
     assert.equal((await http('/sessions/calendar', 'prof1')).status, 403);
     assert.equal((await http('/sessions/calendar')).status, 401);

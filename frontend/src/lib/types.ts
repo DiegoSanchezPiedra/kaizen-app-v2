@@ -13,6 +13,7 @@ export type CalendarSession = {
   trainer: { id: string; display_name: string } | null
   location: string | null
   capacity: number
+  taken: number // reservas confirmadas de todos (solo la cuenta)
   status: 'scheduled' | 'cancelled'
   held: boolean
   covered?: boolean

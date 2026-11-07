@@ -1,5 +1,6 @@
 import { BanIcon, CheckIcon, HourglassIcon, LockIcon } from 'lucide-react'
 import { Link, type LinkProps } from 'react-router'
+import { Seats } from '@/components/seats'
 import { Badge } from '@/components/ui/badge'
 import { dayOfMonth, madridDay, shortWeekday } from '@/lib/dates'
 import { audienceTag, eventWhen, priceView, spotsLabel, type EventInfo } from '@/lib/events'
@@ -73,7 +74,7 @@ export function EventCard({ e, to, member }: { e: EventInfo; to: LinkProps['to']
             {price.note && <span className="ml-1.5 text-xs font-medium text-muted-foreground">{price.note}</span>}
           </span>
           {tag && <Badge variant="secondary">{tag}</Badge>}
-          {spots && spots !== 'Completo' && !e.registration?.status.match(/^(pending|confirmed)$/) && <span className="text-xs text-muted-foreground">{spots}</span>}
+          {e.capacity !== null && spots !== 'Completo' && !e.registration?.status.match(/^(pending|confirmed)$/) && <Seats taken={e.taken} capacity={e.capacity} />}
         </div>
       </div>
     </Link>
