@@ -4,6 +4,7 @@ import { isoToSpanish } from '@/lib/format'
 import { homeNotices } from '@/lib/notices'
 import { onboardingSteps, profileNotice } from '@/lib/profile'
 import { BADGES } from '@/lib/progress'
+import { isDark } from '@/lib/theme'
 import { path } from '@/lib/url'
 import { groupByDay, seatsOf, sessionState, splitBookings } from '@/lib/sessions'
 import type { Booking, CalendarSession } from '@/lib/types'
@@ -136,5 +137,15 @@ describe('seatsOf', () => {
     expect(seatsOf(13, 13)).toMatchObject({ label: '13/13', full: true, ratio: 1 })
     expect(seatsOf(15, 13)).toMatchObject({ full: true, ratio: 1 })
     expect(seatsOf(0, 8)).toMatchObject({ label: '0/8', full: false, ratio: 0 })
+  })
+})
+
+describe('isDark', () => {
+  it('la preferencia manda; «system» sigue al sistema; la tablet siempre oscura', () => {
+    expect(isDark('dark', false, '/')).toBe(true)
+    expect(isDark('light', true, '/')).toBe(false)
+    expect(isDark('system', true, '/')).toBe(true)
+    expect(isDark('system', false, '/')).toBe(false)
+    expect(isDark('light', false, '/tablet')).toBe(true)
   })
 })

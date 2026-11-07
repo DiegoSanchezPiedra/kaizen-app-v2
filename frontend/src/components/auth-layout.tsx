@@ -1,5 +1,6 @@
 import type React from 'react'
 import logo from '@/assets/logo.png'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { cn } from '@/lib/utils'
 
 type HeroSize = 'tall' | 'compact' | 'hero'
@@ -10,7 +11,9 @@ const logoWidth: Record<HeroSize, string> = { tall: 'w-47', compact: 'w-28', her
 // Pantallas sin sesión: en móvil, cabecera de marca y hoja encima; en escritorio, panel de marca a la izquierda.
 export function AuthLayout({ hero = 'compact', children }: { hero?: HeroSize; children: React.ReactNode }) {
   return (
-    <div className="flex min-h-dvh flex-col lg:flex-row">
+    <div className="relative flex min-h-dvh flex-col lg:flex-row">
+      {/* Esquina superior derecha: sobre la marca en móvil, sobre el formulario en lg. */}
+      <ThemeToggle className="absolute top-[max(env(safe-area-inset-top),0.5rem)] right-2 z-10 text-white hover:bg-white/10 hover:text-white lg:top-4 lg:right-4 lg:text-foreground lg:hover:bg-accent lg:hover:text-foreground" />
       <aside
         className={cn(
           'brand-glow relative isolate flex shrink-0 items-center justify-center overflow-hidden bg-brand-ink pb-6 text-white',

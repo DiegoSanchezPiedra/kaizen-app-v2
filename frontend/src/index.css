@@ -272,3 +272,9 @@
     margin-block: -0.65rem;
   }
 }
+
+/* Cambio de tema (lib/theme): fundido corto del documento entero. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 180ms;
+}

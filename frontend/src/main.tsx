@@ -9,12 +9,10 @@ import { ToastProvider, toastManager } from '@/components/ui/toast'
 import { queryClient } from '@/lib/logout'
 import { router } from '@/router'
 import { watchForUpdates } from '@/lib/sw-update'
+import { applyTheme, systemDark } from '@/lib/theme'
 
-// El modo oscuro sigue la preferencia del sistema (fijarlo en Cuenta queda para B18.2); la tablet siempre es oscura.
-const dark = window.matchMedia('(prefers-color-scheme: dark)')
-const applyTheme = () => document.documentElement.classList.toggle('dark', dark.matches || location.pathname === '/tablet')
-applyTheme()
-dark.addEventListener('change', applyTheme)
+applyTheme() // lib/theme: preferencia del dispositivo o la del sistema; la tablet siempre oscura
+systemDark().addEventListener('change', applyTheme)
 
 // ADR 0015: una versión nueva espera al «Actualizar» (también en /tablet, lo toca el profesor); nunca se activa sola.
 const updateSW = registerSW({
