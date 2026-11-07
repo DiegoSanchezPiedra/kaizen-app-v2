@@ -47,8 +47,10 @@ export async function listBookings(client, { profile_id, from, to } = {}) {
   const f = from ? dateParam(from, 'from') : null;
   const t = to ? dateParam(to, 'to') : null;
   const { rows } = await client.query(
+    // Una fila por sesión y alumno: la activa, o la última cancelada. Volver a reservar crea otra fila (009).
     `WITH r AS (SELECT COALESCE($2::date, (now() AT TIME ZONE '${TZ}')::date) AS f)
-     SELECT b.id, b.session_id, b.student_id, b.booked_by, b.status, b.cancel_reason,
+     SELECT * FROM (
+     SELECT DISTINCT ON (b.session_id, b.student_id) b.id, b.session_id, b.student_id, b.booked_by, b.status, b.cancel_reason,
             b.created_at, b.promoted_at, b.cancelled_at,
             s.discipline_id, d.name AS discipline_name, s.starts_at, s.ends_at, s.location,
             s.status AS session_status
@@ -59,7 +61,8 @@ export async function listBookings(client, { profile_id, from, to } = {}) {
         AND s.starts_at >= r.f::timestamp AT TIME ZONE '${TZ}'
         AND s.starts_at <  (COALESCE($3::date, r.f + 30) + 1)::timestamp AT TIME ZONE '${TZ}'
         AND COALESCE($3::date, r.f + 30) - r.f < ${MAX_RANGE_DAYS}
-      ORDER BY s.starts_at, b.created_at`,
+      ORDER BY b.session_id, b.student_id, b.status = 'cancelled', b.created_at DESC) x
+      ORDER BY starts_at, created_at`,
     [profile_id ?? null, f, t]
   );
   return rows;

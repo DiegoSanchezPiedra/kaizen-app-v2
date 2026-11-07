@@ -197,6 +197,9 @@ try {
     await run('se puede volver a reservar tras cancelar', async () => {
       await as(c, U.alu1, 'alumno');
       assert.equal((await book(c, 'full', 'alu1')).status, 'confirmed');
+      // Mis reservas: una fila por sesión y alumno (la activa), no también la cancelada de antes.
+      const mine = (await listBookings(c, {})).filter((x) => x.session_id === S.full);
+      assert.deepEqual(mine.map((x) => x.status), ['confirmed']);
     });
     await run('ventana: el alumno no reserva a 20 días; el admin sí', async () => {
       await rejects(c, () => book(c, 'far', 'alu1'), 409, 'outside_booking_window');
