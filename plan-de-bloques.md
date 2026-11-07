@@ -2393,3 +2393,22 @@ diseñada). `CONTEXT.md`: Foto de perfil, Cambio de contraseña, `photo` como ca
 - [x] `security-review` del diff de B24: sin hallazgos (2026-11-06).
 - [x] Staging: `staging:migrate`, API reiniciada, `staging:build`, nginx reiniciado (fotos en `storage-staging/avatars`).
 - [ ] Prueba en un iPhone real (subir con la cámara, recorte táctil).
+
+#### B24.1 — Experiencia del alumno: aforo, cuota, reservas sin repetir y tema — HECHO (con prueba en iPhone pendiente)
+
+Grilling el 2026-11-07 (Opus medio: toca `SECURITY DEFINER` y RLS). Un commit por punto, el bug primero (TDD).
+
+- [x] **Reservas repetidas** (`958a08c`): volver a reservar crea otra fila (índice único parcial de 009) y
+  `listBookings` devolvía también la cancelada. Ahora una fila por sesión y alumno: la activa o la última cancelada.
+  Sin tocar datos (las canceladas son historial) ni cobros. Regresión en `test:bookings`.
+- [x] **Aforo** (`3cf7d2d`): migración `031` `session_taken(uuid)` (como `event_taken`: solo la cuenta);
+  `GET /sessions/calendar` devuelve `taken`. El Calendario del alumno muestra «10/13 plazas» con una barra fina mientras
+  se puede reservar o se tiene plaza; llena, «13/13 · Completa» y el botón dice «Lista de espera». Las tarjetas de
+  eventos usan el mismo componente (`Seats`). `test:calendar` y `seatsOf` en Vitest.
+- [x] **Contratar la cuota** (`5a4373f`): sin cuota, el Calendario abre con el aviso de Inicio (`NO_SUBSCRIPTION`,
+  «Contratar cuota») y no repite «No cubierta» por día; `not_covered` ofrece «Ver cuota». Con cuota, nada nuevo.
+- [x] **Tema** (`1cda952`): sistema / claro / oscuro en la fila del título de `Page` (todos los roles) y en el acceso;
+  por dispositivo (`localStorage`); la tablet sigue oscura; la `theme-color` de la PWA sigue al tema. `isDark` en Vitest.
+- [x] Staging: `staging:migrate` (031) y `staging:build`. **Falta reiniciar la API** (`npm run staging:api`).
+- [ ] Ver con un alumno en staging: «10/13», clase llena, sin cuota, y reservar → cancelar → reservar en Mis reservas.
+- [ ] Prueba en un iPhone real (barra de estado al cambiar de tema).
