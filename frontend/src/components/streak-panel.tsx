@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
-import { medalOf, streakTier } from '@/lib/progress'
+import { streakMedal, streakTier } from '@/lib/progress'
 import { cn } from '@/lib/utils'
 
 // ADR 0015: nada de la API se guarda en el dispositivo. La entrada (número y destello del aura) se juega una vez por
 // sesión de la app (en memoria) y no compara con la última visita.
 let played = false
+// Opacidad (hex) del aura por nivel, del 1 al 5.
+const AURA = ['33', '44', '55', '77', 'aa']
 
 // Viñeta manga de la racha general con la temática de la disciplina con más horas (streakTheme; null = Kaizen). El aura
 // sube con la racha actual (streakTier) y toma la paleta de la medalla de constancia de ese corte, sin nombrarla: esas
@@ -15,13 +17,13 @@ export function StreakPanel({ current, best, subject, theme = null, large }: { c
     played = true
   }, [])
   const tier = streakTier(current)
-  const m = medalOf(theme, tier >= 2 ? `streak_${[4, 12, 26, 52][tier - 2]}` : 'first_day')!
+  const m = streakMedal(theme, current)
   const color = tier ? m.palette.c1 : '#9AA0B8'
   return (
     <section aria-label="Racha" className="relative isolate overflow-hidden rounded-2xl border-3 border-black bg-brand-ink p-4 text-white shadow-[4px_4px_0_#000]">
       {tier > 0 && (
         <>
-          <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10" style={{ background: `radial-gradient(circle at 18% 50%, ${color}${['', '33', '44', '55', '77', 'aa'][tier]}, transparent ${40 + tier * 8}%)` }} />
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10" style={{ background: `radial-gradient(circle at 18% 50%, ${color}${AURA[tier - 1]}, transparent ${40 + tier * 8}%)` }} />
           {tier >= 2 && <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(rgb(255_255_255/0.12)_1px,transparent_1.2px)] [background-size:6px_6px]" />}
           <div aria-hidden="true" className="pointer-events-none absolute top-1/2 left-[18%] -z-10 size-[260%] -translate-1/2 rounded-full" style={{ background: `repeating-conic-gradient(${color}${tier >= 3 ? '33' : '1a'} 0deg 5deg, transparent 5deg 16deg)` }} />
           {first && <div aria-hidden="true" className="pointer-events-none absolute inset-0 animate-medal-flash bg-white opacity-0" />}
