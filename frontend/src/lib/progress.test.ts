@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { LADDER, medalOf, medalsToCelebrate, nextMedal, topMedal } from '@/lib/progress'
+import { LADDER, medalOf, medalsToCelebrate, nextMedal, streakTheme, streakTier, topMedal } from '@/lib/progress'
 import type { DisciplineMedals } from '@/lib/types'
 
 const now = new Date('2026-11-09T12:00:00Z')
@@ -79,4 +79,18 @@ describe('topMedal', () => {
     expect(topMedal(undefined)).toBeUndefined()
     expect(topMedal([d('1', 'ippo', [b('streak_99', 'x')])])).toBeUndefined()
   })
+})
+
+describe('streakTheme', () => {
+  it('la temática de la disciplina con más horas', () =>
+    expect(streakTheme([d('1', 'ippo', [], 30), d('2', 'saiyan', [], 120), d('3', 'titanes', [], 80)])).toBe('saiyan'))
+  it('empatadas, la primera', () => expect(streakTheme([d('1', 'ippo', [], 10), d('2', 'saiyan', [], 10)])).toBe('ippo'))
+  it('la de más horas sin temática: Kaizen (null), aunque otra la tenga', () =>
+    expect(streakTheme([d('1', null, [], 50), d('2', 'saiyan', [], 5)])).toBeNull())
+  it('sin disciplinas, null', () => expect(streakTheme([])).toBeNull())
+})
+
+describe('streakTier', () => {
+  it('cortes en 0, 1, 4, 12, 26 y 52 semanas', () =>
+    expect([0, 1, 3, 4, 11, 12, 25, 26, 51, 52, 80].map(streakTier)).toEqual([0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5]))
 })

@@ -65,12 +65,15 @@
 | B16 | Foto diaria de suscripciones + tareas nocturnas | B6, B10, B11 | CERRADO |
 | B17 | Endpoints de informes | B16 | CERRADO |
 | B18 | Frontend PWA (alumno, tutor, profesor, tablet; sub-bloques B18.0–B18.6) | B13, B15, B17 | CERRADO (con pruebas en dispositivos pendientes) |
-| B19 | Panel admin (métricas, usuarios, auditoría, morosos; sub-bloques B19.0–B19.6) | B11, B17, B10.2, B18 | Diseñado |
+| B19 | Panel admin (métricas, usuarios, auditoría, morosos; sub-bloques B19.0–B19.6) | B11, B17, B10.2, B18 | CERRADO |
 | B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos | Pendiente |
 | B21 | Eventos (inscripción, cobro aparte, panel; sub-bloques B21.0–B21.2) | B10, B18, B19 | CERRADO (con pruebas visuales y en móvil pendientes) |
 | B22 | Rediseño (calendario semanal, Membresías y Disciplinas, Clases en móvil, KPIs de Usuarios) | B18, B19, B21 | CERRADO (con pruebas en iPhone pendientes) |
-| B23 | Inicio del admin en vivo (`GET /admin/home`, «Ahora», cifras de ahora, accesos directos) | B16, B19, B22 | En curso |
+| B23 | Inicio del admin en vivo (`GET /admin/home`, «Ahora», cifras de ahora, accesos directos) | B16, B19, B22 | CERRADO (con prueba en iPhone pendiente) |
 | B24 | Perfil: foto de perfil y cambio de contraseña (verificación de email solo diseñada) | B13, B18, B19 | CERRADO (con prueba en iPhone pendiente) |
+| B25 | Medallas por disciplina con temática (escalera de 11 por disciplina, temáticas, ranking por disciplina) | B13, B14, B22 | CERRADO (con prueba en iPhone pendiente) |
+| B26 | Racha: recuadro con la temática de la disciplina con más horas y aura por niveles | B25 | CERRADO (con prueba en iPhone pendiente) |
+| B27 | Verificación de email al registrarse y confirmar el cambio de contraseña por email (ADR 0021) | B24 | Diseñado (antes de producción) |
 
 ---
 
@@ -1902,7 +1905,7 @@
   - `handleNextAction` (3DS con Stripe.js), pendiente de la clave publicable del sandbox (B18.3);
   - el SVG del logo para el monocromo y el badge (hoy provisionales, `shortcut:`).
 
-### B19 — Panel admin (métricas, usuarios, auditoría, morosos) — Diseñado · B19.0 a B19.6 hechos
+### B19 — Panel admin (métricas, usuarios, auditoría, morosos) — CERRADO (B19.0 a B19.6 hechos)
 - **Objetivo**: el panel de la academia en la misma PWA (`/admin`), de escritorio primero: todo lo que el admin ya puede hacer por la API (catálogo, horario, cobros, tablets, ajustes, documentos, informes) más lo que le faltaba (usuarios y roles, auditoría, avisos de la academia, entregas fallidas, cambios de pagador), con el MFA fomentado pero no obligatorio. Sin él, la academia solo se gestiona con `curl`, y producción (B10.7) no puede abrirse así.
 - **Avance de B19.4** (2026-11-02, commit en `b10-stripe`): `pages/admin/billing.tsx`, `notices.tsx` y `audit.tsx`, rutas `lazy` en `/admin/billing`, `/admin/notices` y `/admin/audit`. **Cobros** (`?tab=`, página en la URL): Morosos y En gracia con un bloque por pagador (nombre → ficha; sus suscripciones y seguros con su estado y fin de periodo, y sus recibos pendientes con importe, intentos, siguiente reintento, último error y «Abrir el recibo» solo si la URL es https); «Baja inmediata» por elemento solo en Morosos, con el mismo AlertDialog de la ficha (`cancelInsurance` y `post`/`del` se exportan de `user-billing.tsx`); Cambios de pagador con las vistas En curso (`requested,paid`) y Caducados (`?view=expired`), **Anular** solo si está sin pagar y **Volver a pedirlo** → `/admin/users/:id?tab=billing`. **Avisos**: De la academia (registro sin «leído», con «Ver la ficha» si el aviso trae `student_id`) y Entregas fallidas con el texto fijo de que no se reintentan. **Auditoría**: filtros en la URL (`category`, `actor`, `resource_type`, `resource_id`, `from`, `to`, `page`); el icono de embudo junto a cada persona filtra por ella y «Quitar el filtro» la suelta sin perder categoría ni fechas; la acción en español (una desconocida sale tal cual) y el detalle en una línea (corrección de → a con motivo, cambio de rol, precio); `health.view` no da detalle. Lógica nueva en `lib/admin.ts` (`categoryPrefixes`, `auditLabel`, `auditDetail`, `auditTarget`, `deliveryLabel`, `canCancelPayerChange`, `safeInvoiceUrl`, `pageHref`/`pageOf`) con su Vitest. Probado en Chrome contra la API local: las tres pestañas de Cobros y las dos de Avisos con sus vacíos, la auditoría con categoría, fechas, persona y paginación (sin ningún `notice.*`), y los diálogos. **Contra el sandbox con `stripe listen`**: «Baja inmediata» de una suscripción real (Stripe `canceled`, base `cancelled`, `subscription.cancel_now` y el aviso `subscription_cancelled` en la auditoría) y **Anular** un cambio de pagador real (sale de «En curso»). **Simulado en la base local** (y borrado después): el estado `unpaid` y el recibo abierto de esa suscripción, un aviso `stripe_risk`, uno de cambio caducado, una entrega fallida y el plazo vencido de un cambio (restaurado), porque llegar a `unpaid` por Stripe pide días de reintentos (*test clock*). **Sin probar**: «Baja inmediata» de un seguro desde Cobros (mismo código que en la ficha) ni «Abrir el recibo» con una URL real de Stripe; una página fuera de rango (`?page=9`) enseña la tabla vacía.
 - **Avance de B19.5** (2026-11-02, commit en `b10-stripe`): `pages/admin/sessions.tsx`, `classes.tsx` y `schedule-bits.tsx`, rutas `lazy` `/admin/sessions`, `/admin/sessions/:id` y `/admin/classes`. **Horario** (`?semana=` con cualquier día de la semana, que cae en su lunes, y `?disciplina=`): siete días de lunes a domingo con hora, disciplina, profesor, lugar, aforo y estado (programada, cancelada, celebrada); **Sesión suelta** en una hoja. **Detalle**: los cinco campos ajustables, con «Ajustado» y «La clase dice: …» al lado y **Deshacer** por campo (no en una suelta); Ajustar (solo manda lo que cambia), Cancelar (motivo opcional; si ya empezó, «retroactiva» con motivo obligatorio y sin avisos), Recuperar; reservas y lista de espera en orden (nombre → ficha), **Reservar a un alumno** (Combobox) y cancelar una reserva, cada una con su AlertDialog; los avisados y los que pasan de la espera salen en el aviso de éxito (`notified`, `promoted`). **Lista de asistencia** desde el inicio: la de B18.4 sacada a `components/attendance.tsx` (el profesor la usa igual) sin ninguna ficha de salud; el admin cierra y corrige sin plazo. **Clases** (`?discipline_id=`): tabla por día y hora, crear, cambiar con «desde qué fecha» (dice sesiones cambiadas, avisados y promocionados) y retirar con fecha; el cambio, el ajuste y la retirada piden confirmación. `useConfirm` admite que `done` sea una función del resultado. `toastError` añade «Cabe desde el …» cuando el error trae `fits_from`. Textos nuevos en `lib/errors.ts` (los no escritos en el documento, marcados «propuesto»). Lógica en `lib/schedule.ts` con su Vitest (semana de lunes a domingo, campos ajustados, cancelación retroactiva, hora de Madrid a ISO, estado de una clase). **Corregido después**: `GET /admin/classes` (y crear, cambiar y retirar) mandaba `starts_on` y `ends_on` como `Date`, que en JSON cae un día antes en UTC (`2026-10-31T23:00:00.000Z` por el 1 de noviembre); ahora salen como `YYYY-MM-DD` (`::text` en `CLASS_SELECT`, como ya hacía `services/profile.js`), con una aserción en `test:classes` y `docs/api.md` al día. **Despliegue**: solo importa si backend y frontend se suben por separado: el frontend de B19.5 sobre un backend anterior a `e8677ca` enseñaría las fechas de la tabla de clases con un día de menos (nada más se rompe). Al revés no pasa nada: hasta B19.5 ninguna pantalla leía esas fechas. Desplegando la rama entera no hay nada que ordenar. Ningún otro endpoint devolvía un `DATE` sin convertir. Probado en Chrome contra la API local: la semana y su filtro, sesión suelta (con `trainer_overlap` y su corrección), detalle con ajuste (aforo y lugar) y deshacerlo, `capacity_below_bookings` (con `fits_from` en el cambio de clase), cancelar y recuperar con reservas (los avisos salen por email en `storage/emails.log`), reservar por un alumno (también `profile_incomplete` y `no_risk_cover`), lista de espera y su promoción al cancelar, la lista de asistencia (marcar, cerrar con confirmación, corregir con motivo) y las clases (crear, cambiar con fecha, retirar). **Sin probar**: la vista por debajo de 1024 px; ajustar el profesor, la hora o la duración (solo aforo y lugar) ni deshacer otros campos; `slot_passed`, `loose_session`, `class_retired`, `already_retired` y `discipline_inactive` en pantalla (solo sus textos); confirmar una cancelación retroactiva (solo vi el diálogo: no se deshace); los avisos por push (ninguna cuenta de prueba tenía push, así que `push.log` no cambió); la consola solo se vigiló en la última pantalla. Stripe no se ha tocado. Quedan en la base local datos de la prueba (una clase de Seed Judo ya retirada, una sesión suelta del 10 de noviembre y una lista cerrada con una corrección).
@@ -2003,7 +2006,7 @@
   - [ ] E2E de flujos críticos (incluye flujo MFA completo de B4 con supertest, y flujo B4.5/B4.5.1: subir → publicar → firmar → `requireCompleteProfile`).
   - [ ] `scripts/test-rls.js` y `scripts/test-mfa.js` migrados a BD efímera por test run (no destructivo en local compartido).
   - [x] **[Alta] `audit_log` insertable por cualquier autenticado** (detectado en B8): la política `audit_log_insert_authenticated` (003) deja a cualquier usuario con `app_user` insertar filas arbitrarias, con lo que la auditoría es inalterable pero no auténtica. Arreglo: quitar la política y el `INSERT` a `app_user`, y mover los `INSERT` directos de `services/catalog.js` y `services/agreements.js` a funciones `SECURITY DEFINER` (las de 009/010 ya no la necesitan). **Hecho el 2026-11-02** (migración `027`): sin política ni `INSERT` para `app_user`; todo se anota con `write_audit()` (`SECURITY DEFINER`, owner `service_role`): el actor tiene que ser el de la sesión (nadie firma como otro), el admin anota cualquier acción y el resto solo sus cambios de plan (`subscription.upgrade|downgrade|downgrade_cancel`, que hace el propio pagador); el servicePool pasa su actor. `audit()` de `catalog.js` y la publicación de documentos la usan; `notice()` sigue directo porque solo lo llama el servicePool (comprobado). `test:rls` lo cubre (nadie inserta directo, el admin firma con su actor y no con otro, un alumno solo sus cambios de plan). De paso: `test:billing` rompía su limpieza con ajustes de texto en `academy_settings` (`::jsonb`) y `test:minors` chocaba con un documento 9.9 ya subido (versión única por ejecución).
-  - [ ] **[Media] `UPDATE` de cualquier columna propia en `profiles`** (detectado en el diseño de B13): `profiles_update_self_or_admin` deja a cualquiera, a nivel SQL, cambiar sus propias `birth_date`, `stripe_customer_id` o `is_public` sin pasar por la API (que no lo expone). Arreglo: limitar las columnas editables (trigger o funciones `SECURITY DEFINER` por caso) o revisar el `WITH CHECK`.
+  - [ ] **[Alta] `UPDATE` de cualquier columna propia en `profiles`** (detectado en el diseño de B13): `profiles_update_self_or_admin` deja a cualquiera, a nivel SQL, cambiar sus propias `birth_date`, `stripe_customer_id` o `is_public` sin pasar por la API (que no lo expone). Sube a Alta (2026-11-09): `stripe_customer_id` es lo que enlaza a cada persona con sus cobros; hay que cerrarlo antes de producción. Arreglo: limitar las columnas editables (trigger o funciones `SECURITY DEFINER` por caso) o revisar el `WITH CHECK`.
   - [ ] **[Media] Smoke tests HTTP que matan procesos ajenos** (detectado en B8): en B8 se usó `pkill -f "node src/index.js"` para parar el servidor de prueba y probablemente paró otro servidor que ya escuchaba en el 3999. Arreglo: los E2E arrancan el servidor en un puerto libre (`PORT=0`/supertest) y lo paran por su PID, nunca con `pkill -f`.
   - [ ] **[Media] Llamadas a Stripe dentro de la transacción del webhook** (detectado en B10): `services/stripeWebhook.js` llama a la API de Stripe con la conexión de `servicePool` (máx. 5) abierta; una ráfaga de eventos con Stripe lento puede agotar el pool. Asumible al volumen de un gimnasio. Arreglo si hace falta: leer de Stripe antes de abrir la transacción o subir el pool del webhook.
   - [ ] **[Media] `past_due` → `unpaid` sin test real** (detectado en B10): `test-webhook` cubre la baja (`deleted`) pero no la ventana de reintentos. Arreglo: test con Stripe test clocks (avanzar el reloj hasta agotar los reintentos) que compruebe que `past_due` conserva las reservas y `unpaid` las cancela.
@@ -2336,7 +2339,7 @@
   tarjeta lo aclara). Un impagado no es «activo».
 - **Rama**: `b22-rediseno`, desde `b10-stripe`.
 
-### B23 — Inicio del admin en vivo — En curso
+### B23 — Inicio del admin en vivo — CERRADO (con prueba en iPhone pendiente)
 
 - **Diseño**: `docs/propuesta-inicio-admin.md` (aprobada el 2026-11-06, «ok a todas tus mejoras»). Sin capturas de MAAT: la
   dirección visual es la de `docs/auditoria-b22.md`. Sustituye a `docs/pantallas-b19.md` § Inicio.
@@ -2426,3 +2429,68 @@ aunque la lista no esté cerrada; en vivo, nunca de la foto (ADR 0012).
 - [x] Migración `032`: fuera `academy_stats_now()`. La columna `mrr_cents` sigue (la escribe la foto; nadie la lee).
 - [x] Frontend: la tarjeta de Inicio y la tarjeta/gráfica/columna de Informes.
 - [ ] Staging: `staging:migrate` (032), build y reiniciar la API.
+
+### B25 — Medallas por disciplina con temática — CERRADO (con prueba en iPhone pendiente)
+
+2026-11-09, commits directos en `main`. ADR 0022. `CONTEXT.md`: Temática y racha de una disciplina. Nombres elegidos en
+`docs/research/medallas-shonen.md`.
+
+- **Objetivo**: las medallas de horas y de racha (primera sesión, 10–1000 h y racha de 4–52 semanas) pasan de ser de toda
+  la academia a ser **de cada disciplina**, y cada disciplina tiene una **temática** que da el aspecto (forma, paleta,
+  nombres, kanji).
+- **Decisiones** (ADR 0022): una escalera de 11 por disciplina, contando solo su asistencia, con su racha propia (salta las
+  semanas sin clase de esa disciplina); la racha general de Inicio y Progreso no cambia. El admin vincula cada disciplina a
+  una temática de `medal_themes` o a ninguna (la neutra Kaizen); una temática está en una sola disciplina activa a la vez
+  (`theme_taken`). El repertorio vive en la BD (código y nombre) y el arte en `frontend/src/lib/themes/<código>.ts`. Lo
+  visto es `<discipline_id>:<código>` y el ranking de medallas es por disciplina; desaparece el de toda la academia.
+- **Aceptado por el usuario (2026-11-09)**: las temáticas usan nombres y arte de series de terceros (Ippo, Shingeki, Dragon
+  Ball, One Piece, Naruto, Bleach, HxH) también en producción, bajo su responsabilidad. No es una tarea pendiente; el
+  `shortcut:` de `lib/themes/index.ts` queda como está.
+- [x] **Primera versión** (`651da5e`; migraciones `033`–`035`): medallas de horas y racha con nombres de series, colección y
+  escaleras en Progreso, momento de medalla nueva visto en el servidor, ranking de medallas y medalla top en Comunidad.
+- [x] **BD** (`c0a8fdd`; `036` `medal_themes` y `037` medallas por disciplina): temáticas, escalera de 11 por disciplina con
+  su racha, visto por `<disciplina>:<código>` y ranking por disciplina.
+- [x] **App** (`3d17a4d`): temáticas con su arte, una forma de medalla por temática, Progreso con una escalera por
+  disciplina y selector de temática en el admin.
+- [x] **Docs** (`62168d9`): CONTEXT, ADR 0022, `docs/api.md` y la investigación de nombres.
+- [x] **Datos de prueba y arte** (`eeb4589`, `36521e4`): seed con Boxeo (Ippo), BJJ/Grappling (Shingeki), Muay Thai (Dragon
+  Ball) y Muay Thai Kids (One Piece); demo de 6 meses; `staging:medals`.
+- [x] **Simplificado y revisado** (`729ff46`, `ba1012e`): `themeOf` único, la clave `<disciplina>:<código>` en un sitio,
+  la ficha pública no da las horas exactas por disciplina, `/rankings` sin disciplinas o con el enlace viejo
+  `/rankings/medals`, cada temática obligada a nombrar las 11.
+- [x] **Pulido móvil** (`dcc467e`, `e558071`, `261b8bb`, `d58db26`): sello de Ippo en granate, selector de temática del
+  admin en una columna, rankings a 375 px, y el tutor lee «Su mejor racha» y «Próxima medalla» de su hijo.
+- [ ] Prueba en un iPhone real.
+
+### B26 — Racha con la temática de la disciplina — CERRADO (con prueba en iPhone pendiente)
+
+Rama `b26-racha`, 2026-11-09. Sin migración ni endpoint nuevos: es presentación sobre B25.
+
+- **Objetivo**: que el recuadro de racha (Inicio y Progreso) se vea con la temática de la disciplina en la que el alumno
+  suma más horas.
+- **Decisiones**: viñeta manga (cartela torcida, líneas cinéticas y sello con el kanji) y un **aura** que sube por niveles a
+  1, 4, 12, 26 y 52 semanas de racha. Los cortes salen de `LADDER`; el nivel → medalla vive en `lib/progress`
+  (`streakTheme`, `streakTier`, `streakMedal`); el aura usa `glowOf`, así las auras Saiyan dan su color y no blanco.
+- [x] **Recuadro y aura** (`ea66809`): `streak-panel.tsx`, `lib/progress.ts` y Vitest.
+- [x] **Staging** (`78f84c9`): `staging:medals` da a la demo una racha actual (13 semanas en Muay Thai al adulto, 5 en Muay
+  Thai Kids a Nico) para ver el aura encendida.
+- [x] **Simplificado y revisado** (`4f9d8df`, `098556c`): el sello no tapa un nombre largo, el sello oscuro lleva borde
+  claro y la cabecera de `staging:medals` cuenta la racha reciente.
+- [x] Vitest (235), `tsc -b`, lint y `test:progress` en verde (2026-11-09).
+- [ ] Prueba en un iPhone real.
+
+### B27 — Verificación de email — Diseñado (antes de producción)
+
+ADR 0021 (2026-11-06), solo diseñada en B24; se construye en su propio bloque **antes de producción**. Nombre y número
+puestos el 2026-11-09.
+
+- **Objetivo**: en producción, la cuenta nace sin verificar y recibe un enlace de un solo uso; sin verificar se entra,
+  se completa el perfil y se ve el calendario, pero no se reserva, contrata ni inscribe a eventos. Las cuentas de Google
+  cuentan como verificadas. Cambiar la contraseña con la sesión iniciada pide además confirmar con un enlace del email.
+- **Piezas que se reutilizan**: `auth_credentials.email_verified` (migración `002`, sin usar), los tokens de un solo uso
+  con solo su SHA-256 (`password_resets`, `025`), `send` y la invalidación de tokens del ADR 0020.
+- **Modelo y esfuerzo sugeridos**: toca auth, reservas y cobros: Opus, medio (alto si toca el checkout).
+- [ ] Diseño cerrado (ver ADR 0021 § Consequences).
+- [ ] Backend con tests por rol.
+- [ ] Frontend (estado «sin verificar», reenviar enlace).
+- [ ] Probado con Resend y en staging.

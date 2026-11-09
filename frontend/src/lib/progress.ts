@@ -67,4 +67,15 @@ export function medalsToCelebrate(disciplines: DisciplineMedals[], seen: string[
 const lum = (hex: string) => [1, 3, 5].reduce((n, i, k) => n + [0.2126, 0.7152, 0.0722][k] * parseInt(hex.slice(i, i + 2), 16), 0)
 export const glowOf = (m: Medal) => (lum(m.palette.c1) >= lum(m.palette.accent) ? m.palette.c1 : m.palette.accent)
 
+// La racha general (toda la academia) se viste con la temática de la disciplina con más horas; sin ninguna, Kaizen.
+export const streakTheme = (disciplines: PublicDisciplineMedals[]) =>
+  disciplines.reduce<PublicDisciplineMedals | undefined>((best, d) => (!best || (d.hours ?? 0) > (best.hours ?? 0) ? d : best), undefined)?.theme ?? null
+
+// Nivel del aura del recuadro de racha según la racha actual: 0 apagada, 1 desde la primera semana y uno más en cada
+// corte de las medallas de constancia (LADDER: 4, 12, 26 y 52).
+const STREAK = LADDER.filter((x) => x.kind === 'streak')
+export const streakTier = (current: number) => (current >= 1 ? 1 : 0) + STREAK.filter((x) => current >= x.at).length
+/** La medalla cuyo arte (paleta y kanji) viste el nivel: la de constancia de ese corte; por debajo de 4, la primera. */
+export const streakMedal = (theme: string | null, current: number) => medalOf(theme, STREAK.findLast((x) => current >= x.at)?.code ?? 'first_day')!
+
 export const formatHours = (h: number): string => `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 }).format(h)} h`
