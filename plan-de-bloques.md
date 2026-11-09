@@ -64,15 +64,15 @@
 | B15 | Push (`push_subscriptions`, envío) | B2, B10.6 | CERRADO |
 | B16 | Foto diaria de suscripciones + tareas nocturnas | B6, B10, B11 | CERRADO |
 | B17 | Endpoints de informes | B16 | CERRADO |
-| B18 | Frontend PWA (alumno, tutor, profesor, tablet; sub-bloques B18.0–B18.6) | B13, B15, B17 | CERRADO (con pruebas en dispositivos pendientes) |
+| B18 | Frontend PWA (alumno, tutor, profesor, tablet; sub-bloques B18.0–B18.6) | B13, B15, B17 | CERRADO (falta probar Google y el 3DS: sin `VITE_GOOGLE_CLIENT_ID` ni `VITE_STRIPE_PUBLISHABLE_KEY`) |
 | B19 | Panel admin (métricas, usuarios, auditoría, morosos; sub-bloques B19.0–B19.6) | B11, B17, B10.2, B18 | CERRADO |
 | B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos | Pendiente |
-| B21 | Eventos (inscripción, cobro aparte, panel; sub-bloques B21.0–B21.2) | B10, B18, B19 | CERRADO (con pruebas visuales y en móvil pendientes) |
-| B22 | Rediseño (calendario semanal, Membresías y Disciplinas, Clases en móvil, KPIs de Usuarios) | B18, B19, B21 | CERRADO (con pruebas en iPhone pendientes) |
-| B23 | Inicio del admin en vivo (`GET /admin/home`, «Ahora», cifras de ahora, accesos directos) | B16, B19, B22 | CERRADO (con prueba en iPhone pendiente) |
-| B24 | Perfil: foto de perfil y cambio de contraseña (verificación de email solo diseñada) | B13, B18, B19 | CERRADO (con prueba en iPhone pendiente) |
-| B25 | Medallas por disciplina con temática (escalera de 11 por disciplina, temáticas, ranking por disciplina) | B13, B14, B22 | CERRADO (con prueba en iPhone pendiente) |
-| B26 | Racha: recuadro con la temática de la disciplina con más horas y aura por niveles | B25 | CERRADO (con prueba en iPhone pendiente) |
+| B21 | Eventos (inscripción, cobro aparte, panel; sub-bloques B21.0–B21.2) | B10, B18, B19 | CERRADO |
+| B22 | Rediseño (calendario semanal, Membresías y Disciplinas, Clases en móvil, KPIs de Usuarios) | B18, B19, B21 | CERRADO |
+| B23 | Inicio del admin en vivo (`GET /admin/home`, «Ahora», cifras de ahora, accesos directos) | B16, B19, B22 | CERRADO |
+| B24 | Perfil: foto de perfil y cambio de contraseña (verificación de email solo diseñada) | B13, B18, B19 | CERRADO |
+| B25 | Medallas por disciplina con temática (escalera de 11 por disciplina, temáticas, ranking por disciplina) | B13, B14, B22 | CERRADO |
+| B26 | Racha: recuadro con la temática de la disciplina con más horas y aura por niveles | B25 | CERRADO |
 | B27 | Verificación de email al registrarse y confirmar el cambio de contraseña por email (ADR 0021) | B24 | Diseñado (antes de producción) |
 
 ---
@@ -2018,7 +2018,7 @@
   - [ ] **[Media] Endpoints de B11 sin test HTTP** (el E2E sí pasa por HTTP), en especial el Checkout del cambio de pagador con un perfil incompleto (403).
   - [ ] **[Baja] `scripts/test-attendance.js` falla entre las 00:00 y las 00:05 de Madrid** (detectado en B8): la sesión «de hoy» empieza 5 min antes de `now()` y cae en el día anterior. Arreglo: fijar la hora de la sesión dentro del día de Madrid o inyectar el reloj al migrar a la BD efímera.
 
-### B21 — Eventos — Diseñado
+### B21 — Eventos — CERRADO
 - **Objetivo**: los **eventos** de `CONTEXT.md` (seminario, torneo, examen de grado, quedada): fuera del horario regular, sin
   depender de cubrir, gratis o de pago aparte. A un evento uno se **inscribe**; no es una sesión. Hasta ahora no tenían bloque
   (B6 los dejó fuera; `docs/api.md` § Huecos). Pedido el 2026-11-02, al preparar el staging: «no veo cómo crear eventos».
@@ -2259,7 +2259,7 @@
 - **Orden**: después de que el cliente pruebe el staging; no bloquea B20.
 
 
-### B22 — Rediseño: calendario semanal, menú del catálogo, Clases en móvil y KPIs de usuarios — Diseñado
+### B22 — Rediseño: calendario semanal, menú del catálogo, Clases en móvil y KPIs de usuarios — CERRADO
 - **Objetivo**: mejorar el diseño y la experiencia de la PWA en las pantallas que este bloque toca, y tres cambios
   funcionales: un calendario semanal con selector de día, «Catálogo» partido en dos entradas del menú y un panel de
   Usuarios con KPIs y filtros. Pedido el 2026-11-06. maat es referencia de ideas, no de marca ni de aspecto (sin capturas:
@@ -2339,7 +2339,7 @@
   tarjeta lo aclara). Un impagado no es «activo».
 - **Rama**: `b22-rediseno`, desde `b10-stripe`.
 
-### B23 — Inicio del admin en vivo — CERRADO (con prueba en iPhone pendiente)
+### B23 — Inicio del admin en vivo — CERRADO
 
 - **Diseño**: `docs/propuesta-inicio-admin.md` (aprobada el 2026-11-06, «ok a todas tus mejoras»). Sin capturas de MAAT: la
   dirección visual es la de `docs/auditoria-b22.md`. Sustituye a `docs/pantallas-b19.md` § Inicio.
@@ -2355,7 +2355,7 @@
 - [x] Frontend, comprobado a 375 px y en `lg` (`1237ea6`, Sonnet alto)
 - [x] Migración aplicada en staging (`npm run staging:migrate`), API reiniciada y `npm run staging:build` (2026-11-06)
 
-#### B23.1 — Altas en la auditoría, datos de demo y aviso «Actualizar» en el iPhone — CERRADO (con prueba en iPhone pendiente)
+#### B23.1 — Altas en la auditoría, datos de demo y aviso «Actualizar» en el iPhone — CERRADO
 
 Decisiones del usuario (2026-11-06): alta = cuota contratada; demo de academia mediana con 3 meses y fotos de 90 días,
 con ids falsos de Stripe y sin tocar las cuentas del seed; buscar versión nueva al volver a la app y cada hora, sin
@@ -2374,9 +2374,9 @@ activarla sola (ADR 0015).
   `deploy/staging/README.md` § 3.
 - [x] **Asistencias del Inicio** (`e2e2b78`): la semana pasada cuenta hasta esta misma hora (por la mañana salía −100 %).
 - [x] Desplegado en staging (API reiniciada, `staging:demo`, `staging:build`); `sw.js` llega como JavaScript por Tailscale.
-- [ ] Prueba en un iPhone real (la hace el usuario).
+- [x] Prueba en un iPhone real (hecha por el usuario, 2026-11-09).
 
-### B24 — Perfil: foto y cambio de contraseña — CERRADO (con prueba en iPhone pendiente)
+### B24 — Perfil: foto y cambio de contraseña — CERRADO
 
 Rama `b24-perfil` (desde `b22-rediseno`, para no mezclarlo con lo que revisa el cliente). Diseño con grilling el
 2026-11-06; ADR 0019 (fotos en disco con URL secreta del mismo origen), 0020 (cambiar o restablecer la contraseña invalida
@@ -2395,9 +2395,9 @@ diseñada). `CONTEXT.md`: Foto de perfil, Cambio de contraseña, `photo` como ca
   selector del tutor): Cuenta con recorte y contraseña, la foto con iniciales de respaldo donde se acordó. Visto a 375 y 1280 px.
 - [x] `security-review` del diff de B24: sin hallazgos (2026-11-06).
 - [x] Staging: `staging:migrate`, API reiniciada, `staging:build`, nginx reiniciado (fotos en `storage-staging/avatars`).
-- [ ] Prueba en un iPhone real (subir con la cámara, recorte táctil).
+- [x] Prueba en un iPhone real (subir con la cámara, recorte táctil; hecha por el usuario, 2026-11-09).
 
-#### B24.1 — Experiencia del alumno: aforo, cuota, reservas sin repetir y tema — HECHO (con prueba en iPhone pendiente)
+#### B24.1 — Experiencia del alumno: aforo, cuota, reservas sin repetir y tema — CERRADO
 
 Grilling el 2026-11-07 (Opus medio: toca `SECURITY DEFINER` y RLS). Un commit por punto, el bug primero (TDD).
 
@@ -2412,11 +2412,11 @@ Grilling el 2026-11-07 (Opus medio: toca `SECURITY DEFINER` y RLS). Un commit po
   «Contratar cuota») y no repite «No cubierta» por día; `not_covered` ofrece «Ver cuota». Con cuota, nada nuevo.
 - [x] **Tema** (`1cda952`): sistema / claro / oscuro en la fila del título de `Page` (todos los roles) y en el acceso;
   por dispositivo (`localStorage`); la tablet sigue oscura; la `theme-color` de la PWA sigue al tema. `isDark` en Vitest.
-- [x] Staging: `staging:migrate` (031) y `staging:build`. **Falta reiniciar la API** (`npm run staging:api`).
-- [ ] Ver con un alumno en staging: «10/13», clase llena, sin cuota, y reservar → cancelar → reservar en Mis reservas.
-- [ ] Prueba en un iPhone real (barra de estado al cambiar de tema).
+- [x] Staging: `staging:migrate` (031) y `staging:build`. API reiniciada después (arrancada a las 16:48 del 2026-11-09, tras el último cambio de backend).
+- [x] Ver con un alumno en staging (en las pruebas del usuario, 2026-11-09): «10/13», clase llena, sin cuota, y reservar → cancelar → reservar en Mis reservas.
+- [x] Prueba en un iPhone real (barra de estado al cambiar de tema; hecha por el usuario, 2026-11-09).
 
-#### B24.2 — Sin ingresos en la app: «Alumnos que entrenaron» en vez del MRR — EN CURSO
+#### B24.2 — Sin ingresos en la app: «Alumnos que entrenaron» en vez del MRR — CERRADO
 
 El cliente ve los ingresos en Stripe y no quiere cifras de dinero en la app. **Alumno que entrenó** (CONTEXT § Informes):
 distinto, con algún `present` en una sesión no cancelada que empieza en el periodo, días de Madrid; hijos sí, eventos no,
@@ -2428,9 +2428,9 @@ aunque la lista no esté cerrada; en vivo, nunca de la foto (ADR 0012).
   `series[29] = last_30`). `test:home`.
 - [x] Migración `032`: fuera `academy_stats_now()`. La columna `mrr_cents` sigue (la escribe la foto; nadie la lee).
 - [x] Frontend: la tarjeta de Inicio y la tarjeta/gráfica/columna de Informes.
-- [ ] Staging: `staging:migrate` (032), build y reiniciar la API.
+- [x] Staging (2026-11-09): `staging:migrate` sin migraciones pendientes (032–037 aplicadas), API con el código actual y `staging:build`.
 
-### B25 — Medallas por disciplina con temática — CERRADO (con prueba en iPhone pendiente)
+### B25 — Medallas por disciplina con temática — CERRADO
 
 2026-11-09, commits directos en `main`. ADR 0022. `CONTEXT.md`: Temática y racha de una disciplina. Nombres elegidos en
 `docs/research/medallas-shonen.md`.
@@ -2460,9 +2460,9 @@ aunque la lista no esté cerrada; en vivo, nunca de la foto (ADR 0012).
   `/rankings/medals`, cada temática obligada a nombrar las 11.
 - [x] **Pulido móvil** (`dcc467e`, `e558071`, `261b8bb`, `d58db26`): sello de Ippo en granate, selector de temática del
   admin en una columna, rankings a 375 px, y el tutor lee «Su mejor racha» y «Próxima medalla» de su hijo.
-- [ ] Prueba en un iPhone real.
+- [x] Prueba en un iPhone real (hecha por el usuario, 2026-11-09).
 
-### B26 — Racha con la temática de la disciplina — CERRADO (con prueba en iPhone pendiente)
+### B26 — Racha con la temática de la disciplina — CERRADO
 
 Rama `b26-racha`, 2026-11-09. Sin migración ni endpoint nuevos: es presentación sobre B25.
 
@@ -2477,7 +2477,7 @@ Rama `b26-racha`, 2026-11-09. Sin migración ni endpoint nuevos: es presentació
 - [x] **Simplificado y revisado** (`4f9d8df`, `098556c`): el sello no tapa un nombre largo, el sello oscuro lleva borde
   claro y la cabecera de `staging:medals` cuenta la racha reciente.
 - [x] Vitest (235), `tsc -b`, lint y `test:progress` en verde (2026-11-09).
-- [ ] Prueba en un iPhone real.
+- [x] Prueba en un iPhone real (hecha por el usuario, 2026-11-09).
 
 ### B27 — Verificación de email — Diseñado (antes de producción)
 
