@@ -29,7 +29,7 @@ ponerse `admin`. Por eso lo que solo se aprovecha con SQL arbitrario queda en Me
 | B4 | Baja | `profiles_insert_self` deja insertar cualquier columna al registrarse | Arreglado (`046`) |
 | B5 | Baja | El tutor escribe por SQL `bio`, `social_links` y `visible_fields` de su hijo | Arreglado (`045`) |
 | B6 | Baja | `medal_views` y `webhook_events` sin RLS | Arreglado (`047`) |
-| B7 | Baja | El tutor sigue leyendo reservas, asistencia y progreso del hijo con 18 sin reclamar | Checklist (a confirmar) |
+| B7 | Baja | El tutor sigue leyendo reservas, asistencia y progreso del hijo con 18 sin reclamar | Arreglado (`048`) |
 | B8 | Baja | El admin cambia un documento de acuerdo ya publicado | Checklist |
 | B9 | Baja | El admin lee `password_hash` y el secreto MFA cifrado de cualquiera | Checklist |
 | B10 | Baja | El profesor ve todas las clases | Checklist |
@@ -128,6 +128,7 @@ Arreglado en la `044`: `profiles_select` pierde la rama del profesor (solo ve su
 - **B7**: `is_guardian_of(…, true)` deja al tutor de un hijo con 18 sin reclamar leer sus reservas, asistencia,
   inscripciones, acuerdos y progreso; `CONTEXT.md`: «su tutor solo lo ve en la lista y paga lo que ya pagaba». Los
   recibos sí son a propósito («también los históricos»). Cambia lo que ve un rol: a confirmar.
+  Arreglado en la `048`: `bookings_select`, `attendance_select`, `event_registrations_select` y `user_agreements_select`, y las funciones `student_progress` y `mark_medals_seen`, pasan a `is_guardian_of(x)` (solo un menor); el resto de cada expresión no cambia. Siguen con `any_age` la lista (`profiles_select_guardian`) y lo que se paga (recibos, suscripción, seguro); lo que firmó él mismo lo sigue viendo como firmante. Ninguna pantalla cambia: el selector de sujeto ya no ofrece a ese hijo. `test:progress`.
 - **B8**: `agreement_documents_update_admin` deja cambiar `version`, `checksum` o `storage_path` de un documento ya
   publicado, no solo retirarlo. Las firmas apuntan a tipo y versión.
 - **B9**: el admin lee `password_hash` de `auth_credentials` y el secreto MFA (cifrado) de `user_mfa` de cualquiera; la
