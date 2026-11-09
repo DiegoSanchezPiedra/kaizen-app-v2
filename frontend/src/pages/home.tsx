@@ -6,6 +6,7 @@ import { EventCard } from '@/components/event-card'
 import { PushCard } from '@/components/push-card'
 import { SessionCard } from '@/components/session-card'
 import { MedalReveal } from '@/components/medal-reveal'
+import { streakTheme } from '@/lib/progress'
 import { StreakPanel } from '@/components/streak-panel'
 import { SubjectGate, subjectName } from '@/components/subject-gate'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -75,7 +76,7 @@ function Home({ subject, profileId }: { subject: Subject | null; profileId?: str
         {(p) => (
           <>
             <MedalReveal progress={p} profileId={profileId} name={subject && !subject.self ? name : undefined} />
-            <StreakPanel current={p.streak.current} best={p.streak.best} subject={name} />
+            <StreakPanel current={p.streak.current} best={p.streak.best} subject={name} theme={streakTheme(p.disciplines)} />
           </>
         )}
       </QueryView>

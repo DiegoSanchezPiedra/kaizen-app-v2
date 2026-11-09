@@ -14,7 +14,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
 import { useSubject } from '@/hooks/use-subject'
 import { addMonths, formatMonth, madridMonth } from '@/lib/dates'
 import { formatDate } from '@/lib/format'
-import { type Medal as MedalInfo, type MedalKind, formatHours, glowOf, ladderOf, medalGoal, medalOf, nextMedal } from '@/lib/progress'
+import { type Medal as MedalInfo, type MedalKind, formatHours, glowOf, ladderOf, medalGoal, medalOf, nextMedal, streakTheme } from '@/lib/progress'
 import { themeOf } from '@/lib/themes'
 import { useProgress } from '@/lib/queries'
 import type { DisciplineMedals } from '@/lib/types'
@@ -38,7 +38,7 @@ function Progress({ subject, profileId }: { subject: Subject | null; profileId?:
         return (
           <>
             <MedalReveal progress={p} profileId={profileId} name={subject && !subject.self ? name : undefined} />
-            <StreakPanel current={p.streak.current} best={p.streak.best} subject={name} large />
+            <StreakPanel current={p.streak.current} best={p.streak.best} subject={name} theme={streakTheme(p.disciplines)} large />
             {d && (
               <>
                 {p.disciplines.length > 1 && <DisciplinePicker disciplines={p.disciplines} value={d.id} onChange={setChosen} />}
