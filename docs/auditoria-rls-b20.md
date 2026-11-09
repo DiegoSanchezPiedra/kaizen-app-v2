@@ -17,7 +17,7 @@ ponerse `admin`. Por eso lo que solo se aprovecha con SQL arbitrario queda en Me
 | Id | Gravedad | Hallazgo | Estado |
 | --- | --- | --- | --- |
 | A1 | Alta | `profiles`: `UPDATE` de cualquier columna propia (`stripe_customer_id`, `birth_date`…) | Arreglado (`038`) |
-| M1 | Media | Funciones `SECURITY DEFINER` sin `pg_temp` al final del `search_path` y `TEMPORARY` para todos | Checklist |
+| M1 | Media | Funciones `SECURITY DEFINER` sin `pg_temp` al final del `search_path` y `TEMPORARY` para todos | Arreglado (`039`) |
 | M2 | Media | Privilegios por defecto: `SELECT, INSERT, UPDATE, DELETE` a `app_user` en toda tabla nueva | Checklist |
 | M3 | Media | `cash_payments` sin RLS y con todos los permisos para `app_user` | Checklist |
 | M4 | Media | `pgmigrations` sin RLS y con todos los permisos para `app_user` | Checklist |
@@ -54,8 +54,11 @@ esquema temporal **antes** que en los del `search_path` si no se pone `pg_temp` 
 en la base. Comprobado en local (con `ROLLBACK`): `app_user` crea `pg_temp.guardianships` y `pg_temp.profiles`, da
 `SELECT` a `service_role` y `is_guardian_of()` le devuelve `true` sobre un perfil inventado. Exige SQL arbitrario, que ya
 permite ponerse `admin`, pero además salta reglas que viven dentro de las funciones y que ni el admin se salta (p. ej.
-`register_event` leyendo un evento falso a 0 €, `book_session` sin cobertura). Arreglo: `REVOKE TEMPORARY ON DATABASE …
-FROM PUBLIC` (en `init-roles.sh` y en una migración) o `SET search_path = public, pg_temp` en todas.
+`register_event` leyendo un evento falso a 0 €, `book_session` sin cobertura).
+
+Arreglado en la `039`: `REVOKE TEMPORARY ON DATABASE … FROM PUBLIC` (la base es de `migrator`, también en staging por
+`init-roles.sh`; la migración falla si `app_user` lo conserva). Sin tablas temporales no hay `pg_temp` que tape nada,
+tampoco en las funciones que vengan; nadie las usaba. `migrator` conserva el suyo. `test:rls` lo cubre.
 
 ### M2 — Privilegios por defecto (Media)
 
@@ -159,12 +162,14 @@ foto). Ninguna ruta lo devuelve hoy. Arreglo: que lea por una vista o función q
 Vistas: `public_profiles` y `trainer_names`, owner `service_role`, `security_barrier`, solo con sesión iniciada; la
 primera proyecta solo lo público (`can_be_public` y los campos visibles). Sin hallazgos.
 
-Esquema y base: `app_user` solo tiene `USAGE` en `public` (no crea objetos); `PUBLIC` tiene `TEMPORARY` en la base (M1).
+Esquema y base: `app_user` solo tiene `USAGE` en `public` (no crea objetos); `PUBLIC` tenía `TEMPORARY` en la base (M1,
+quitado en la `039`).
 Las secuencias dan `SELECT, USAGE` a `app_user` (también la de `pgmigrations`, M4).
 
 ## Funciones `SECURITY DEFINER`
 
-67, todas con owner `service_role`, `search_path = public` (sin `pg_temp` al final: M1) y sin `EXECUTE` para `PUBLIC`.
+67, todas con owner `service_role`, `search_path = public` (sin `pg_temp` al final: M1, cerrado quitando `TEMPORARY`) y
+sin `EXECUTE` para `PUBLIC`.
 21 solo las ejecuta `service_role` (las llaman otras funciones). Las 46 que ejecuta `app_user`:
 
 - **Solo admin** (`app.current_role = 'admin'`): `adjust_session`, `agreement_notice`, `cancel_event`, `cancel_session`,
