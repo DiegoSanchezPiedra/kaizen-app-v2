@@ -61,7 +61,7 @@ const byName = Object.fromEntries((await call('/admin/disciplines', { token: adm
 const D = Object.fromEntries(Object.values(byName).map((d) => [d.name, d.id]));
 // Si ya existía sin temática (seed de antes), se le pone la suya.
 for (const [name, , medal_theme] of CATALOG.filter(([name]) => !byName[name].medal_theme)) {
-  must(await call(`/admin/disciplines/${D[name]}`, { method: 'PATCH', token: admin, body: { medal_theme } }), `temática ${name}`);
+  must(await call(`/admin/disciplines/${D[name]}`, { method: 'PATCH', token: admin, body: { medal_theme } }), `temática ${name}`, ['theme_taken']); // ocupada a mano: se deja
 }
 for (const [name, cents, max, minors] of [['Una disciplina', 3500, 1, false], ['Dos disciplinas', 5000, 2, false], ['Ilimitado', 7000, null, false], ['Infantil', 3000, 1, true]]) {
   must(await call('/admin/plans', { method: 'POST', token: admin, body: { name, price_cents: cents, max_disciplines: max, minors_only: minors } }), `plan ${name}`, ['name_taken']);

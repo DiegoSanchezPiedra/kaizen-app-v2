@@ -76,6 +76,20 @@ const progressSql = `
     $$;
 `;
 
+// Ficha pública (019): los logros sin las horas exactas de cada disciplina (eso es del ranking, no de los logros).
+const publicSql = (disc) => `
+  CREATE OR REPLACE FUNCTION public_achievements(p_id uuid) RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+      SELECT ${disc ? `a || jsonb_build_object('disciplines', (SELECT COALESCE(jsonb_agg(d - 'hours'), '[]')
+                                                         FROM jsonb_array_elements(a->'disciplines') d))`
+    : 'a'}
+        FROM profiles p JOIN user_roles r ON r.user_id = p.id
+        CROSS JOIN LATERAL student_achievements(p.id) a
+       WHERE ${AUTHED} AND p.id = p_id AND p.is_public AND r.role = 'alumno'
+         AND ${SHOWN('achievements')} AND can_be_public(p.id)
+    $$;
+`;
+
 const fns = (list, grant) => list.map((fn) => `ALTER FUNCTION ${fn} OWNER TO service_role; REVOKE ALL ON FUNCTION ${fn} FROM PUBLIC;${
   grant ? ` GRANT EXECUTE ON FUNCTION ${fn} TO app_user;` : ''}`).join('\n');
 
@@ -98,6 +112,7 @@ export const up = (pgm) => {
       $$;
   `);
   pgm.sql(progressSql);
+  pgm.sql(publicSql(true));
   pgm.sql(`
     DROP FUNCTION medal_ranking();
     -- Ranking de medallas de una disciplina, de siempre: los mismos que el mensual (019) con ≥ 1 medalla en ella;
@@ -135,6 +150,7 @@ export const up = (pgm) => {
 export const down = (pgm) => {
   pgm.sql('DELETE FROM medal_views;');
   pgm.sql(achievementsSql(false));
+  pgm.sql(publicSql(false));
   pgm.sql(progress034(true));
   pgm.sql(`
     DROP FUNCTION medal_ranking(bigint);

@@ -85,6 +85,8 @@ export type PayerChange = {
 export type Badge = { code: string; earned_at: string }
 // Medallas de una disciplina (037): su escalera, con su temática (null = Kaizen), horas totales y racha propias.
 export type DisciplineMedals = { id: string; name: string; theme: string | null; hours: number; streak: { current: number; best: number }; badges: Badge[] }
+// En la ficha pública y los rankings, sin las horas exactas (037: public_achievements).
+export type PublicDisciplineMedals = Omit<DisciplineMedals, 'hours'> & { hours?: number }
 
 export type Progress = {
   // La racha general (toda la academia, StreakPanel); la de cada escalera va en disciplines.
@@ -126,5 +128,5 @@ export type PublicProfile = {
   disciplines?: { id: number | string; name: string }[] | string[]
   member_since?: string | null
   // public_achievements (019): solo si enseña sus logros.
-  achievements?: { streak: { current: number; best: number }; disciplines: DisciplineMedals[] }
+  achievements?: { streak: { current: number; best: number }; disciplines: PublicDisciplineMedals[] }
 }

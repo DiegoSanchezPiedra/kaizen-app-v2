@@ -16,8 +16,10 @@ import titanes from './titanes'
 export type Shape = 'burst' | 'belt' | 'orb' | 'shield' | 'poster' | 'plate' | 'seal' | 'card'
 // c1/c2: luz y sombra del cuerpo; accent: el detalle (estallido, correa, estrellas…); hanko: el sello del kanji.
 export type Palette = { c1: string; c2: string; accent: string; hanko: string }
-// Por código de la escalera (LADDER): [nombre, marca corta del centro, paleta propia si cambia].
-export type ThemeArt = { code: string; series: string; shape: Shape; kanji: string; palette: Palette; medals: Record<string, [string, string, Palette?]> }
+// Los 11 códigos de la escalera (lib/progress LADDER, migrations/019): cada temática tiene que nombrarlos todos.
+export type LadderCode = 'first_day' | `hours_${10 | 50 | 100 | 250 | 500 | 1000}` | `streak_${4 | 12 | 26 | 52}`
+// Por código: [nombre, marca corta del centro, paleta propia si cambia].
+export type ThemeArt = { code: string; series: string; shape: Shape; kanji: string; palette: Palette; medals: Record<LadderCode, [string, string, Palette?]> }
 
 export const KAIZEN = kaizen
 /** La temática de un código; sin código, o uno sin arte aquí, Kaizen. */

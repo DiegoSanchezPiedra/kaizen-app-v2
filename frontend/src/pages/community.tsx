@@ -17,7 +17,7 @@ import { ladderOf, topMedal } from '@/lib/progress'
 import { themeOf } from '@/lib/themes'
 import { path } from '@/lib/queries'
 import { useSession } from '@/lib/session'
-import type { Discipline, DisciplineMedals, MyProfile, PublicProfile } from '@/lib/types'
+import type { Discipline, MyProfile, PublicDisciplineMedals, PublicProfile } from '@/lib/types'
 
 const PAGE = 25
 const ROLE_LABEL: Record<string, string> = { alumno: 'Alumno', profesor: 'Profesor' }
@@ -116,7 +116,7 @@ export function CommunityPage() {
 const NETWORKS: Record<string, string> = { instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube', web: 'Web' }
 
 // La medalla más alta junto al nombre (Comunidad y rankings), con el arte de su disciplina, si enseña sus logros.
-function TopMedal({ disciplines }: { disciplines?: DisciplineMedals[] }) {
+function TopMedal({ disciplines }: { disciplines?: PublicDisciplineMedals[] }) {
   const top = topMedal(disciplines)
   if (!top) return null
   return (
@@ -201,8 +201,8 @@ export function ProfilePage() {
   )
 }
 
-type Ranking = { discipline: { id: number; name: string }; month: string; rows: { rank: number; id: string; display_name: string; hours: number; achievements?: DisciplineMedals[] }[]; total: number }
-type MedalRanking = { discipline: { id: string; name: string }; rows: { rank: number; id: string; display_name: string; medals: number; hours: number; achievements?: DisciplineMedals[] }[]; total: number }
+type Ranking = { discipline: { id: number; name: string }; month: string; rows: { rank: number; id: string; display_name: string; hours: number; achievements?: PublicDisciplineMedals[] }[]; total: number }
+type MedalRanking = { discipline: { id: string; name: string }; rows: { rank: number; id: string; display_name: string; medals: number; hours: number; achievements?: PublicDisciplineMedals[] }[]; total: number }
 
 const hoursText = (h: number) => `${Number(h).toLocaleString('es-ES', { maximumFractionDigits: 1 })} h`
 
@@ -217,7 +217,8 @@ export function RankingsPage() {
   const [month, setMonth] = useState(current)
   const disciplines = useDisciplines()
   const options = (disciplines.data ?? []).filter((d) => d.is_active && !d.minors_only)
-  const chosen = id ?? (options[0] ? String(options[0].id) : '')
+  // /rankings/medals era el de medallas de toda la academia (035): ahora, el de la primera disciplina.
+  const chosen = (id !== 'medals' && id) || (options[0] ? String(options[0].id) : '')
   const open = options.find((d) => String(d.id) === chosen)?.is_open ?? false
   const isMedals = open || params.get('ver') !== 'mes'
   const ranking = useQuery({
@@ -237,6 +238,8 @@ export function RankingsPage() {
         <ListSkeleton rows={3} className="h-14" />
       ) : disciplines.isError ? (
         <ErrorState error={disciplines.error} onRetry={() => void disciplines.refetch()} />
+      ) : !chosen ? (
+        <EmptyState icon={<TrophyIcon />} title="Aún no hay rankings" text="Salen en cuanto haya una disciplina activa para adultos." />
       ) : (
         <>
           <div className="grid grid-cols-2 gap-2">

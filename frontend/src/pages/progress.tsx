@@ -14,7 +14,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
 import { useSubject } from '@/hooks/use-subject'
 import { addMonths, formatMonth, madridMonth } from '@/lib/dates'
 import { formatDate } from '@/lib/format'
-import { type Medal as MedalInfo, type MedalKind, formatHours, glowOf, ladderOf, medalGoal, nextMedal } from '@/lib/progress'
+import { type Medal as MedalInfo, type MedalKind, formatHours, glowOf, ladderOf, medalGoal, medalOf, nextMedal } from '@/lib/progress'
 import { themeOf } from '@/lib/themes'
 import { useProgress } from '@/lib/queries'
 import type { DisciplineMedals } from '@/lib/types'
@@ -118,7 +118,7 @@ function NextMedal({ d }: { d: DisciplineMedals }) {
   const codes = new Set(d.badges.map((b) => b.code))
   const hours = nextMedal(d.theme, 'hours', codes)
   const streak = nextMedal(d.theme, 'streak', codes)
-  const ring = glowOf(ladderOf(d.theme)[0])
+  const ring = glowOf(medalOf(d.theme, 'first_day')!)
   const pct = hours && hours.at > 0 ? Math.min(1, d.hours / hours.at) : 0
   const R = 72
   const C = 2 * Math.PI * R

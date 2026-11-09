@@ -1,8 +1,8 @@
 // Medallas por disciplina (ADR 0022): la escalera de 11 del backend (migrations/019 y 037: first_day, HOUR_BADGES y
 // STREAK_BADGES), con el nombre y el arte de la temática de cada disciplina (lib/themes). Quién la tiene y desde
 // cuándo lo decide siempre la API.
-import { type Palette, type Shape, themeOf } from '@/lib/themes'
-import type { DisciplineMedals } from '@/lib/types'
+import { type LadderCode, type Palette, type Shape, themeOf } from '@/lib/themes'
+import type { DisciplineMedals, PublicDisciplineMedals } from '@/lib/types'
 
 export type MedalKind = 'hours' | 'streak'
 export type Medal = { code: string; kind: MedalKind; at: number; theme: string; name: string; mark: string; kanji: string; shape: Shape; palette: Palette }
@@ -18,7 +18,7 @@ export function medalOf(theme: string | null, code: string): Medal | undefined {
   const step = LADDER.find((x) => x.code === code)
   if (!step) return undefined
   const t = themeOf(theme)
-  const [name, mark, palette] = t.medals[code]
+  const [name, mark, palette] = t.medals[step.code as LadderCode]
   return { ...step, theme: t.code, name, mark, kanji: t.kanji, shape: t.shape, palette: palette ?? t.palette }
 }
 
@@ -34,18 +34,18 @@ export const nextMedal = (theme: string | null, kind: MedalKind, earned: Set<str
 
 export type DisciplineMedal = { key: string; medal: Medal; discipline: { id: string; name: string } }
 // La clave '<disciplina>:<código>' es la de medal_views (037).
-const entry = (d: DisciplineMedals, code: string): DisciplineMedal =>
+const entry = (d: PublicDisciplineMedals, code: string): DisciplineMedal =>
   ({ key: `${d.id}:${code}`, medal: medalOf(d.theme, code)!, discipline: { id: d.id, name: d.name } })
 const rank = (code: string) => LADDER.findIndex((x) => x.code === code)
 
 // La que se enseña junto al nombre (rankings, Comunidad): la de horas más alta, si no la racha más alta, si no la
 // primera; entre disciplinas empatadas, la de más horas.
 const TOP = ['hours_1000', 'hours_500', 'hours_250', 'hours_100', 'hours_50', 'hours_10', 'streak_52', 'streak_26', 'streak_12', 'streak_4', 'first_day']
-export function topMedal(disciplines: DisciplineMedals[] | undefined): DisciplineMedal | undefined {
-  let best: { d: DisciplineMedals; code: string; i: number } | undefined
+export function topMedal(disciplines: PublicDisciplineMedals[] | undefined): DisciplineMedal | undefined {
+  let best: { d: PublicDisciplineMedals; code: string; i: number } | undefined
   for (const d of disciplines ?? []) {
     const i = TOP.findIndex((c) => d.badges.some((b) => b.code === c))
-    if (i >= 0 && (!best || i < best.i || (i === best.i && d.hours > best.d.hours))) best = { d, code: TOP[i], i }
+    if (i >= 0 && (!best || i < best.i || (i === best.i && (d.hours ?? 0) > (best.d.hours ?? 0)))) best = { d, code: TOP[i], i }
   }
   return best && entry(best.d, best.code)
 }

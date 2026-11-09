@@ -26,7 +26,7 @@ const CODE_RE = /^\d{1,18}:[a-z0-9_]{1,32}$/;
 
 /** Quien mira añade los códigos de medalla que ya celebró en ese perfil; mismo acceso que getProgress. */
 export async function markMedalsSeen(client, { studentId, codes }) {
-  if (!Array.isArray(codes) || codes.length > 256 || !codes.every((c) => typeof c === 'string' && CODE_RE.test(c))) {
+  if (!Array.isArray(codes) || codes.length > 1024 || !codes.every((c) => typeof c === 'string' && CODE_RE.test(c))) {
     throw invalid('codes', 'codes debe ser una lista de códigos de medalla');
   }
   const { rows: [{ seen }] } = await client.query(`SELECT mark_medals_seen($1, $2::text[]) AS seen`, [studentId, codes]);

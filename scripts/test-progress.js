@@ -421,7 +421,7 @@ try {
       const r = await post('/me/progress/seen', k, { profile_id: who[target], codes: [] });
       assert.deepEqual([r.status, r.body.code], [403, 'not_guardian'], k);
     }
-    for (const codes of [undefined, k('first_day'), ['first_day'], ['Robert"); --'], Array(257).fill(k('first_day'))]) {
+    for (const codes of [undefined, k('first_day'), ['first_day'], ['Robert"); --'], Array(1025).fill(k('first_day'))]) {
       assert.equal((await post('/me/progress/seen', 'alu', { codes })).body.code, 'invalid_field', JSON.stringify(codes));
     }
     assert.equal((await post('/me/progress/seen', 'alu', { profile_id: 'x', codes: [] })).body.code, 'invalid_profile_id');
@@ -451,6 +451,7 @@ try {
     const r = await http(`/profiles/${who.alu}`, 'other');
     assert.equal(r.body.profile.achievements.streak.best, 1); // current depende de las sesiones de la academia
     assert.deepEqual(r.body.profile.achievements.disciplines.map((d) => d.badges.map((b) => b.code)), [['first_day']]);
+    assert.ok(!('hours' in r.body.profile.achievements.disciplines[0])); // las horas exactas son del ranking, no de los logros
     assert.ok(!('achievements' in (await http(`/profiles/${who.aluNoFlag}`, 'other')).body.profile));
     assert.ok(!('achievements' in (await http(`/profiles/${who.prof}`, 'other')).body.profile));
     const me = await http('/me/profile', 'alu');
