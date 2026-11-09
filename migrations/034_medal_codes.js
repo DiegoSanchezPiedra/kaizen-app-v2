@@ -14,7 +14,7 @@ const THIS_MONTH = `date_trunc('month', now() AT TIME ZONE '${TZ}')::date`;
 const CAN_SEE = `${AUTHED} AND (p_id = ${UID} OR is_guardian_of(p_id, true) OR ${IS_ADMIN})`;
 
 // 033 con medals_seen_at (fecha) o medals_seen (códigos; NULL si nunca cerró una medalla nueva).
-const progressSql = (codes) => `
+export const progressSql = (codes) => `
   CREATE OR REPLACE FUNCTION student_progress(p_id uuid, p_month date) RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
       SELECT student_achievements(p_id) || jsonb_build_object('hours', jsonb_build_object(

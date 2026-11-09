@@ -43,6 +43,7 @@ const DISCIPLINE_SPEC = {
   minors_only: [isBool, 'minors_only debe ser booleano'],
   is_active: [isBool, 'is_active debe ser booleano'],
   is_open: [isBool, 'is_open debe ser booleano'],
+  medal_theme: [(v) => v === null || (typeof v === 'string' && /^[a-z0-9_]{1,32}$/.test(v)), 'medal_theme: código de temática o null'],
 };
 const PLAN_SPEC = {
   name: [isName, 'name requerido (≤100)', true],
@@ -58,6 +59,8 @@ async function guardUnique(fn) {
   try {
     return await fn();
   } catch (err) {
+    if (err.constraint === 'disciplines_medal_theme_active') throw httpError(409, 'theme_taken', 'Esa temática ya la tiene otra disciplina activa');
+    if (err.constraint === 'disciplines_medal_theme_fkey') throw invalid('medal_theme', 'medal_theme: temática desconocida');
     if (err.code === '23505') throw httpError(409, 'name_taken', 'Ya existe un registro con ese nombre');
     throw err;
   }
@@ -83,14 +86,23 @@ export function updateSql(table, id, data) {
 
 export async function listDisciplines(client) {
   const { rows } = await client.query(
-    `SELECT id, name, minors_only, is_active, is_open FROM disciplines ORDER BY name`
+    `SELECT id, name, minors_only, is_active, is_open, medal_theme FROM disciplines ORDER BY name`
   );
+  return rows;
+}
+
+// Repertorio de temáticas con la disciplina activa que tiene cada una (null = libre).
+export async function listMedalThemes(client) {
+  const { rows } = await client.query(
+    `SELECT t.code, t.name, d.id AS discipline_id
+       FROM medal_themes t LEFT JOIN disciplines d ON d.medal_theme = t.code AND d.is_active
+      ORDER BY t.sort, t.code`);
   return rows;
 }
 
 async function getDiscipline(client, id, { lock = false } = {}) {
   const { rows: [d] } = await client.query(
-    `SELECT id, name, minors_only, is_active, is_open FROM disciplines WHERE id = $1${lock ? ' FOR UPDATE' : ''}`, [id]
+    `SELECT id, name, minors_only, is_active, is_open, medal_theme FROM disciplines WHERE id = $1${lock ? ' FOR UPDATE' : ''}`, [id]
   );
   if (!d) throw httpError(404, 'discipline_not_found', 'Disciplina no encontrada');
   return d;

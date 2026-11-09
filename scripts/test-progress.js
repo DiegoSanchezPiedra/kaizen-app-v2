@@ -96,7 +96,9 @@ try {
     return (await c.query(`SELECT student_progress($1, $2::date) AS p`, [student, month])).rows[0].p;
   };
   const streak = async (s) => (await progress(s)).streak;
-  const badges = async (s) => Object.fromEntries((await progress(s)).badges.map((b) => [b.code, b.earned_at]));
+  // Medallas de una disciplina (por defecto X): { code: earned_at }.
+  const medalsIn = async (s, d = X) => (await progress(s)).disciplines.find((x) => String(x.id) === String(d));
+  const badges = async (s, d = X) => Object.fromEntries(((await medalsIn(s, d))?.badges ?? []).map((b) => [b.code, b.earned_at]));
   const ts = async (expr) => (await c.query(`SELECT to_jsonb(${expr}) AS t`)).rows[0].t;
   const rankingOf = async (disc, month, opts = {}) => getRanking(c, { disciplineId: disc, month, ...opts });
 
@@ -202,16 +204,30 @@ try {
       assert.equal(b[code], await ts(at[k]), code);
     }
   }));
-  await run('badges: la abierta cuenta una vez en las totales; una corrección hace perder uno', () => sp(async () => {
+  await run('medallas por disciplina: 0 h ninguna; cada disciplina, y la abierta, con su escalera; una corrección quita una', () => sp(async () => {
     const s = await F.person('alumno');
+    assert.deepEqual((await progress(s)).disciplines, []); // 0 h: ni primer día
     await F.attend(s, X, local('2024-03-05 10:00'), 6 * 60);
-    const o = await F.attend(s, O, local('2024-03-06 10:00'), 4 * 60); // en marzo, X suma 10 h, pero en total son 10
-    assert.equal((await progress(s, '2024-03-01')).hours.disciplines[0].hours, 10);
-    assert.ok((await badges(s)).hours_10);
+    await F.attend(s, Y, local('2024-03-05 18:00'), 5 * 60);
+    const o = await F.attend(s, O, local('2024-03-06 10:00'), 4 * 60);
+    // Ninguna llega a 10 h por separado, aunque juntas sumen 15.
+    for (const d of [X, Y, O]) assert.deepEqual(Object.keys(await badges(s, d)), ['first_day'], `disciplina ${d}`);
+    assert.deepEqual([(await medalsIn(s, X)).hours, (await medalsIn(s, O)).hours], [6, 4]);
+    await F.attend(s, X, local('2024-03-12 10:00'), 4 * 60);
+    const b = await badges(s, X);
+    assert.equal(b.hours_10, await ts(local('2024-03-12 10:00')));
     await c.query(`UPDATE attendance SET status = 'absent' WHERE session_id = $1`, [o]);
-    const b = await badges(s);
-    assert.equal(b.hours_10, undefined);
-    assert.ok(b.first_day);
+    assert.equal(await medalsIn(s, O), undefined);
+    assert.ok((await badges(s, X)).hours_10);
+  }));
+  await run('medallas: la racha de una disciplina se salta las semanas sin clase de esa disciplina (aunque haya de otras)', () => sp(async () => {
+    const s = await F.person('alumno');
+    const other = await F.person('alumno');
+    for (const k of [5, 4, 2, 1]) await F.attend(s, X, wk(k));
+    await F.attend(other, Y, wk(3)); // la academia dio clase en la semana 3, pero X no
+    assert.deepEqual((await medalsIn(s, X)).streak, { current: 4, best: 4 });
+    assert.ok((await badges(s, X)).streak_4);
+    assert.deepEqual((await progress(s)).streak, { current: 2, best: 2 }); // la racha general sigue mirando la academia
   }));
   await run('badges de racha: sobre la mejor, con el lunes de la semana que la alcanzó', () => sp(async () => {
     const s = await F.person('alumno');
@@ -375,7 +391,7 @@ try {
     const own = await http('/me/progress?month=2026-02', 'alu');
     assert.equal(own.status, 200);
     assert.deepEqual(own.body.hours, { month: '2026-02', disciplines: [{ id: Number(Z), name: `${tag}-Z-off`, hours: 1.5 }] });
-    assert.deepEqual(own.body.badges.map((b) => b.code), ['first_day']);
+    assert.deepEqual(own.body.disciplines.map((d) => [d.id, d.theme, d.hours, d.badges.map((b) => b.code)]), [[Z, null, 1.5, ['first_day']]]);
     assert.equal((await http(`/me/progress?profile_id=${who.child}`, 'tutor')).status, 200);
     assert.equal((await http(`/me/progress?profile_id=${who.alu}`, 'admin')).status, 200);
     for (const [k, target] of [['other', 'alu'], ['prof', 'alu'], ['tutor2', 'child']]) {
@@ -385,47 +401,56 @@ try {
     assert.equal((await http('/me/progress?profile_id=x', 'alu')).body.code, 'invalid_profile_id');
     assert.equal((await http('/me/progress?month=2026-1', 'alu')).body.code, 'invalid_field');
   });
-  await run('medallas: horas totales y códigos celebrados por quien mira (alumno, tutor y admin aparte); ajeno 403', async () => {
+  await run('medallas: códigos <disciplina>:<código> celebrados por quien mira (alumno, tutor y admin aparte), idempotente; ajeno 403', async () => {
     const before = await http('/me/progress', 'alu');
-    assert.equal(before.body.total_hours, 1.5);
     assert.equal(before.body.medals_seen, null);
-    const seen = await post('/me/progress/seen', 'alu', { codes: ['first_day'] });
-    assert.deepEqual([seen.status, seen.body.codes], [200, ['first_day']]);
-    assert.deepEqual((await http('/me/progress', 'alu')).body.medals_seen, ['first_day']);
+    const k = (code) => `${Z}:${code}`;
+    const seen = await post('/me/progress/seen', 'alu', { codes: [k('first_day')] });
+    assert.deepEqual([seen.status, seen.body.codes], [200, [k('first_day')]]);
+    assert.deepEqual((await http('/me/progress', 'alu')).body.medals_seen, [k('first_day')]);
     // repetir no duplica: une los códigos
-    assert.deepEqual((await post('/me/progress/seen', 'alu', { codes: ['hours_10', 'first_day'] })).body.codes, ['first_day', 'hours_10']);
+    assert.deepEqual((await post('/me/progress/seen', 'alu', { codes: [k('hours_10'), k('first_day')] })).body.codes, [k('first_day'), k('hours_10')]);
+    assert.deepEqual((await post('/me/progress/seen', 'alu', { codes: [k('hours_10')] })).body.codes, [k('first_day'), k('hours_10')]);
     assert.equal((await servicePool.query(`SELECT count(*)::int AS n FROM medal_views WHERE profile_id = $1`, [who.alu]))
       .rows[0].n, 1);
     const child = await http(`/me/progress?profile_id=${who.child}`, 'tutor');
-    assert.deepEqual([child.body.total_hours, child.body.medals_seen], [1, null]);
-    assert.equal((await post('/me/progress/seen', 'tutor', { profile_id: who.child, codes: ['first_day'] })).status, 200);
+    assert.deepEqual([child.body.disciplines[0].hours, child.body.medals_seen], [1, null]);
+    assert.equal((await post('/me/progress/seen', 'tutor', { profile_id: who.child, codes: [k('first_day')] })).status, 200);
     assert.equal((await http(`/me/progress?profile_id=${who.child}`, 'admin')).body.medals_seen, null); // el del admin, aparte
     for (const [k, target] of [['other', 'alu'], ['prof', 'alu'], ['tutor2', 'child']]) {
       const r = await post('/me/progress/seen', k, { profile_id: who[target], codes: [] });
       assert.deepEqual([r.status, r.body.code], [403, 'not_guardian'], k);
     }
-    for (const codes of [undefined, 'first_day', ['Robert"); --'], Array(33).fill('first_day')]) {
+    for (const codes of [undefined, k('first_day'), ['first_day'], ['Robert"); --'], Array(257).fill(k('first_day'))]) {
       assert.equal((await post('/me/progress/seen', 'alu', { codes })).body.code, 'invalid_field', JSON.stringify(codes));
     }
     assert.equal((await post('/me/progress/seen', 'alu', { profile_id: 'x', codes: [] })).body.code, 'invalid_profile_id');
   });
-  await run('ranking de medallas: solo quien enseña su ranking y tiene alguna; medallas solo con logros; el hijo no sale', async () => {
-    const r = await http('/rankings/medals?limit=100', 'other');
+  await run('ranking de medallas por disciplina: quien enseña su ranking y tiene alguna en ella; medallas solo con logros; un menor nunca', async () => {
+    // El hijo, aunque se marque público y con todo visible, no puede serlo (can_be_public): no sale.
+    await servicePool.query(`UPDATE profiles SET is_public = true, visible_fields = '{"ranking": true, "achievements": true}' WHERE id = $1`, [who.child]);
+    const r = await http(`/rankings/${Z}/medals?limit=100`, 'other');
     assert.equal(r.status, 200);
+    assert.deepEqual(r.body.discipline, { id: Z, name: `${tag}-Z-off` });
     const mine = r.body.rows.find((x) => x.id === who.alu);
-    assert.deepEqual([mine.medals, Number(mine.hours), mine.badges], [1, 1.5, ['first_day']]);
+    assert.deepEqual([mine.rank, mine.medals, Number(mine.hours), mine.achievements.map((d) => [d.id, d.badges.map((b) => b.code)])],
+      [1, 1, 1.5, [[Z, ['first_day']]]]);
     for (const k of ['aluNoFlag', 'other', 'child', 'prof']) assert.ok(!r.body.rows.some((x) => x.id === who[k]), k);
+    assert.ok(!(await http(`/rankings/${Z}?month=2026-02`, 'other')).body.rows.some((x) => x.id === who.child));
     // aluNoFlag enseña su ranking pero no sus logros: sale con sus medallas contadas, sin decir cuáles
     const extra = await H.attend(who.aluNoFlag, Z, local('2026-03-12 18:00')); // otro mes: el ranking de febrero no cambia
+    sessions.push(extra);
     created.push((await servicePool.query(`SELECT trainer_id FROM class_sessions WHERE id = $1`, [extra])).rows[0].trainer_id);
-    const noFlag = (await http('/rankings/medals?limit=100', 'other')).body.rows.find((x) => x.id === who.aluNoFlag);
-    assert.deepEqual([noFlag.medals, 'badges' in noFlag], [1, false]);
-    assert.equal((await http('/rankings/medals?limit=0', 'other')).body.code, 'invalid_pagination');
+    const noFlag = (await http(`/rankings/${Z}/medals?limit=100`, 'other')).body.rows.find((x) => x.id === who.aluNoFlag);
+    assert.deepEqual([noFlag.medals, 'achievements' in noFlag], [1, false]);
+    assert.equal((await http(`/rankings/${Z}/medals?limit=0`, 'other')).body.code, 'invalid_pagination');
+    assert.equal((await http('/rankings/999999999/medals', 'other')).body.code, 'ranking_not_found');
+    await servicePool.query(`UPDATE profiles SET is_public = false, visible_fields = '{}' WHERE id = $1`, [who.child]);
   });
   await run('ficha pública: achievements solo con su flag; un profesor no tiene', async () => {
     const r = await http(`/profiles/${who.alu}`, 'other');
     assert.equal(r.body.profile.achievements.streak.best, 1); // current depende de las sesiones de la academia
-    assert.deepEqual(r.body.profile.achievements.badges.map((b) => b.code), ['first_day']);
+    assert.deepEqual(r.body.profile.achievements.disciplines.map((d) => d.badges.map((b) => b.code)), [['first_day']]);
     assert.ok(!('achievements' in (await http(`/profiles/${who.aluNoFlag}`, 'other')).body.profile));
     assert.ok(!('achievements' in (await http(`/profiles/${who.prof}`, 'other')).body.profile));
     const me = await http('/me/profile', 'alu');
@@ -438,9 +463,11 @@ try {
     assert.deepEqual(r.body, {
       discipline: { id: Z, name: `${tag}-Z-off` }, month: '2026-02',
       rows: [{ rank: 1, id: who.alu, display_name: (await servicePool.query(
-        `SELECT display_name FROM profiles WHERE id = $1`, [who.alu])).rows[0].display_name, hours: 1.5, badges: ['first_day'] }],
+        `SELECT display_name FROM profiles WHERE id = $1`, [who.alu])).rows[0].display_name, hours: 1.5,
+      achievements: r.body.rows[0].achievements }],
       total: 1, limit: 25, offset: 0,
     });
+    assert.deepEqual(r.body.rows[0].achievements.map((d) => d.badges.map((b) => b.code)), [['first_day']]);
     assert.equal((await http(`/rankings/${Z}`)).status, 401);
     assert.equal((await http(`/rankings/x`, 'other')).body.code, 'invalid_id');
   });

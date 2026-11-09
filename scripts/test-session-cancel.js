@@ -315,7 +315,7 @@ try {
       `SELECT hours FROM monthly_ranking($1, '2001-01-01') WHERE id = $2`, [disc.id, s])).rows[0]?.hours);
     const p0 = await progress();
     assert.equal(p0.streak.best, 3);
-    assert.ok(p0.badges.some((x) => x.code === 'hours_10'));
+    assert.ok(p0.disciplines[0].badges.some((x) => x.code === 'hours_10'));
     assert.equal(+p0.hours.disciplines[0].hours, 12);
     assert.equal(+await ranking(), 12);
 
@@ -333,7 +333,7 @@ try {
 
     const p1 = await progress();
     assert.equal(p1.streak.best, 2, 'la semana sin sesión celebrada se salta (si rompiera, sería 1)');
-    assert.ok(!p1.badges.some((x) => x.code === 'hours_10'));
+    assert.ok(!p1.disciplines[0].badges.some((x) => x.code === 'hours_10'));
     assert.equal(+p1.hours.disciplines[0].hours, 2);
     assert.equal(+await ranking(), 2);
     await rejects(restore(W[1].id), 409, 'session_started');

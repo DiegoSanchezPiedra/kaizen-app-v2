@@ -21,11 +21,12 @@ export async function getProgress(client, { studentId, month }) {
   return p;
 }
 
-const CODE_RE = /^[a-z0-9_]{1,32}$/;
+// '<discipline_id>:<código>' (037): la misma medalla en dos disciplinas son dos.
+const CODE_RE = /^\d{1,18}:[a-z0-9_]{1,32}$/;
 
 /** Quien mira añade los códigos de medalla que ya celebró en ese perfil; mismo acceso que getProgress. */
 export async function markMedalsSeen(client, { studentId, codes }) {
-  if (!Array.isArray(codes) || codes.length > 32 || !codes.every((c) => typeof c === 'string' && CODE_RE.test(c))) {
+  if (!Array.isArray(codes) || codes.length > 256 || !codes.every((c) => typeof c === 'string' && CODE_RE.test(c))) {
     throw invalid('codes', 'codes debe ser una lista de códigos de medalla');
   }
   const { rows: [{ seen }] } = await client.query(`SELECT mark_medals_seen($1, $2::text[]) AS seen`, [studentId, codes]);
@@ -42,25 +43,35 @@ function parsePage(limit, offset) {
   return { limit, offset };
 }
 
-// Los códigos de medalla de cada fila, solo de quien enseña sus logros (la vista public_profiles lo decide).
+// Las medallas por disciplina de cada fila (achievements.disciplines), solo de quien enseña sus logros
+// (la vista public_profiles lo decide).
 async function withBadges(client, rows) {
   const { rows: shown } = await client.query(
-    `SELECT id, (SELECT jsonb_agg(b->'code') FROM jsonb_array_elements(achievements->'badges') b) AS badges
+    `SELECT id, achievements->'disciplines' AS achievements
        FROM public_profiles WHERE id = ANY($1::uuid[]) AND achievements IS NOT NULL`, [rows.map((r) => r.id)]);
-  const of = new Map(shown.map((r) => [r.id, r.badges ?? []]));
-  return rows.map((r) => (of.has(r.id) ? { ...r, badges: of.get(r.id) } : r));
+  const of = new Map(shown.map((r) => [r.id, r.achievements]));
+  return rows.map((r) => (of.has(r.id) ? { ...r, achievements: of.get(r.id) } : r));
 }
 
-/** Ranking de medallas de siempre: `{ rows: [{ rank, id, display_name, medals, hours, badges? }], total, limit, offset }`. */
-export async function getMedalRanking(client, { limit = 25, offset = 0 }) {
+/** Ranking de medallas de una disciplina, de siempre (037): `{ discipline, rows: [{ rank, id, display_name, medals, hours,
+ * achievements? }], total, limit, offset }`. 404 si no existe. */
+export async function getMedalRanking(client, { disciplineId, limit = 25, offset = 0 }) {
+  const id = parseId(disciplineId);
   ({ limit, offset } = parsePage(limit, offset));
-  const { rows: [r] } = await client.query(
-    `WITH r AS (SELECT * FROM medal_ranking())
-     SELECT (SELECT count(*)::int FROM r) AS total,
-            COALESCE((SELECT jsonb_agg(x ORDER BY x.rank, x.display_name, x.id)
-                        FROM (SELECT * FROM r ORDER BY rank, display_name, id LIMIT $1 OFFSET $2) x), '[]') AS rows`,
-    [limit, offset]);
-  return { rows: await withBadges(client, r.rows), total: r.total, limit, offset };
+  let r;
+  try {
+    ({ rows: [r] } = await client.query(
+      `WITH r AS (SELECT * FROM medal_ranking($1))
+       SELECT (SELECT discipline_name FROM r LIMIT 1) AS name, (SELECT count(id)::int FROM r) AS total,
+              COALESCE((SELECT jsonb_agg(x ORDER BY x.rank, x.display_name, x.id)
+                          FROM (SELECT rank, id, display_name, medals, hours FROM r WHERE id IS NOT NULL
+                                 ORDER BY rank, display_name, id LIMIT $2 OFFSET $3) x), '[]') AS rows`,
+      [id, limit, offset]));
+  } catch (err) {
+    if (err.message === 'ranking_not_found') throw httpError(404, 'ranking_not_found', 'Ranking no encontrado');
+    throw err;
+  }
+  return { discipline: { id, name: r.name }, rows: await withBadges(client, r.rows), total: r.total, limit, offset };
 }
 
 /** Ranking mensual: `{ discipline, month, rows, total, limit, offset }`. 404 si no existe o es abierta. */

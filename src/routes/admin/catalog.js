@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { requireAuth, requireRole, withRlsContext } from '../../middleware/auth.js';
 import {
-  parseId, listDisciplines, createDiscipline, updateDiscipline,
+  parseId, listDisciplines, createDiscipline, updateDiscipline, listMedalThemes,
   listPlans, createPlan, updatePlan, getEligibleDisciplines, setEligibleDisciplines,
 } from '../../services/catalog.js';
 
@@ -16,6 +16,9 @@ router.param('id', (req, res, next, id) => {
 
 router.get('/disciplines', withRlsContext(async (req, client) => ({
   disciplines: await listDisciplines(client),
+})));
+router.get('/medal-themes', withRlsContext(async (req, client) => ({
+  themes: await listMedalThemes(client),
 })));
 router.post('/disciplines', withRlsContext(async (req, client) => ({
   status: 201, body: { discipline: await createDiscipline(client, req.body ?? {}) },

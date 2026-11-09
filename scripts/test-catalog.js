@@ -5,7 +5,7 @@ import { servicePool, closePools } from '../src/config/database.js';
 import { withRls } from '../src/db/rls.js';
 import {
   createDiscipline, updateDiscipline, listDisciplines, createPlan, updatePlan, listPlans,
-  setEligibleDisciplines,
+  setEligibleDisciplines, listMedalThemes,
 } from '../src/services/catalog.js';
 
 const rejects = (p, status, code) => assert.rejects(p, (e) => e.status === status && e.code === code);
@@ -87,6 +87,29 @@ try {
       await rejects(updatePlan(c, { id, body: { max_disciplines: 1 }, actorId: admin }), 409, 'plan_has_subscriptions');
       await rejects(updatePlan(c, { id, body: { minors_only: true }, actorId: admin }), 409, 'plan_has_subscriptions');
       await updatePlan(c, { id, body: { price_cents: 3500 }, actorId: admin }); // precio sí
+    });
+
+    await run('temática: una por disciplina activa (crear, reasignar, desactivar, reactivar) y lista de libres', async () => {
+      await c.query(`UPDATE disciplines SET medal_theme = NULL`); // dentro de la transacción: aísla de los datos locales
+      const holder = async (code) => (await listMedalThemes(c)).find((t) => t.code === code).discipline_id;
+      const a = await createDiscipline(c, { name: 'T-Box', medal_theme: 'ippo' });
+      assert.equal(a.medal_theme, 'ippo');
+      assert.equal(await holder('ippo'), a.id);
+      assert.equal(await holder('saiyan'), null);
+      await sp(c, () => rejects(createDiscipline(c, { name: 'T-Box2', medal_theme: 'ippo' }), 409, 'theme_taken'));
+      await sp(c, () => rejects(createDiscipline(c, { name: 'T-Box2', medal_theme: 'nope' }), 400, 'invalid_field'));
+      const b = await createDiscipline(c, { name: 'T-Box2' });
+      assert.equal(b.medal_theme, null);
+      await sp(c, () => rejects(updateDiscipline(c, { id: b.id, body: { medal_theme: 'ippo' }, actorId: admin }), 409, 'theme_taken'));
+      // Reasignar: se quita de A y se pone en B.
+      assert.equal((await updateDiscipline(c, { id: a.id, body: { medal_theme: null }, actorId: admin })).medal_theme, null);
+      assert.equal((await updateDiscipline(c, { id: b.id, body: { medal_theme: 'ippo' }, actorId: admin })).medal_theme, 'ippo');
+      // Desactivar la libera (la desactivada la conserva) y reactivar con ella ocupada da theme_taken.
+      assert.equal((await updateDiscipline(c, { id: b.id, body: { is_active: false }, actorId: admin })).medal_theme, 'ippo');
+      assert.equal(await holder('ippo'), null);
+      await createDiscipline(c, { name: 'T-Box3', medal_theme: 'ippo' });
+      await sp(c, () => rejects(updateDiscipline(c, { id: b.id, body: { is_active: true }, actorId: admin }), 409, 'theme_taken'));
+      assert.equal((await updateDiscipline(c, { id: b.id, body: { is_active: true, medal_theme: 'saiyan' }, actorId: admin })).medal_theme, 'saiyan');
     });
 
     await as(c, alumno, 'alumno');
