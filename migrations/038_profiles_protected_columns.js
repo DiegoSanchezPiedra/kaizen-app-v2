@@ -12,11 +12,8 @@ export const shorthands = undefined;
 
 const EDITABLE = ['display_name', 'birth_date', 'bio', 'social_links', 'is_public', 'visible_fields', 'avatar'];
 
-export const up = (pgm) => {
-  pgm.sql(`
-    REVOKE UPDATE ON profiles FROM app_user;
-    GRANT UPDATE (${EDITABLE.join(', ')}) ON profiles TO app_user;
-
+// La 045 la sustituye por profiles_update_guard y la recrea en su down.
+export const birthDateGuard = `
     CREATE FUNCTION profiles_birth_date_guard() RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
       BEGIN
         IF current_user = 'app_user' AND NEW.birth_date IS DISTINCT FROM OLD.birth_date
@@ -29,7 +26,13 @@ export const up = (pgm) => {
       END
       $$;
     CREATE TRIGGER profiles_birth_date_guard BEFORE UPDATE OF birth_date ON profiles
-      FOR EACH ROW EXECUTE FUNCTION profiles_birth_date_guard();
+      FOR EACH ROW EXECUTE FUNCTION profiles_birth_date_guard();`;
+
+export const up = (pgm) => {
+  pgm.sql(`
+    REVOKE UPDATE ON profiles FROM app_user;
+    GRANT UPDATE (${EDITABLE.join(', ')}) ON profiles TO app_user;
+    ${birthDateGuard}
   `);
 };
 

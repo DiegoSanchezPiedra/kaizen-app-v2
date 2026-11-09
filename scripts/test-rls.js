@@ -310,6 +310,21 @@ async function main() {
       assert.equal(r.rowCount, 1);
     });
 
+    // B20 (B2): el admin no edita el contenido de un perfil ajeno (CONTEXT: despublica y quita la foto).
+    await run('B20 — el admin no edita el contenido del perfil de otro, ni lo publica, ni le pone una foto', async () => {
+      for (const set of [`display_name = 'x'`, `bio = 'x'`, `social_links = '{}'`, `visible_fields = '{"bio": true}'`,
+        'is_public = true', `avatar = '${AVATAR}'`]) {
+        await expectDenied(update(admin, ids.b, set));
+      }
+    });
+
+    // B20 (B5): de su hijo, el tutor edita nombre, fecha y foto; nada del perfil público (un hijo nunca es público).
+    await run('B20 — el tutor no edita bio, redes ni campos visibles de su hijo', async () => {
+      for (const set of [`bio = 'x'`, `social_links = '{}'`, `visible_fields = '{"bio": true}'`]) {
+        await expectDenied(update(tutor, ids.child, set));
+      }
+    });
+
     // B20 (M1): una tabla temporal tapa la real dentro de las funciones SECURITY DEFINER (search_path sin pg_temp al final).
     await run('B20 — app_user no crea tablas temporales (no puede tapar las de las funciones SECURITY DEFINER)', async () => {
       await expectDenied(withCtx(alumno, (c) => c.query(`CREATE TEMP TABLE guardianships (tutor_id uuid, minor_id uuid)`)));

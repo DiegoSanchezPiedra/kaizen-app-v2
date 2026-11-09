@@ -303,13 +303,14 @@ try {
           assert.deepEqual([cleared.bio, cleared.social_links, cleared.is_public], [null, null, true]);
       });
     });
-    await run('el tutor no puede poner is_public a su hijo por SQL (WITH CHECK), pero sí editarlo', async () => {
+    // Lo para el trigger de la 045 antes que el WITH CHECK: los dos con 42501.
+    await run('el tutor no puede poner is_public a su hijo por SQL, pero sí editarlo', async () => {
       await sp(c, async () => {
         await as(c, U.admin, 'admin');
         await c.query(`UPDATE profiles SET is_public = false WHERE id = $1`, [U.child]);
         await as(c, U.tutor, 'tutor');
         await sp(c, () => assert.rejects(
-          c.query(`UPDATE profiles SET is_public = true WHERE id = $1`, [U.child]), /row-level security/));
+          c.query(`UPDATE profiles SET is_public = true WHERE id = $1`, [U.child]), (e) => e.code === '42501'));
         assert.equal((await c.query(`UPDATE profiles SET display_name = 'x' WHERE id = $1`, [U.child])).rowCount, 1);
       });
     });

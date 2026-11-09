@@ -24,10 +24,10 @@ ponerse `admin`. Por eso lo que solo se aprovecha con SQL arbitrario queda en Me
 | M5 | Media | `auth_credentials`: `UPDATE` de cualquier columna propia (`email`, `email_verified`, `google_sub`…) | Arreglado (`043`) |
 | M6 | Media | El profesor lee la fila entera de `profiles` de sus alumnos (también `birth_date` de menores) | Arreglado (`044`) |
 | B1 | Baja | `has_risk_cover`, `profile_missing` y `discipline_changes_used` responden sobre cualquier perfil | Checklist |
-| B2 | Baja | El admin cambia por SQL el contenido del perfil de otro | Checklist |
+| B2 | Baja | El admin cambia por SQL el contenido del perfil de otro | Arreglado (`045`) |
 | B3 | Baja | El admin da o quita el rol `admin` por SQL | Checklist |
 | B4 | Baja | `profiles_insert_self` deja insertar cualquier columna al registrarse | Checklist |
-| B5 | Baja | El tutor escribe por SQL `bio`, `social_links` y `visible_fields` de su hijo | Checklist |
+| B5 | Baja | El tutor escribe por SQL `bio`, `social_links` y `visible_fields` de su hijo | Arreglado (`045`) |
 | B6 | Baja | `medal_views` y `webhook_events` sin RLS | Checklist |
 | B7 | Baja | El tutor sigue leyendo reservas, asistencia y progreso del hijo con 18 sin reclamar | Checklist (a confirmar) |
 | B8 | Baja | El admin cambia un documento de acuerdo ya publicado | Checklist |
@@ -114,12 +114,14 @@ Arreglado en la `044`: `profiles_select` pierde la rama del profesor (solo ve su
   (`risk_cover`) y otras funciones: el arreglo tiene que mantener a esos.
 - **B2**: con `profiles_update_self_or_admin` el admin cambia por SQL `display_name`, `bio`, `social_links`,
   `visible_fields` o `is_public = true` de otro; `CONTEXT.md`: «no edita su contenido» (despublica y quita la foto).
+  Arreglado en la `045`: el trigger `profiles_update_guard` (sustituye al de la 038, con la misma regla de `birth_date`) no deja al admin cambiar en un perfil ajeno `display_name`, `bio`, `social_links` ni `visible_fields`, publicarlo ni ponerle una foto: solo despublica, quita la foto y corrige la fecha. `test:rls`.
 - **B3**: `user_roles_insert_self_alumno_or_admin` y `user_roles_update_admin` dejan al admin poner o quitar `admin`;
   la API lo impide (`admin_role_locked`) y la base no.
 - **B4**: `profiles_insert_self` deja a la transacción de registro insertar cualquier columna (`stripe_customer_id`,
   `is_public`, una `birth_date` de menor). Solo vale para un id nuevo y solo la usa `createUser`, con columnas fijas.
 - **B5**: `profiles_update_guardian` deja al tutor escribir `bio`, `social_links` y `visible_fields` de su hijo. No se ven
   nunca (un hijo no puede ser público).
+  Arreglado en la `045`: el mismo trigger deja al tutor cambiar de su hijo solo `display_name`, `birth_date` y la foto; `bio`, `social_links` y `visible_fields` no. `test:rls`.
 - **B6**: `medal_views` y `webhook_events` sin RLS. Hoy sin permisos para `app_user`; con M2, una regresión las abriría.
 - **B7**: `is_guardian_of(…, true)` deja al tutor de un hijo con 18 sin reclamar leer sus reservas, asistencia,
   inscripciones, acuerdos y progreso; `CONTEXT.md`: «su tutor solo lo ve en la lista y paga lo que ya pagaba». Los
