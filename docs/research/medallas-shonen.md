@@ -332,3 +332,16 @@ Kanji **念** (*nen*). Paleta `#1B6B3A` `#F5D90A` `#1A1A2E`.
 4. One Piece: «Siete Guerreros del Mar» → «Los Siete Grandes Corsarios» [?]; «Yonkō» → «Los Cuatro Emperadores» [?].
 5. Naruto: Modo Sabio pasa antes de Rasen-shuriken. Bleach: Shikai pasa antes de Teniente. HxH sin cambios.
 shortcut: los [?] no se pudieron confirmar en línea (Fandom 402, sin acceso al doblaje de España); cotejar con un tomo de Norma/Planeta/Glénat antes de fijar el `title`.
+
+## Decisión del usuario (2026-11-09): nombres que usa la app
+
+Viven en `frontend/src/lib/themes/<código>.ts` (ADR 0022). Sobre la comprobación de arriba:
+
+- **Hajime no Ippo (`ippo`, Boxeo)**: la propuesta original, sin las correcciones (Novato del Este, Rey de los novatos,
+  «Espíritu de lucha» como última de racha).
+- **Dragon Ball (`saiyan`, Muay Thai)**: «Saiyan» y los nombres en inglés (Super Saiyan God, Super Saiyan Blue, Ultra
+  Instinct, Kaioken, Super Saiyan Blue Evolved, Ultra Ego).
+- **One Piece (`mugiwara`, Muay Thai Kids)**: los términos japoneses (Shichibukai, Yonkō).
+- **El resto**, con las correcciones de arriba: Shingeki en el orden propuesto; Naruto con el Modo Sabio antes del
+  Rasen-shuriken; Bleach con el Shikai antes de Teniente; Hunter x Hunter sin cambios. Kanji: 龍 (Dragon Ball) y 念 (HxH).
+- Sigue en pie el paso a nombres de género con revisión de abogado (EUIPO/OEPM) antes de producción.

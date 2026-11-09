@@ -88,8 +88,8 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 | `PATCH /me/children/:id` | cualquiera (su tutor) | `{ display_name?, birth_date? }` | `{ child }`. `child_not_found` |
 | `GET /me/profile` | cualquiera | — | `{ is_public, eligible, visible_fields, bio, social_links }` |
 | `PATCH /me/profile` | cualquiera | `{ is_public?, visible_fields?, bio? (≤500), social_links? (https) }` | igual. `403 not_eligible` |
-| `GET /me/progress?profile_id=&month=YYYY-MM` | alumno, tutor (hijo), admin | — | `{ streak: { current, best }, badges: [{ code, earned_at }], hours: { month, disciplines: [{ id, name, hours }] }, total_hours, medals_seen }` (`medals_seen`: códigos ya celebrados por quien mira, o `null`) |
-| `POST /me/progress/seen` | alumno, tutor (hijo), admin | `{ profile_id?, codes }` | `{ codes }`: añade los códigos que quien mira ya celebró; códigos inválidos, 400 `invalid_field`; si no puede verlo, 403 `not_guardian` |
+| `GET /me/progress?profile_id=&month=YYYY-MM` | alumno, tutor (hijo), admin | — | `{ streak: { current, best }, disciplines: [{ id, name, theme, hours, streak: { current, best }, badges: [{ code, earned_at }] }], hours: { month, disciplines: [{ id, name, hours }] }, medals_seen }`. `streak` es la racha general (toda la academia); cada entrada de `disciplines` es la escalera de medallas de una disciplina con asistencia (037): su temática (`theme`, `null` = Kaizen), sus horas totales y su racha. `medals_seen`: claves `<discipline_id>:<código>` ya celebradas por quien mira, o `null` |
+| `POST /me/progress/seen` | alumno, tutor (hijo), admin | `{ profile_id?, codes }` (≤ 256 claves `<discipline_id>:<código>`) | `{ codes }`: añade las claves que quien mira ya celebró (idempotente: une); claves inválidas, 400 `invalid_field`; si no puede verlo, 403 `not_guardian` |
 | `POST /me/push-subscriptions` | alumno, tutor | `{ endpoint, keys: { p256dh, auth } }` (de `PushManager.subscribe`) | `201 { ok }` |
 | `DELETE /me/push-subscriptions` | alumno, tutor | `{ endpoint }` | `204` (llamar **antes** de borrar el token) |
 | `GET /push/vapid-public-key` | cualquiera | — | `{ key }`; `503 push_disabled` |
@@ -171,8 +171,8 @@ Errores frecuentes: `409 subscription_exists`, `409 risk_cover_required` (sin se
 |---|---|---|---|
 | `GET /profiles?q&role&discipline_id&limit&offset` | cualquiera | — | `{ profiles: [ficha], total, limit, offset }` |
 | `GET /profiles/:id` | cualquiera | — | `{ profile: { id, display_name, role, bio?, social_links?, disciplines?, member_since?, achievements? } }` (solo lo visible; `404 profile_not_found` si no es público) |
-| `GET /rankings/medals?limit&offset` | cualquiera | — | `{ rows: [{ rank, id, display_name, medals, hours, badges? }], total, limit, offset }`: medallas de siempre, toda la academia (035); `badges` solo de quien enseña sus logros |
-| `GET /rankings/:disciplineId?month&limit&offset` | cualquiera | — | `{ discipline: { id, name }, month, rows: [{ rank, id, display_name, hours, badges? }], total, limit, offset }` (`badges` solo de quien enseña sus logros) |
+| `GET /rankings/:disciplineId/medals?limit&offset` | cualquiera | — | `{ discipline: { id, name }, rows: [{ rank, id, display_name, medals, hours, achievements? }], total, limit, offset }`: medallas de siempre en esa disciplina (037), por medallas y, empatadas, por sus horas en ella; también las abiertas y las desactivadas. `achievements` (sus `disciplines` como en `/me/progress`) solo de quien enseña sus logros. `404 ranking_not_found` |
+| `GET /rankings/:disciplineId?month&limit&offset` | cualquiera | — | `{ discipline: { id, name }, month, rows: [{ rank, id, display_name, hours, achievements? }], total, limit, offset }` (`achievements` solo de quien enseña sus logros) |
 
 ## Profesor
 
@@ -229,9 +229,10 @@ Todas exigen `role = admin` (y el admin entra con MFA si lo tiene activado). El 
 
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
-| `GET /admin/disciplines` | — | `{ disciplines }` (todas) |
-| `POST /admin/disciplines` | `{ name, minors_only?, is_active?, is_open? }` | `201 { discipline }` |
-| `PATCH /admin/disciplines/:id` | `{ name?, minors_only?, is_active?, is_open? }` | `{ discipline }`; al desactivar, `discipline` trae además `retired_classes` y `cancelled_sessions` |
+| `GET /admin/disciplines` | — | `{ disciplines }` (todas, con `medal_theme`) |
+| `GET /admin/medal-themes` | — | `{ themes: [{ code, name, discipline_id }] }`: el repertorio de temáticas (036) y la disciplina **activa** que tiene cada una (`null` = libre) |
+| `POST /admin/disciplines` | `{ name, minors_only?, is_active?, is_open?, medal_theme? }` | `201 { discipline }`. `medal_theme`: código de temática o `null` (Kaizen); desconocido, 400 `invalid_field`; la tiene otra disciplina activa, 409 `theme_taken` |
+| `PATCH /admin/disciplines/:id` | `{ name?, minors_only?, is_active?, is_open?, medal_theme? }` | `{ discipline }`; al desactivar, `discipline` trae además `retired_classes` y `cancelled_sessions` (la desactivada conserva su temática y la deja libre). 409 `theme_taken` al poner una temática ocupada o al reactivar con la suya ya ocupada |
 | `GET /admin/plans` | — | `{ plans }` (todos) |
 | `POST /admin/plans` | `{ name, price_cents, max_disciplines (null = todas), billing_period?, minors_only?, is_active? }` | `201 { plan }` |
 | `PATCH /admin/plans/:id` | campos del plan | `{ plan }` |
