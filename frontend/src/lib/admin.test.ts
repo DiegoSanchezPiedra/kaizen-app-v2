@@ -8,6 +8,7 @@ import {
   canChangeRole,
   categoryPrefixes,
   deliveryLabel,
+  hasData,
   latestStat,
   nowFocus,
   trend,
@@ -64,7 +65,7 @@ const day = (date: string, active: number | null): DayStat => ({
   unpaid: active === null ? null : 0,
   new_subscriptions: active === null ? null : 0,
   cancelled_subscriptions: active === null ? null : 0,
-  mrr_cents: active === null ? null : active * 5000,
+  trained: 3,
 })
 
 describe('cifras de Inicio: la última foto no nula', () => {
@@ -82,6 +83,13 @@ describe('cifras de Inicio: la última foto no nula', () => {
   it('sin ninguna foto, null', () => {
     expect(latestStat([day('2026-10-31', null)], today)).toBeNull()
     expect(latestStat([], today)).toBeNull()
+  })
+})
+
+describe('hasData', () => {
+  it('«entrenaron» llega siempre: no basta para decir que hay foto', () => {
+    expect(hasData(day('2026-10-31', null))).toBe(false)
+    expect(hasData(day('2026-10-31', 0))).toBe(true)
   })
 })
 

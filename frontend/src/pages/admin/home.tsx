@@ -29,7 +29,7 @@ import {
 import { api } from '@/lib/api'
 import type { AdminEvent } from '@/lib/events'
 import { addDays, madridDay } from '@/lib/dates'
-import { formatDate, formatEuros, formatShortDate, formatTime } from '@/lib/format'
+import { formatDate, formatShortDate, formatTime } from '@/lib/format'
 import { phaseOf, plural, type Phase } from '@/lib/professor'
 import { path } from '@/lib/url'
 import { cn } from '@/lib/utils'
@@ -181,16 +181,35 @@ function Figures({ home, className }: { home: UseQueryResult<AdminHome>; classNa
         {(d) => {
           const activeTrend = rows && trend(rows, 'active')
           const pct = variation(d.attendance.today, d.attendance.last_week)
-          const cards: { label: string; value: string; to: string; extra?: React.ReactNode; spark?: 'active' | 'mrr_cents'; alert?: boolean }[] = [
+          const trainedPct = variation(d.trained.last_30, d.trained.previous_30)
+          const cards: { label: string; value: string; to: string; extra?: React.ReactNode; spark?: (number | null)[]; alert?: boolean }[] = [
             {
               label: 'Alumnos activos',
               value: nf.format(d.students.activos),
               to: '/admin/users?estado=activo',
-              spark: 'active',
+              spark: rows?.map((r) => r.active),
               extra: typeof activeTrend === 'number' && <span className="text-[13px] text-muted-foreground tabular-nums">{signed.format(activeTrend)} en 30 días</span>,
             },
             { label: 'Impago', value: nf.format(d.students.impago), to: '/admin/billing', alert: d.students.impago > 0 },
-            { label: 'Ingreso recurrente al mes', value: formatEuros(d.figures.mrr_cents ?? 0), to: '/admin/reports', spark: 'mrr_cents' },
+            {
+              label: 'Entrenaron (30 días)',
+              value: nf.format(d.trained.last_30),
+              to: '/admin/reports',
+              spark: d.trained.series,
+              extra:
+                trainedPct === null ? (
+                  <span className="text-[13px] text-muted-foreground tabular-nums">30 días antes: {nf.format(d.trained.previous_30)}</span>
+                ) : (
+                  <span className="flex flex-wrap items-center gap-x-1.5 text-[13px] text-muted-foreground tabular-nums">
+                    <span className={cn('flex items-center gap-0.5 font-semibold', trainedPct > 0 ? 'text-success' : trainedPct < 0 && 'text-destructive')}>
+                      {trainedPct > 0 && <ArrowUpIcon className="size-3.5" aria-hidden="true" />}
+                      {trainedPct < 0 && <ArrowDownIcon className="size-3.5" aria-hidden="true" />}
+                      {signed.format(trainedPct)} %
+                    </span>
+                    vs. 30 días anteriores
+                  </span>
+                ),
+            },
             {
               label: 'Asistencias hoy',
               value: nf.format(d.attendance.today),
@@ -221,7 +240,7 @@ function Figures({ home, className }: { home: UseQueryResult<AdminHome>; classNa
                   <span className="text-[13px] font-medium text-muted-foreground">{c.label}</span>
                   <span className={cn('font-heading text-3xl leading-none font-bold tabular-nums lg:text-2xl xl:text-3xl', c.alert && 'text-destructive')}>{c.value}</span>
                   {c.extra}
-                  {c.spark && rows && rows.some((r) => r[c.spark!] !== null) && <Spark values={rows.map((r) => r[c.spark!])} />}
+                  {c.spark?.some((v) => v !== null) && <Spark values={c.spark} />}
                 </Link>
               ))}
             </div>

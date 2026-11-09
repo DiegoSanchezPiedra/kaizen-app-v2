@@ -2424,5 +2424,5 @@ aunque la lista no esté cerrada; en vivo, nunca de la foto (ADR 0012).
 - [x] Backend: `GET /admin/home` sin `figures`; `trained: { last_30, previous_30, series }` (serie móvil de 30 días,
   `series[29] = last_30`). `test:home`.
 - [x] Migración `032`: fuera `academy_stats_now()`. La columna `mrr_cents` sigue (la escribe la foto; nadie la lee).
-- [ ] Frontend: la tarjeta de Inicio y la tarjeta/gráfica/columna de Informes.
+- [x] Frontend: la tarjeta de Inicio y la tarjeta/gráfica/columna de Informes.
 - [ ] Staging: `staging:migrate` (032), build y reiniciar la API.

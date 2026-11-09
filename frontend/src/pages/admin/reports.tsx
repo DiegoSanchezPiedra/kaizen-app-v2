@@ -11,7 +11,6 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
 import { hasData, latestStat, type DayStat, type MonthStat, type Paged, type SubscriptionReport } from '@/lib/admin'
 import { api } from '@/lib/api'
 import { addDays, addMonths, dayOfMonth, formatDay, formatMonth, madridDay, madridMonth } from '@/lib/dates'
-import { formatEuros } from '@/lib/format'
 import { niceMax, shortMonth, type ReportRow } from '@/lib/professor'
 import { path } from '@/lib/url'
 import { cn } from '@/lib/utils'
@@ -46,7 +45,6 @@ const statShort = (s: Stat, i: number) => (isMonth(s) ? shortMonth(s.month) : i 
 // Un mes incompleto lo dice: «N de M días».
 const coverage = (s: Stat) => (isMonth(s) && s.days_with_data < s.days_in_month ? `${s.days_with_data} de ${s.days_in_month} días` : null)
 const count = (v: number | null) => (v === null ? NO_DATA : nf.format(v))
-const euros = (v: number | null) => (v === null ? NO_DATA : formatEuros(v))
 
 function SubscriptionsTab() {
   const [range, setRange] = useState<Range>('d30')
@@ -61,7 +59,7 @@ function SubscriptionsTab() {
   const sum = (k: 'new_subscriptions' | 'cancelled_subscriptions') => rows.reduce((n, r) => n + (r[k] ?? 0), 0)
   const stale = report.data?.group === 'day' && latestStat(rows as DayStat[])?.stale
   const maxSubs = niceMax(Math.max(...rows.map((r) => (r.active ?? 0) + (r.past_due ?? 0) + (r.unpaid ?? 0))))
-  const maxMrr = niceMax(Math.max(...rows.map((r) => r.mrr_cents ?? 0)))
+  const maxTrained = niceMax(Math.max(...rows.map((r) => r.trained)))
   const tip = (r: Stat, lines: string[]) => (hasData(r) ? [...lines, ...(coverage(r) ? [coverage(r)!] : [])] : [NO_DATA])
 
   return (
@@ -80,7 +78,7 @@ function SubscriptionsTab() {
           <div className="flex flex-col gap-2">
             <p className="text-sm text-muted-foreground">
               {stale && <span className="font-semibold text-foreground">Sin dato de ayer. </span>}
-              Estados y MRR de la última foto: {statName(last)}.
+              Estados de la última foto: {statName(last)}.
             </p>
             <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
               <Tile label="Activas" value={count(last.active)} />
@@ -88,7 +86,7 @@ function SubscriptionsTab() {
               <Tile label="Impagadas" value={count(last.unpaid)} />
               <Tile label="Altas en el periodo" value={nf.format(sum('new_subscriptions'))} />
               <Tile label="Bajas en el periodo" value={nf.format(sum('cancelled_subscriptions'))} />
-              <Tile label="MRR" value={euros(last.mrr_cents)} />
+              <Tile label="Entrenaron en el periodo" value={nf.format(report.data!.trained)} />
             </div>
           </div>
           <section aria-label="Evolución" className={cn('flex flex-col gap-5 rounded-2xl border bg-card p-4', SERIES)}>
@@ -112,17 +110,17 @@ function SubscriptionsTab() {
               />
             </div>
             <div className="flex flex-col gap-3">
-              <h2 className="font-semibold">MRR</h2>
+              <h2 className="font-semibold">Alumnos que entrenaron</h2>
               <MonthBars
                 months={rows}
-                max={maxMrr}
-                ticks={[0, maxMrr / 2, maxMrr]}
-                unit={(n) => `${nf.format(Math.round(n / 100))} €`}
+                max={maxTrained}
+                ticks={[0, maxTrained / 2, maxTrained]}
+                unit={(n) => nf.format(n)}
                 name={statName}
                 short={(r) => statShort(r, rows.indexOf(r))}
-                stack={(r) => [{ cls: 'bg-(--s-occ)', v: r.mrr_cents ?? 0 }]}
-                tip={(r) => tip(r, [`MRR: ${euros(r.mrr_cents)}`])}
-                labelLast={(r) => euros(r.mrr_cents)}
+                stack={(r) => [{ cls: 'bg-(--s-occ)', v: r.trained }]}
+                tip={(r) => [`Entrenaron: ${nf.format(r.trained)}`, ...(coverage(r) ? [coverage(r)!] : [])]}
+                labelLast={(r) => nf.format(r.trained)}
               />
             </div>
             <Button variant="outline" size="xl" aria-expanded={table} onClick={() => setTable((t) => !t)}>
@@ -133,7 +131,7 @@ function SubscriptionsTab() {
               <Table className="tabular-nums">
                 <TableHeader>
                   <TableRow>
-                    {[isMonth(last) ? 'Mes' : 'Día', 'Activas', 'En gracia', 'Impagadas', 'Altas', 'Bajas', 'MRR'].map((h, i) => (
+                    {[isMonth(last) ? 'Mes' : 'Día', 'Activas', 'En gracia', 'Impagadas', 'Altas', 'Bajas', 'Entrenaron'].map((h, i) => (
                       <TableHead key={h} className={i ? 'text-right' : undefined}>{h}</TableHead>
                     ))}
                   </TableRow>
@@ -145,7 +143,7 @@ function SubscriptionsTab() {
                         {statName(r)}
                         {coverage(r) && <span className="block text-xs text-muted-foreground">{coverage(r)}</span>}
                       </TableCell>
-                      {[count(r.active), count(r.past_due), count(r.unpaid), count(r.new_subscriptions), count(r.cancelled_subscriptions), euros(r.mrr_cents)].map((v, i) => (
+                      {[count(r.active), count(r.past_due), count(r.unpaid), count(r.new_subscriptions), count(r.cancelled_subscriptions), nf.format(r.trained)].map((v, i) => (
                         <TableCell key={i} className={cn('text-right', v === NO_DATA && 'text-muted-foreground')}>{v}</TableCell>
                       ))}
                     </TableRow>

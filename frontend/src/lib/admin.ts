@@ -8,18 +8,18 @@ import type { Insurance, ProfileStatus, Subscription } from '@/lib/types'
 export type AuthMe = { user: { id: string; role: string }; mfa_enabled: boolean }
 export const showMfaNotice = (me: AuthMe | undefined): boolean => me?.mfa_enabled === false
 
-// GET /admin/reports/subscriptions: un día o un mes sin foto llega con las cifras a null.
+// GET /admin/reports/subscriptions: un día o un mes sin foto llega con las cifras a null, salvo `trained` (sale de las asistencias, no de la foto: nunca es null).
 export type StatFigures = {
   active: number | null
   past_due: number | null
   unpaid: number | null
   new_subscriptions: number | null
   cancelled_subscriptions: number | null
-  mrr_cents: number | null
+  trained: number
 }
 export type DayStat = StatFigures & { date: string }
 export type MonthStat = StatFigures & { month: string; days_with_data: number; days_in_month: number }
-export type SubscriptionReport<R> = { group: 'day' | 'month'; from: string; to: string; rows: R[] }
+export type SubscriptionReport<R> = { group: 'day' | 'month'; from: string; to: string; rows: R[]; trained: number }
 
 export const hasData = (r: StatFigures): boolean => r.active !== null
 
@@ -380,7 +380,7 @@ export type HomeSession = {
   present: number
 }
 export type AdminHome = {
-  figures: StatFigures
+  trained: { last_30: number; previous_30: number; series: number[] }
   students: ProfileStats
   attendance: { today: number; last_week: number }
   sessions: HomeSession[]
@@ -400,7 +400,7 @@ export function nowFocus(sessions: HomeSession[], next: HomeSession | null, now:
 export const variation = (today: number, lastWeek: number): number | null => (lastWeek > 0 ? Math.round(((today - lastWeek) / lastWeek) * 100) : null)
 
 // Diferencia entre la primera y la última foto con dato de una cifra (la línea de 30 días); con menos de dos fotos, null.
-export function trend(rows: DayStat[], key: 'active' | 'mrr_cents'): number | null {
+export function trend(rows: DayStat[], key: 'active'): number | null {
   const v = rows.map((r) => r[key]).filter((n): n is number => n !== null)
   return v.length > 1 ? v[v.length - 1] - v[0] : null
 }
