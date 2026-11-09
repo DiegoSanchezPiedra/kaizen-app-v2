@@ -15,7 +15,7 @@ import { useSubject } from '@/hooks/use-subject'
 import { addMonths, formatMonth, madridMonth } from '@/lib/dates'
 import { formatDate } from '@/lib/format'
 import { type Medal as MedalInfo, type MedalKind, formatHours, glowOf, ladderOf, medalGoal, nextMedal } from '@/lib/progress'
-import { KAIZEN, THEMES } from '@/lib/themes'
+import { themeOf } from '@/lib/themes'
 import { useProgress } from '@/lib/queries'
 import type { DisciplineMedals } from '@/lib/types'
 import type { Subject } from '@/lib/subject'
@@ -113,8 +113,6 @@ function DisciplinePicker({ disciplines, value, onChange }: { disciplines: Disci
   )
 }
 
-const seriesOf = (theme: string | null) => ((theme && THEMES[theme]) || KAIZEN).series
-
 // La próxima medalla de horas de la disciplina, protagonista con su anillo; debajo, la de constancia en pequeño.
 function NextMedal({ d }: { d: DisciplineMedals }) {
   const codes = new Set(d.badges.map((b) => b.code))
@@ -127,7 +125,7 @@ function NextMedal({ d }: { d: DisciplineMedals }) {
   return (
     <section aria-labelledby="next-medal" className="flex flex-col items-center gap-2.5 rounded-2xl border-3 border-black bg-brand-ink bg-[repeating-conic-gradient(from_0deg_at_50%_40%,rgb(255_255_255/0.07)_0deg_3deg,transparent_3deg_12deg)] p-4 pt-5 text-center text-white shadow-[4px_4px_0_#000]">
       <p className="text-sm font-bold tracking-wider text-white/80 uppercase">
-        {d.name} · {seriesOf(d.theme)}
+        {d.name} · {themeOf(d.theme).series}
       </p>
       <p className="-mt-1.5 text-xs text-white/70">{hours ? 'Tu próxima medalla' : 'Medallas de horas'}</p>
       {hours ? (

@@ -1,7 +1,7 @@
 // Medallas por disciplina (ADR 0022): la escalera de 11 del backend (migrations/019 y 037: first_day, HOUR_BADGES y
 // STREAK_BADGES), con el nombre y el arte de la temática de cada disciplina (lib/themes). Quién la tiene y desde
 // cuándo lo decide siempre la API.
-import { KAIZEN, type Palette, type Shape, type ThemeArt, THEMES } from '@/lib/themes'
+import { type Palette, type Shape, themeOf } from '@/lib/themes'
 import type { DisciplineMedals } from '@/lib/types'
 
 export type MedalKind = 'hours' | 'streak'
@@ -17,7 +17,7 @@ export const LADDER: { code: string; kind: MedalKind; at: number }[] = [
 export function medalOf(theme: string | null, code: string): Medal | undefined {
   const step = LADDER.find((x) => x.code === code)
   if (!step) return undefined
-  const t: ThemeArt = (theme && THEMES[theme]) || KAIZEN
+  const t = themeOf(theme)
   const [name, mark, palette] = t.medals[code]
   return { ...step, theme: t.code, name, mark, kanji: t.kanji, shape: t.shape, palette: palette ?? t.palette }
 }
@@ -33,6 +33,9 @@ export const nextMedal = (theme: string | null, kind: MedalKind, earned: Set<str
   ladderOf(theme).find((x) => x.kind === kind && !earned.has(x.code))
 
 export type DisciplineMedal = { key: string; medal: Medal; discipline: { id: string; name: string } }
+// La clave '<disciplina>:<código>' es la de medal_views (037).
+const entry = (d: DisciplineMedals, code: string): DisciplineMedal =>
+  ({ key: `${d.id}:${code}`, medal: medalOf(d.theme, code)!, discipline: { id: d.id, name: d.name } })
 const rank = (code: string) => LADDER.findIndex((x) => x.code === code)
 
 // La que se enseña junto al nombre (rankings, Comunidad): la de horas más alta, si no la racha más alta, si no la
@@ -44,7 +47,7 @@ export function topMedal(disciplines: DisciplineMedals[] | undefined): Disciplin
     const i = TOP.findIndex((c) => d.badges.some((b) => b.code === c))
     if (i >= 0 && (!best || i < best.i || (i === best.i && d.hours > best.d.hours))) best = { d, code: TOP[i], i }
   }
-  return best && { key: `${best.d.id}:${best.code}`, medal: medalOf(best.d.theme, best.code)!, discipline: { id: best.d.id, name: best.d.name } }
+  return best && entry(best.d, best.code)
 }
 
 const WINDOW_MS = 14 * 24 * 3600 * 1000
@@ -54,10 +57,10 @@ const WINDOW_MS = 14 * 24 * 3600 * 1000
  *  queda atrás. La más reciente primero y, empatadas, la más alta. */
 export function medalsToCelebrate(disciplines: DisciplineMedals[], seen: string[] | null, now: Date): DisciplineMedal[] {
   return disciplines
-    .flatMap((d) => d.badges.map((b) => ({ d, b, key: `${d.id}:${b.code}` })))
-    .filter(({ b, key }) => rank(b.code) >= 0 && (seen ? !seen.includes(key) : Date.parse(b.earned_at) > now.getTime() - WINDOW_MS))
+    .flatMap((d) => d.badges.map((b) => ({ d, b })))
+    .filter(({ d, b }) => rank(b.code) >= 0 && (seen ? !seen.includes(`${d.id}:${b.code}`) : Date.parse(b.earned_at) > now.getTime() - WINDOW_MS))
     .sort((x, z) => Date.parse(z.b.earned_at) - Date.parse(x.b.earned_at) || rank(z.b.code) - rank(x.b.code))
-    .map(({ d, b, key }) => ({ key, medal: medalOf(d.theme, b.code)!, discipline: { id: d.id, name: d.name } }))
+    .map(({ d, b }) => entry(d, b.code))
 }
 
 // El color de la temática que se lee sobre el fondo oscuro (títulos y anillos): el más claro entre cuerpo y detalle.

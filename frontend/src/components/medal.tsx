@@ -52,21 +52,20 @@ function Mark({ text, x = 32, y = 32, color, size }: { text: string; x?: number;
 
 // El cuerpo de cada forma: fondo con sombra y contorno, y encima la marca.
 function body(shape: Shape, m: MedalInfo, c: Palette, ink: string, dots: string, earned: boolean): ReactNode {
+  const sh = earned ? INK : LOCKED.accent // la sombra dura
   const shade = <ellipse cx="25" cy="20" rx="5" ry="2.6" fill="#FFFFFF" opacity={earned ? 0.85 : 0.5} transform="rotate(-30 25 20)" />
   switch (shape) {
     case 'belt':
       return (
         <>
-          <>
-            <rect x="3" y="25" width="60" height="18" rx="3" fill={earned ? INK : '#D5D8E2'} />
-            <rect x="1" y="22" width="60" height="18" rx="3" fill={c.accent} stroke={ink} strokeWidth="1.6" />
-            <path d="M4 25.5h54 M4 36.5h54" stroke={earned ? '#FFFFFF' : '#C7CBD6'} strokeWidth="0.9" strokeDasharray="2 2" opacity="0.7" />
-            <polygon points={OCTAGON} transform="translate(2 3)" fill={earned ? INK : '#D5D8E2'} />
-            <polygon points={OCTAGON} fill={c.c1} stroke={ink} strokeWidth="2.2" strokeLinejoin="round" />
-            <polygon points={poly(4, 15, 15, 32, 32, Math.PI / 8)} fill={c.c2} stroke={ink} strokeWidth="1" />
-            {earned && <polygon points={OCTAGON} fill={dots} />}
-            {shade}
-          </>
+          <rect x="3" y="25" width="60" height="18" rx="3" fill={sh} />
+          <rect x="1" y="22" width="60" height="18" rx="3" fill={c.accent} stroke={ink} strokeWidth="1.6" />
+          <path d="M4 25.5h54 M4 36.5h54" stroke={earned ? '#FFFFFF' : '#C7CBD6'} strokeWidth="0.9" strokeDasharray="2 2" opacity="0.7" />
+          <polygon points={OCTAGON} transform="translate(2 3)" fill={sh} />
+          <polygon points={OCTAGON} fill={c.c1} stroke={ink} strokeWidth="2.2" strokeLinejoin="round" />
+          <polygon points={poly(4, 15, 15, 32, 32, Math.PI / 8)} fill={c.c2} stroke={ink} strokeWidth="1" />
+          {earned && <polygon points={OCTAGON} fill={dots} />}
+          {shade}
           <Mark text={m.mark} color={ink} />
         </>
       )
@@ -75,15 +74,13 @@ function body(shape: Shape, m: MedalInfo, c: Palette, ink: string, dots: string,
       const isStars = m.kind === 'hours' && n >= 1 && n <= 7
       return (
         <>
-          <>
-            {m.kind === 'streak' && <polygon points={AURA} fill={c.c1} opacity={earned ? 0.55 : 0.4} stroke={ink} strokeWidth="1" strokeLinejoin="round" />}
-            <circle cx="34" cy="35" r="22" fill={earned ? INK : '#D5D8E2'} />
-            <circle cx="32" cy="32" r="22" fill={c.c1} />
-            <path d="M32 10a22 22 0 0 1 0 44a18 20 0 0 0 0-44z" fill={c.c2} />
-            {earned && <circle cx="32" cy="32" r="22" fill={dots} />}
-            <ellipse cx="23" cy="19" rx="7" ry="3.4" fill="#FFFFFF" opacity={earned ? 0.9 : 0.5} transform="rotate(-35 23 19)" />
-            <circle cx="32" cy="32" r="22" fill="none" stroke={ink} strokeWidth="2.4" />
-          </>
+          {m.kind === 'streak' && <polygon points={AURA} fill={c.c1} opacity={earned ? 0.55 : 0.4} stroke={ink} strokeWidth="1" strokeLinejoin="round" />}
+          <circle cx="34" cy="35" r="22" fill={sh} />
+          <circle cx="32" cy="32" r="22" fill={c.c1} />
+          <path d="M32 10a22 22 0 0 1 0 44a18 20 0 0 0 0-44z" fill={c.c2} />
+          {earned && <circle cx="32" cy="32" r="22" fill={dots} />}
+          <ellipse cx="23" cy="19" rx="7" ry="3.4" fill="#FFFFFF" opacity={earned ? 0.9 : 0.5} transform="rotate(-35 23 19)" />
+          <circle cx="32" cy="32" r="22" fill="none" stroke={ink} strokeWidth="2.4" />
           {isStars ? (
             stars(n).map(([x, y], i) => (
               <polygon key={i} points={STAR(x, y, n === 1 ? 7 : n >= 6 ? 3.8 : 4.6)} fill={c.accent} stroke={ink} strokeWidth="0.8" strokeLinejoin="round" />
@@ -97,106 +94,94 @@ function body(shape: Shape, m: MedalInfo, c: Palette, ink: string, dots: string,
     case 'shield':
       return (
         <>
-          <>
-            <path d={SHIELD} transform="translate(2 3)" fill={earned ? INK : '#D5D8E2'} />
-            <path d={SHIELD} fill={c.accent} stroke={ink} strokeWidth="2" strokeLinejoin="round" />
-            <path d="M32 9 L51 14.5 C51 32 44 46 32 54.5 C20 46 13 32 13 14.5 Z" fill={c.c1} stroke={ink} strokeWidth="1.2" />
-            {/* Las dos alas, en sombra detrás de la marca. */}
-            <path d="M32 44c-6-2-12-8-14-18 5 2 9 2 14 6z" fill={earned ? '#1B3A5C' : c.c2} opacity="0.35" />
-            <path d="M32 44c6-2 12-8 14-18-5 2-9 2-14 6z" fill={c.c2} opacity="0.6" />
-            {earned && <path d={SHIELD} fill={dots} opacity="0.6" />}
-            {shade}
-          </>
+          <path d={SHIELD} transform="translate(2 3)" fill={sh} />
+          <path d={SHIELD} fill={c.accent} stroke={ink} strokeWidth="2" strokeLinejoin="round" />
+          <path d="M32 9 L51 14.5 C51 32 44 46 32 54.5 C20 46 13 32 13 14.5 Z" fill={c.c1} stroke={ink} strokeWidth="1.2" />
+          {/* Las dos alas, en sombra detrás de la marca. */}
+          <path d="M32 44c-6-2-12-8-14-18 5 2 9 2 14 6z" fill={earned ? '#1B3A5C' : c.c2} opacity="0.35" />
+          <path d="M32 44c6-2 12-8 14-18-5 2-9 2-14 6z" fill={c.c2} opacity="0.6" />
+          {earned && <path d={SHIELD} fill={dots} opacity="0.6" />}
+          {shade}
           <Mark text={m.mark} y={30} color={ink} />
         </>
       )
     case 'poster':
       return (
         <>
-          <>
-            <rect x="12" y="5" width="44" height="57" fill={earned ? INK : '#D5D8E2'} />
-            <rect x="10" y="2" width="44" height="57" fill={c.c1} stroke={ink} strokeWidth="1.6" />
-            <rect x="10" y="2" width="44" height="57" fill={dots} opacity={earned ? 0.5 : 0} />
-            <text x="32" y="11.5" textAnchor="middle" fontSize="8.4" fontWeight="900" fill={ink} fontFamily="Georgia, serif" letterSpacing="0.6">
-              WANTED
-            </text>
-            <rect x="15" y="15" width="34" height="25" fill={c.c2} stroke={ink} strokeWidth="1.2" />
-            {/* El sombrero de paja. */}
-            <path d="M18 33c0 2 6 3.5 14 3.5S46 35 46 33s-6-2.6-14-2.6S18 31 18 33z" fill="#F2C14E" stroke={ink} strokeWidth="1.1" />
-            <path d="M24 31c0-5 3.5-8.5 8-8.5s8 3.5 8 8.5" fill="#F2C14E" stroke={ink} strokeWidth="1.1" />
-            <path d="M24.3 29.2c5 1.3 10.4 1.3 15.4 0" stroke={c.accent} strokeWidth="2.2" />
-            <text x="28" y="47" textAnchor="middle" fontSize="4.2" fontWeight="800" fill={ink} fontFamily="Georgia, serif" letterSpacing="0.4">
-              DEAD OR ALIVE
-            </text>
-          </>
+          <rect x="12" y="5" width="44" height="57" fill={sh} />
+          <rect x="10" y="2" width="44" height="57" fill={c.c1} stroke={ink} strokeWidth="1.6" />
+          <rect x="10" y="2" width="44" height="57" fill={dots} opacity={earned ? 0.5 : 0} />
+          <text x="32" y="11.5" textAnchor="middle" fontSize="8.4" fontWeight="900" fill={ink} fontFamily="Georgia, serif" letterSpacing="0.6">
+            WANTED
+          </text>
+          <rect x="15" y="15" width="34" height="25" fill={c.c2} stroke={ink} strokeWidth="1.2" />
+          {/* El sombrero de paja. */}
+          <path d="M18 33c0 2 6 3.5 14 3.5S46 35 46 33s-6-2.6-14-2.6S18 31 18 33z" fill="#F2C14E" stroke={ink} strokeWidth="1.1" />
+          <path d="M24 31c0-5 3.5-8.5 8-8.5s8 3.5 8 8.5" fill="#F2C14E" stroke={ink} strokeWidth="1.1" />
+          <path d="M24.3 29.2c5 1.3 10.4 1.3 15.4 0" stroke={c.accent} strokeWidth="2.2" />
+          <text x="28" y="47" textAnchor="middle" fontSize="4.2" fontWeight="800" fill={ink} fontFamily="Georgia, serif" letterSpacing="0.4">
+            DEAD OR ALIVE
+          </text>
           <Mark text={m.kind === 'hours' ? `฿${m.mark}` : m.mark} x={27} y={53} color={earned ? c.accent : ink} size={m.mark.length > 3 ? 8 : 9.5} />
         </>
       )
     case 'plate':
       return (
         <>
-          <>
-            <rect x="1" y="24" width="62" height="16" fill={c.accent} stroke={ink} strokeWidth="1.4" />
-            <rect x="14" y="16" width="38" height="34" rx="5" fill={earned ? INK : '#D5D8E2'} />
-            <rect x="12" y="13" width="38" height="34" rx="5" fill={c.c1} stroke={ink} strokeWidth="2.2" />
-            <path d="M44 13h1a5 5 0 0 1 5 5v24a5 5 0 0 1-5 5h-1z" fill={c.c2} />
-            {earned && <rect x="12" y="13" width="38" height="34" rx="5" fill={dots} opacity="0.7" />}
-            {[
-              [16.5, 17.5],
-              [45.5, 17.5],
-              [16.5, 42.5],
-              [45.5, 42.5],
-            ].map(([x, y]) => (
-              <circle key={x + '' + y} cx={x} cy={y} r="1.5" fill={c.c2} stroke={ink} strokeWidth="0.8" />
-            ))}
-            <ellipse cx="21" cy="19" rx="4" ry="1.8" fill="#FFFFFF" opacity={earned ? 0.85 : 0.5} transform="rotate(-20 21 19)" />
-          </>
+          <rect x="1" y="24" width="62" height="16" fill={c.accent} stroke={ink} strokeWidth="1.4" />
+          <rect x="14" y="16" width="38" height="34" rx="5" fill={sh} />
+          <rect x="12" y="13" width="38" height="34" rx="5" fill={c.c1} stroke={ink} strokeWidth="2.2" />
+          <path d="M44 13h1a5 5 0 0 1 5 5v24a5 5 0 0 1-5 5h-1z" fill={c.c2} />
+          {earned && <rect x="12" y="13" width="38" height="34" rx="5" fill={dots} opacity="0.7" />}
+          {[
+            [16.5, 17.5],
+            [45.5, 17.5],
+            [16.5, 42.5],
+            [45.5, 42.5],
+          ].map(([x, y]) => (
+            <circle key={x + '' + y} cx={x} cy={y} r="1.5" fill={c.c2} stroke={ink} strokeWidth="0.8" />
+          ))}
+          <ellipse cx="21" cy="19" rx="4" ry="1.8" fill="#FFFFFF" opacity={earned ? 0.85 : 0.5} transform="rotate(-20 21 19)" />
           <Mark text={m.mark} y={30} color={ink} />
         </>
       )
     case 'seal':
       return (
         <>
-          <>
-            <circle cx="34" cy="35" r="25" fill={earned ? '#E86A10' : '#D5D8E2'} />
-            <circle cx="32" cy="32" r="25" fill={c.accent} stroke={ink} strokeWidth="1.6" />
-            <circle cx="32" cy="32" r="20" fill="none" stroke={c.c1} strokeWidth="1.6" />
-            <circle cx="32" cy="32" r="17" fill="none" stroke={c.c1} strokeWidth="0.7" strokeDasharray="1.2 1.6" />
-            <path d="M18 18a20 20 0 0 1 20-6" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" opacity={earned ? 0.5 : 0.3} />
-          </>
+          <circle cx="34" cy="35" r="25" fill={earned ? '#E86A10' : '#D5D8E2'} />
+          <circle cx="32" cy="32" r="25" fill={c.accent} stroke={ink} strokeWidth="1.6" />
+          <circle cx="32" cy="32" r="20" fill="none" stroke={c.c1} strokeWidth="1.6" />
+          <circle cx="32" cy="32" r="17" fill="none" stroke={c.c1} strokeWidth="0.7" strokeDasharray="1.2 1.6" />
+          <path d="M18 18a20 20 0 0 1 20-6" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" opacity={earned ? 0.5 : 0.3} />
           <Mark text={m.mark} color={earned ? c.c1 : '#FFFFFF'} />
         </>
       )
     case 'card':
       return (
         <>
-          <>
-            <rect x="6" y="13" width="54" height="40" rx="5" fill={earned ? INK : '#D5D8E2'} />
-            <rect x="4" y="10" width="54" height="40" rx="5" fill={c.c1} stroke={ink} strokeWidth="2" />
-            <path d="M4 18h54" stroke={ink} strokeWidth="1" />
-            <rect x="4.8" y="10.8" width="52.4" height="7" rx="4" fill={c.accent} />
-            <text x="31" y="16.2" textAnchor="middle" fontSize="5.4" fontWeight="900" fill={INK} fontFamily="Georgia, serif" letterSpacing="1.2">
-              HUNTER
-            </text>
-            {earned && <rect x="4" y="18" width="54" height="32" fill={dots} opacity="0.5" />}
-            <path d="M44 22l3 6-3 6-3-6z" fill={c.accent} stroke={ink} strokeWidth="0.8" opacity="0.9" />
-            {shade}
-          </>
+          <rect x="6" y="13" width="54" height="40" rx="5" fill={sh} />
+          <rect x="4" y="10" width="54" height="40" rx="5" fill={c.c1} stroke={ink} strokeWidth="2" />
+          <path d="M4 18h54" stroke={ink} strokeWidth="1" />
+          <rect x="4.8" y="10.8" width="52.4" height="7" rx="4" fill={c.accent} />
+          <text x="31" y="16.2" textAnchor="middle" fontSize="5.4" fontWeight="900" fill={INK} fontFamily="Georgia, serif" letterSpacing="1.2">
+            HUNTER
+          </text>
+          {earned && <rect x="4" y="18" width="54" height="32" fill={dots} opacity="0.5" />}
+          <path d="M44 22l3 6-3 6-3-6z" fill={c.accent} stroke={ink} strokeWidth="0.8" opacity="0.9" />
+          {shade}
           <Mark text={m.mark} y={34} color={earned ? c.accent : ink} />
         </>
       )
     default:
       return (
         <>
-          <>
-            <polygon points={BURST} transform="translate(2 3)" fill={earned ? INK : '#D5D8E2'} />
-            <polygon points={BURST} fill={c.accent} stroke={ink} strokeWidth="1.6" strokeLinejoin="round" />
-            <circle cx="32" cy="32" r="19" fill={c.c1} />
-            <path d="M32 13a19 19 0 0 1 0 38a15 17 0 0 0 0-38z" fill={c.c2} />
-            {earned && <circle cx="32" cy="32" r="19" fill={dots} />}
-            <ellipse cx="25" cy="21" rx="5" ry="2.6" fill="#FFFFFF" opacity={earned ? 0.85 : 0.5} transform="rotate(-30 25 21)" />
-            <circle cx="32" cy="32" r="19" fill="none" stroke={ink} strokeWidth="2.4" />
-          </>
+          <polygon points={BURST} transform="translate(2 3)" fill={sh} />
+          <polygon points={BURST} fill={c.accent} stroke={ink} strokeWidth="1.6" strokeLinejoin="round" />
+          <circle cx="32" cy="32" r="19" fill={c.c1} />
+          <path d="M32 13a19 19 0 0 1 0 38a15 17 0 0 0 0-38z" fill={c.c2} />
+          {earned && <circle cx="32" cy="32" r="19" fill={dots} />}
+          <ellipse cx="25" cy="21" rx="5" ry="2.6" fill="#FFFFFF" opacity={earned ? 0.85 : 0.5} transform="rotate(-30 25 21)" />
+          <circle cx="32" cy="32" r="19" fill="none" stroke={ink} strokeWidth="2.4" />
           <Mark text={m.mark} color={ink} />
         </>
       )

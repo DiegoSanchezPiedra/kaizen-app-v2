@@ -83,6 +83,9 @@ export const up = (pgm) => {
   // Los vistos guardados son códigos globales: sin disciplina no se traducen. Vuelven a la ventana de 14 días.
   pgm.sql('DELETE FROM medal_views;');
   pgm.sql(achievementsSql(true));
+  // shortcut: achievements_in recorre student_present una vez por disciplina (y otra para la racha general); con
+  // cientos de alumnos y páginas de 25–50 va bien. Si Progreso o los rankings se notan lentos, calcular la asistencia
+  // una sola vez (o guardar las medallas en una tabla).
   pgm.sql(`
     CREATE OR REPLACE FUNCTION student_achievements(p_id uuid) RETURNS jsonb
       LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
@@ -113,12 +116,14 @@ export const up = (pgm) => {
           SELECT dname, x.rank, x.id, x.display_name, x.medals, x.hours
             FROM (SELECT 1) one LEFT JOIN (
               SELECT rank() OVER (ORDER BY y.medals DESC, y.hours DESC) AS rank, y.*
-                FROM (SELECT p.id, p.display_name, jsonb_array_length(a->'badges') AS medals, (a->>'hours')::numeric AS hours
-                        FROM profiles p
-                        JOIN user_roles r ON r.user_id = p.id AND r.role = 'alumno'
-                        CROSS JOIN LATERAL achievements_in(p.id, p_discipline) a
-                       WHERE p.is_public AND ${SHOWN('ranking')} AND can_be_public(p.id)
-                         AND EXISTS (SELECT 1 FROM student_present(p.id) x WHERE x.discipline_id = p_discipline)) y
+                FROM (SELECT q.id, q.display_name, jsonb_array_length(a->'badges') AS medals, (a->>'hours')::numeric AS hours
+                        -- Primero quién compite y ha estado en ella (OFFSET 0: no se aplana), luego su escalera.
+                        FROM (SELECT p.id, p.display_name FROM profiles p
+                                JOIN user_roles r ON r.user_id = p.id AND r.role = 'alumno'
+                               WHERE p.is_public AND ${SHOWN('ranking')} AND can_be_public(p.id)
+                                 AND EXISTS (SELECT 1 FROM student_present(p.id) x WHERE x.discipline_id = p_discipline)
+                              OFFSET 0) q
+                        CROSS JOIN LATERAL achievements_in(q.id, p_discipline) a) y
                WHERE y.medals > 0) x ON true;
       END
       $$;

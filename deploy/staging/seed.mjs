@@ -53,15 +53,15 @@ const kids = must(await call('/me/children', { token: tutor }), 'hijos').data;
 if (!(kids.children ?? kids).length) must(await call('/me/children', { method: 'POST', token: tutor, body: { display_name: 'Hugo Hijo', birth_date: '2015-03-02' } }), 'crear hijo');
 
 // Catálogo: una temática de medallas por disciplina (una sola disciplina activa por temática).
-const D = {};
-for (const [name, minors, medal_theme] of [['Boxeo', false, 'ippo'], ['BJJ/Grappling', false, 'titanes'], ['Muay Thai', false, 'saiyan'], ['Muay Thai Kids', true, 'mugiwara']]) {
+const CATALOG = [['Boxeo', false, 'ippo'], ['BJJ/Grappling', false, 'titanes'], ['Muay Thai', false, 'saiyan'], ['Muay Thai Kids', true, 'mugiwara']];
+for (const [name, minors, medal_theme] of CATALOG) {
   must(await call('/admin/disciplines', { method: 'POST', token: admin, body: { name, minors_only: minors, medal_theme } }), `disciplina ${name}`, ['name_taken']);
 }
-for (const d of (await call('/admin/disciplines', { token: admin })).data.disciplines) D[d.name] = d.id;
+const byName = Object.fromEntries((await call('/admin/disciplines', { token: admin })).data.disciplines.map((d) => [d.name, d]));
+const D = Object.fromEntries(Object.values(byName).map((d) => [d.name, d.id]));
 // Si ya existía sin temática (seed de antes), se le pone la suya.
-for (const [name, theme] of [['Boxeo', 'ippo'], ['BJJ/Grappling', 'titanes'], ['Muay Thai', 'saiyan'], ['Muay Thai Kids', 'mugiwara']]) {
-  if ((await call('/admin/disciplines', { token: admin })).data.disciplines.find((d) => d.id === D[name]).medal_theme) continue;
-  must(await call(`/admin/disciplines/${D[name]}`, { method: 'PATCH', token: admin, body: { medal_theme: theme } }), `temática ${name}`);
+for (const [name, , medal_theme] of CATALOG.filter(([name]) => !byName[name].medal_theme)) {
+  must(await call(`/admin/disciplines/${D[name]}`, { method: 'PATCH', token: admin, body: { medal_theme } }), `temática ${name}`);
 }
 for (const [name, cents, max, minors] of [['Una disciplina', 3500, 1, false], ['Dos disciplinas', 5000, 2, false], ['Ilimitado', 7000, null, false], ['Infantil', 3000, 1, true]]) {
   must(await call('/admin/plans', { method: 'POST', token: admin, body: { name, price_cents: cents, max_disciplines: max, minors_only: minors } }), `plan ${name}`, ['name_taken']);

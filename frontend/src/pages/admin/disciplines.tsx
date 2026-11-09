@@ -13,7 +13,7 @@ import { api } from '@/lib/api'
 import { toastOk } from '@/lib/notify'
 import { plural } from '@/lib/professor'
 import { medalOf } from '@/lib/progress'
-import { KAIZEN, THEMES } from '@/lib/themes'
+import { THEMES, themeOf } from '@/lib/themes'
 import type { Discipline } from '@/lib/types'
 import { CardList, CardRow, Head, refreshCatalog } from '@/pages/admin/catalog-bits'
 import { FormSheet, SwitchRow, TextField, useAdminDisciplines, useFieldError } from '@/pages/admin/schedule-bits'
@@ -49,7 +49,7 @@ export function AdminDisciplinesPage() {
                 active={d.is_active}
                 activeLabel="Activa"
                 inactiveLabel="Desactivada"
-                lines={[`${d.minors_only ? 'Solo menores' : 'Todos'} · ${d.is_open ? 'abierta' : 'se elige en la cuota'}`, `Medallas: ${seriesOf(d.medal_theme)}`]}
+                lines={[`${d.minors_only ? 'Solo menores' : 'Todos'} · ${d.is_open ? 'abierta' : 'se elige en la cuota'}`, `Medallas: ${themeOf(d.medal_theme).series}`]}
                 onOpen={() => setEditing(d)}
               />
             ))}
@@ -66,7 +66,7 @@ export function AdminDisciplinesPage() {
                     <TableCell>
                       <span className="flex items-center gap-2">
                         <Medal medal={medalOf(d.medal_theme ?? null, 'first_day')!} earned={d.is_active} className="size-7" />
-                        {seriesOf(d.medal_theme)}
+                        {themeOf(d.medal_theme).series}
                       </span>
                     </TableCell>
                     <TableCell>{d.is_active ? <Tag variant="success">Activa</Tag> : <Tag variant="secondary">Desactivada</Tag>}</TableCell>
@@ -86,8 +86,6 @@ export function AdminDisciplinesPage() {
     </Page>
   )
 }
-
-const seriesOf = (theme?: string | null) => ((theme && THEMES[theme]) || KAIZEN).series
 
 type DisciplineResult = { discipline: Discipline & { retired_classes?: number; cancelled_sessions?: number } }
 
@@ -153,7 +151,7 @@ type MedalTheme = { code: string; name: string; discipline_id: string | null }
 function ThemePicker({ id, value, onChange }: { id?: number | string; value: string | null; onChange: (v: string | null) => void }) {
   const themes = useQuery({ queryKey: ['admin', 'medal-themes'], queryFn: () => api<{ themes: MedalTheme[] }>('/admin/medal-themes').then((r) => r.themes) })
   const free = (themes.data ?? []).filter((t) => THEMES[t.code] && (t.discipline_id === null || String(t.discipline_id) === String(id) || t.code === value))
-  const options = [{ code: '', name: KAIZEN.series }, ...free]
+  const options = [{ code: '' }, ...free]
   return (
     <fieldset className="flex flex-col gap-2">
       <legend className="mb-1 text-[15px] font-medium">Temática de medallas</legend>
@@ -170,7 +168,7 @@ function ThemePicker({ id, value, onChange }: { id?: number | string; value: str
                 <Radio value={t.code} />
                 <Medal medal={first} earned className="size-11" />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[15px] font-semibold">{t.code ? t.name : 'Kaizen (sin temática)'}</span>
+                  <span className="block text-[15px] font-semibold">{t.code ? themeOf(t.code).series : 'Kaizen (sin temática)'}</span>
                   <span className="block truncate text-xs text-muted-foreground">
                     {first.name} → {last.name}
                   </span>

@@ -14,7 +14,7 @@ import { api } from '@/lib/api'
 import { addMonths, formatMonth, madridMonth } from '@/lib/dates'
 import { Medal } from '@/components/medal'
 import { ladderOf, topMedal } from '@/lib/progress'
-import { KAIZEN, THEMES } from '@/lib/themes'
+import { themeOf } from '@/lib/themes'
 import { path } from '@/lib/queries'
 import { useSession } from '@/lib/session'
 import type { Discipline, DisciplineMedals, MyProfile, PublicProfile } from '@/lib/types'
@@ -167,7 +167,7 @@ export function ProfilePage() {
                   {p.achievements.disciplines.map((d) => (
                     <div key={d.id}>
                       <h4 className="mb-1.5 text-[13px] text-muted-foreground">
-                        <span className="font-semibold text-foreground">{d.name}</span> · {((d.theme && THEMES[d.theme]) || KAIZEN).series} · {d.badges.length} de 11
+                        <span className="font-semibold text-foreground">{d.name}</span> · {themeOf(d.theme).series} · {d.badges.length} de 11
                       </h4>
                       <ul className="grid grid-cols-3 gap-x-2 gap-y-3 sm:grid-cols-4">
                         {ladderOf(d.theme).filter((m) => d.badges.some((b) => b.code === m.code)).map((m) => (

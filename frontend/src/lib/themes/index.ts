@@ -20,5 +20,7 @@ export type Palette = { c1: string; c2: string; accent: string; hanko: string }
 export type ThemeArt = { code: string; series: string; shape: Shape; kanji: string; palette: Palette; medals: Record<string, [string, string, Palette?]> }
 
 export const KAIZEN = kaizen
+/** La temática de un código; sin código, o uno sin arte aquí, Kaizen. */
+export const themeOf = (code?: string | null): ThemeArt => (code && THEMES[code]) || KAIZEN
 export const THEMES: Record<string, ThemeArt> = Object.fromEntries(
   [ippo, titanes, saiyan, mugiwara, naruto, shinigami, hunter].map((t) => [t.code, t]))
