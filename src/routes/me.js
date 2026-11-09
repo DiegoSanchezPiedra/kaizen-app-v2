@@ -17,7 +17,7 @@ import {
 } from '../services/profile.js';
 import { signAgreement } from '../services/agreements.js';
 import { getMyProfile, updateMyProfile, VISIBLE_FIELDS, SOCIAL_NETWORKS } from '../services/profiles.js';
-import { getProgress } from '../services/progress.js';
+import { getProgress, markMedalsSeen } from '../services/progress.js';
 import { isValidPastDate, isAdultBirthDate, changePassword, sendPasswordChanged } from '../services/auth.js';
 import { signToken } from '../services/jwt.js';
 import { withRls } from '../db/rls.js';
@@ -304,6 +304,14 @@ router.get(
   validateSubject,
   withRlsContext(async (req, client) =>
     getProgress(client, { studentId: req.query.profile_id ?? req.user.id, month: req.query.month }))
+);
+
+// POST /me/progress/seen { profile_id?, codes } → { codes }: quien mira ya celebró esas medallas de ese perfil.
+router.post(
+  '/progress/seen',
+  requireAuth,
+  validateSubject,
+  withRlsContext(async (req, client) => markMedalsSeen(client, { studentId: req.body?.profile_id ?? req.user.id, codes: req.body?.codes }))
 );
 
 // ------------------------------------------------------------

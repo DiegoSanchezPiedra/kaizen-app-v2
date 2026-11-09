@@ -52,6 +52,7 @@
     "staging:api": "DOTENV_CONFIG_PATH=.env.staging node src/index.js",
     "staging:seed": "DOTENV_CONFIG_PATH=.env.staging node --env-file=.env.staging deploy/staging/seed.mjs",
     "staging:demo": "DOTENV_CONFIG_PATH=.env.staging node --env-file=.env.staging deploy/staging/demo.mjs",
+    "staging:medals": "DOTENV_CONFIG_PATH=.env.staging node --env-file=.env.staging deploy/staging/medals.mjs",
     "staging:nightly": "DOTENV_CONFIG_PATH=.env.staging dotenv -e .env.staging -- node scripts/nightly.js",
     "test:ratelimit": "node scripts/test-ratelimit.js"
   },

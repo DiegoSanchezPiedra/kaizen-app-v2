@@ -362,6 +362,11 @@ const http = async (path, k) => {
     { headers: k ? { authorization: `Bearer ${signToken({ sub: who[k], role: role[k] })}` } : {} });
   return { status: res.status, body: await res.json() };
 };
+const post = async (path, k, body) => {
+  const res = await fetch(base + path, { method: 'POST', body: JSON.stringify(body), headers: {
+    'content-type': 'application/json', authorization: `Bearer ${signToken({ sub: who[k], role: role[k] })}` } });
+  return { status: res.status, body: await res.json() };
+};
 const realError = console.error; // el errorHandler registra cada 4xx esperado
 try {
   console.error = (...a) => (String(a[0]).startsWith('[error]') || String(a[0]).startsWith('Error:') ? null : realError(...a));
@@ -380,6 +385,43 @@ try {
     assert.equal((await http('/me/progress?profile_id=x', 'alu')).body.code, 'invalid_profile_id');
     assert.equal((await http('/me/progress?month=2026-1', 'alu')).body.code, 'invalid_field');
   });
+  await run('medallas: horas totales y códigos celebrados por quien mira (alumno, tutor y admin aparte); ajeno 403', async () => {
+    const before = await http('/me/progress', 'alu');
+    assert.equal(before.body.total_hours, 1.5);
+    assert.equal(before.body.medals_seen, null);
+    const seen = await post('/me/progress/seen', 'alu', { codes: ['first_day'] });
+    assert.deepEqual([seen.status, seen.body.codes], [200, ['first_day']]);
+    assert.deepEqual((await http('/me/progress', 'alu')).body.medals_seen, ['first_day']);
+    // repetir no duplica: une los códigos
+    assert.deepEqual((await post('/me/progress/seen', 'alu', { codes: ['hours_10', 'first_day'] })).body.codes, ['first_day', 'hours_10']);
+    assert.equal((await servicePool.query(`SELECT count(*)::int AS n FROM medal_views WHERE profile_id = $1`, [who.alu]))
+      .rows[0].n, 1);
+    const child = await http(`/me/progress?profile_id=${who.child}`, 'tutor');
+    assert.deepEqual([child.body.total_hours, child.body.medals_seen], [1, null]);
+    assert.equal((await post('/me/progress/seen', 'tutor', { profile_id: who.child, codes: ['first_day'] })).status, 200);
+    assert.equal((await http(`/me/progress?profile_id=${who.child}`, 'admin')).body.medals_seen, null); // el del admin, aparte
+    for (const [k, target] of [['other', 'alu'], ['prof', 'alu'], ['tutor2', 'child']]) {
+      const r = await post('/me/progress/seen', k, { profile_id: who[target], codes: [] });
+      assert.deepEqual([r.status, r.body.code], [403, 'not_guardian'], k);
+    }
+    for (const codes of [undefined, 'first_day', ['Robert"); --'], Array(33).fill('first_day')]) {
+      assert.equal((await post('/me/progress/seen', 'alu', { codes })).body.code, 'invalid_field', JSON.stringify(codes));
+    }
+    assert.equal((await post('/me/progress/seen', 'alu', { profile_id: 'x', codes: [] })).body.code, 'invalid_profile_id');
+  });
+  await run('ranking de medallas: solo quien enseña su ranking y tiene alguna; medallas solo con logros; el hijo no sale', async () => {
+    const r = await http('/rankings/medals?limit=100', 'other');
+    assert.equal(r.status, 200);
+    const mine = r.body.rows.find((x) => x.id === who.alu);
+    assert.deepEqual([mine.medals, Number(mine.hours), mine.badges], [1, 1.5, ['first_day']]);
+    for (const k of ['aluNoFlag', 'other', 'child', 'prof']) assert.ok(!r.body.rows.some((x) => x.id === who[k]), k);
+    // aluNoFlag enseña su ranking pero no sus logros: sale con sus medallas contadas, sin decir cuáles
+    const extra = await H.attend(who.aluNoFlag, Z, local('2026-03-12 18:00')); // otro mes: el ranking de febrero no cambia
+    created.push((await servicePool.query(`SELECT trainer_id FROM class_sessions WHERE id = $1`, [extra])).rows[0].trainer_id);
+    const noFlag = (await http('/rankings/medals?limit=100', 'other')).body.rows.find((x) => x.id === who.aluNoFlag);
+    assert.deepEqual([noFlag.medals, 'badges' in noFlag], [1, false]);
+    assert.equal((await http('/rankings/medals?limit=0', 'other')).body.code, 'invalid_pagination');
+  });
   await run('ficha pública: achievements solo con su flag; un profesor no tiene', async () => {
     const r = await http(`/profiles/${who.alu}`, 'other');
     assert.equal(r.body.profile.achievements.streak.best, 1); // current depende de las sesiones de la academia
@@ -388,7 +430,7 @@ try {
     assert.ok(!('achievements' in (await http(`/profiles/${who.prof}`, 'other')).body.profile));
     const me = await http('/me/profile', 'alu');
     assert.deepEqual(Object.keys(me.body.visible_fields).sort(),
-      ['achievements', 'bio', 'disciplines', 'member_since', 'ranking', 'social_links']);
+      ['achievements', 'bio', 'disciplines', 'member_since', 'photo', 'ranking', 'social_links']);
   });
   await run('HTTP ranking: una disciplina desactivada se consulta (la RLS la oculta); el hijo no sale', async () => {
     const r = await http(`/rankings/${Z}?month=2026-02`, 'other');
@@ -396,7 +438,7 @@ try {
     assert.deepEqual(r.body, {
       discipline: { id: Z, name: `${tag}-Z-off` }, month: '2026-02',
       rows: [{ rank: 1, id: who.alu, display_name: (await servicePool.query(
-        `SELECT display_name FROM profiles WHERE id = $1`, [who.alu])).rows[0].display_name, hours: 1.5 }],
+        `SELECT display_name FROM profiles WHERE id = $1`, [who.alu])).rows[0].display_name, hours: 1.5, badges: ['first_day'] }],
       total: 1, limit: 25, offset: 0,
     });
     assert.equal((await http(`/rankings/${Z}`)).status, 401);

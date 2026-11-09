@@ -12,6 +12,8 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/in
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { api } from '@/lib/api'
 import { addMonths, formatMonth, madridMonth } from '@/lib/dates'
+import { Medal } from '@/components/medal'
+import { MEDALS, topMedal } from '@/lib/progress'
 import { path } from '@/lib/queries'
 import { useSession } from '@/lib/session'
 import type { Discipline, MyProfile, PublicProfile } from '@/lib/types'
@@ -93,6 +95,7 @@ export function CommunityPage() {
                 <Link to={`/profiles/${p.id}`} className="flex min-h-14 items-center gap-3 px-4 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
                   <ProfileAvatar name={p.display_name} avatar={p.avatar} className="size-10" />
                   <span className="min-w-0 flex-1 truncate font-semibold">{p.display_name}</span>
+                  <TopMedal codes={p.achievements?.badges.map((b) => b.code)} />
                   <Badge variant="outline" size="lg">{ROLE_LABEL[p.role] ?? p.role}</Badge>
                 </Link>
               </li>
@@ -110,8 +113,12 @@ export function CommunityPage() {
 }
 
 const NETWORKS: Record<string, string> = { instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube', web: 'Web' }
-const code = (a: string | { code: string }) => (typeof a === 'string' ? a : a.code)
-const ACHIEVEMENT = (c: string) => c.replace(/^hours_(\d+)$/, '$1 horas').replace(/^streak_(\d+)$/, '$1 semanas de racha')
+
+// La medalla más alta junto al nombre (Comunidad y rankings), si la persona enseña sus logros.
+function TopMedal({ codes }: { codes?: string[] }) {
+  const m = codes && topMedal(codes)
+  return m ? <Medal medal={m} earned className="size-9" /> : null
+}
 
 // Ficha pública: solo los campos que la persona deja ver.
 export function ProfilePage() {
@@ -147,14 +154,19 @@ export function ProfilePage() {
                   ))}
                 </div>
               )}
-              {p.achievements && p.achievements.length > 0 && (
+              {p.achievements && (
                 <div>
-                  <h3 className="mb-1.5 text-sm font-semibold">Logros</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {(p.achievements as (string | { code: string })[]).map((a) => (
-                      <Badge key={code(a)} variant="warning" size="lg">{ACHIEVEMENT(code(a))}</Badge>
+                  <h3 className="mb-1.5 text-sm font-semibold">
+                    Medallas · {p.achievements.badges.length} de {MEDALS.length} · mejor racha {p.achievements.streak.best}
+                  </h3>
+                  <ul className="grid grid-cols-3 gap-x-2 gap-y-3 sm:grid-cols-4">
+                    {MEDALS.filter((m) => p.achievements!.badges.some((b) => b.code === m.code)).map((m) => (
+                      <li key={m.code} className="flex flex-col items-center gap-1 text-center">
+                        <Medal medal={m} earned className="size-14" />
+                        <span className="font-heading text-sm leading-tight font-extrabold uppercase italic">{m.name}</span>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 </div>
               )}
               {links.length > 0 && (
@@ -177,9 +189,12 @@ export function ProfilePage() {
   )
 }
 
-type Ranking = { discipline: { id: number; name: string }; month: string; rows: { rank: number; id: string; display_name: string; hours: number }[]; total: number }
+type Ranking = { discipline: { id: number; name: string }; month: string; rows: { rank: number; id: string; display_name: string; hours: number; badges?: string[] }[]; total: number }
+type MedalRanking = { rows: { rank: number; id: string; display_name: string; medals: number; hours: number; badges?: string[] }[]; total: number }
 
-// Ranking mensual por disciplina (sin las abiertas ni las de menores).
+const hoursText = (h: number) => `${Number(h).toLocaleString('es-ES', { maximumFractionDigits: 1 })} h`
+
+// Rankings: el de medallas de siempre (toda la academia) y el mensual por disciplina (sin las abiertas ni las de menores).
 export function RankingsPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -188,14 +203,17 @@ export function RankingsPage() {
   const [month, setMonth] = useState(current)
   const disciplines = useDisciplines()
   const options = (disciplines.data ?? []).filter((d) => d.is_active && !d.is_open && !d.minors_only)
-  const chosen = id ?? (options[0] ? String(options[0].id) : undefined)
+  const chosen = id ?? 'medals'
+  const isMedals = chosen === 'medals'
   const ranking = useQuery({
     queryKey: ['ranking', chosen, month],
-    enabled: !!chosen,
+    enabled: !isMedals,
     queryFn: () => api<Ranking>(path(`/rankings/${chosen}`, { month, limit: '50' })),
   })
+  const medals = useQuery({ queryKey: ['ranking', 'medals'], enabled: isMedals, queryFn: () => api<MedalRanking>(path('/rankings/medals', { limit: '50' })) })
   const mine = useQuery({ queryKey: ['my-profile'], queryFn: () => api<MyProfile>('/me/profile'), enabled: role === 'alumno' })
   const notShown = role === 'alumno' && mine.data && !(mine.data.is_public && mine.data.visible_fields.ranking)
+  const list = isMedals ? medals : ranking
 
   return (
     <Page title="Rankings">
@@ -204,21 +222,21 @@ export function RankingsPage() {
         <ListSkeleton rows={3} className="h-14" />
       ) : disciplines.isError ? (
         <ErrorState error={disciplines.error} onRetry={() => void disciplines.refetch()} />
-      ) : options.length === 0 ? (
-        <EmptyState icon={<TrophyIcon />} title="Aún no hay rankings" text="Aparecerán cuando haya disciplinas con ranking." />
       ) : (
         <>
           <div className="grid grid-cols-[1fr_auto] items-center gap-2">
-            <Filter label="Disciplina" value={chosen ?? ''} onChange={(v) => void navigate(`/rankings/${v}`)} items={options.map((d) => ({ value: String(d.id), label: d.name }))} />
-            <div className="flex items-center">
-              <Button variant="ghost" size="icon-xl" aria-label="Mes anterior" onClick={() => setMonth(addMonths(month, -1))}>
-                <ChevronLeftIcon />
-              </Button>
-              <span className="min-w-28 text-center text-sm font-semibold first-letter:uppercase" aria-live="polite">{formatMonth(month)}</span>
-              <Button variant="ghost" size="icon-xl" aria-label="Mes siguiente" disabled={month >= current} onClick={() => setMonth(addMonths(month, 1))}>
-                <ChevronLeftIcon className="rotate-180" />
-              </Button>
-            </div>
+            <Filter label="Ranking" value={chosen} onChange={(v) => void navigate(`/rankings/${v}`)} items={[{ value: 'medals', label: 'Medallas · de siempre' }, ...options.map((d) => ({ value: String(d.id), label: d.name }))]} />
+            {!isMedals && (
+              <div className="flex items-center">
+                <Button variant="ghost" size="icon-xl" aria-label="Mes anterior" onClick={() => setMonth(addMonths(month, -1))}>
+                  <ChevronLeftIcon />
+                </Button>
+                <span className="min-w-28 text-center text-sm font-semibold first-letter:uppercase" aria-live="polite">{formatMonth(month)}</span>
+                <Button variant="ghost" size="icon-xl" aria-label="Mes siguiente" disabled={month >= current} onClick={() => setMonth(addMonths(month, 1))}>
+                  <ChevronLeftIcon className="rotate-180" />
+                </Button>
+              </div>
+            )}
           </div>
           {notShown && (
             <p className="rounded-xl border bg-card p-4 text-sm">
@@ -226,19 +244,33 @@ export function RankingsPage() {
               <Link to="/account/profile" className="font-semibold text-link underline underline-offset-3">Cambiarlo en tu perfil público</Link>
             </p>
           )}
-          {ranking.isPending ? (
+          {list.isPending ? (
             <ListSkeleton rows={4} className="h-14" />
-          ) : ranking.isError ? (
-            <ErrorState error={ranking.error} onRetry={() => void ranking.refetch()} />
-          ) : ranking.data.rows.length === 0 ? (
-            <EmptyState icon={<TrophyIcon />} title="Nadie en el ranking este mes" text="Aparece quien participa en los rankings y ha entrenado." />
+          ) : list.isError ? (
+            <ErrorState error={list.error} onRetry={() => void list.refetch()} />
+          ) : list.data.rows.length === 0 ? (
+            <EmptyState
+              icon={<TrophyIcon />}
+              title={isMedals ? 'Aún nadie en el ranking de medallas' : 'Nadie en el ranking este mes'}
+              text={isMedals ? 'Aparece quien participa en los rankings y tiene alguna medalla.' : 'Aparece quien participa en los rankings y ha entrenado.'}
+            />
           ) : (
             <ol className="flex flex-col overflow-hidden rounded-xl border bg-card">
-              {ranking.data.rows.map((r) => (
+              {list.data.rows.map((r) => (
                 <li key={r.id} className="flex min-h-14 items-center gap-3 border-b px-4 py-2 last:border-b-0">
                   <span className="w-7 text-center font-heading text-xl font-bold tabular-nums">{r.rank}</span>
+                  <TopMedal codes={r.badges} />
                   <Link to={`/profiles/${r.id}`} className="min-w-0 flex-1 truncate font-semibold hover:underline">{r.display_name}</Link>
-                  <span className="font-mono text-sm tabular-nums">{Number(r.hours).toLocaleString('es-ES', { maximumFractionDigits: 1 })} h</span>
+                  <span className="text-right font-mono text-sm tabular-nums">
+                    {'medals' in r ? (
+                      <>
+                        {r.medals} {r.medals === 1 ? 'medalla' : 'medallas'}
+                        <span className="block text-xs text-muted-foreground">{hoursText(r.hours)}</span>
+                      </>
+                    ) : (
+                      hoursText(r.hours)
+                    )}
+                  </span>
                 </li>
               ))}
             </ol>

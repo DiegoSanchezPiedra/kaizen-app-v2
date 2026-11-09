@@ -3,7 +3,6 @@ import { addDays, addMonths, madridDay, madridMonth, mondayOf } from '@/lib/date
 import { isoToSpanish } from '@/lib/format'
 import { homeNotices } from '@/lib/notices'
 import { onboardingSteps, profileNotice } from '@/lib/profile'
-import { BADGES } from '@/lib/progress'
 import { isDark } from '@/lib/theme'
 import { path } from '@/lib/url'
 import { groupByDay, seatsOf, sessionState, splitBookings } from '@/lib/sessions'
@@ -126,9 +125,6 @@ describe('utilidades', () => {
     expect(path('/me/health', { profile_id: undefined })).toBe('/me/health')
   })
   it('isoToSpanish', () => expect(isoToSpanish('2016-05-03')).toBe('03/05/2016'))
-  it('los diez badges de la lista cerrada', () => expect(BADGES.map((x) => x.code)).toEqual([
-    'hours_10', 'hours_50', 'hours_100', 'hours_250', 'hours_500', 'hours_1000', 'streak_4', 'streak_12', 'streak_26', 'streak_52',
-  ]))
 })
 
 describe('seatsOf', () => {

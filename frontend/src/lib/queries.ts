@@ -63,6 +63,11 @@ export const useProgress = (profileId: string | undefined, month?: string) =>
     queryFn: () => api<Progress>(path('/me/progress', { profile_id: profileId, month })),
   })
 
+// Quien mira ya celebró las medallas de ese perfil; recarga su progreso (Inicio y Progreso).
+export const markMedalsSeen = (profileId: string | undefined, codes: string[]) =>
+  api('/me/progress/seen', { method: 'POST', body: { profile_id: profileId, codes } })
+    .then(() => queryClient.invalidateQueries({ queryKey: ['progress', who(profileId)] }))
+
 // Tras reservar o cancelar cambia el calendario, las reservas y el estado de Inicio.
 export const refreshBookings = () => Promise.all(['calendar', 'bookings'].map((k) => queryClient.invalidateQueries({ queryKey: [k] })))
 

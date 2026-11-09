@@ -86,6 +86,12 @@
   --animate-toast-error-even: toast-error-even 0.28s cubic-bezier(0.5, 1, 0.89, 1);
   --animate-power-up: power-up 720ms var(--ease-power) both;
   --animate-day-in: day-in 180ms var(--ease-out) both;
+  /* Medalla nueva (medal-reveal): un solo destello, < 1 s; con movimiento reducido todo dura 1 ms */
+  --animate-medal-in: medal-in 760ms var(--ease-power) 140ms both;
+  --animate-medal-ring: medal-ring 900ms var(--ease-out) 100ms both;
+  --animate-medal-flash: medal-flash 420ms ease-out both;
+  --animate-medal-rays: medal-rays 24s linear infinite;
+  --animate-medal-late: medal-late 300ms ease-out 620ms both;
 
   @keyframes skeleton {
     to { background-position: -200% 0; }
@@ -109,6 +115,25 @@
   @keyframes day-in {
     from { opacity: 0; transform: translateX(var(--day-dx, 10px)); }
     to { opacity: 1; transform: none; }
+  }
+  @keyframes medal-in {
+    0% { transform: scale(0.4) rotate(-12deg); opacity: 0; }
+    45% { transform: scale(1.12) rotate(3deg); opacity: 1; }
+    100% { transform: none; opacity: 1; }
+  }
+  @keyframes medal-ring {
+    from { transform: scale(0.6); opacity: 0.9; }
+    to { transform: scale(1.7); opacity: 0; }
+  }
+  @keyframes medal-flash {
+    15% { opacity: 0.85; }
+    to { opacity: 0; }
+  }
+  @keyframes medal-rays {
+    to { rotate: 360deg; }
+  }
+  @keyframes medal-late {
+    from { opacity: 0; }
   }
   @keyframes power-up {
     0% { transform: scale(0.92); opacity: 0.4; }

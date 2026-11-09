@@ -1,7 +1,8 @@
 import { ChevronLeftIcon, ChevronRightIcon, ZapIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { BadgeHex } from '@/components/badge-hex'
+import { Medal } from '@/components/medal'
+import { MedalDialog, MedalReveal } from '@/components/medal-reveal'
 import { Page } from '@/components/page'
 import { EmptyState, ListSkeleton, QueryView } from '@/components/screen-state'
 import { SectionTabs } from '@/components/section-tabs'
@@ -9,11 +10,13 @@ import { StreakPanel } from '@/components/streak-panel'
 import { SubjectGate, subjectName } from '@/components/subject-gate'
 import { Button } from '@/components/ui/button'
 import { Meter, MeterIndicator, MeterTrack } from '@/components/ui/meter'
+import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
 import { useSubject } from '@/hooks/use-subject'
 import { addMonths, formatMonth, madridMonth } from '@/lib/dates'
 import { formatDate } from '@/lib/format'
-import { BADGES, formatHours } from '@/lib/progress'
+import { MEDALS, type Medal as MedalInfo, type MedalKind, formatHours, medalGoal, nextMedal } from '@/lib/progress'
 import { useProgress } from '@/lib/queries'
+import type { Progress as ProgressData } from '@/lib/types'
 import type { Subject } from '@/lib/subject'
 
 function Progress({ subject, profileId }: { subject: Subject | null; profileId?: string }) {
@@ -31,7 +34,9 @@ function Progress({ subject, profileId }: { subject: Subject | null; profileId?:
         const none = p.streak.best === 0 && p.badges.length === 0 && hours.length === 0
         return (
           <>
+            <MedalReveal progress={p} profileId={profileId} name={subject && !subject.self ? name : undefined} />
             <StreakPanel current={p.streak.current} best={p.streak.best} subject={name} large />
+            <NextMedal p={p} earned={earned} />
             {none && (
               <EmptyState
                 icon={<ZapIcon />}
@@ -72,21 +77,141 @@ function Progress({ subject, profileId }: { subject: Subject | null; profileId?:
                 ))
               )}
             </section>
-            <section aria-labelledby="badges" className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
-              <h2 id="badges" className="text-base font-semibold">
-                Logros
-              </h2>
-              <ul className="grid grid-cols-3 gap-x-2 gap-y-4 sm:grid-cols-5">
-                {BADGES.map((b) => {
-                  const at = earned.get(b.code)
-                  return <BadgeHex key={b.code} badge={b} earnedAt={at ? formatDate(at).replace(/^\S+, /, '') : undefined} />
-                })}
-              </ul>
+            <section aria-labelledby="medals" className="flex flex-col gap-3">
+              <h2 id="medals" className="sr-only">Medallas</h2>
+              <MedalLadders p={p} earned={earned} name={subject && !subject.self ? name : undefined} />
             </section>
           </>
         )
       }}
     </QueryView>
+  )
+}
+
+const shortDate = (iso: string) => formatDate(iso).replace(/^\S+, /, '')
+
+// La próxima medalla de horas, protagonista con su anillo; debajo, la de constancia en pequeño.
+function NextMedal({ p, earned }: { p: ProgressData; earned: Map<string, string> }) {
+  const codes = new Set(earned.keys())
+  const hours = nextMedal('hours', codes)
+  const streak = nextMedal('streak', codes)
+  const pct = hours && hours.at > 0 ? Math.min(1, p.total_hours / hours.at) : 0
+  const R = 72
+  const C = 2 * Math.PI * R
+  return (
+    <section aria-labelledby="next-medal" className="flex flex-col items-center gap-2.5 rounded-2xl border-3 border-black bg-brand-ink bg-[repeating-conic-gradient(from_0deg_at_50%_40%,rgb(255_255_255/0.07)_0deg_3deg,transparent_3deg_12deg)] p-4 pt-5 text-center text-white shadow-[4px_4px_0_#000]">
+      <p className="text-sm font-bold tracking-wider text-white/80 uppercase">{hours ? 'Tu próxima medalla' : 'Medallas de horas'}</p>
+      {hours ? (
+        <>
+          <div className="relative grid size-40 place-items-center">
+            <svg viewBox="0 0 156 156" className="absolute inset-0 -rotate-90" aria-hidden="true">
+              <circle cx="78" cy="78" r={R} fill="none" stroke="rgb(255 255 255 / 0.14)" strokeWidth="8" />
+              <circle cx="78" cy="78" r={R} fill="none" stroke="#FFD23F" strokeWidth="8" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - pct)} className="transition-[stroke-dashoffset] duration-700 ease-out" />
+            </svg>
+            <Medal medal={hours} earned={false} className="size-28" />
+          </div>
+          <h3 id="next-medal" className="font-heading text-4xl leading-none font-extrabold text-[#FFD23F] uppercase italic [text-shadow:3px_3px_0_var(--power)]">
+            {hours.name}
+          </h3>
+          {hours.at === 0 ? (
+            <p className="text-[15px]">Se consigue con tu primera sesión</p>
+          ) : (
+            <Meter value={p.total_hours} max={hours.at} aria-label={`Horas hacia ${hours.name}`} className="w-full max-w-64 gap-1">
+              <p className="text-[15px]">
+                <span className="font-mono tabular-nums">
+                  {formatHours(p.total_hours).replace(' h', '')} / {formatHours(hours.at)}
+                </span>{' '}
+                · te faltan {formatHours(Math.max(0, hours.at - p.total_hours))}
+              </p>
+            </Meter>
+          )}
+        </>
+      ) : (
+        <h3 id="next-medal" className="font-heading text-4xl font-extrabold text-[#FFD23F] uppercase italic">Todas conseguidas</h3>
+      )}
+      <div className="mt-1 w-full border-t border-white/15 pt-3">
+        {streak ? (
+          <Meter value={p.streak.best} max={streak.at} aria-label={`Semanas hacia ${streak.name}`} className="gap-1.5">
+            <div className="flex items-baseline justify-between gap-2 text-sm">
+              <span className="font-semibold">{streak.name}</span>
+              <span className="font-mono tabular-nums">
+                {p.streak.best} / {streak.at} semanas
+              </span>
+            </div>
+            <MeterTrack className="h-2 rounded-full bg-white/15">
+              <MeterIndicator className="rounded-full bg-ki" />
+            </MeterTrack>
+            <p className="text-left text-xs text-white/75">Según tu mejor racha</p>
+          </Meter>
+        ) : (
+          <p className="text-sm font-semibold">Medallas de constancia: todas conseguidas</p>
+        )}
+      </div>
+    </section>
+  )
+}
+
+const LADDERS: { kind: MedalKind; label: string }[] = [
+  { kind: 'hours', label: 'Horas' },
+  { kind: 'streak', label: 'Constancia' },
+]
+
+// Escaleras por pestaña: conseguidas con su fecha (al tocarlas se vuelve a ver su animación), la próxima con lo que
+// falta y las bloqueadas con su meta.
+function MedalLadders({ p, earned, name }: { p: ProgressData; earned: Map<string, string>; name?: string }) {
+  const codes = new Set(earned.keys())
+  const [replay, setReplay] = useState<MedalInfo | null>(null)
+  return (
+    <Tabs defaultValue="hours" className="gap-3">
+      {replay && <MedalDialog medal={replay} name={name} label="Medalla conseguida" onClose={() => setReplay(null)} />}
+      <TabsList className="w-full">
+        {LADDERS.map((l) => {
+          const all = MEDALS.filter((x) => x.kind === l.kind)
+          return (
+            <TabsTab key={l.kind} value={l.kind} className="min-h-11 flex-1">
+              {l.label} · {all.filter((x) => codes.has(x.code)).length}/{all.length}
+            </TabsTab>
+          )
+        })}
+      </TabsList>
+      {LADDERS.map((l) => {
+        const next = nextMedal(l.kind, codes)
+        const value = l.kind === 'hours' ? p.total_hours : p.streak.best
+        return (
+          <TabsPanel key={l.kind} value={l.kind}>
+            <ol className="flex flex-col rounded-2xl border-3 border-black bg-card py-1.5 shadow-[4px_4px_0_#000]">
+              {MEDALS.filter((x) => x.kind === l.kind).map((x) => {
+                const at = earned.get(x.code)
+                const left = x.kind === 'hours' ? formatHours(Math.max(0, x.at - value)) : `${Math.max(0, x.at - value)} semanas`
+                const body = (
+                  <>
+                    <Medal medal={x} earned={!!at} className="size-14" />
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="font-heading text-xl leading-tight font-extrabold uppercase italic">{x.name}</span>
+                      <span className="text-[13px] text-muted-foreground">
+                        {at ? `${medalGoal(x)} · ${shortDate(at)}` : x === next && x.at > 0 ? `${medalGoal(x)} · te faltan ${left}` : `Bloqueada · ${medalGoal(x)}`}
+                      </span>
+                    </span>
+                  </>
+                )
+                return (
+                  <li key={x.code}>
+                    {at ? (
+                      <button type="button" onClick={() => setReplay(x)} className="flex min-h-11 w-full items-center gap-3 px-3.5 py-2 text-left transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none active:scale-[0.99]">
+                        {body}
+                        <span className="sr-only">. Ver su animación</span>
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-3 px-3.5 py-2">{body}</div>
+                    )}
+                  </li>
+                )
+              })}
+            </ol>
+          </TabsPanel>
+        )
+      })}
+    </Tabs>
   )
 }
 

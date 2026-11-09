@@ -220,6 +220,13 @@ Y repite el paso 1.4. Los roles de la BD solo se crean cuando el volumen está v
 
 ## Datos de demo
 
+`npm run staging:medals [-- <código>]` crea o rehace «Demo Medallas» (`medallas@staging.test`, contraseña `SEED_PASSWORD`) con las
+once medallas: asistencia de 2024 (1060 h, 53 semanas seguidas) en una disciplina desactivada propia, fuera del calendario y de los
+informes recientes. Al entrar sale a pantalla completa `<código>` (por defecto `hours_1000`); las demás se ven tocándolas en Progreso.
+Volver a ejecutarlo repite el momento. La cuenta es pública y compite, con 8 rivales: los alumnos adultos de
+`staging:demo` con más horas pasan a públicos con ranking y logros (tras otro `staging:demo`, se repite este). Necesita la API de
+staging en marcha.
+
 `npm run staging:demo` llena el staging con una academia mediana de 3 meses, para ver el panel del admin con cifras. Necesita el
 seed hecho (`npm run staging:seed`: disciplinas, planes, clases y profes) y la BD de staging en marcha. Crea:
 

@@ -5,6 +5,7 @@ import { Page } from '@/components/page'
 import { EventCard } from '@/components/event-card'
 import { PushCard } from '@/components/push-card'
 import { SessionCard } from '@/components/session-card'
+import { MedalReveal } from '@/components/medal-reveal'
 import { StreakPanel } from '@/components/streak-panel'
 import { SubjectGate, subjectName } from '@/components/subject-gate'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -71,7 +72,12 @@ function Home({ subject, profileId }: { subject: Subject | null; profileId?: str
         </div>
       )}
       <QueryView query={progress} skeleton={<Skeleton className="h-28 w-full rounded-2xl" />}>
-        {(p) => <StreakPanel current={p.streak.current} best={p.streak.best} subject={name} />}
+        {(p) => (
+          <>
+            <MedalReveal progress={p} profileId={profileId} name={subject && !subject.self ? name : undefined} />
+            <StreakPanel current={p.streak.current} best={p.streak.best} subject={name} />
+          </>
+        )}
       </QueryView>
       <section aria-labelledby="next" className="flex flex-col gap-3">
         <div className="flex items-center justify-between">

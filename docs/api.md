@@ -88,7 +88,8 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 | `PATCH /me/children/:id` | cualquiera (su tutor) | `{ display_name?, birth_date? }` | `{ child }`. `child_not_found` |
 | `GET /me/profile` | cualquiera | — | `{ is_public, eligible, visible_fields, bio, social_links }` |
 | `PATCH /me/profile` | cualquiera | `{ is_public?, visible_fields?, bio? (≤500), social_links? (https) }` | igual. `403 not_eligible` |
-| `GET /me/progress?profile_id=&month=YYYY-MM` | alumno, tutor (hijo), admin | — | `{ streak: { current, best }, badges: [{ code, earned_at }], hours: { month, disciplines: [{ id, name, hours }] } }` |
+| `GET /me/progress?profile_id=&month=YYYY-MM` | alumno, tutor (hijo), admin | — | `{ streak: { current, best }, badges: [{ code, earned_at }], hours: { month, disciplines: [{ id, name, hours }] }, total_hours, medals_seen }` (`medals_seen`: códigos ya celebrados por quien mira, o `null`) |
+| `POST /me/progress/seen` | alumno, tutor (hijo), admin | `{ profile_id?, codes }` | `{ codes }`: añade los códigos que quien mira ya celebró; códigos inválidos, 400 `invalid_field`; si no puede verlo, 403 `not_guardian` |
 | `POST /me/push-subscriptions` | alumno, tutor | `{ endpoint, keys: { p256dh, auth } }` (de `PushManager.subscribe`) | `201 { ok }` |
 | `DELETE /me/push-subscriptions` | alumno, tutor | `{ endpoint }` | `204` (llamar **antes** de borrar el token) |
 | `GET /push/vapid-public-key` | cualquiera | — | `{ key }`; `503 push_disabled` |
@@ -170,7 +171,8 @@ Errores frecuentes: `409 subscription_exists`, `409 risk_cover_required` (sin se
 |---|---|---|---|
 | `GET /profiles?q&role&discipline_id&limit&offset` | cualquiera | — | `{ profiles: [ficha], total, limit, offset }` |
 | `GET /profiles/:id` | cualquiera | — | `{ profile: { id, display_name, role, bio?, social_links?, disciplines?, member_since?, achievements? } }` (solo lo visible; `404 profile_not_found` si no es público) |
-| `GET /rankings/:disciplineId?month&limit&offset` | cualquiera | — | `{ discipline: { id, name }, month, rows: [{ rank, id, display_name, hours }], total, limit, offset }` |
+| `GET /rankings/medals?limit&offset` | cualquiera | — | `{ rows: [{ rank, id, display_name, medals, hours, badges? }], total, limit, offset }`: medallas de siempre, toda la academia (035); `badges` solo de quien enseña sus logros |
+| `GET /rankings/:disciplineId?month&limit&offset` | cualquiera | — | `{ discipline: { id, name }, month, rows: [{ rank, id, display_name, hours, badges? }], total, limit, offset }` (`badges` solo de quien enseña sus logros) |
 
 ## Profesor
 

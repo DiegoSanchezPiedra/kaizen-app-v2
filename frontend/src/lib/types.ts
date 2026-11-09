@@ -85,6 +85,9 @@ export type Progress = {
   streak: { current: number; best: number }
   badges: { code: string; earned_at: string }[]
   hours: { month: string; disciplines: { id: number | string; name: string; hours: number }[] }
+  total_hours: number
+  // Los códigos que quien mira ya celebró (034); null si nunca cerró una medalla nueva.
+  medals_seen: string[] | null
 }
 
 export type Health = {
@@ -117,5 +120,6 @@ export type PublicProfile = {
   social_links?: unknown
   disciplines?: { id: number | string; name: string }[] | string[]
   member_since?: string | null
-  achievements?: { code: string; earned_at?: string }[] | string[]
+  // public_achievements (019): solo si enseña sus logros.
+  achievements?: { streak: { current: number; best: number }; badges: { code: string; earned_at: string }[] }
 }
