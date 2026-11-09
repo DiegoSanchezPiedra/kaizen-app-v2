@@ -345,6 +345,22 @@ async function main() {
       await expectDenied(withCtx(admin, (c) => c.query(`SELECT last_value FROM pgmigrations_id_seq`)));
     });
 
+    // B20 (M5): auth_credentials_update_self_or_admin dejaba cambiar por SQL cualquier columna de la fila.
+    const updateCreds = (ctx, id, set) =>
+      withCtx(ctx, (c) => c.query(`UPDATE auth_credentials SET ${set} WHERE profile_id = $1`, [id]));
+    await run('B20 — nadie cambia con app_user email, email_verified ni google_sub (tampoco el admin)', async () => {
+      for (const set of [`email = 'x@t.test'`, 'email_verified = true', `google_sub = 'g-hack'`, 'profile_id = profile_id',
+        'created_at = now()', 'updated_at = now()']) {
+        await expectDenied(updateCreds(alumno, ids.a, set));
+        await expectDenied(updateCreds(admin, ids.a, set));
+      }
+    });
+
+    await run('B20 — cada uno cambia su contraseña (password_hash y credentials_changed_at)', async () => {
+      const r = await updateCreds(alumno, ids.a, `password_hash = 'y', credentials_changed_at = now()`);
+      assert.equal(r.rowCount, 1);
+    });
+
     await run('service_role se salta RLS y lee auth_credentials', async () => {
       const { rows } = await withServiceCommit((c) =>
         c.query(`SELECT profile_id FROM auth_credentials WHERE profile_id = $1`, [ids.b])

@@ -21,7 +21,7 @@ ponerse `admin`. Por eso lo que solo se aprovecha con SQL arbitrario queda en Me
 | M2 | Media | Privilegios por defecto: `SELECT, INSERT, UPDATE, DELETE` a `app_user` en toda tabla nueva | Arreglado (`040`) |
 | M3 | Media | `cash_payments` sin RLS y con todos los permisos para `app_user` | Arreglado (`041`) |
 | M4 | Media | `pgmigrations` sin RLS y con todos los permisos para `app_user` | Arreglado (`042`) |
-| M5 | Media | `auth_credentials`: `UPDATE` de cualquier columna propia (`email`, `email_verified`, `google_sub`…) | Checklist |
+| M5 | Media | `auth_credentials`: `UPDATE` de cualquier columna propia (`email`, `email_verified`, `google_sub`…) | Arreglado (`043`) |
 | M6 | Media | El profesor lee la fila entera de `profiles` de sus alumnos (también `birth_date` de menores) | Checklist |
 | B1 | Baja | `has_risk_cover`, `profile_missing` y `discipline_changes_used` responden sobre cualquier perfil | Checklist |
 | B2 | Baja | El admin cambia por SQL el contenido del perfil de otro | Checklist |
@@ -94,6 +94,8 @@ Arreglado en la `042`: `REVOKE ALL ON pgmigrations, pgmigrations_id_seq FROM app
 ADR 0021), `google_sub` y `credentials_changed_at` de la propia fila. La app solo actualiza `password_hash` y
 `credentials_changed_at` (cambio de contraseña); el resto lo escriben el registro (`INSERT`) o el `servicePool`.
 Arreglo: `UPDATE` por columna, como en A1.
+
+Arreglado en la `043`: `app_user` solo tiene `UPDATE` sobre `password_hash` y `credentials_changed_at` (el cambio de contraseña), también el admin; `email`, `email_verified`, `google_sub`, `profile_id`, `created_at` y `updated_at` (lo pone su trigger) quedan fuera. Queda que alguien mueva atrás su propio `credentials_changed_at`: solo revive tokens suyos ya emitidos. `test:rls`.
 
 ### M6 — El profesor lee la fila entera de sus alumnos (Media)
 
