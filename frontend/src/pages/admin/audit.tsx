@@ -111,7 +111,7 @@ export function AdminAuditPage() {
                             <Link
                               to={pageHref(new URLSearchParams({ ...Object.fromEntries(params), actor: a.actor.id }), 1)}
                               aria-label={`Ver solo lo de ${a.actor.display_name ?? 'esta persona'}`}
-                              className="grid size-6 place-items-center rounded text-muted-foreground hover:text-foreground"
+                              className="relative grid size-6 place-items-center rounded text-muted-foreground after:absolute after:-inset-x-1 after:-inset-y-2.5 hover:text-foreground"
                             >
                               <FunnelIcon className="size-3.5" />
                             </Link>

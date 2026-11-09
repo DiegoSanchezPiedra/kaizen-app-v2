@@ -40,7 +40,7 @@ export function AdminBillingPage() {
       <Tabs value={tab} onValueChange={(v) => setParams({ tab: String(v) }, { replace: true })} className="gap-5">
         <TabsList className="w-full sm:w-auto">
           {TABS.map((t) => (
-            <TabsTab key={t.value} value={t.value} className="min-h-11 flex-1 px-4">
+            <TabsTab key={t.value} value={t.value} className="min-h-11 px-3 leading-tight last-of-type:shrink last-of-type:whitespace-normal sm:flex-1 sm:px-4">
               {t.label}
             </TabsTab>
           ))}

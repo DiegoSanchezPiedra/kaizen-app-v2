@@ -78,10 +78,10 @@ export function Agreement({ type, signed, profileId }: { type: AgreementType; si
           </a>
           <label className="flex min-h-11 cursor-pointer items-center gap-3 text-[15px]">
             <Checkbox checked={read} onCheckedChange={(c) => setRead(c === true)} />
-            He leído y acepto este documento
+            He leído y acepto este documento<span className="sr-only">: {AGREEMENT_TITLE[type]}</span>
           </label>
           <Button size="xl" disabled={!read} loading={sign.isPending} onClick={() => sign.mutate()}>
-            Firmar
+            Firmar<span className="sr-only"> {AGREEMENT_TITLE[type]}</span>
           </Button>
         </>
       )}

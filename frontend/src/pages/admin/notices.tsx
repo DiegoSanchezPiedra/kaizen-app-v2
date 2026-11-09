@@ -61,7 +61,7 @@ function Academy() {
               <time dateTime={n.created_at} className="w-36 shrink-0 text-sm text-muted-foreground tabular-nums">
                 {formatDeadline(n.created_at)}
               </time>
-              <span className="min-w-0 flex-1">{noticeLabel(n.action)}</span>
+              <span className="min-w-0 grow basis-full sm:basis-0">{noticeLabel(n.action)}</span>
               {event && (
                 <Link to={`/admin/events/${event}`} className="text-sm font-medium text-link underline-offset-3 hover:underline">
                   Ver el evento

@@ -342,7 +342,8 @@ export function SidebarInset({
   return (
     <main
       className={cn(
-        "relative flex w-full flex-1 flex-col bg-background",
+        // min-w-0: sin él, una tabla ancha estira el main más allá de la pantalla en vez de desplazarse dentro de su contenedor.
+        "relative flex w-full min-w-0 flex-1 flex-col bg-background",
         "lg:peer-data-[variant=inset]:peer-data-[state=collapsed]:ms-2 lg:peer-data-[variant=inset]:m-2 lg:peer-data-[variant=inset]:ms-0 lg:peer-data-[variant=inset]:rounded-xl lg:peer-data-[variant=inset]:shadow-sm/5",
         className,
       )}

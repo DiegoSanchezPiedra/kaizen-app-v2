@@ -13,6 +13,7 @@ export function PasswordInput(props: Omit<InputProps, 'type'>) {
         <Button
           variant="ghost"
           size="icon-sm"
+          className="after:absolute after:-inset-1.5" // zona táctil de 44 px sin cambiar el tamaño visible
           aria-label={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'}
           aria-pressed={visible}
           onClick={() => setVisible((v) => !v)}
