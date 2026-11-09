@@ -28,7 +28,7 @@ ponerse `admin`. Por eso lo que solo se aprovecha con SQL arbitrario queda en Me
 | B3 | Baja | El admin da o quita el rol `admin` por SQL | Checklist |
 | B4 | Baja | `profiles_insert_self` deja insertar cualquier columna al registrarse | Arreglado (`046`) |
 | B5 | Baja | El tutor escribe por SQL `bio`, `social_links` y `visible_fields` de su hijo | Arreglado (`045`) |
-| B6 | Baja | `medal_views` y `webhook_events` sin RLS | Checklist |
+| B6 | Baja | `medal_views` y `webhook_events` sin RLS | Arreglado (`047`) |
 | B7 | Baja | El tutor sigue leyendo reservas, asistencia y progreso del hijo con 18 sin reclamar | Checklist (a confirmar) |
 | B8 | Baja | El admin cambia un documento de acuerdo ya publicado | Checklist |
 | B9 | Baja | El admin lee `password_hash` y el secreto MFA cifrado de cualquiera | Checklist |
@@ -124,6 +124,7 @@ Arreglado en la `044`: `profiles_select` pierde la rama del profesor (solo ve su
   nunca (un hijo no puede ser público).
   Arreglado en la `045`: el mismo trigger deja al tutor cambiar de su hijo solo `display_name`, `birth_date` y la foto; `bio`, `social_links` y `visible_fields` no. `test:rls`.
 - **B6**: `medal_views` y `webhook_events` sin RLS. Hoy sin permisos para `app_user`; con M2, una regresión las abriría.
+  Arreglado en la `047`: RLS en `ENABLE` y `FORCE` sin políticas en las dos; las usan funciones `SECURITY DEFINER` y el `servicePool` (`service_role`, `BYPASSRLS`), que siguen igual. `test:rls` comprueba que toda tabla de `public` tiene RLS en `ENABLE` y `FORCE` salvo `pgmigrations`, también las que vengan.
 - **B7**: `is_guardian_of(…, true)` deja al tutor de un hijo con 18 sin reclamar leer sus reservas, asistencia,
   inscripciones, acuerdos y progreso; `CONTEXT.md`: «su tutor solo lo ve en la lista y paga lo que ya pagaba». Los
   recibos sí son a propósito («también los históricos»). Cambia lo que ve un rol: a confirmar.

@@ -390,6 +390,15 @@ async function main() {
       assert.equal(r.rowCount, 1);
     });
 
+    // B20 (B6): toda tabla con RLS en ENABLE y FORCE; pgmigrations no (FORCE se la aplicaría a migrator, M4).
+    await run('B20 — toda tabla de public tiene RLS en ENABLE y FORCE (salvo pgmigrations)', async () => {
+      const { rows } = await servicePool.query(
+        `SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND c.relname <> 'pgmigrations'
+            AND NOT (c.relrowsecurity AND c.relforcerowsecurity) ORDER BY 1`);
+      assert.deepEqual(rows.map((r) => r.relname), []);
+    });
+
     await run('service_role se salta RLS y lee auth_credentials', async () => {
       const { rows } = await withServiceCommit((c) =>
         c.query(`SELECT profile_id FROM auth_credentials WHERE profile_id = $1`, [ids.b])
