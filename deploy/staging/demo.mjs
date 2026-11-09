@@ -1,4 +1,4 @@
-// Datos de demo SOLO para el staging: ~40 alumnos, 6 tutores con 10 menores, 3 meses de cuotas, reservas, asistencia, eventos,
+// Datos de demo SOLO para el staging: ~40 alumnos, 6 tutores con 10 menores, 6 meses de cuotas, reservas, asistencia, eventos,
 // auditoría y fotos diarias. Sin llamadas a Stripe: las cuotas llevan ids falsos `sub_test_demo_*`, sin portal ni webhooks.
 // Uso: npm run staging:demo     (necesita el seed hecho: disciplinas, planes, clases y profes)
 // Repetible: todo lo de demo lleva un id con prefijo `de0a0000-`; cada ejecución lo borra y lo recrea en una transacción.
@@ -8,7 +8,9 @@ import pg from 'pg';
 
 if (!/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? '')) throw new Error('STRIPE_SECRET_KEY tiene que ser de PRUEBA (sk_test_ / rk_test_)');
 const url = new URL(process.env.DATABASE_URL_SERVICE ?? 'x://');
-if (url.pathname !== '/kaizen_staging' || url.port !== '5433') throw new Error('DATABASE_URL_SERVICE no apunta a kaizen_staging (:5433): me niego a correr');
+// Staging (:5433) o la local de desarrollo (:5432): nunca otra.
+if (!((url.pathname === '/kaizen_staging' && url.port === '5433') || (url.pathname === '/kaizen_db' && url.port === '5432'))) throw new Error('DATABASE_URL_SERVICE no apunta a kaizen_staging (:5433) ni a kaizen_db (:5432): me niego a correr');
+const DOMAIN = process.env.SEED_EMAIL_DOMAIN || 'staging.test';
 
 const DAY = 864e5;
 const NOW = Date.now();
@@ -36,21 +38,27 @@ const adults = FIRST.map((f, i) => person('a' + i, `${f} ${LAST[(i * 7) % 30]} $
 const tutors = ['Mercedes', 'Antonio', 'Pilar', 'Francisco', 'Dolores', 'Manuel'].map((f, i) => person('t' + i, `${f} ${LAST[(i * 5 + 1) % 30]} ${LAST[(i * 3 + 8) % 30]}`, 'tutor', `${1978 + i}-0${1 + i}-2${i}`));
 const kids = KIDS.map((f, i) => { const t = tutors[[0, 0, 1, 1, 2, 2, 3, 3, 4, 5][i]]; const k = person('k' + i, `${f} ${t.name.split(' ')[1]} ${t.name.split(' ')[2]}`, 'alumno', `${2011 + (i % 8)}-0${1 + (i % 9)}-1${i % 9}`); k.tutor = t; return k; });
 
-const [{ admin }] = await q(`select profile_id as admin from auth_credentials where email = 'admin@staging.test'`);
-const trainerOf = Object.fromEntries((await q(`select email, profile_id from auth_credentials where email in ('profe1@staging.test','profe2@staging.test')`)).map((r) => [r.email, r.profile_id]));
-const plans = Object.fromEntries((await q(`select id, price_cents from plans`)).map((p) => [p.id, p.price_cents]));
-assert(admin && Object.keys(plans).length >= 4, 'falta el seed (admin, planes)');
+const [{ admin }] = await q(`select profile_id as admin from auth_credentials where email = $1`, [`admin@${DOMAIN}`]);
+const [{ profile_id: marc }] = await q(`select profile_id from auth_credentials where email = $1`, [`profe1@${DOMAIN}`]);
+// Disciplinas y planes por nombre (los ids cambian según la base).
+const byName = async (t) => Object.fromEntries((await q(`select * from ${t}`)).map((x) => [x.name, x]));
+const DS = await byName('disciplines'); const PS = await byName('plans');
+const ADULT = ['Boxeo', 'BJJ/Grappling', 'Muay Thai'].map((n) => Number(DS[n]?.id));
+const KIDS_D = Number(DS['Muay Thai Kids']?.id);
+const [ONE, TWO, UNL, KID] = ['Una disciplina', 'Dos disciplinas', 'Ilimitado', 'Infantil'].map((n) => Number(PS[n]?.id));
+const plans = Object.fromEntries(Object.values(PS).map((p) => [Number(p.id), p.price_cents]));
+assert(admin && marc && [...ADULT, KIDS_D, ONE, TWO, UNL, KID].every(Boolean), 'falta el seed (admin, profes, disciplinas, planes)');
 
 // --- Cuotas: [alumno, plan, estado, alta (días atrás), baja (días atrás), inactivo] ------------------------------------
 const subs = [];
 adults.forEach((p, i) => {
   const status = i < 30 ? 'active' : i < 33 ? 'past_due' : i < 36 ? 'unpaid' : 'cancelled';
-  const created = i < 6 ? 50 + Math.floor(rnd() * 39) : i >= 27 && i < 30 ? 0 : status === 'active' ? 1 + Math.floor(rnd() * 60) : status === 'cancelled' ? [89, 85, 70, 45][i - 36] : 40 + Math.floor(rnd() * 45);
-  subs.push({ student: p, payer: p, plan: pick([1, 1, 2, 2, 3]), status, created, cancelled: status === 'cancelled' ? [80, 50, 25, 5][i - 36] : null, inactive: i < 6, discs: [pick([1, 2])] });
+  const created = i < 6 ? 100 + Math.floor(rnd() * 79) : i >= 27 && i < 30 ? 0 : status === 'active' ? 1 + Math.floor(rnd() * 150) : status === 'cancelled' ? [175, 160, 130, 90][i - 36] : 80 + Math.floor(rnd() * 90);
+  const plan = pick([ONE, ONE, TWO, TWO, UNL]);
+  subs.push({ student: p, payer: p, plan, status, created, cancelled: status === 'cancelled' ? [160, 120, 60, 5][i - 36] : null, inactive: i < 6, discs: plan === ONE ? [pick(ADULT)] : plan === TWO ? [ADULT[i % 3], ADULT[(i + 1) % 3]] : ADULT });
 });
-kids.forEach((k) => subs.push({ student: k, payer: k.tutor, plan: 4, status: 'active', created: 1 + Math.floor(rnd() * 88), cancelled: null, inactive: false, discs: [3] }));
+kids.forEach((k) => subs.push({ student: k, payer: k.tutor, plan: KID, status: 'active', created: 1 + Math.floor(rnd() * 178), cancelled: null, inactive: false, discs: [KIDS_D] }));
 for (const s of subs) {
-  if (s.plan > 1 && s.plan < 4) s.discs = [1, 2];
   s.id = id('sub:' + s.student.key);
   s.createdAt = s.created === 0 ? ago(0, 1 + rnd() * 2) : ago(s.created, rnd() * 8);
   s.cancelledAt = s.cancelled == null ? null : ago(s.cancelled, rnd() * 8);
@@ -77,24 +85,24 @@ try {
 
   const payers = new Set(subs.map((s) => s.payer.key));
   const all = [...adults, ...tutors, ...kids];
-  await ins('profiles', all.map((p) => ({ id: p.id, display_name: p.name, birth_date: p.birth, created_at: ago(91), stripe_customer_id: payers.has(p.key) ? 'cus_test_demo_' + p.key : null })));
+  await ins('profiles', all.map((p) => ({ id: p.id, display_name: p.name, birth_date: p.birth, created_at: ago(181), stripe_customer_id: payers.has(p.key) ? 'cus_test_demo_' + p.key : null })));
   await ins('auth_credentials', [...adults, ...tutors].map((p) => ({ profile_id: p.id, email: p.email, google_sub: 'demo-' + p.key, email_verified: true })));
   await ins('user_roles', all.map((p) => ({ user_id: p.id, role: p.kind })));
   await ins('guardianships', kids.map((k) => ({ tutor_id: k.tutor.id, minor_id: k.id })));
   await ins('subscriptions', subs.map((s) => ({ id: s.id, student_id: s.student.id, payer_id: s.payer.id, plan_id: s.plan, status: s.status, payment_method: 'stripe', current_period_start: s.periodStart, current_period_end: s.periodEnd, cancel_at_period_end: false, cancelled_at: s.cancelledAt, stripe_subscription_id: 'sub_test_demo_' + s.student.key, created_at: s.createdAt })));
   await ins('subscription_disciplines', subs.flatMap((s) => s.discs.map((d) => ({ subscription_id: s.id, discipline_id: d }))));
 
-  // Sesiones pasadas (90 días) de las clases que hay; las de hoy en adelante ya las genera el horizonte.
+  // Sesiones pasadas (180 días) de las clases que hay; las de hoy en adelante ya las genera el horizonte.
   await db.query(`insert into class_sessions (id, discipline_id, trainer_id, starts_at, duration_min, capacity, location, status, class_id, ends_at, adjusted_fields, slot, class_trainer_id, class_duration_min, class_capacity, class_location, attendance_closed_at, attendance_closed_by)
     select overlay(md5('demo:sess:' || c.id || d)::uuid::text placing 'de0a0000' from 1 for 8)::uuid, c.discipline_id, c.trainer_id, s, c.duration_min, c.capacity, c.location, 'scheduled', c.id,
            s + c.duration_min * interval '1 minute', '{}', s, c.trainer_id, c.duration_min, c.capacity, c.location, s + c.duration_min * interval '1 minute', c.trainer_id
-      from classes c cross join generate_series($1::date - 90, $1::date - 1, '1 day') d
+      from classes c cross join generate_series($1::date - 180, $1::date - 1, '1 day') d
       cross join lateral (select (d::date + c.start_time) at time zone 'Europe/Madrid' as s) x
      where extract(isodow from d) = c.weekday
        and not exists (select 1 from class_sessions e where e.class_id = c.id and e.slot = x.s)`, [TODAY]);
   const sessions = await q(`select s.id, s.discipline_id, s.trainer_id, s.starts_at, s.ends_at, s.capacity - count(b.id) as free
       from class_sessions s left join bookings b on b.session_id = s.id and b.status <> 'cancelled'
-     where s.class_id is not null and s.status = 'scheduled' and s.starts_at between now() - interval '90 days' and now() + interval '14 days'
+     where s.class_id is not null and s.status = 'scheduled' and s.starts_at between now() - interval '180 days' and now() + interval '14 days'
      group by s.id order by s.starts_at`);
 
   // Reservas y asistencia, coherentes con las altas, las bajas y los inactivos (sin venir hace > 14 días).
@@ -105,7 +113,7 @@ try {
       && !(u.inactive && t0 > NOW - 15 * DAY));
     let free = Number(s.free);
     for (const u of cand) {
-      if (free <= 0 || rnd() > (u.plan === 4 ? 0.8 : t0 > NOW ? 0.55 : 0.75)) continue;
+      if (free <= 0 || rnd() > (u.plan === KID ? 0.8 : t0 > NOW ? 0.55 : 0.75)) continue;
       free--;
       const bid = id(`bk:${s.id}:${u.student.key}`);
       bookings.push({ id: bid, session_id: s.id, student_id: u.student.id, booked_by: u.payer.id, status: 'confirmed', created_at: new Date(Math.min(t0 - 36e5, Math.max(new Date(u.createdAt).getTime() + 3e5, t0 - 2 * DAY))).toISOString() });
@@ -131,16 +139,15 @@ try {
 
   // Eventos: 2 próximos (uno gratis, otro de pago con inscripciones ya confirmadas, sin checkout) y 1 pasado.
   const at = (days, h) => { const d = new Date(NOW + days * DAY); d.setUTCHours(h, 0, 0, 0); return d.toISOString(); };
-  const marc = trainerOf['profe1@staging.test'];
   const EV = [
-    ['open', 'Open mat de Jiu-Jitsu', 3, 17, 2, 0, null, 'adults', 30, 8],
+    ['open', 'Open mat de BJJ', 3, 17, 2, 0, null, 'adults', 30, 8],
     ['show', 'Exhibición de fin de trimestre', 6, 9, 3, 1500, 1000, 'all', 40, 10],
-    ['cup', 'Torneo interno de Judo', -20, 9, 4, 0, null, 'adults', 24, 12],
+    ['cup', 'Velada interna de Boxeo', -20, 9, 4, 0, null, 'adults', 24, 12],
   ];
-  await ins('events', EV.map(([k, title, d, h, dur, price, member, aud, cap]) => ({ id: id('ev:' + k), title, description: 'Evento de demo del staging.', starts_at: at(d, h), ends_at: at(d, h + dur), location: 'Tatami 1', discipline_id: k === 'show' ? null : k === 'open' ? 2 : 1, trainer_id: marc, capacity: cap, audience: aud, requires_risk_cover: false, price_cents: price, member_price_cents: member, status: 'scheduled', created_by: admin, created_at: ago(d < 0 ? 40 : 10) })));
+  await ins('events', EV.map(([k, title, d, h, dur, price, member, aud, cap]) => ({ id: id('ev:' + k), title, description: 'Evento de demo del staging.', starts_at: at(d, h), ends_at: at(d, h + dur), location: 'Tatami 1', discipline_id: k === 'show' ? null : k === 'open' ? ADULT[1] : ADULT[0], trainer_id: marc, capacity: cap, audience: aud, requires_risk_cover: false, price_cents: price, member_price_cents: member, status: 'scheduled', created_by: admin, created_at: ago(d < 0 ? 40 : 10) })));
   const regs = [];
   for (const [k, , d, , , price, member, , , n] of EV) {
-    const pool = k === 'show' ? [...subs.filter((u) => u.status === 'active' && u.plan !== 4).slice(0, n - 2).map((u) => u.student), kids[0], kids[2]] : subs.filter((u) => u.status === 'active' && u.plan !== 4).slice(6, 6 + n).map((u) => u.student);
+    const pool = k === 'show' ? [...subs.filter((u) => u.status === 'active' && u.plan !== KID).slice(0, n - 2).map((u) => u.student), kids[0], kids[2]] : subs.filter((u) => u.status === 'active' && u.plan !== KID).slice(6, 6 + n).map((u) => u.student);
     for (const p of pool) {
       const payer = p.tutor ?? p; const amount = price ? (member ?? price) : 0;
       regs.push({ id: id(`reg:${k}:${p.key}`), event_id: id('ev:' + k), profile_id: p.id, actor_id: payer.id, payer_id: amount ? payer.id : null, status: 'confirmed', amount_cents: amount, guest: false, attended: d < 0 ? rnd() < 0.85 : null, created_at: ago(d < 0 ? 25 + rnd() * 10 : rnd() * 5) });
@@ -154,10 +161,10 @@ try {
     ...(s.cancelledAt ? [{ id: id('au:x:' + s.student.key), actor_id: s.payer.id, action: 'subscription.cancel_now', resource_type: 'subscription', resource_id: s.id, changes: {}, created_at: s.cancelledAt }] : []),
   ]));
 
-  // Fotos diarias: sintéticas los 90 días anteriores a ayer; ayer y hoy se reescriben con la función real (solo staging).
+  // Fotos diarias: sintéticas los 180 días anteriores a ayer; ayer y hoy se reescriben con la función real (solo staging).
   const avg = Math.round(subs.reduce((a, u) => a + plans[u.plan], 0) / subs.length); // precio medio de los planes en uso
   const dayOf = (iso) => madrid(iso);
-  for (let k = 91; k >= 2; k--) {
+  for (let k = 181; k >= 2; k--) {
     const d = dayMinus(TODAY, k);
     const cum = subs.filter((s) => dayOf(s.createdAt) <= d && !(s.cancelledAt && dayOf(s.cancelledAt) <= d)).length;
     const pd = cum > 6 ? 1 + Math.floor(rnd() * 3) : 0; const un = cum > 10 ? Math.floor(rnd() * 3) : 0;

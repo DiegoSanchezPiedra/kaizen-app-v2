@@ -52,36 +52,44 @@ const tutor = await login('tutor');
 const kids = must(await call('/me/children', { token: tutor }), 'hijos').data;
 if (!(kids.children ?? kids).length) must(await call('/me/children', { method: 'POST', token: tutor, body: { display_name: 'Hugo Hijo', birth_date: '2015-03-02' } }), 'crear hijo');
 
-// Catálogo
+// Catálogo: una temática de medallas por disciplina (una sola disciplina activa por temática).
 const D = {};
-for (const [name, minors] of [['Judo', false], ['Jiu-Jitsu', false], ['Karate infantil', true]]) {
-  must(await call('/admin/disciplines', { method: 'POST', token: admin, body: { name, minors_only: minors } }), `disciplina ${name}`, ['name_taken']);
+for (const [name, minors, medal_theme] of [['Boxeo', false, 'ippo'], ['BJJ/Grappling', false, 'titanes'], ['Muay Thai', false, 'saiyan'], ['Muay Thai Kids', true, 'mugiwara']]) {
+  must(await call('/admin/disciplines', { method: 'POST', token: admin, body: { name, minors_only: minors, medal_theme } }), `disciplina ${name}`, ['name_taken']);
 }
 for (const d of (await call('/admin/disciplines', { token: admin })).data.disciplines) D[d.name] = d.id;
+// Si ya existía sin temática (seed de antes), se le pone la suya.
+for (const [name, theme] of [['Boxeo', 'ippo'], ['BJJ/Grappling', 'titanes'], ['Muay Thai', 'saiyan'], ['Muay Thai Kids', 'mugiwara']]) {
+  if ((await call('/admin/disciplines', { token: admin })).data.disciplines.find((d) => d.id === D[name]).medal_theme) continue;
+  must(await call(`/admin/disciplines/${D[name]}`, { method: 'PATCH', token: admin, body: { medal_theme: theme } }), `temática ${name}`);
+}
 for (const [name, cents, max, minors] of [['Una disciplina', 3500, 1, false], ['Dos disciplinas', 5000, 2, false], ['Ilimitado', 7000, null, false], ['Infantil', 3000, 1, true]]) {
   must(await call('/admin/plans', { method: 'POST', token: admin, body: { name, price_cents: cents, max_disciplines: max, minors_only: minors } }), `plan ${name}`, ['name_taken']);
 }
 must(await call('/admin/settings/insurance', { method: 'PUT', token: admin, body: { price_adult_cents: 3000, price_minor_cents: 2000, enabled: true } }), 'seguro');
 
-// Clases (una vez: si ya hay, no se repiten)
+// Clases (por disciplina: si ya tiene, no se repiten). Dos a la semana; ningún profesor se solapa.
 const trainers = (await call('/admin/profiles?role=profesor&limit=100', { token: admin })).data.profiles;
 const t = (n) => trainers.find((p) => p.display_name === n)?.id;
-if (!(await call('/admin/classes', { token: admin })).data.classes.length) {
-  for (const [disc, trainer, weekday, time, cap] of [
-    ['Judo', 'Marc Soler', 1, '19:00', 16],
-    ['Judo', 'Marc Soler', 3, '19:00', 16],
-    ['Jiu-Jitsu', 'Sensei Marta', 2, '20:00', 12],
-    ['Jiu-Jitsu', 'Sensei Marta', 4, '20:00', 12],
-    ['Karate infantil', 'Sensei Marta', 5, '17:30', 14],
-  ]) {
-    must(await call('/admin/classes', { method: 'POST', token: admin, body: { discipline_id: D[disc], trainer_id: t(trainer), weekday, start_time: time, duration_min: 60, capacity: cap, location: 'Tatami 1' } }), `clase ${disc} ${weekday}`);
-  }
+const have = new Set((await call('/admin/classes', { token: admin })).data.classes.map((c) => String(c.discipline_id)));
+for (const [disc, trainer, weekday, time, cap] of [
+  ['Boxeo', 'Marc Soler', 1, '19:00', 16],
+  ['Boxeo', 'Marc Soler', 3, '19:00', 16],
+  ['BJJ/Grappling', 'Sensei Marta', 2, '20:00', 12],
+  ['BJJ/Grappling', 'Sensei Marta', 4, '20:00', 12],
+  ['Muay Thai', 'Marc Soler', 2, '20:00', 14],
+  ['Muay Thai', 'Marc Soler', 4, '20:00', 14],
+  ['Muay Thai Kids', 'Sensei Marta', 1, '16:00', 14],
+  ['Muay Thai Kids', 'Sensei Marta', 3, '16:00', 14],
+]) {
+  if (have.has(String(D[disc]))) continue;
+  must(await call('/admin/classes', { method: 'POST', token: admin, body: { discipline_id: D[disc], trainer_id: t(trainer), weekday, start_time: time, duration_min: 60, capacity: cap, location: 'Tatami 1' } }), `clase ${disc} ${weekday}`);
 }
 
 // Documentos legales: PDFs mínimos de prueba, versión 1.0 de cada tipo, publicados.
 const pdf = (text) => Buffer.from(`%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 150]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n% ${text}\n`);
 for (const type of ['waiver', 'data_protection', 'rights_of_image']) {
-  must(await call(`/admin/agreements/documents?type=${type}&version=1.0`, { method: 'POST', token: admin, raw: pdf(`${type} 1.0 · documento de prueba de staging`) }), `subir ${type}`, ['duplicate_document']);
+  must(await call(`/admin/agreements/documents?type=${type}&version=1.0`, { method: 'POST', token: admin, raw: pdf(`${type} 1.0 · documento de prueba de staging`) }), `subir ${type}`, ['duplicate_document', 'version_exists_different_content']);
 }
 for (const d of (await call('/admin/agreements/documents', { token: admin })).data.documents.filter((d) => d.status === 'created')) {
   must(await call(`/admin/agreements/documents/${d.id}/publish`, { method: 'POST', token: admin }), `publicar ${d.type}`, ['already_published']);

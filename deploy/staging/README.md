@@ -81,8 +81,8 @@ npm run staging:seed        # en otra terminal, con la API ya en marcha
 ```
 
 El seed es repetible e imprime las cuentas (contraseña: `SEED_PASSWORD`): admin, 2 profesores, 2 alumnos y un tutor con un hijo
-menor; 3 disciplinas, 4 planes (crean Products y Prices en el sandbox), el seguro con sus precios, 5 clases (con sus sesiones a
-un año) y los 3 documentos legales publicados (PDFs de prueba). **El perfil del alumno sale incompleto a propósito** (ficha
+menor; 4 disciplinas con su temática de medallas (Boxeo, BJJ/Grappling, Muay Thai y Muay Thai Kids, solo menores), 4 planes (crean
+Products y Prices en el sandbox), el seguro con sus precios, 8 clases (2 a la semana por disciplina, con sus sesiones a un año) y los 3 documentos legales publicados (PDFs de prueba). **El perfil del alumno sale incompleto a propósito** (ficha
 médica, acuerdos): es parte de lo que el cliente prueba.
 
 ---
@@ -220,27 +220,55 @@ Y repite el paso 1.4. Los roles de la BD solo se crean cuando el volumen está v
 
 ## Datos de demo
 
-`npm run staging:medals [-- <código>]` crea o rehace «Demo Medallas» (`medallas@staging.test`, contraseña `SEED_PASSWORD`) con las
-once medallas: asistencia de 2024 (1060 h, 53 semanas seguidas) en una disciplina desactivada propia, fuera del calendario y de los
-informes recientes. Al entrar sale a pantalla completa `<código>` (por defecto `hours_1000`); las demás se ven tocándolas en Progreso.
-Volver a ejecutarlo repite el momento. La cuenta es pública y compite, con 8 rivales: los alumnos adultos de
-`staging:demo` con más horas pasan a públicos con ranking y logros (tras otro `staging:demo`, se repite este). Necesita la API de
-staging en marcha.
+`npm run staging:reset` (`staging:migrate` + `staging:seed` + `staging:demo` + `staging:medals`) lo deja todo montado con la API de
+staging en marcha. **No borra nada**: la BD vacía la dejas tú antes, a mano (solo staging; la de desarrollo no se toca):
 
-`npm run staging:demo` llena el staging con una academia mediana de 3 meses, para ver el panel del admin con cifras. Necesita el
+```bash
+docker exec -it kaizen-staging-db psql -U postgres -d kaizen_staging <<'SQL'
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;
+GRANT USAGE, CREATE ON SCHEMA public TO migrator, service_role;
+GRANT USAGE ON SCHEMA public TO app_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE migrator IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE migrator IN SCHEMA public GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE migrator IN SCHEMA public GRANT SELECT, USAGE ON SEQUENCES TO app_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE migrator IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+SQL
+```
+
+(Son los `GRANT` y `ALTER DEFAULT PRIVILEGES` de `init-roles.sh`; los roles y la base no se tocan.) Luego `npm run staging:reset`, que también deja las medallas de la demo (abajo).
+
+**En local** (BD de desarrollo `:5432`): arranca una API aparte, `PORT=3001 npx dotenv -e .env -- node src/index.js`, y en otra
+terminal `npm run local:seed`, `local:demo` y `local:medals` (como los de staging, con el `.env` y la API en `:3001`). La
+contraseña de las cuentas es `SEED_PASSWORD` si la exportas, o `kaizen-local-1`. Los scripts solo aceptan `kaizen_staging` (`:5433`)
+o `kaizen_db` (`:5432`).
+
+`npm run staging:medals [-- <código>]` crea o rehace dos cuentas (contraseña `SEED_PASSWORD`), con las once medallas en cada disciplina:
+
+- **`medallas@staging.test`** (adulto «Demo Medallas»): asistencia de 2024 en Boxeo, BJJ/Grappling y Muay Thai (1060 h y 53 semanas
+  seguidas en cada una). Al entrar salen **3 medallas nuevas**, una por disciplina (`<código>`, por defecto `hours_1000`); las demás
+  se ven tocándolas en Progreso. Es pública y compite, con 8 rivales (los alumnos adultos de `staging:demo` con más horas pasan a
+  públicos con ranking y logros; tras otro `staging:demo`, se repite este).
+- **`tutor.medallas@staging.test`** (tutor) con su hijo **Nico** (2016) y las once en Muay Thai Kids. Para enseñarlo: entrar como
+  tutor, **elegir a Nico** en el selector y sale su medalla nueva. Nico nunca es público.
+
+Es la historia de 2024, fuera del calendario y de los informes recientes. La disciplina de la versión anterior («Demo medallas (no
+tocar)») se desactiva y se le quitan sus sesiones. Volver a ejecutarlo repite el momento. Necesita la API en marcha.
+
+`npm run staging:demo` llena el staging con una academia mediana de 6 meses, para ver el panel del admin con cifras. Necesita el
 seed hecho (`npm run staging:seed`: disciplinas, planes, clases y profes) y la BD de staging en marcha. Crea:
 
-- 40 alumnos adultos con cuota (30 activas, 3 en gracia `past_due`, 3 impagadas `unpaid`, 4 bajas repartidas en los 3 meses), 6 tutores
-  con 10 menores (cuota Infantil activa), altas repartidas en 90 días y 3 de hoy. 6 alumnos activos no vienen desde hace más de 14 días.
-- Sesiones pasadas (90 días) de las clases que ya hay, reservas confirmadas (sin pasar el aforo) en pasadas y futuras (hasta +14 días)
+- 40 alumnos adultos con cuota (30 activas, 3 en gracia `past_due`, 3 impagadas `unpaid`, 4 bajas repartidas en los 6 meses), 6 tutores
+  con 10 menores (cuota Infantil activa), altas repartidas en 180 días y 3 de hoy. 6 alumnos activos no vienen desde hace más de 14 días.
+- Sesiones pasadas (180 días) de las clases que ya hay, reservas confirmadas (sin pasar el aforo) en pasadas y futuras (hasta +14 días)
   y asistencia `present`/`absent` (~80 % presentes) en las que ya han empezado.
 - 3 eventos: 2 próximos (uno gratis, otro de pago) con inscritos confirmados, y 1 pasado.
 - Auditoría `subscription.create` / `subscription.cancel_now` por cada alta y baja (alimenta «Hoy en la academia»), y las fotos diarias
-  de `academy_stats_daily` de los 90 días anteriores a ayer (sintéticas); ayer y hoy salen de `academy_stats_of`.
+  de `academy_stats_daily` de los 180 días anteriores a ayer (sintéticas); ayer y hoy salen de `academy_stats_of`.
 
 Es **repetible**: todo lo de demo lleva un id que empieza por `de0a0000-` (emails `@demo.kaizen.test`, sin contraseña: no se puede
 entrar con ellos) y cada ejecución lo borra y lo recrea en una transacción; lo que no es de demo no se toca (ni las cuentas del seed).
-Se niega a correr si la `DATABASE_URL_SERVICE` no es `kaizen_staging` en el `:5433` o si la clave de Stripe no es de prueba.
+Se niega a correr si la `DATABASE_URL_SERVICE` no es `kaizen_staging` en el `:5433` (ni `kaizen_db` en el `:5432`) o si la clave de Stripe no es de prueba.
 
 **No toca Stripe.** Las cuotas llevan ids falsos (`sub_test_demo_*`, `cus_test_demo_*`): no tienen portal de facturación ni reciben
 webhooks, y no hay facturas. Sirven para mirar, no para cobrar, cancelar ni cambiar de plan desde la app.
