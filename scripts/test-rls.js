@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import pg from 'pg';
 import { servicePool, closePools } from '../src/config/database.js';
 import { withRls } from '../src/db/rls.js';
 
@@ -312,6 +313,23 @@ async function main() {
     // B20 (M1): una tabla temporal tapa la real dentro de las funciones SECURITY DEFINER (search_path sin pg_temp al final).
     await run('B20 — app_user no crea tablas temporales (no puede tapar las de las funciones SECURITY DEFINER)', async () => {
       await expectDenied(withCtx(alumno, (c) => c.query(`CREATE TEMP TABLE guardianships (tutor_id uuid, minor_id uuid)`)));
+    });
+
+    // B20 (M2): lo que crea migrator ya no da nada a app_user por defecto; cada migración da sus permisos.
+    await run('B20 — una tabla nueva de migrator no da nada a app_user (ni su secuencia)', async () => {
+      const m = new pg.Client({ connectionString: process.env.DATABASE_URL });
+      await m.connect();
+      try {
+        await m.query('BEGIN');
+        await m.query('CREATE TABLE b20_m2_probe (id serial)');
+        const { rows: [r] } = await m.query(
+          `SELECT has_table_privilege('app_user', 'b20_m2_probe', 'SELECT, INSERT, UPDATE, DELETE') AS tbl,
+                  has_sequence_privilege('app_user', 'b20_m2_probe_id_seq', 'SELECT, USAGE') AS seq`);
+        assert.deepEqual(r, { tbl: false, seq: false });
+      } finally {
+        await m.query('ROLLBACK').catch(() => {});
+        await m.end();
+      }
     });
 
     await run('service_role se salta RLS y lee auth_credentials', async () => {

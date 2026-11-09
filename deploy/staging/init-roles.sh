@@ -15,6 +15,7 @@ GRANT USAGE, CREATE ON SCHEMA public TO migrator, service_role;
 GRANT USAGE ON SCHEMA public TO app_user;
 SQL
 # Privilegios por defecto de lo que cree migrator (iguales a los de la base local): las migraciones los usan con SET ROLE.
+# Los de app_user los necesitan las migraciones 001–039; la 040 los quita (B20, M2) y desde ahí cada migración da los suyos.
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname kaizen_staging <<SQL
 ALTER DEFAULT PRIVILEGES FOR ROLE migrator IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;
 ALTER DEFAULT PRIVILEGES FOR ROLE migrator IN SCHEMA public GRANT ALL ON TABLES TO service_role;

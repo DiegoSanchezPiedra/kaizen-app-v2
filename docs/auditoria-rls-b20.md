@@ -18,7 +18,7 @@ ponerse `admin`. Por eso lo que solo se aprovecha con SQL arbitrario queda en Me
 | --- | --- | --- | --- |
 | A1 | Alta | `profiles`: `UPDATE` de cualquier columna propia (`stripe_customer_id`, `birth_date`…) | Arreglado (`038`) |
 | M1 | Media | Funciones `SECURITY DEFINER` sin `pg_temp` al final del `search_path` y `TEMPORARY` para todos | Arreglado (`039`) |
-| M2 | Media | Privilegios por defecto: `SELECT, INSERT, UPDATE, DELETE` a `app_user` en toda tabla nueva | Checklist |
+| M2 | Media | Privilegios por defecto: `SELECT, INSERT, UPDATE, DELETE` a `app_user` en toda tabla nueva | Arreglado (`040`) |
 | M3 | Media | `cash_payments` sin RLS y con todos los permisos para `app_user` | Checklist |
 | M4 | Media | `pgmigrations` sin RLS y con todos los permisos para `app_user` | Checklist |
 | M5 | Media | `auth_credentials`: `UPDATE` de cualquier columna propia (`email`, `email_verified`, `google_sub`…) | Checklist |
@@ -66,6 +66,11 @@ tampoco en las funciones que vengan; nadie las usaba. `migrator` conserva el suy
 causa de `events` en la 028, de M3 y M4, y de que muchas tablas tengan permisos más amplios que sus políticas
 (inofensivo con `FORCE`, pero confunde al auditar). Arreglo: quitar ese privilegio por defecto y dar los permisos en
 cada migración; para lo ya creado, revocar lo que ninguna política usa.
+
+Arreglado en la `040`: quita a `app_user` los privilegios por defecto de tablas y secuencias de `migrator`. Va en una
+migración y no en `init-roles.sh` porque las 001–039 los necesitan en una base nueva; desde la 040, cada migración da
+sus permisos a `app_user` explícitamente. Lo ya creado no cambia: los permisos que ninguna política usa son inofensivos
+con `FORCE`. `test:rls`: una tabla nueva de `migrator` no da nada a `app_user`, ni su secuencia.
 
 ### M3 — `cash_payments` (Media)
 
