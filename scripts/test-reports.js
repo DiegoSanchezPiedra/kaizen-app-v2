@@ -133,6 +133,7 @@ try {
     await F.book(s4, d, 'confirmed', 'present'); // cancelada: no cuenta
     const s5 = await F.session(X, local('2020-03-04 10:00'), { trainer: p });
     await F.book(s5, e, 'confirmed', 'present');
+    await F.book(s5, await F.person('alumno', { birth: '2015-01-01' }), 'confirmed', 'present'); // un hijo también cuenta
     const ev = (await c.query(
       `INSERT INTO events (title, starts_at, ends_at, location, trainer_id, created_by)
        VALUES ('x', ${local('2020-01-02 18:00')}, ${local('2020-01-02 19:00')}, 'x', $1, $1) RETURNING id`, [p])).rows[0].id;
@@ -143,8 +144,8 @@ try {
     assert.equal(day.trained, 2); // a (dos días) y b: distintos en el rango, no la suma
     assert.ok(day.rows.every((r) => !('mrr_cents' in r)));
     const month = await getSubscriptionStats(c, { group: 'month', from: '2020-01', to: '2020-03' });
-    assert.deepEqual(month.rows.map((r) => [r.month, r.trained]), [['2020-01', 2], ['2020-02', 0], ['2020-03', 1]]);
-    assert.equal(month.trained, 3);
+    assert.deepEqual(month.rows.map((r) => [r.month, r.trained]), [['2020-01', 2], ['2020-02', 0], ['2020-03', 2]]);
+    assert.equal(month.trained, 4);
     assert.ok(month.rows.every((r) => !('mrr_cents' in r)));
   }));
 
@@ -339,6 +340,9 @@ try {
   await run('admin: foto y alumnos por HTTP; un hijo sale solo con el nombre', async () => {
     const sub = await http('/admin/reports/subscriptions?group=day&from=2026-06-01&to=2026-06-02', 'admin');
     assert.deepEqual([sub.status, sub.body.rows.length], [200, 2]);
+    // Con la RLS del admin: el presente del hijo el 9 de junio cuenta.
+    const kid = await http('/admin/reports/subscriptions?group=day&from=2026-06-09&to=2026-06-09', 'admin');
+    assert.ok(kid.body.trained >= 1 && kid.body.rows[0].trained === kid.body.trained);
     const st = await http(`/admin/reports/students?${Q}&discipline_id=${D}`, 'admin');
     assert.deepEqual(st.body.rows.map((r) => Object.keys(r)), [['id', 'name', 'bookings', 'present', 'absent', 'unrecorded', 'late']]);
     assert.equal(st.body.rows[0].id, who.child);

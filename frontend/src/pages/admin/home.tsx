@@ -169,10 +169,10 @@ function Now({ home, now, className }: { home: UseQueryResult<AdminHome>; now: n
 
 // ── Cifras ───────────────────────────────────────────────────────────────────
 
-// La variación en % frente a `before`; sin base (before 0), la cifra de antes.
-function Delta({ now, before, vs, was }: { now: number; before: number; vs: string; was: string }) {
+// La variación en % frente a `before`, seguida de `suffix`; sin base (before 0), «`beforeLabel`: before».
+function Delta({ now, before, suffix, beforeLabel }: { now: number; before: number; suffix: string; beforeLabel: string }) {
   const pct = variation(now, before)
-  if (pct === null) return <span className="text-[13px] text-muted-foreground tabular-nums">{was}: {nf.format(before)}</span>
+  if (pct === null) return <span className="text-[13px] text-muted-foreground tabular-nums">{beforeLabel}: {nf.format(before)}</span>
   return (
     <span className="flex flex-wrap items-center gap-x-1.5 text-[13px] text-muted-foreground tabular-nums">
       <span className={cn('flex items-center gap-0.5 font-semibold', pct > 0 ? 'text-success' : pct < 0 && 'text-destructive')}>
@@ -180,7 +180,7 @@ function Delta({ now, before, vs, was }: { now: number; before: number; vs: stri
         {pct < 0 && <ArrowDownIcon className="size-3.5" aria-hidden="true" />}
         {signed.format(pct)} %
       </span>
-      {vs}
+      {suffix}
     </span>
   )
 }
@@ -210,13 +210,13 @@ function Figures({ home, className }: { home: UseQueryResult<AdminHome>; classNa
               value: nf.format(d.trained.last_30),
               to: '/admin/reports',
               spark: d.trained.series,
-              extra: <Delta now={d.trained.last_30} before={d.trained.previous_30} vs="vs. 30 días anteriores" was="30 días antes" />,
+              extra: <Delta now={d.trained.last_30} before={d.trained.previous_30} suffix="vs. 30 días anteriores" beforeLabel="30 días antes" />,
             },
             {
               label: 'Asistencias hoy',
               value: nf.format(d.attendance.today),
               to: '/admin/reports?tab=students',
-              extra: <Delta now={d.attendance.today} before={d.attendance.last_week} vs="vs. hace 7 días" was="Hace 7 días" />,
+              extra: <Delta now={d.attendance.today} before={d.attendance.last_week} suffix="vs. hace 7 días" beforeLabel="Hace 7 días" />,
             },
           ]
           return (

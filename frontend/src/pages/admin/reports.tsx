@@ -60,9 +60,7 @@ function SubscriptionsTab() {
   const stale = report.data?.group === 'day' && latestStat(rows as DayStat[])?.stale
   const maxSubs = niceMax(Math.max(...rows.map((r) => (r.active ?? 0) + (r.past_due ?? 0) + (r.unpaid ?? 0))))
   const maxTrained = niceMax(Math.max(...rows.map((r) => r.trained)))
-  const withCoverage = (r: Stat, lines: string[]) => [...lines, ...(coverage(r) ? [coverage(r)!] : [])]
-  // Lo de la foto dice «Sin dato» sin foto; `trained` es en vivo y siempre tiene valor (usa withCoverage).
-  const tip = (r: Stat, lines: string[]) => (hasData(r) ? withCoverage(r, lines) : [NO_DATA])
+  const tip = (r: Stat, lines: string[]) => (hasData(r) ? [...lines, ...(coverage(r) ? [coverage(r)!] : [])] : [NO_DATA])
 
   return (
     <div className="flex flex-col gap-5">
@@ -121,7 +119,8 @@ function SubscriptionsTab() {
                 name={statName}
                 short={(r) => statShort(r, rows.indexOf(r))}
                 stack={(r) => [{ cls: 'bg-(--s-occ)', v: r.trained }]}
-                tip={(r) => withCoverage(r, [`Entrenaron: ${nf.format(r.trained)}`])}
+                // En vivo, no de la foto: ni «Sin dato» ni la cobertura de fotos del mes.
+                tip={(r) => [`Entrenaron: ${nf.format(r.trained)}`]}
                 labelLast={(r) => nf.format(r.trained)}
               />
             </div>

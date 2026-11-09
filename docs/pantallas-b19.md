@@ -74,9 +74,9 @@ Los de `docs/pantallas-b18.md` (cargando, vacío, error, sin conexión, sin perm
 
 Un vistazo y lo que pide atención. Todo enlaza a su pantalla. Sin MFA, el aviso de «Activa el doble factor» va arriba del todo.
 
-- **Cifras** (cuatro tarjetas): suscripciones activas, en periodo de gracia, impagadas y alumnos que entrenaron en el rango (B24.2: sin MRR; los ingresos se ven en Stripe)
-  (`GET /admin/reports/subscriptions?group=day`, la última fila no nula, con una línea de los 30 días). Día sin foto:
-  «sin dato de ayer» y la fecha de la última.
+- **Cifras** (cuatro tarjetas, B23/B24.2): alumnos activos (con la línea de 30 días de la foto, `GET /admin/reports/subscriptions?group=day`),
+  impago, **Entrenaron (30 días)** (alumnos que entrenaron en los últimos 30 días, % frente a los 30 anteriores y la serie
+  móvil de 30 días, de `GET /admin/home` `trained`) y asistencias de hoy. Sin MRR: los ingresos se ven en Stripe.
 - **Requiere atención** (lista con contadores, cada uno con `limit=1` para leer el `total`):
   - morosos (`GET /admin/billing/delinquents`) y en gracia (`GET /admin/billing/grace`);
   - cambios de pagador caducados en los últimos 30 días (`GET /admin/payer-changes?status=expired&from=`, **B19.1**);
