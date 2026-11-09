@@ -42,7 +42,7 @@ function Progress({ subject, profileId }: { subject: Subject | null; profileId?:
             {d && (
               <>
                 {p.disciplines.length > 1 && <DisciplinePicker disciplines={p.disciplines} value={d.id} onChange={setChosen} />}
-                <NextMedal key={d.id} d={d} />
+                <NextMedal key={d.id} d={d} name={subject && !subject.self ? name : undefined} />
               </>
             )}
             {none && (
@@ -114,7 +114,7 @@ function DisciplinePicker({ disciplines, value, onChange }: { disciplines: Disci
 }
 
 // La próxima medalla de horas de la disciplina, protagonista con su anillo; debajo, la de constancia en pequeño.
-function NextMedal({ d }: { d: DisciplineMedals }) {
+function NextMedal({ d, name }: { d: DisciplineMedals; name?: string }) {
   const codes = new Set(d.badges.map((b) => b.code))
   const hours = nextMedal(d.theme, 'hours', codes)
   const streak = nextMedal(d.theme, 'streak', codes)
@@ -127,7 +127,7 @@ function NextMedal({ d }: { d: DisciplineMedals }) {
       <p className="text-sm font-bold tracking-wider text-white/80 uppercase">
         {d.name} · {themeOf(d.theme).series}
       </p>
-      <p className="-mt-1.5 text-xs text-white/70">{hours ? 'Tu próxima medalla' : 'Medallas de horas'}</p>
+      <p className="-mt-1.5 text-xs text-white/70">{hours ? (name ? `Próxima medalla de ${name}` : 'Tu próxima medalla') : 'Medallas de horas'}</p>
       {hours ? (
         <>
           <div className="relative grid size-40 place-items-center">
@@ -141,7 +141,7 @@ function NextMedal({ d }: { d: DisciplineMedals }) {
             {hours.name}
           </h3>
           {hours.at === 0 ? (
-            <p className="text-[15px]">Se consigue con tu primera sesión</p>
+            <p className="text-[15px]">Se consigue con {name ? 'su' : 'tu'} primera sesión</p>
           ) : (
             <Meter value={d.hours} max={hours.at} aria-label={`Horas hacia ${hours.name}`} className="w-full max-w-64 gap-1">
               <p className="text-[15px]">
@@ -168,7 +168,7 @@ function NextMedal({ d }: { d: DisciplineMedals }) {
             <MeterTrack className="h-2 rounded-full bg-white/15">
               <MeterIndicator className="rounded-full bg-ki" />
             </MeterTrack>
-            <p className="text-left text-xs text-white/75">Según tu mejor racha en {d.name}</p>
+            <p className="text-left text-xs text-white/75">Según {name ? 'su' : 'tu'} mejor racha en {d.name}</p>
           </Meter>
         ) : (
           <p className="text-sm font-semibold">Medallas de constancia: todas conseguidas</p>

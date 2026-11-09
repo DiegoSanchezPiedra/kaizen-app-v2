@@ -26,7 +26,7 @@ export function StreakPanel({ current, best, subject, large }: { current: number
             </span>
             <span className="text-base font-semibold">{label}</span>
           </p>
-          <p className="text-sm text-white/80">Tu mejor racha: {best}</p>
+          <p className="text-sm text-white/80">{subject ? 'Su' : 'Tu'} mejor racha: {best}</p>
         </div>
       </div>
     </section>

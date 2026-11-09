@@ -119,7 +119,7 @@ function body(shape: Shape, m: MedalInfo, c: Palette, ink: string, dots: string,
           <path d="M18 33c0 2 6 3.5 14 3.5S46 35 46 33s-6-2.6-14-2.6S18 31 18 33z" fill="#F2C14E" stroke={ink} strokeWidth="1.1" />
           <path d="M24 31c0-5 3.5-8.5 8-8.5s8 3.5 8 8.5" fill="#F2C14E" stroke={ink} strokeWidth="1.1" />
           <path d="M24.3 29.2c5 1.3 10.4 1.3 15.4 0" stroke={c.accent} strokeWidth="2.2" />
-          <text x="28" y="47" textAnchor="middle" fontSize="4.2" fontWeight="800" fill={ink} fontFamily="Georgia, serif" letterSpacing="0.4">
+          <text x="30" y="47" textAnchor="middle" fontSize="3.6" fontWeight="800" fill={ink} fontFamily="Georgia, serif">
             DEAD OR ALIVE
           </text>
           <Mark text={m.kind === 'hours' ? `฿${m.mark}` : m.mark} x={27} y={53} color={earned ? c.accent : ink} size={m.mark.length > 3 ? 8 : 9.5} />
