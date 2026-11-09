@@ -171,7 +171,7 @@ router.post(
       if (!ok) {
         throw httpError(401, 'invalid_mfa_code', 'invalid mfa code');
       }
-      const token = signToken({ sub: req.mfa.userId, role: req.mfa.role });
+      const token = signToken({ sub: req.mfa.userId, role: req.mfa.role, mfa: true });
       return res
         .status(200)
         .json({ token, user: { id: req.mfa.userId, role: req.mfa.role } });

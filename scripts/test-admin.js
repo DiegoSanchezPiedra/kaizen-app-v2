@@ -191,21 +191,37 @@ try {
       'tutor');
   });
   // B20 (B3): un admin con el doble factor activado da el rol admin, confirmándolo con su código; quitarlo, no.
-  await run('rol admin: solo un admin con doble factor y su código; desde la app no se quita', async () => {
-    const put = (body) => http('PUT', `/admin/profiles/${U.newadmin}/role`, 'admin', { role: 'admin', ...body });
+  // La sesión tiene que haber entrado con el doble factor (amr en el token, /auth/mfa/verify): activarlo a media sesión
+  // con un token robado no basta. Y 10 intentos de dar admin cada 15 min por IP, para no adivinar el código.
+  await run('rol admin: solo un admin que entró con doble factor y su código; desde la app no se quita', async () => {
+    const mfaToken = signToken({ sub: U.admin, role: 'admin', mfa: true });
+    const put = async (who, body, token = mfaToken) => {
+      const res = await fetch(`${base}/admin/profiles/${U[who]}/role`, { method: 'PUT', body: JSON.stringify({ role: 'admin', ...body }),
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` } });
+      return { status: res.status, body: await res.json() };
+    };
     const secret = new OTPAuth.Secret({ size: 20 });
     const totp = new OTPAuth.TOTP({ issuer: MFA_TOTP_ISSUER, label: U.admin, algorithm: 'SHA1', digits: 6, period: 30, secret });
     await servicePool.query(`INSERT INTO user_mfa (id, user_id, totp_secret_encrypted, recovery_codes_encrypted, mfa_enabled)
                              VALUES ($1, $2, $3, $4, true)`, [crypto.randomUUID(), U.admin, encrypt(secret.base32), encrypt('[]')]);
     try {
-      expectError(await put({}), 403, 'invalid_mfa_code');
-      expectError(await put({ mfa_code: totp.generate() === '000000' ? '111111' : '000000' }), 403, 'invalid_mfa_code');
+      // Con el doble factor activado pero un token sin amr (entró antes de activarlo): no.
+      expectError(await put('newadmin', { mfa_code: totp.generate() }, tokenOf('admin')), 403, 'mfa_login_required');
+      expectError(await put('newadmin', {}), 403, 'invalid_mfa_code');
+      expectError(await put('newadmin', { mfa_code: totp.generate() === '000000' ? '111111' : '000000' }), 403, 'invalid_mfa_code');
       assert.equal(await lastAudit('profile.role_change', U.newadmin), undefined);
-      const r = await put({ mfa_code: totp.generate() });
+      const r = await put('newadmin', { mfa_code: totp.generate() });
       assert.deepEqual([r.status, r.body.profile.role], [200, 'admin']);
       assert.deepEqual(await lastAudit('profile.role_change', U.newadmin),
         { actor_id: U.admin, resource_type: 'profile', changes: { from: 'alumno', to: 'admin' } });
       expectError(await http('PUT', `/admin/profiles/${U.newadmin}/role`, 'admin', { role: 'alumno' }), 409, 'admin_role_locked');
+      let limited;
+      for (let i = 0; i < 12 && !limited; i++) {
+        const res = await put('stu2', { mfa_code: 'xxxxxx' });
+        if (res.status === 429) limited = res;
+        else expectError(res, 403, 'invalid_mfa_code');
+      }
+      assert.equal(limited?.body.code, 'rate_limited');
     } finally {
       await servicePool.query(`DELETE FROM user_mfa WHERE user_id = $1`, [U.admin]);
     }

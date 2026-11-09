@@ -160,17 +160,11 @@ export async function getProfile(client, { id, actorId }) {
 
 /**
  * Cambiar el rol entre alumno, tutor y profesor, o dar el de admin (CONTEXT § Cambiar el rol). Vale al momento
- * (requireAuth). Dar admin exige el doble factor del admin activado y su código en esta petición: un token robado no
- * basta (B20, B3). Quitar admin no se hace desde la app.
+ * (requireAuth). Dar admin exige el doble factor del admin activado, una sesión que entró con él (mfaSession: un token
+ * robado de antes de activarlo no basta) y su código en esta petición (B20, B3). Quitar admin no se hace desde la app.
  */
-export async function changeRole(client, { id, role, actorId, mfaCode }) {
+export async function changeRole(client, { id, role, actorId, mfaSession, mfaCode }) {
   if (!SETTABLE.includes(role)) throw invalid('role', 'role debe ser alumno, tutor, profesor o admin');
-  if (role === 'admin') {
-    if (!(await getMfaStatus(client, actorId)).enabled) {
-      throw httpError(403, 'mfa_required', 'Activa el doble factor para dar el rol de admin');
-    }
-    if (!(await verifyMfaCode(client, actorId, mfaCode))) throw httpError(403, 'invalid_mfa_code', 'El código no es correcto');
-  }
   const { rows: [p] } = await client.query(
     `SELECT ${ROLE} AS role, c.profile_id IS NOT NULL AS has_access ${FROM} WHERE p.id = $1 FOR UPDATE OF p`, [id]);
   if (!p) throw notFound();
@@ -190,6 +184,14 @@ export async function changeRole(client, { id, role, actorId, mfaCode }) {
       `SELECT EXISTS (SELECT 1 FROM subscriptions WHERE student_id = $1 AND status IN ${LIVE})
            OR EXISTS (SELECT 1 FROM insurances WHERE student_id = $1 AND status IN ${LIVE}) AS live`, [id]);
     if (live.live) throw conflict('student_has_subscription', 'Tiene una suscripción o un seguro vivos');
+  }
+  // El código, lo último: si algo más falla, no se ha probado (un código de recuperación no se gasta sin dar el rol).
+  if (role === 'admin') {
+    if (!(await getMfaStatus(client, actorId)).enabled) {
+      throw httpError(403, 'mfa_required', 'Activa el doble factor para dar el rol de admin');
+    }
+    if (!mfaSession) throw httpError(403, 'mfa_login_required', 'Vuelve a entrar con el doble factor para dar el rol de admin');
+    if (!(await verifyMfaCode(client, actorId, mfaCode))) throw httpError(403, 'invalid_mfa_code', 'El código no es correcto');
   }
   await client.query(
     `INSERT INTO user_roles (user_id, role) VALUES ($1, $2)

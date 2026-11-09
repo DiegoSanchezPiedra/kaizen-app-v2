@@ -33,7 +33,7 @@ export async function requireAuth(req, res, next) {
     if (u.changed !== null && !(payload.iat >= Number(u.changed))) { // sin iat, también fuera
       return next(httpError(401, 'session_revoked', 'session revoked'));
     }
-    req.user = { id: payload.sub, role: u.role ?? 'alumno' };
+    req.user = { id: payload.sub, role: u.role ?? 'alumno', mfa: Array.isArray(payload.amr) && payload.amr.includes('mfa') };
   } catch (err) {
     return next(err);
   }
