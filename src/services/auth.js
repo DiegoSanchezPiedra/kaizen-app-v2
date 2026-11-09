@@ -228,7 +228,9 @@ export async function changePassword(client, userId, { current_password: current
   for (const [field, v] of [['current_password', current], ['new_password', next]]) {
     if (typeof v !== 'string' || !v) throw httpError(400, 'invalid_field', `${field} es obligatorio`, { field });
   }
-  const { rows: [cred] } = await client.query(`SELECT email, password_hash FROM auth_credentials WHERE profile_id = $1`, [userId]);
+  // own_password_hash(): app_user no lee password_hash (B20, B9); la función da solo la propia.
+  const { rows: [cred] } = await client.query(
+    `SELECT email, own_password_hash() AS password_hash FROM auth_credentials WHERE profile_id = $1`, [userId]);
   if (!cred?.password_hash) throw httpError(409, 'no_password', 'la cuenta no tiene contraseña: créala con el email de restablecer');
   if (!(await verifyPassword(cred.password_hash, current))) throw httpError(400, 'wrong_password', 'la contraseña actual no es correcta');
   assertStrongPassword(next);

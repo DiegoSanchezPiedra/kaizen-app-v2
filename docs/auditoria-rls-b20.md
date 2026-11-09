@@ -31,7 +31,7 @@ ponerse `admin`. Por eso lo que solo se aprovecha con SQL arbitrario queda en Me
 | B6 | Baja | `medal_views` y `webhook_events` sin RLS | Arreglado (`047`) |
 | B7 | Baja | El tutor sigue leyendo reservas, asistencia y progreso del hijo con 18 sin reclamar | Arreglado (`048`) |
 | B8 | Baja | El admin cambia un documento de acuerdo ya publicado | Arreglado (`049`) |
-| B9 | Baja | El admin lee `password_hash` y el secreto MFA cifrado de cualquiera | Checklist (pide una función) |
+| B9 | Baja | El admin lee `password_hash` y el secreto MFA cifrado de cualquiera | Arreglado (`052`) |
 | B10 | Baja | El profesor ve todas las clases | Arreglado (`050`) |
 
 ### A1 — `profiles`: cualquier columna propia (Alta, arreglado)
@@ -135,6 +135,7 @@ Arreglado en la `044`: `profiles_select` pierde la rama del profesor (solo ve su
   Arreglado en la `049`: trigger `agreement_documents_guard`: con `app_user`, a un documento publicado solo se le pone `retired_at` (el resto de la fila, comparada como `jsonb`, no cambia) y uno retirado ya no cambia. Los borradores y el `servicePool` siguen igual. `test:rls`.
 - **B9**: el admin lee `password_hash` de `auth_credentials` y el secreto MFA (cifrado) de `user_mfa` de cualquiera; la
   API solo necesita el email.
+  Arreglado en la `052`: nadie lee `password_hash` con `app_user` (`SELECT` por columna): `has_password` (columna generada) dice si la hay, para `/me` y la ficha del admin, y `own_password_hash()` (`SECURITY DEFINER`) da solo la propia al cambio de contraseña; el login sigue con el `servicePool`. `user_mfa` solo la lee, cambia o borra su dueño (políticas `…_self`). `test:rls`.
 - **B10**: `classes_select` deja a cualquier autenticado, también al profesor, ver todas las clases; en el calendario el
   profesor solo ve sus sesiones. Es el horario semanal.
   Arreglado en la `050`: `classes_select`: el profesor ve sus clases y las de las sesiones que imparte como sustituto (su informe por clase lee el día y el profesor habitual: con solo las suyas se rompía, `test-reports.js`); el resto de roles, igual. `test:classes`.

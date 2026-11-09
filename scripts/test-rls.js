@@ -70,6 +70,9 @@ async function seed() {
       [a, b, pub, professor, admin, tutor, child, yearsAgo(30), yearsAgo(10)]
     );
     await c.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [tutor, child]);
+    // B20 (B9): A tiene el doble factor activado.
+    await c.query(`INSERT INTO user_mfa (id, user_id, totp_secret_encrypted, recovery_codes_encrypted, mfa_enabled)
+                   VALUES ($1, $2, 'x', 'x', true)`, [crypto.randomUUID(), a]);
     await c.query(
       `INSERT INTO auth_credentials (profile_id, email, password_hash) VALUES
          ($1,$2,'x'),($3,$4,'x')`,
@@ -118,6 +121,7 @@ async function cleanup(ids) {
     await c.query(`DELETE FROM user_agreements WHERE profile_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM student_health_info WHERE profile_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM audit_log WHERE actor_id = ANY($1::uuid[])`, [arr]);
+    await c.query(`DELETE FROM user_mfa WHERE user_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM user_roles WHERE user_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM auth_credentials WHERE profile_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM profiles WHERE id = ANY($1::uuid[])`, [arr]);
@@ -430,6 +434,27 @@ async function main() {
         assert.equal((await c.query(`UPDATE user_roles SET role = 'alumno' WHERE user_id = $1`, [ids.b])).rowCount, 0);
         assert.equal((await c.query(`DELETE FROM user_roles WHERE user_id = $1`, [ids.b])).rowCount, 0);
       });
+    });
+
+    // B20 (B9): nadie lee password_hash con app_user (has_password y own_password_hash() en su lugar).
+    await run('B20 — nadie lee password_hash con app_user; cada uno el suyo por own_password_hash()', async () => {
+      const hash = `SELECT password_hash FROM auth_credentials WHERE profile_id = $1`;
+      await expectDenied(withCtx(admin, (c) => c.query(hash, [ids.a])));
+      await expectDenied(withCtx(alumno, (c) => c.query(hash, [ids.a])));
+      const { rows: [r] } = await withCtx(admin, (c) =>
+        c.query(`SELECT has_password FROM auth_credentials WHERE profile_id = $1`, [ids.a]));
+      assert.equal(r.has_password, true);
+      const { rows: [h] } = await withCtx(alumno, (c) => c.query(`SELECT own_password_hash() AS h`));
+      assert.equal(h.h, 'x');
+    });
+
+    // B20 (B9): el doble factor (secreto cifrado y códigos de recuperación) solo lo ve y lo toca su dueño.
+    await run('B20 — el doble factor de cada uno solo lo ve y lo toca él (tampoco el admin)', async () => {
+      const n = (ctx, sql) => withCtx(ctx, async (c) => (await c.query(sql, [ids.a])).rowCount);
+      assert.equal(await n(alumno, `SELECT 1 FROM user_mfa WHERE user_id = $1`), 1);
+      assert.deepEqual([await n(admin, `SELECT 1 FROM user_mfa WHERE user_id = $1`),
+        await n(admin, `UPDATE user_mfa SET mfa_enabled = false WHERE user_id = $1`),
+        await n(admin, `DELETE FROM user_mfa WHERE user_id = $1`)], [0, 0, 0]);
     });
 
     await run('service_role se salta RLS y lee auth_credentials', async () => {

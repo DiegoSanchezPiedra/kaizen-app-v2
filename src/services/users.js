@@ -110,7 +110,7 @@ async function profileRow(client, id) {
   const { rows: [row] } = await client.query(
     `SELECT p.id, p.display_name, p.avatar, c.email, ${ROLE} AS role, p.created_at, ${MINOR} AS is_minor,
             ${PENDING_CLAIM} AS pending_claim, COALESCE(p.is_public, false) AS is_public,
-            COALESCE(c.password_hash IS NOT NULL, false) AS has_password,
+            COALESCE(c.has_password, false) AS has_password,
             COALESCE(c.google_sub IS NOT NULL, false) AS has_google
        ${FROM} WHERE p.id = $1`, [id]);
   if (!row) throw notFound();
