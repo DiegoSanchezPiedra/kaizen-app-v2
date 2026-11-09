@@ -79,6 +79,20 @@ try {
   let present = 0;
   for (const [d, hours] of [[boxeo, [6, 15]], [bjj, [9, 18]], [mt, [12, 21]]]) present += await fill(d, profe1, alu, alu, hours);
   present += await fill(kids, profe2, nico.id, tut, [10, 18]);
+  // Racha actual: un presente por semana, el miércoles a las 12:00 de Madrid, en las últimas n semanas completas (-n..-1).
+  // Se borran con el resto (sin clase y con reserva de estas cuentas). shortcut: si staging ya tiene una sesión del profe ese miércoles a esa hora, el solape aborta el script; cambiar la hora.
+  const recent = async (d, prof, student, booker, n) => (await db.query(`
+    WITH s AS (
+      INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status)
+      SELECT $1, $2, t, t + interval '60 minutes', 60, 10, 'scheduled'
+        FROM generate_series(1, $5::int) k,
+             LATERAL (SELECT (date_trunc('week', now() AT TIME ZONE 'Europe/Madrid') - k * interval '7 days' + interval '2 days 12 hours') AT TIME ZONE 'Europe/Madrid' AS t) x
+      RETURNING id),
+    b AS (INSERT INTO bookings (session_id, student_id, booked_by, status) SELECT id, $3, $4, 'confirmed' FROM s RETURNING id, session_id)
+    INSERT INTO attendance (session_id, student_id, booking_id, status, method) SELECT session_id, $3, id, 'present', 'manual' FROM b`,
+  [d, prof, student, booker, n])).rowCount;
+  present += await recent(mt, profe1, alu, alu, 13);
+  present += await recent(kids, profe2, nico.id, tut, 5);
 
   // El adulto, público y compitiendo (ranking y logros), para verse en los rankings de medallas y en Comunidad. Nico, nunca.
   await db.query(`UPDATE profiles SET is_public = true, visible_fields = COALESCE(visible_fields, '{}') || '{"ranking": true, "achievements": true}' WHERE id = $1`, [alu]);
