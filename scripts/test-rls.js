@@ -399,6 +399,27 @@ async function main() {
       assert.deepEqual(rows.map((r) => r.relname), []);
     });
 
+    // B20 (B8): las firmas apuntan a tipo y versión; un documento publicado no se cambia, solo se retira.
+    await run('B20 — un documento publicado solo se retira (ni el admin cambia versión, checksum, ruta ni lo despublica)', async () => {
+      await withCtx(admin, async (c) => {
+        const codeOf = async (sql, params) => {
+          await c.query('SAVEPOINT s');
+          try { await c.query(sql, params); return null; } catch (e) { return e.code; } finally { await c.query('ROLLBACK TO SAVEPOINT s'); }
+        };
+        const id = crypto.randomUUID();
+        // Como publishDocument: se retira el vigente y se publica el nuevo (todo se deshace al final).
+        await c.query(`UPDATE agreement_documents SET retired_at = now()
+                        WHERE type = 'waiver' AND published_at IS NOT NULL AND retired_at IS NULL`);
+        await c.query(`INSERT INTO agreement_documents (id, type, version, storage_path, checksum, published_at, published_by)
+                       VALUES ($1, 'waiver', $2, 'x.pdf', 'x', now(), $3)`, [id, `9.${Date.now()}`, ids.admin]);
+        for (const set of [`version = '0.1'`, `checksum = 'y'`, `storage_path = 'y.pdf'`, 'published_at = NULL', 'published_by = NULL']) {
+          assert.equal(await codeOf(`UPDATE agreement_documents SET ${set} WHERE id = $1`, [id]), '42501', set);
+        }
+        await c.query(`UPDATE agreement_documents SET retired_at = now() WHERE id = $1`, [id]);
+        assert.equal(await codeOf(`UPDATE agreement_documents SET retired_at = NULL WHERE id = $1`, [id]), '42501');
+      });
+    });
+
     await run('service_role se salta RLS y lee auth_credentials', async () => {
       const { rows } = await withServiceCommit((c) =>
         c.query(`SELECT profile_id FROM auth_credentials WHERE profile_id = $1`, [ids.b])
