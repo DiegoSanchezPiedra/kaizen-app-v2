@@ -146,7 +146,7 @@ function DisciplineSheet({ d, onClose }: { d: Discipline | null; onClose: () => 
 
 type MedalTheme = { code: string; name: string; discipline_id: string | null }
 
-// Temática de medallas (036): Kaizen, la suya y las libres (sin otra disciplina activa) que ya tienen arte. Cada
+// Temática de medallas (036), en una columna (el panel es estrecho también en escritorio): Kaizen, la suya y las libres (sin otra disciplina activa) que ya tienen arte. Cada
 // opción enseña su primera medalla y su última de horas. Una temática solo está en una disciplina activa a la vez.
 function ThemePicker({ id, value, onChange }: { id?: number | string; value: string | null; onChange: (v: string | null) => void }) {
   const themes = useQuery({ queryKey: ['admin', 'medal-themes'], queryFn: () => api<{ themes: MedalTheme[] }>('/admin/medal-themes').then((r) => r.themes) })
@@ -159,7 +159,7 @@ function ThemePicker({ id, value, onChange }: { id?: number | string; value: str
       {themes.isPending ? (
         <ListSkeleton rows={3} className="h-16" />
       ) : (
-        <RadioGroup value={value ?? ''} onValueChange={(v) => onChange((v as string) || null)} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <RadioGroup value={value ?? ''} onValueChange={(v) => onChange((v as string) || null)} className="grid grid-cols-1 gap-2">
           {options.map((t) => {
             const first = medalOf(t.code || null, 'first_day')!
             const last = medalOf(t.code || null, 'hours_1000')!
