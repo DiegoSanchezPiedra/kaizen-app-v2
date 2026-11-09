@@ -57,14 +57,18 @@ async function seed() {
   const pub = crypto.randomUUID();
   const professor = crypto.randomUUID();
   const admin = crypto.randomUUID();
+  const tutor = crypto.randomUUID();
+  const child = crypto.randomUUID();
 
   await withServiceCommit(async (c) => {
+    // B20: B sin fecha de nacimiento (alta con Google); el resto, con la suya.
     await c.query(
-      `INSERT INTO profiles (id, display_name, is_public) VALUES
-         ($1,'alumnoA',false),($2,'alumnoB',false),($3,'publico',true),
-         ($4,'profe',false),($5,'admin',false)`,
-      [a, b, pub, professor, admin]
+      `INSERT INTO profiles (id, display_name, is_public, birth_date) VALUES
+         ($1,'alumnoA',false,$8),($2,'alumnoB',false,NULL),($3,'publico',true,$8),
+         ($4,'profe',false,$8),($5,'admin',false,$8),($6,'tutor',false,$8),($7,'hijo',false,$9)`,
+      [a, b, pub, professor, admin, tutor, child, yearsAgo(30), yearsAgo(10)]
     );
+    await c.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [tutor, child]);
     await c.query(
       `INSERT INTO auth_credentials (profile_id, email, password_hash) VALUES
          ($1,$2,'x'),($3,$4,'x')`,
@@ -72,8 +76,8 @@ async function seed() {
     );
     await c.query(
       `INSERT INTO user_roles (user_id, role) VALUES
-         ($1,'alumno'),($2,'alumno'),($3,'alumno'),($4,'profesor'),($5,'admin')`,
-      [a, b, pub, professor, admin]
+         ($1,'alumno'),($2,'alumno'),($3,'alumno'),($4,'profesor'),($5,'admin'),($6,'tutor'),($7,'alumno')`,
+      [a, b, pub, professor, admin, tutor, child]
     );
     await c.query(
       `INSERT INTO student_health_info
@@ -94,8 +98,15 @@ async function seed() {
     );
   });
 
-  return { a, b, pub, professor, admin };
+  return { a, b, pub, professor, admin, tutor, child };
 }
+
+const yearsAgo = (n) => new Date(Date.now() - n * 365.25 * 864e5).toISOString().slice(0, 10);
+const AVATAR = `${'a'.repeat(64)}.jpg`;
+// B20: columnas de profiles que solo escribe el sistema (servicePool) o nadie (heredadas sin uso).
+const SYSTEM_COLUMNS = {
+  stripe_customer_id: `'cus_hack'`, id: 'gen_random_uuid()', created_at: 'now()', phone: `'600000000'`, avatar_url: `'x'`,
+};
 
 // ---------------------------------------------------------------------------
 // cleanup con COMMIT (idempotente)
@@ -239,6 +250,63 @@ async function main() {
           c.query(`DELETE FROM audit_log WHERE actor_id=$1`, [ids.admin])
         )
       );
+    });
+
+    // B20: profiles_update_self_or_admin dejaba cambiar por SQL cualquier columna propia.
+    const alumno = { uid: ids.a, role: 'alumno' };
+    const tutor = { uid: ids.tutor, role: 'tutor' };
+    const profesor = { uid: ids.professor, role: 'profesor' };
+    const admin = { uid: ids.admin, role: 'admin' };
+    const update = (ctx, id, set) => withCtx(ctx, (c) => c.query(`UPDATE profiles SET ${set} WHERE id = $1`, [id]));
+
+    await run('B20 — alumno, tutor y profesor no cambian las columnas del sistema (stripe_customer_id…) de su perfil', async () => {
+      for (const ctx of [alumno, tutor, profesor]) {
+        for (const [col, value] of Object.entries(SYSTEM_COLUMNS)) {
+          await expectDenied(update(ctx, ctx.uid, `${col} = ${value}`));
+        }
+      }
+    });
+
+    await run('B20 — el tutor no cambia las columnas del sistema de su hijo', async () => {
+      for (const [col, value] of Object.entries(SYSTEM_COLUMNS)) {
+        await expectDenied(update(tutor, ids.child, `${col} = ${value}`));
+      }
+    });
+
+    await run('B20 — el admin tampoco cambia stripe_customer_id (solo el servicePool)', async () => {
+      await expectDenied(update(admin, ids.b, `stripe_customer_id = 'cus_hack'`));
+    });
+
+    await run('B20 — alumno, tutor y profesor no cambian su fecha de nacimiento ya puesta', async () => {
+      for (const ctx of [alumno, tutor, profesor]) {
+        await expectDenied(update(ctx, ctx.uid, `birth_date = '${yearsAgo(10)}'`));
+        await expectDenied(update(ctx, ctx.uid, `birth_date = '${yearsAgo(50)}'`));
+        await expectDenied(update(ctx, ctx.uid, `birth_date = NULL`));
+      }
+    });
+
+    await run('B20 — sin fecha (alta con Google) se pone una vez, de adulto', async () => {
+      const r = await update({ uid: ids.b, role: 'alumno' }, ids.b, `birth_date = '${yearsAgo(25)}'`);
+      assert.equal(r.rowCount, 1);
+      await expectDenied(update({ uid: ids.b, role: 'alumno' }, ids.b, `birth_date = '${yearsAgo(10)}'`));
+    });
+
+    await run('B20 — cada uno cambia lo que la API le deja editar', async () => {
+      // PATCH /me (birth_date en el SET aunque no cambie), PATCH /me/profile y la foto.
+      for (const ctx of [alumno, tutor, profesor]) {
+        const r = await update(ctx, ctx.uid, `display_name = 'x', birth_date = COALESCE(NULL, birth_date), bio = 'b',
+          social_links = '{"web": "https://example.com"}', visible_fields = '{"bio": true}', is_public = false,
+          avatar = '${AVATAR}'`);
+        assert.equal(r.rowCount, 1, ctx.role);
+      }
+      // PATCH /me/children/:id y la foto del hijo.
+      const r = await update(tutor, ids.child, `display_name = 'y', birth_date = '${yearsAgo(8)}', avatar = '${AVATAR}'`);
+      assert.equal(r.rowCount, 1);
+    });
+
+    await run('B20 — el admin despublica, quita la foto y corrige la fecha de nacimiento de otro', async () => {
+      const r = await update(admin, ids.pub, `is_public = false, avatar = NULL, birth_date = '${yearsAgo(31)}'`);
+      assert.equal(r.rowCount, 1);
     });
 
     await run('service_role se salta RLS y lee auth_credentials', async () => {
