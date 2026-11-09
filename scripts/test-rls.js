@@ -473,6 +473,18 @@ async function main() {
       assert.deepEqual(await v(profesor, ids.a), { ...all, m: false, r: false }); // A no ha reservado en sus sesiones
     });
 
+    // B20 (riesgo de M2): sin privilegios por defecto, una migración que olvide su GRANT dejaría la tabla sin acceso.
+    // Toda tabla o vista da algo a app_user, salvo las que solo usa el servicePool (añadir aquí las nuevas que lo sean).
+    const SERVICE_ONLY = ['cash_payments', 'medal_views', 'password_resets', 'pgmigrations', 'webhook_events'];
+    await run('B20 — toda tabla o vista da permisos a app_user, salvo las solo del servicePool', async () => {
+      const { rows } = await servicePool.query(
+        `SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v')
+            AND NOT has_table_privilege('app_user', c.oid, 'SELECT, INSERT, UPDATE, DELETE')
+            AND NOT has_any_column_privilege('app_user', c.oid, 'SELECT, INSERT, UPDATE') ORDER BY 1`);
+      assert.deepEqual(rows.map((r) => r.relname), SERVICE_ONLY);
+    });
+
     await run('service_role se salta RLS y lee auth_credentials', async () => {
       const { rows } = await withServiceCommit((c) =>
         c.query(`SELECT profile_id FROM auth_credentials WHERE profile_id = $1`, [ids.b])

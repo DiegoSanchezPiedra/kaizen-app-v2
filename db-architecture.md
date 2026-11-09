@@ -291,10 +291,11 @@ Una fila por día con el estado de las suscripciones; no cambia nunca y un día 
 - `public_profiles`: expone solo columnas públicas de filas con is_public=true y flags activos.
 
 ## Resumen de políticas RLS por tabla
-- `profiles`: alumno lee/edita el suyo; profesor lee nombre de alumnos de sus sesiones; admin todo. Lectura pública solo a través de `public_profiles`.
+Convención desde B20 (`docs/auditoria-rls-b20.md`): sin privilegios por defecto para `app_user` (`040`), así que cada tabla nueva lleva RLS en `ENABLE` y `FORCE`, sus políticas y su `GRANT … TO app_user` explícito; si solo la usa el `servicePool`, va en `SERVICE_ONLY` de `scripts/test-rls.js`. Las funciones `SECURITY DEFINER`: owner `service_role`, `SET search_path = public`, `REVOKE ALL … FROM PUBLIC` y el actor comprobado dentro (`app_user` no crea tablas temporales, `039`).
+- `profiles`: alumno lee/edita el suyo; profesor lee nombre y foto de alumnos de sus sesiones y eventos por `student_names` (`044`); admin todo. Lectura pública solo a través de `public_profiles`.
 - `bookings`: alumno sus propias; profesor las de sus sesiones; admin todas.
 - `attendance`: alumno lee las suyas; profesor inserta/edita en sus sesiones; admin todas.
-- `subscriptions`, `invoices`, `cash_payments`: alumno lee las suyas; profesor ninguna; admin todas. Escritura solo service_role y admin vía RPC.
+- `subscriptions`, `invoices`: alumno lee las suyas; profesor ninguna; admin todas. Escritura solo service_role y admin vía RPC. `cash_payments`: solo `service_role` hasta que el efectivo tenga su bloque (`041`).
 - `class_sessions`: lectura para authenticated; escritura solo admin.
 - `disciplines`: las activas para cualquier autenticado y todas para el admin (007); el suscriptor, las de su suscripción viva (012); el profesor, también las de sus sesiones aunque estén desactivadas (`disciplines_select_trainer`, `024`, B17).
 - `user_mfa`: solo el propio usuario y service_role.
