@@ -3,11 +3,12 @@
 import { httpError } from '../lib/errors.js';
 import { invalid, audit } from './catalog.js';
 import { getProfileStatus } from './profile.js';
+import { getMfaStatus, verifyMfaCode } from './mfa.js';
 import { getSubscription, getInsurance, affectedSql } from './billing.js';
 
 const LIVE = `('active', 'past_due', 'unpaid')`;
 const ROLES = ['alumno', 'tutor', 'profesor', 'admin'];
-const SETTABLE = ['alumno', 'tutor', 'profesor'];
+const SETTABLE = ['alumno', 'tutor', 'profesor', 'admin'];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ID_RE = /^\d{1,18}$/;
 const STATES = ['activo', 'impago', 'inactivo', 'sin_plan'];
@@ -157,13 +158,23 @@ export async function getProfile(client, { id, actorId }) {
   };
 }
 
-/** Cambiar el rol entre alumno, tutor y profesor (CONTEXT § Cambiar el rol). Vale al momento (requireAuth). */
-export async function changeRole(client, { id, role, actorId }) {
-  if (!SETTABLE.includes(role)) throw invalid('role', 'role debe ser alumno, tutor o profesor');
+/**
+ * Cambiar el rol entre alumno, tutor y profesor, o dar el de admin (CONTEXT § Cambiar el rol). Vale al momento
+ * (requireAuth). Dar admin exige el doble factor del admin activado y su código en esta petición: un token robado no
+ * basta (B20, B3). Quitar admin no se hace desde la app.
+ */
+export async function changeRole(client, { id, role, actorId, mfaCode }) {
+  if (!SETTABLE.includes(role)) throw invalid('role', 'role debe ser alumno, tutor, profesor o admin');
+  if (role === 'admin') {
+    if (!(await getMfaStatus(client, actorId)).enabled) {
+      throw httpError(403, 'mfa_required', 'Activa el doble factor para dar el rol de admin');
+    }
+    if (!(await verifyMfaCode(client, actorId, mfaCode))) throw httpError(403, 'invalid_mfa_code', 'El código no es correcto');
+  }
   const { rows: [p] } = await client.query(
     `SELECT ${ROLE} AS role, c.profile_id IS NOT NULL AS has_access ${FROM} WHERE p.id = $1 FOR UPDATE OF p`, [id]);
   if (!p) throw notFound();
-  if (p.role === 'admin') throw conflict('admin_role_locked', 'El rol admin no se da ni se quita desde la app');
+  if (p.role === 'admin') throw conflict('admin_role_locked', 'El rol admin no se quita desde la app');
   if (!p.has_access) throw conflict('child_role_locked', 'Un hijo siempre es alumno');
   if (p.role === role) throw conflict('same_role', 'El perfil ya tiene ese rol');
   if (p.role === 'profesor') {

@@ -25,7 +25,7 @@ ponerse `admin`. Por eso lo que solo se aprovecha con SQL arbitrario queda en Me
 | M6 | Media | El profesor lee la fila entera de `profiles` de sus alumnos (también `birth_date` de menores) | Arreglado (`044`) |
 | B1 | Baja | `has_risk_cover`, `profile_missing` y `discipline_changes_used` responden sobre cualquier perfil | Checklist (rompería llamadas internas) |
 | B2 | Baja | El admin cambia por SQL el contenido del perfil de otro | Arreglado (`045`) |
-| B3 | Baja | El admin da o quita el rol `admin` por SQL | Checklist (diseño aparte) |
+| B3 | Baja | El admin da o quita el rol `admin` por SQL | Arreglado (`051`) |
 | B4 | Baja | `profiles_insert_self` deja insertar cualquier columna al registrarse | Arreglado (`046`) |
 | B5 | Baja | El tutor escribe por SQL `bio`, `social_links` y `visible_fields` de su hijo | Arreglado (`045`) |
 | B6 | Baja | `medal_views` y `webhook_events` sin RLS | Arreglado (`047`) |
@@ -117,6 +117,7 @@ Arreglado en la `044`: `profiles_select` pierde la rama del profesor (solo ve su
   Arreglado en la `045`: el trigger `profiles_update_guard` (sustituye al de la 038, con la misma regla de `birth_date`) no deja al admin cambiar en un perfil ajeno `display_name`, `bio`, `social_links` ni `visible_fields`, publicarlo ni ponerle una foto: solo despublica, quita la foto y corrige la fecha. `test:rls`.
 - **B3**: `user_roles_insert_self_alumno_or_admin` y `user_roles_update_admin` dejan al admin poner o quitar `admin`;
   la API lo impide (`admin_role_locked`) y la base no.
+  Arreglado en la `051`: decidido: un admin con el doble factor activado da el rol admin desde la app; la API (`changeRole`) pide además su código en la petición (`mfa_code`: un token robado no basta) y las políticas de `user_roles` solo dejan poner `admin` a un admin con el doble factor activado. Quitar admin sigue sin hacerse desde la app: una fila `admin` no la cambia ni la borra `app_user` (`409 admin_role_locked`). El panel ofrece «Admin» y pide el código al confirmar. `test:rls` y `test:admin`.
 - **B4**: `profiles_insert_self` deja a la transacción de registro insertar cualquier columna (`stripe_customer_id`,
   `is_public`, una `birth_date` de menor). Solo vale para un id nuevo y solo la usa `createUser`, con columnas fijas.
   Arreglado en la `046`: `INSERT` por columna (`id`, `display_name`, `birth_date`, lo que inserta `createUser`) y `profiles_insert_self` exige además una fecha vacía (alta con Google) o de adulto. `create_child` no pasa por aquí. `test:rls`.

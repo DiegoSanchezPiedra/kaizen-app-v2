@@ -24,9 +24,9 @@ router.get('/profiles/stats', withRlsContext((req, client) => getProfileStats(cl
 // GET /admin/profiles/:id → { profile, status, guardians, children, subscription, insurance } (sin birth_date ni salud)
 router.get('/profiles/:id', withRlsContext((req, client) => getProfile(client, { id: req.params.id, actorId: req.user.id })));
 
-// PUT /admin/profiles/:id/role { role } → { profile } (audit_log profile.role_change)
+// PUT /admin/profiles/:id/role { role, mfa_code? } → { profile } (audit_log profile.role_change); admin exige mfa_code
 router.put('/profiles/:id/role', withRlsContext((req, client) =>
-  changeRole(client, { id: req.params.id, role: req.body?.role, actorId: req.user.id })));
+  changeRole(client, { id: req.params.id, role: req.body?.role, actorId: req.user.id, mfaCode: req.body?.mfa_code })));
 
 // POST /admin/profiles/:id/guardians { tutor_id } → 201 { guardians }; DELETE …/guardians/:tutorId → 204
 router.post('/profiles/:id/guardians', withRlsContext((req, client) =>

@@ -276,7 +276,7 @@ export type ProfileFile = {
 
 // Un hijo es un perfil sin acceso propio: sin credenciales, así que sin email.
 export const isChild = (p: { email: string | null }): boolean => p.email === null
-// El rol admin y el de un hijo no se cambian desde la app (admin_role_locked, child_role_locked).
+// El rol admin no se quita desde la app (admin_role_locked) y un hijo siempre es alumno (child_role_locked); dar admin sí (B20).
 export const canChangeRole = (p: { role: Role; email: string | null }): boolean => p.role !== 'admin' && !isChild(p)
 
 export const ageMarks = (p: { is_minor: boolean; pending_claim: boolean }): string[] =>

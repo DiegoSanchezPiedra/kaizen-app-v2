@@ -18,6 +18,9 @@ const { default: adminCheckinRouter } = await import('../src/routes/admin/checki
 const { default: adminSessionsRouter } = await import('../src/routes/admin/sessions.js');
 const { default: adminAgreementsRouter } = await import('../src/routes/admin/agreements.js');
 const { withRls } = await import('../src/db/rls.js');
+const OTPAuth = await import('otpauth');
+const { encrypt } = await import('../src/services/crypto.js');
+const { MFA_TOTP_ISSUER } = await import('../src/config/mfa.js');
 const { notice } = await import('../src/services/notices.js');
 const { createDocument } = await import('../src/services/agreements.js');
 const { deleteFile } = await import('../src/services/storage.js');
@@ -34,7 +37,7 @@ const people = {
   admin: ['admin', null, true], stu: ['alumno', yearsAgo(30), true], stu2: ['alumno', yearsAgo(25), true],
   prof: ['profesor', null, true], prof2: ['profesor', null, true], parent: ['alumno', yearsAgo(40), true],
   tutor2: ['tutor', yearsAgo(42), true], child: ['alumno', yearsAgo(10), false], child2: ['alumno', yearsAgo(8), false],
-  grown: ['alumno', yearsAgo(19), false], norole: [null, yearsAgo(35), true],
+  grown: ['alumno', yearsAgo(19), false], norole: [null, yearsAgo(35), true], newadmin: ['alumno', yearsAgo(33), true],
 };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 const ids = Object.values(U);
@@ -152,7 +155,8 @@ try {
   });
   await run('rol: errores', async () => {
     const put = (who, role) => http('PUT', `/admin/profiles/${U[who]}/role`, 'admin', { role });
-    expectError(await put('stu2', 'admin'), 400, 'invalid_field');
+    expectError(await put('stu2', 'root'), 400, 'invalid_field');
+    expectError(await put('stu2', 'admin'), 403, 'mfa_required'); // el admin del test no tiene doble factor
     expectError(await put('stu2', undefined), 400, 'invalid_field');
     expectError(await http('PUT', `/admin/profiles/${crypto.randomUUID()}/role`, 'admin', { role: 'tutor' }), 404,
       'profile_not_found');
@@ -185,6 +189,26 @@ try {
     // Y se le puede dar un rol: la fila se crea.
     assert.equal((await http('PUT', `/admin/profiles/${U.norole}/role`, 'admin', { role: 'tutor' })).body.profile.role,
       'tutor');
+  });
+  // B20 (B3): un admin con el doble factor activado da el rol admin, confirmándolo con su código; quitarlo, no.
+  await run('rol admin: solo un admin con doble factor y su código; desde la app no se quita', async () => {
+    const put = (body) => http('PUT', `/admin/profiles/${U.newadmin}/role`, 'admin', { role: 'admin', ...body });
+    const secret = new OTPAuth.Secret({ size: 20 });
+    const totp = new OTPAuth.TOTP({ issuer: MFA_TOTP_ISSUER, label: U.admin, algorithm: 'SHA1', digits: 6, period: 30, secret });
+    await servicePool.query(`INSERT INTO user_mfa (id, user_id, totp_secret_encrypted, recovery_codes_encrypted, mfa_enabled)
+                             VALUES ($1, $2, $3, $4, true)`, [crypto.randomUUID(), U.admin, encrypt(secret.base32), encrypt('[]')]);
+    try {
+      expectError(await put({}), 403, 'invalid_mfa_code');
+      expectError(await put({ mfa_code: totp.generate() === '000000' ? '111111' : '000000' }), 403, 'invalid_mfa_code');
+      assert.equal(await lastAudit('profile.role_change', U.newadmin), undefined);
+      const r = await put({ mfa_code: totp.generate() });
+      assert.deepEqual([r.status, r.body.profile.role], [200, 'admin']);
+      assert.deepEqual(await lastAudit('profile.role_change', U.newadmin),
+        { actor_id: U.admin, resource_type: 'profile', changes: { from: 'alumno', to: 'admin' } });
+      expectError(await http('PUT', `/admin/profiles/${U.newadmin}/role`, 'admin', { role: 'alumno' }), 409, 'admin_role_locked');
+    } finally {
+      await servicePool.query(`DELETE FROM user_mfa WHERE user_id = $1`, [U.admin]);
+    }
   });
   await run('alumno y profesor → 403', async () => {
     expectError(await http('GET', '/admin/profiles', 'stu'), 403, 'insufficient_role');

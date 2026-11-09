@@ -420,6 +420,18 @@ async function main() {
       });
     });
 
+    // B20 (B3): el rol admin solo lo da un admin con el doble factor activado; una fila admin no se cambia ni se borra.
+    await run('B20 — el rol admin solo lo da un admin con doble factor; nadie quita el de un admin por SQL', async () => {
+      await expectDenied(withCtx(admin, (c) => c.query(`UPDATE user_roles SET role = 'admin' WHERE user_id = $1`, [ids.b])));
+      await withCtx(admin, async (c) => {
+        await c.query(`INSERT INTO user_mfa (id, user_id, totp_secret_encrypted, recovery_codes_encrypted, mfa_enabled)
+                       VALUES ($1, $2, 'x', 'x', true)`, [crypto.randomUUID(), ids.admin]);
+        assert.equal((await c.query(`UPDATE user_roles SET role = 'admin' WHERE user_id = $1`, [ids.b])).rowCount, 1);
+        assert.equal((await c.query(`UPDATE user_roles SET role = 'alumno' WHERE user_id = $1`, [ids.b])).rowCount, 0);
+        assert.equal((await c.query(`DELETE FROM user_roles WHERE user_id = $1`, [ids.b])).rowCount, 0);
+      });
+    });
+
     await run('service_role se salta RLS y lee auth_credentials', async () => {
       const { rows } = await withServiceCommit((c) =>
         c.query(`SELECT profile_id FROM auth_credentials WHERE profile_id = $1`, [ids.b])
