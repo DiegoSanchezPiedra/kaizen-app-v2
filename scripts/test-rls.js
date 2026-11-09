@@ -457,6 +457,22 @@ async function main() {
         await n(admin, `DELETE FROM user_mfa WHERE user_id = $1`)], [0, 0, 0]);
     });
 
+    // B20 (B1): de otro perfil solo se pregunta lo que se ve (él, su tutor, el admin; la cobertura, también su profesor).
+    await run('B20 — app_user no llama a has_risk_cover, profile_missing ni discipline_changes_used; visible_* solo de quien ve', async () => {
+      for (const sql of ['SELECT has_risk_cover($1)', 'SELECT profile_missing($1)', 'SELECT discipline_changes_used($1)']) {
+        await expectDenied(withCtx(admin, (c) => c.query(sql, [ids.a])));
+      }
+      const v = (ctx, id) => withCtx(ctx, async (c) => (await c.query(
+        `SELECT visible_profile_missing($1) IS NOT NULL AS m, visible_risk_cover($1) IS NOT NULL AS r,
+                visible_discipline_changes_used(gen_random_uuid()) IS NULL AS no_sub`, [id])).rows[0]);
+      const all = { m: true, r: true, no_sub: true };
+      assert.deepEqual(await v(alumno, ids.a), all);
+      assert.deepEqual(await v(admin, ids.a), all);
+      assert.deepEqual(await v(tutor, ids.child), all);
+      assert.deepEqual(await v({ uid: ids.b, role: 'alumno' }, ids.a), { ...all, m: false, r: false });
+      assert.deepEqual(await v(profesor, ids.a), { ...all, m: false, r: false }); // A no ha reservado en sus sesiones
+    });
+
     await run('service_role se salta RLS y lee auth_credentials', async () => {
       const { rows } = await withServiceCommit((c) =>
         c.query(`SELECT profile_id FROM auth_credentials WHERE profile_id = $1`, [ids.b])

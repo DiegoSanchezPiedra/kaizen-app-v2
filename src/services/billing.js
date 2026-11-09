@@ -95,7 +95,7 @@ export async function createCheckout(client, { payerId, studentId, planId, disci
   // Elegir la cobertura (CONTEXT § Seguro): seguro o waiver, salvo que ya tenga cobertura de riesgo.
   // El waiver se firma antes (acuerdos); el seguro lo crea el webhook tras el pago (ADR 0006).
   const { rows: [rc] } = await client.query(
-    `SELECT has_risk_cover($1) AS covered,
+    `SELECT visible_risk_cover($1) AS covered,
             EXISTS (SELECT 1 FROM insurances WHERE student_id = $1 AND status IN ${LIVE}) AS insured`, [studentId]);
   if (insurance) {
     if ((await insuranceSettings(client)).insurance_enabled !== true) {
@@ -384,7 +384,7 @@ export async function getSubscription(client, { studentId }) {
               'discipline_ids', to_jsonb(s.scheduled_discipline_ids::text[]), 'scheduled_at', s.scheduled_at) END
               AS scheduled_change,
             CASE WHEN pl.max_disciplines IS NOT NULL
-                 THEN GREATEST(discipline_change_limit() - discipline_changes_used(s.id), 0) END AS discipline_changes_left,
+                 THEN GREATEST(discipline_change_limit() - visible_discipline_changes_used(s.id), 0) END AS discipline_changes_left,
             (SELECT jsonb_build_object('id', pc.id, 'status', ${EFFECTIVE_STATUS}, 'new_payer_id', pc.new_payer_id,
                                        'starts_at', pc.starts_at, 'deadline', pc.deadline)
                FROM payer_changes pc WHERE pc.subscription_id = s.id AND pc.status IN ${PENDING}) AS payer_change

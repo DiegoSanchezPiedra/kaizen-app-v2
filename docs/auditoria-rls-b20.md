@@ -23,7 +23,7 @@ ponerse `admin`. Por eso lo que solo se aprovecha con SQL arbitrario queda en Me
 | M4 | Media | `pgmigrations` sin RLS y con todos los permisos para `app_user` | Arreglado (`042`) |
 | M5 | Media | `auth_credentials`: `UPDATE` de cualquier columna propia (`email`, `email_verified`, `google_sub`…) | Arreglado (`043`) |
 | M6 | Media | El profesor lee la fila entera de `profiles` de sus alumnos (también `birth_date` de menores) | Arreglado (`044`) |
-| B1 | Baja | `has_risk_cover`, `profile_missing` y `discipline_changes_used` responden sobre cualquier perfil | Checklist (rompería llamadas internas) |
+| B1 | Baja | `has_risk_cover`, `profile_missing` y `discipline_changes_used` responden sobre cualquier perfil | Arreglado (`053`) |
 | B2 | Baja | El admin cambia por SQL el contenido del perfil de otro | Arreglado (`045`) |
 | B3 | Baja | El admin da o quita el rol `admin` por SQL | Arreglado (`051`) |
 | B4 | Baja | `profiles_insert_self` deja insertar cualquier columna al registrarse | Arreglado (`046`) |
@@ -112,6 +112,7 @@ Arreglado en la `044`: `profiles_select` pierde la rama del profesor (solo ve su
   riesgo, ficha de salud, contacto de emergencia y acuerdos firmados) y `discipline_changes_used(p_subscription)` sobre
   cualquier suscripción. Hace falta el UUID. Las usan el propio perfil, el tutor, el profesor de la sesión o del evento
   (`risk_cover`) y otras funciones: el arreglo tiene que mantener a esos.
+  Arreglado en la `053`: las tres se quedan para las funciones `SECURITY DEFINER` y el `servicePool` (sin `EXECUTE` para `app_user`: un control dentro rompería `promote_waitlist`, que pregunta por otro alumno) y `app_user` usa `visible_profile_missing`, `visible_risk_cover` y `visible_discipline_changes_used`, que responden `NULL` a quien no ve: el propio perfil, su tutor (un menor) y el admin; la cobertura, también el profesor de sus sesiones o eventos; los cambios de disciplina, quien ve la suscripción. Cambian `getProfileStatus`, `getAttendance`, `getTrainerEvent`, la contratación y `getSubscription`. `test:rls`.
 - **B2**: con `profiles_update_self_or_admin` el admin cambia por SQL `display_name`, `bio`, `social_links`,
   `visible_fields` o `is_public = true` de otro; `CONTEXT.md`: «no edita su contenido» (despublica y quita la foto).
   Arreglado en la `045`: el trigger `profiles_update_guard` (sustituye al de la 038, con la misma regla de `birth_date`) no deja al admin cambiar en un perfil ajeno `display_name`, `bio`, `social_links` ni `visible_fields`, publicarlo ni ponerle una foto: solo despublica, quita la foto y corrige la fecha. `test:rls`.

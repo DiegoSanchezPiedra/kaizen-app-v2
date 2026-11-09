@@ -35,7 +35,7 @@ export async function getProfileStatus(client, profileId, role) {
   }
 
   const { rows: [r] } = await client.query(
-    `SELECT profile_missing($1) AS missing, has_risk_cover($1) AS risk_cover`, [profileId]);
+    `SELECT visible_profile_missing($1) AS missing, visible_risk_cover($1) AS risk_cover`, [profileId]); // 053
   // Perfil inexistente (NULL): incompleto.
   const missing = r.missing ?? ['display_name'];
 
