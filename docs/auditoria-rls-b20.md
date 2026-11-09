@@ -23,15 +23,15 @@ ponerse `admin`. Por eso lo que solo se aprovecha con SQL arbitrario queda en Me
 | M4 | Media | `pgmigrations` sin RLS y con todos los permisos para `app_user` | Arreglado (`042`) |
 | M5 | Media | `auth_credentials`: `UPDATE` de cualquier columna propia (`email`, `email_verified`, `google_sub`…) | Arreglado (`043`) |
 | M6 | Media | El profesor lee la fila entera de `profiles` de sus alumnos (también `birth_date` de menores) | Arreglado (`044`) |
-| B1 | Baja | `has_risk_cover`, `profile_missing` y `discipline_changes_used` responden sobre cualquier perfil | Checklist |
+| B1 | Baja | `has_risk_cover`, `profile_missing` y `discipline_changes_used` responden sobre cualquier perfil | Checklist (rompería llamadas internas) |
 | B2 | Baja | El admin cambia por SQL el contenido del perfil de otro | Arreglado (`045`) |
-| B3 | Baja | El admin da o quita el rol `admin` por SQL | Checklist |
+| B3 | Baja | El admin da o quita el rol `admin` por SQL | Checklist (diseño aparte) |
 | B4 | Baja | `profiles_insert_self` deja insertar cualquier columna al registrarse | Arreglado (`046`) |
 | B5 | Baja | El tutor escribe por SQL `bio`, `social_links` y `visible_fields` de su hijo | Arreglado (`045`) |
 | B6 | Baja | `medal_views` y `webhook_events` sin RLS | Arreglado (`047`) |
 | B7 | Baja | El tutor sigue leyendo reservas, asistencia y progreso del hijo con 18 sin reclamar | Arreglado (`048`) |
 | B8 | Baja | El admin cambia un documento de acuerdo ya publicado | Arreglado (`049`) |
-| B9 | Baja | El admin lee `password_hash` y el secreto MFA cifrado de cualquiera | Checklist |
+| B9 | Baja | El admin lee `password_hash` y el secreto MFA cifrado de cualquiera | Checklist (pide una función) |
 | B10 | Baja | El profesor ve todas las clases | Arreglado (`050`) |
 
 ### A1 — `profiles`: cualquier columna propia (Alta, arreglado)
