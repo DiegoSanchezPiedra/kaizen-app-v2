@@ -32,7 +32,7 @@ ponerse `admin`. Por eso lo que solo se aprovecha con SQL arbitrario queda en Me
 | B7 | Baja | El tutor sigue leyendo reservas, asistencia y progreso del hijo con 18 sin reclamar | Arreglado (`048`) |
 | B8 | Baja | El admin cambia un documento de acuerdo ya publicado | Arreglado (`049`) |
 | B9 | Baja | El admin lee `password_hash` y el secreto MFA cifrado de cualquiera | Checklist |
-| B10 | Baja | El profesor ve todas las clases | Checklist |
+| B10 | Baja | El profesor ve todas las clases | Arreglado (`050`) |
 
 ### A1 — `profiles`: cualquier columna propia (Alta, arreglado)
 
@@ -136,6 +136,7 @@ Arreglado en la `044`: `profiles_select` pierde la rama del profesor (solo ve su
   API solo necesita el email.
 - **B10**: `classes_select` deja a cualquier autenticado, también al profesor, ver todas las clases; en el calendario el
   profesor solo ve sus sesiones. Es el horario semanal.
+  Arreglado en la `050`: `classes_select`: el profesor ve sus clases y las de las sesiones que imparte como sustituto (su informe por clase lee el día y el profesor habitual: con solo las suyas se rompía, `test-reports.js`); el resto de roles, igual. `test:classes`.
 
 ## Tablas
 
