@@ -1,3 +1,4 @@
+import { usesSubject } from '@/lib/subject'
 export type Role = 'alumno' | 'tutor' | 'profesor' | 'admin'
 export type Session = { token: string; id: string; role: Role; exp: number }
 // Por qué terminó la sesión en esta pestaña: decide a dónde lleva el router.
@@ -39,6 +40,7 @@ export const isAdminPath = (p: string): boolean => p === '/admin' || p.startsWit
 export function redirectFor(role: Role, pathname: string): string | null {
   if (role === 'admin') return isAdminPath(pathname) ? null : '/admin'
   if (isAdminPath(pathname)) return '/'
-  if (role === 'profesor' && pathname === '/') return '/professor'
+  // Las pantallas que actúan por un alumno (y su inicio) no son del profesor: la API le da 403 y se quedaría cargando.
+  if (role === 'profesor' && usesSubject(pathname)) return '/professor'
   return null
 }

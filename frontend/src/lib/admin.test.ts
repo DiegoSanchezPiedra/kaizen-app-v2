@@ -42,6 +42,14 @@ describe('a dónde va cada rol (B19)', () => {
     expect(redirectFor('profesor', '/')).toBe('/professor')
     expect(redirectFor('profesor', '/professor/reports')).toBeNull()
   })
+  it('el profesor no entra en las pantallas que actúan por un alumno (la API le da 403): a lo suyo', () => {
+    for (const p of ['/calendar', '/bookings', '/progress', '/account/health', '/agreements', '/billing/plan', '/events/5']) {
+      expect(redirectFor('profesor', p)).toBe('/professor')
+    }
+    for (const p of ['/profiles', '/rankings', '/account', '/account/profile', '/professor/sessions/1']) {
+      expect(redirectFor('profesor', p)).toBeNull()
+    }
+  })
   it('con el acceso cambiado, a /login con su motivo y sin volver a la ruta del rol viejo', () => {
     expect(loginPath('role_changed', '/admin/reports')).toBe('/login?acceso=1')
   })
