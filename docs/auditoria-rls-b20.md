@@ -22,7 +22,7 @@ ponerse `admin`. Por eso lo que solo se aprovecha con SQL arbitrario queda en Me
 | M3 | Media | `cash_payments` sin RLS y con todos los permisos para `app_user` | Arreglado (`041`) |
 | M4 | Media | `pgmigrations` sin RLS y con todos los permisos para `app_user` | Arreglado (`042`) |
 | M5 | Media | `auth_credentials`: `UPDATE` de cualquier columna propia (`email`, `email_verified`, `google_sub`…) | Arreglado (`043`) |
-| M6 | Media | El profesor lee la fila entera de `profiles` de sus alumnos (también `birth_date` de menores) | Checklist |
+| M6 | Media | El profesor lee la fila entera de `profiles` de sus alumnos (también `birth_date` de menores) | Arreglado (`044`) |
 | B1 | Baja | `has_risk_cover`, `profile_missing` y `discipline_changes_used` responden sobre cualquier perfil | Checklist |
 | B2 | Baja | El admin cambia por SQL el contenido del perfil de otro | Checklist |
 | B3 | Baja | El admin da o quita el rol `admin` por SQL | Checklist |
@@ -103,6 +103,8 @@ Arreglado en la `043`: `app_user` solo tiene `UPDATE` sobre `password_hash` y `c
 `birth_date` (también de menores), `stripe_customer_id`, `bio`, `social_links`. `CONTEXT.md` le da solo el nombre (y la
 foto). Ninguna ruta lo devuelve hoy. Arreglo: que lea por una vista o función que proyecte nombre y foto, como
 `public_profiles`. Cambia lo que ve un rol y toca menores: se decide antes de arreglarlo.
+
+Arreglado en la `044`: `profiles_select` pierde la rama del profesor (solo ve su fila) y la vista `student_names` (`id`, `display_name`, `avatar`; `security_barrier`, owner `service_role`, como `trainer_names`) le da nombre y foto de los alumnos de sus sesiones y eventos (`teaches_student`); la lee también el admin. Las dos consultas del profesor que leían alumnos, `getAttendance` y `getTrainerEvent`, leen la vista. `test:profiles` (y `test:attendance`, `test:events`).
 
 ### Bajas
 

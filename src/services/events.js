@@ -417,7 +417,7 @@ export async function getTrainerEvent(client, user, id) {
   const { rows: students } = await client.query(
     `SELECT r.profile_id, p.display_name, r.attended,
             has_risk_cover(r.profile_id) AS risk_cover -- solo el sí/no (CONTEXT § Quién ve el seguro)
-       FROM event_registrations r JOIN profiles p ON p.id = r.profile_id
+       FROM event_registrations r JOIN student_names p ON p.id = r.profile_id -- solo nombre y foto (044)
       WHERE r.event_id = $1 AND r.status = 'confirmed' ORDER BY p.display_name, r.profile_id`, [id]);
   return { event, students };
 }
