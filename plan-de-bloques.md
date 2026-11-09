@@ -2412,3 +2412,17 @@ Grilling el 2026-11-07 (Opus medio: toca `SECURITY DEFINER` y RLS). Un commit po
 - [x] Staging: `staging:migrate` (031) y `staging:build`. **Falta reiniciar la API** (`npm run staging:api`).
 - [ ] Ver con un alumno en staging: «10/13», clase llena, sin cuota, y reservar → cancelar → reservar en Mis reservas.
 - [ ] Prueba en un iPhone real (barra de estado al cambiar de tema).
+
+#### B24.2 — Sin ingresos en la app: «Alumnos que entrenaron» en vez del MRR — EN CURSO
+
+El cliente ve los ingresos en Stripe y no quiere cifras de dinero en la app. **Alumno que entrenó** (CONTEXT § Informes):
+distinto, con algún `present` en una sesión no cancelada que empieza en el periodo, días de Madrid; hijos sí, eventos no,
+aunque la lista no esté cerrada; en vivo, nunca de la foto (ADR 0012).
+
+- [x] Backend: `GET /admin/reports/subscriptions` sin `mrr_cents`; `trained` por fila (día o mes, nunca `null`, también
+  sin foto) y arriba (distintos en todo el rango). `test:reports`.
+- [x] Backend: `GET /admin/home` sin `figures`; `trained: { last_30, previous_30, series }` (serie móvil de 30 días,
+  `series[29] = last_30`). `test:home`.
+- [x] Migración `032`: fuera `academy_stats_now()`. La columna `mrr_cents` sigue (la escribe la foto; nadie la lee).
+- [ ] Frontend: la tarjeta de Inicio y la tarjeta/gráfica/columna de Informes.
+- [ ] Staging: `staging:migrate` (032), build y reiniciar la API.

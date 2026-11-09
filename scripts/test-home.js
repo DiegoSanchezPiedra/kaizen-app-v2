@@ -1,11 +1,11 @@
-// B23: Inicio del admin en vivo (GET /admin/home) y academy_stats_now, que solo deja pasar al admin. Por HTTP con un
+// B23: Inicio del admin en vivo (GET /admin/home); B24.2: alumnos que entrenaron en vez de las cifras. Por HTTP con un
 // express en memoria y JWT firmados, con fixtures confirmados que se borran al acabar. Las cifras se comparan con las de
 // antes de los fixtures: la base puede tener otros datos.
 import 'dotenv/config';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import express from 'express';
-import { appPool, servicePool, closePools } from '../src/config/database.js';
+import { servicePool, closePools } from '../src/config/database.js';
 import { signToken } from '../src/services/jwt.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import adminPanelRouter from '../src/routes/admin/panel.js';
@@ -17,7 +17,7 @@ async function run(name, fn) {
 const q = (sql, params) => servicePool.query(sql, params);
 
 const tag = `thome${crypto.randomBytes(3).toString('hex')}`;
-const people = { admin: 'admin', prof: 'profesor', tutor: 'tutor', ana: 'alumno', leo: 'alumno' };
+const people = { admin: 'admin', prof: 'profesor', tutor: 'tutor', ana: 'alumno', leo: 'alumno', eva: 'alumno', mia: 'alumno' };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 const ids = Object.values(U);
 const subs = [];
@@ -32,18 +32,6 @@ const base = `http://127.0.0.1:${server.address().port}`;
 const http = async (url, who = 'admin') => {
   const res = await fetch(base + url, { headers: { authorization: `Bearer ${signToken({ sub: U[who], role: people[who] })}` } });
   return { status: res.status, body: await res.json() };
-};
-// La función con el contexto RLS de un rol, como withRlsContext.
-const statsAs = async (role) => {
-  const c = await appPool.connect();
-  try {
-    await c.query('BEGIN');
-    await c.query(`SELECT set_config('app.current_user_id', $1, true), set_config('app.current_role', $2, true)`, [U.admin, role]);
-    return (await c.query('SELECT * FROM academy_stats_now()')).rows[0];
-  } finally {
-    await c.query('ROLLBACK').catch(() => {});
-    c.release();
-  }
 };
 // Mediodía de Madrid de hoy + `days`.
 const noon = (days) => `(((now() AT TIME ZONE 'Europe/Madrid')::date + ${days}) + time '12:00') AT TIME ZONE 'Europe/Madrid'`;
@@ -99,14 +87,30 @@ try {
   const lastWeekLater = await session(-7, 'scheduled', `now() - interval '7 days' + interval '1 minute'`);
   await book(lastWeekLater, 'ana', true);
   await session(-6); // la sesión de ayer de hace una semana no es «el mismo día»
+  // Bordes de la ventana de 30 días: hoy-29 entra en last_30; hoy-30 cae en previous_30.
+  await book(await session(-29), 'eva', true);
+  await book(await session(-30), 'mia', true);
 
   const home = (await http('/admin/home')).body;
 
-  await run('cifras en vivo: la cuota nueva cuenta al momento, sin esperar a la foto', async () => {
-    assert.equal(home.figures.active - before.figures.active, 1);
-    assert.equal(home.figures.past_due - before.figures.past_due, 1);
-    assert.equal(home.figures.new_subscriptions - before.figures.new_subscriptions, 2);
-    assert.equal(home.figures.mrr_cents - before.figures.mrr_cents, 8400); // activa y en gracia
+  await run('sin cifras de dinero: ni figures ni mrr', async () => {
+    assert.ok(!('figures' in home));
+    assert.ok(!JSON.stringify(home).includes('mrr'));
+  });
+
+  await run('alumnos que entrenaron: últimos 30 días, los 30 anteriores y la serie móvil (sin canceladas)', async () => {
+    const d = (k, i) => (i === undefined ? home.trained[k] - before.trained[k] : home.trained[k][i] - before.trained[k][i]);
+    assert.equal(d('last_30'), 3); // ana (hoy y hace 7), leo (hace 7; su cancelada no cuenta), eva (hoy-29)
+    assert.equal(d('previous_30'), 1); // mia (hoy-30)
+    assert.equal(home.trained.series.length, 30);
+    assert.equal(home.trained.series[29], home.trained.last_30);
+    assert.equal(d('series', 0), 2); // ventana [hoy-58, hoy-29]: eva y mia
+    assert.equal(d('series', 21), 2); // [hoy-37, hoy-8]: eva y mia
+    assert.equal(d('series', 22), 4); // [hoy-36, hoy-7]: más ana y leo
+    assert.equal(d('series', 28), 4); // [hoy-30, hoy-1]: el último día de mia
+  });
+
+  await run('alumnos de Usuarios', async () => {
     assert.deepEqual(Object.keys(home.students).sort(), ['activos', 'impago', 'inactivos']);
     assert.equal(home.students.activos - before.students.activos, 2);
   });
@@ -136,12 +140,6 @@ try {
     for (const who of ['ana', 'tutor', 'prof']) assert.equal((await http('/admin/home', who)).status, 403, who);
   });
 
-  await run('academy_stats_now: la RLS de un no admin recibe not_allowed (42501)', async () => {
-    assert.equal((await statsAs('admin')).active, home.figures.active);
-    for (const role of ['alumno', 'tutor', 'profesor', '']) {
-      await assert.rejects(statsAs(role), (e) => e.code === '42501' && e.message === 'not_allowed', role);
-    }
-  });
 } finally {
   console.error = realError;
   server.close();

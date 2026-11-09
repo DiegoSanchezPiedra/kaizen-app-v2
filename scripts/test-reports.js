@@ -88,31 +88,64 @@ try {
   // ---------- Foto ----------
   await c.query(`DELETE FROM academy_stats_daily WHERE date < '2021-01-01'`);
   const photo = (d, a, n, x, mrr) => c.query(`INSERT INTO academy_stats_daily VALUES ($1, $2, 1, 2, $3, $4, $5)`, [d, a, n, x, mrr]);
-  await run('foto por día: un día sin fila sale a null, sin rellenar', () => sp(async () => {
+  await run('foto por día: un día sin fila sale a null, sin rellenar; sin mrr_cents', () => sp(async () => {
     await photo('2020-01-01', 5, 1, 0, 5000);
     await photo('2020-01-03', 7, 2, 1, 7000);
     const r = await getSubscriptionStats(c, { group: 'day', from: '2020-01-01', to: '2020-01-03' });
     assert.deepEqual(r.rows, [
-      { date: '2020-01-01', active: 5, past_due: 1, unpaid: 2, new_subscriptions: 1, cancelled_subscriptions: 0, mrr_cents: 5000 },
-      { date: '2020-01-02', active: null, past_due: null, unpaid: null, new_subscriptions: null, cancelled_subscriptions: null, mrr_cents: null },
-      { date: '2020-01-03', active: 7, past_due: 1, unpaid: 2, new_subscriptions: 2, cancelled_subscriptions: 1, mrr_cents: 7000 },
+      { date: '2020-01-01', active: 5, past_due: 1, unpaid: 2, new_subscriptions: 1, cancelled_subscriptions: 0, trained: 0 },
+      { date: '2020-01-02', active: null, past_due: null, unpaid: null, new_subscriptions: null, cancelled_subscriptions: null, trained: 0 },
+      { date: '2020-01-03', active: 7, past_due: 1, unpaid: 2, new_subscriptions: 2, cancelled_subscriptions: 1, trained: 0 },
     ]);
+    assert.equal(r.trained, 0);
   }));
-  await run('foto por mes: estados y MRR de la última foto, altas y bajas sumadas; mes sin fotos a null', () => sp(async () => {
+  await run('foto por mes: estados de la última foto, altas y bajas sumadas; mes sin fotos a null; sin mrr_cents', () => sp(async () => {
     await photo('2020-01-20', 9, 3, 2, 9000); // la última del mes, insertada primero
     await photo('2020-01-10', 4, 1, 1, 4000);
     await photo('2020-03-05', 6, 0, 0, 6000);
     const r = await getSubscriptionStats(c, { group: 'month', from: '2020-01', to: '2020-03' });
     assert.deepEqual(r.rows, [
-      { month: '2020-01', active: 9, past_due: 1, unpaid: 2, new_subscriptions: 4, cancelled_subscriptions: 3, mrr_cents: 9000, days_with_data: 2, days_in_month: 31 },
-      { month: '2020-02', active: null, past_due: null, unpaid: null, new_subscriptions: null, cancelled_subscriptions: null, mrr_cents: null, days_with_data: 0, days_in_month: 29 },
-      { month: '2020-03', active: 6, past_due: 1, unpaid: 2, new_subscriptions: 0, cancelled_subscriptions: 0, mrr_cents: 6000, days_with_data: 1, days_in_month: 31 },
+      { month: '2020-01', active: 9, past_due: 1, unpaid: 2, new_subscriptions: 4, cancelled_subscriptions: 3, trained: 0, days_with_data: 2, days_in_month: 31 },
+      { month: '2020-02', active: null, past_due: null, unpaid: null, new_subscriptions: null, cancelled_subscriptions: null, trained: 0, days_with_data: 0, days_in_month: 29 },
+      { month: '2020-03', active: 6, past_due: 1, unpaid: 2, new_subscriptions: 0, cancelled_subscriptions: 0, trained: 0, days_with_data: 1, days_in_month: 31 },
     ]);
     const cur = today();
     const now = await getSubscriptionStats(c, { group: 'month', from: cur.slice(0, 7), to: cur.slice(0, 7) });
     assert.equal(now.rows[0].days_in_month, Number(cur.slice(8)) - 1); // mes en curso: hasta ayer
     const def = await getSubscriptionStats(c, { group: 'month' }); // por defecto, 12 meses con el en curso
     assert.deepEqual([def.rows.length, def.to], [12, cur.slice(0, 7)]);
+  }));
+  // Alumnos que entrenaron: distintos con algún presente en una sesión no cancelada, por día o mes de Madrid.
+  await run('alumnos que entrenaron: distintos por día y mes de Madrid; ni ausentes, ni sin marcar, ni canceladas, ni eventos', () => sp(async () => {
+    const X = await F.discipline('X');
+    const p = await F.person('profesor');
+    const [a, b, d, e] = await F.students(4);
+    const s1 = await F.session(X, local('2020-01-01 10:00'), { trainer: p });
+    await F.book(s1, a, 'confirmed', 'present');
+    await F.book(s1, b, 'confirmed', 'absent');
+    await F.book(s1, d); // sin marcar
+    const s2 = await F.session(X, local('2020-01-01 12:00'), { trainer: p });
+    await F.book(s2, a, 'confirmed', 'present'); // dos veces el mismo día: una
+    const s3 = await F.session(X, local('2020-01-03 23:30'), { trainer: p }); // 23:30 de Madrid: aún día 3
+    await F.book(s3, a, 'confirmed', 'present');
+    await F.book(s3, b, 'confirmed', 'present');
+    const s4 = await F.session(X, local('2020-01-02 10:00'), { trainer: p, cancelled: true });
+    await F.book(s4, d, 'confirmed', 'present'); // cancelada: no cuenta
+    const s5 = await F.session(X, local('2020-03-04 10:00'), { trainer: p });
+    await F.book(s5, e, 'confirmed', 'present');
+    const ev = (await c.query(
+      `INSERT INTO events (title, starts_at, ends_at, location, trainer_id, created_by)
+       VALUES ('x', ${local('2020-01-02 18:00')}, ${local('2020-01-02 19:00')}, 'x', $1, $1) RETURNING id`, [p])).rows[0].id;
+    await c.query(`INSERT INTO event_registrations (event_id, profile_id, actor_id, status, amount_cents, attended)
+                   VALUES ($1, $2, $2, 'confirmed', 0, true)`, [ev, e]); // evento: no cuenta
+    const day = await getSubscriptionStats(c, { group: 'day', from: '2020-01-01', to: '2020-01-04' });
+    assert.deepEqual(day.rows.map((r) => [r.date, r.trained]), [['2020-01-01', 1], ['2020-01-02', 0], ['2020-01-03', 2], ['2020-01-04', 0]]);
+    assert.equal(day.trained, 2); // a (dos días) y b: distintos en el rango, no la suma
+    assert.ok(day.rows.every((r) => !('mrr_cents' in r)));
+    const month = await getSubscriptionStats(c, { group: 'month', from: '2020-01', to: '2020-03' });
+    assert.deepEqual(month.rows.map((r) => [r.month, r.trained]), [['2020-01', 2], ['2020-02', 0], ['2020-03', 1]]);
+    assert.equal(month.trained, 3);
+    assert.ok(month.rows.every((r) => !('mrr_cents' in r)));
   }));
 
   // ---------- Sesiones ----------

@@ -262,7 +262,7 @@ Claves: `qr_rotation_seconds`, `qr_activation_minutes_before`, `qr_deactivation_
 | cancelled_subscriptions | integer NOT NULL |
 | mrr_cents | integer NOT NULL |
 
-Una fila por día con el estado de las suscripciones; no cambia nunca y un día sin fila es un hueco (ADR 0012). Altas y bajas sin traspasos; `mrr_cents` de las `active` y `past_due`. La escribe `snapshot_academy_stats(date)` desde `scripts/nightly.js`. `student_stats_daily` (001) se borró en `023`: la asistencia se calcula al leer.
+Una fila por día con el estado de las suscripciones; no cambia nunca y un día sin fila es un hueco (ADR 0012). Altas y bajas sin traspasos; `mrr_cents` de las `active` y `past_due`. La escribe `snapshot_academy_stats(date)` desde `scripts/nightly.js`. `mrr_cents` se sigue escribiendo, pero la app ya no lo lee (B24.2: los ingresos se ven en Stripe); `academy_stats_now()` (029) se borró en `032`. `student_stats_daily` (001) se borró en `023`: la asistencia se calcula al leer.
 
 ### push_subscriptions
 | Columna | Tipo |

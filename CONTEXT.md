@@ -248,7 +248,9 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 - **Foto diaria**: el estado de las suscripciones al cierre de cada día (cuántas activas, en periodo de gracia e impagadas, altas, bajas e ingreso mensual recurrente). Se toma una vez por la noche y no cambia nunca después: es lo que había ese día. Un día sin foto es un hueco («sin dato»); no se rellena después.
   Lo demás (asistencia, ocupación, horas) no se fotografía: se calcula siempre sobre los datos actuales, así que una corrección o una cancelación retroactiva cambian también los informes pasados.
 - **Alta** y **baja** (en informes): una suscripción que se contrata o que termina (ver «Baja»). Un traspaso no es ni una baja ni un alta: la cobertura sigue.
-- **Ingreso mensual recurrente** (MRR): la suma de los precios de las suscripciones en vigor. Las impagadas no suman, ni el seguro.
+- **Ingreso mensual recurrente** (MRR): la suma de los precios de las suscripciones en vigor. Las impagadas no suman, ni el seguro. La foto lo sigue guardando, pero la app no lo enseña: los ingresos se ven en Stripe.
+- **Alumno que entrenó** (en un periodo): un alumno, también un hijo, con al menos una asistencia «presente» en una sesión no cancelada que empieza dentro del periodo, contado en días de Madrid. Cada alumno cuenta una vez por periodo, entrene cuantas veces entrene. Cuenta aunque la lista no se haya cerrado; los eventos no cuentan. Como el resto de la asistencia, se calcula sobre los datos actuales, nunca de la foto.
+  _Evitar_: activo (un alumno activo es el que tiene una suscripción en vigor).
 - **Ocupación**: plazas reservadas entre el aforo de las sesiones celebradas. Una reserva que acabó en falta ocupa igual; quién vino lo mide la asistencia. Las sesiones canceladas, también las retroactivas, no cuentan; una sesión cuenta en el mes de Madrid en que empieza.
 
 ## Avisos

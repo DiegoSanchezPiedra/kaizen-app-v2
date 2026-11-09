@@ -39,7 +39,17 @@ export const pagination = ({ limit = 25, offset = 0 }) => {
   return { limit, offset };
 };
 
-/** Foto diaria por día o por mes. Un día o un mes sin foto, con los valores a null («sin dato»). */
+// Alumnos que entrenaron (CONTEXT § Informes) entre dos instantes locales de Madrid [f, t): distintos con algún presente en
+// una sesión no cancelada, por su inicio. En vivo, nunca de la foto (ADR 0012); los eventos no cuentan.
+export const TRAINED = (f, t) => `(SELECT count(DISTINCT a.student_id)::int FROM attendance a
+    JOIN class_sessions s ON s.id = a.session_id
+   WHERE a.status = 'present' AND s.status <> 'cancelled'
+     AND s.starts_at >= (${f}) AT TIME ZONE '${TZ}' AND s.starts_at < (${t}) AT TIME ZONE '${TZ}')`;
+
+/**
+ * Foto diaria por día o por mes, con los alumnos que entrenaron (por fila y, distintos, en todo el rango). Un día o un
+ * mes sin foto, con los valores de la foto a null («sin dato»); `trained` siempre es un número.
+ */
 export async function getSubscriptionStats(client, { group, from, to }) {
   if (group === 'day') {
     const t = to !== undefined ? dateParam(to, 'to') : addDays(today(), -1);
@@ -50,33 +60,37 @@ export async function getSubscriptionStats(client, { group, from, to }) {
     }
     const { rows } = await client.query(
       `SELECT to_char(g.d, 'YYYY-MM-DD') AS date, a.active, a.past_due, a.unpaid,
-              a.new_subscriptions, a.cancelled_subscriptions, a.mrr_cents
+              a.new_subscriptions, a.cancelled_subscriptions, ${TRAINED('g.d', "g.d + interval '1 day'")} AS trained
          FROM generate_series($1::date, $2::date, interval '1 day') g(d)
          LEFT JOIN academy_stats_daily a ON a.date = g.d::date
         ORDER BY g.d`, [f, t]);
-    return { group, from: f, to: t, rows };
+    const { rows: [{ trained }] } = await client.query(
+      `SELECT ${TRAINED('$1::date::timestamp', '($2::date + 1)::timestamp')} AS trained`, [f, t]);
+    return { group, from: f, to: t, trained, rows };
   }
   if (group !== 'month') throw bad('group', 'group debe ser day o month');
   const cur = today().slice(0, 7);
   const [f, t] = monthRange(from, to, 24, [addMonths(cur, -11), cur]);
-  // Estados y MRR, de la última foto del mes; altas y bajas, la suma. days_in_month: los días con foto posible
+  // Estados, de la última foto del mes; altas y bajas, la suma. days_in_month: los días con foto posible
   // (el mes entero en el pasado, hasta ayer en el en curso, 0 en el futuro).
   const { rows } = await client.query(
     `WITH m AS (SELECT g.m::date AS m, (g.m + interval '1 month')::date AS e
                   FROM generate_series(($1::text || '-01')::date, ($2::text || '-01')::date, interval '1 month') g(m)),
           t AS (SELECT (now() AT TIME ZONE '${TZ}')::date AS d)
      SELECT to_char(m.m, 'YYYY-MM') AS month, l.active, l.past_due, l.unpaid,
-            s.new_subscriptions, s.cancelled_subscriptions, l.mrr_cents,
+            s.new_subscriptions, s.cancelled_subscriptions, ${TRAINED('m.m::timestamp', 'm.e::timestamp')} AS trained,
             s.days_with_data, least(m.e - m.m, greatest(t.d - m.m, 0)) AS days_in_month
        FROM m CROSS JOIN t
-       LEFT JOIN LATERAL (SELECT active, past_due, unpaid, mrr_cents FROM academy_stats_daily
+       LEFT JOIN LATERAL (SELECT active, past_due, unpaid FROM academy_stats_daily
                            WHERE date >= m.m AND date < m.e ORDER BY date DESC LIMIT 1) l ON true
        CROSS JOIN LATERAL (SELECT sum(new_subscriptions)::int AS new_subscriptions,
                                   sum(cancelled_subscriptions)::int AS cancelled_subscriptions,
                                   count(*)::int AS days_with_data
                              FROM academy_stats_daily WHERE date >= m.m AND date < m.e) s
       ORDER BY m.m`, [f, t]);
-  return { group, from: f, to: t, rows };
+  const { rows: [{ trained }] } = await client.query(
+    `SELECT ${TRAINED("($1::text || '-01')::timestamp", "(($2::text || '-01')::date + interval '1 month')")} AS trained`, [f, t]);
+  return { group, from: f, to: t, trained, rows };
 }
 
 // Sesiones que cuentan (celebradas: programadas y ya terminadas), en los meses de Madrid [$1, $2] por su inicio.

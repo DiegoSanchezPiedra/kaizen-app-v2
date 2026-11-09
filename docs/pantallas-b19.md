@@ -74,7 +74,7 @@ Los de `docs/pantallas-b18.md` (cargando, vacío, error, sin conexión, sin perm
 
 Un vistazo y lo que pide atención. Todo enlaza a su pantalla. Sin MFA, el aviso de «Activa el doble factor» va arriba del todo.
 
-- **Cifras** (cuatro tarjetas): suscripciones activas, en periodo de gracia, impagadas y MRR del último día con foto
+- **Cifras** (cuatro tarjetas): suscripciones activas, en periodo de gracia, impagadas y alumnos que entrenaron en el rango (B24.2: sin MRR; los ingresos se ven en Stripe)
   (`GET /admin/reports/subscriptions?group=day`, la última fila no nula, con una línea de los 30 días). Día sin foto:
   «sin dato de ayer» y la fecha de la última.
 - **Requiere atención** (lista con contadores, cada uno con `limit=1` para leer el `total`):
@@ -164,7 +164,7 @@ Las métricas de B17, con los gráficos y «Ver tabla» de B18.4. Sin salud, eda
 
 | Pestaña | Endpoints | Estados y errores |
 |---|---|---|
-| **Suscripciones** | `GET /admin/reports/subscriptions?group=day\|month&from&to` | por días (≤ 92) o por meses (≤ 24): activas, en gracia, impagadas, altas, bajas y MRR. Un hueco sin foto se ve como hueco («sin dato»), nunca como cero; un mes incompleto dice «N de M días» |
+| **Suscripciones** | `GET /admin/reports/subscriptions?group=day\|month&from&to` | por días (≤ 92) o por meses (≤ 24): activas, en gracia, impagadas, altas, bajas y alumnos que entrenaron (B24.2, en vez del MRR). Un hueco sin foto se ve como hueco («sin dato»), nunca como cero; un mes incompleto dice «N de M días» |
 | **Sesiones** | `GET /admin/reports/sessions?by=discipline\|class&from&to&discipline_id` | como el del profesor, pero de toda la academia y con el profesor de cada clase |
 | **Alumnos** | `GET /admin/reports/students?from&to&discipline_id&limit&offset` | tabla paginada: reservas, presentes, faltas, sin registrar y tardías por alumno (nombre → ficha) |
 

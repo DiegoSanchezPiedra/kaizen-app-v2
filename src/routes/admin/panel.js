@@ -6,7 +6,7 @@ import { getSettings, listAudit, listNotices, listFailedDeliveries, getHome } fr
 const router = Router();
 router.use(requireAuth, requireRole('admin'));
 
-// GET /admin/home → { figures, students, attendance, sessions, next }: el Inicio en vivo (B23)
+// GET /admin/home → { trained, students, attendance, sessions, next }: el Inicio en vivo (B23)
 router.get('/home', withRlsContext((req, client) => getHome(client)));
 // GET /admin/settings → { checkin, insurance, discipline_changes }: lo que devuelven los tres PUT
 router.get('/settings', withRlsContext((req, client) => getSettings(client)));

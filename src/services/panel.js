@@ -3,7 +3,7 @@
 import { httpError } from '../lib/errors.js';
 import { invalid } from './catalog.js';
 import { dateParam } from './sessions.js';
-import { pagination } from './reports.js';
+import { pagination, TRAINED } from './reports.js';
 import { getCheckinSettings } from './checkin.js';
 import { getInsuranceSettings, getDisciplineChangeSettings } from './billing.js';
 import { getProfileStats } from './users.js';
@@ -92,13 +92,16 @@ const HOME_SESSION = `SELECT s.id, s.starts_at, s.ends_at, jsonb_build_object('i
 const MADRID_DAY = (offset) => `((now() AT TIME ZONE '${TZ}')::date + ${offset})::timestamp AT TIME ZONE '${TZ}'`;
 
 /**
- * Inicio del admin (B23), en vivo: las cifras de ahora (academy_stats_now, solo admin), las de alumnos de Usuarios, las
+ * Inicio del admin (B23), en vivo: los alumnos que entrenaron (B24.2: últimos 30 días de Madrid con hoy, los 30 anteriores
+ * y la serie móvil de 30 días que acaba en cada uno de los 30 últimos, del más viejo al de hoy), las de alumnos de Usuarios, las
  * asistencias de hoy y del mismo día de la semana pasada hasta esta misma hora, las sesiones de hoy con reservas y entradas, y la próxima
  * sesión programada que aún no ha empezado (para «Ahora» cuando no hay ninguna en curso).
  */
 export async function getHome(client) {
-  const { rows: [figures] } = await client.query(
-    `SELECT active, past_due, unpaid, new_subscriptions, cancelled_subscriptions, mrr_cents FROM academy_stats_now()`);
+  const day = (n) => `((now() AT TIME ZONE '${TZ}')::date + ${n})::timestamp`;
+  const { rows: [trained] } = await client.query(
+    `SELECT ${TRAINED(day(-29), day(1))} AS last_30, ${TRAINED(day(-59), day(-29))} AS previous_30,
+            (SELECT array_agg(${TRAINED(day('i - 58'), day('i - 28'))} ORDER BY i) FROM generate_series(0, 29) i) AS series`);
   const students = await getProfileStats(client, {});
   const { rows: [attendance] } = await client.query(
     `SELECT count(*) FILTER (WHERE s.starts_at >= ${MADRID_DAY(0)} AND s.starts_at < ${MADRID_DAY(1)})::int AS today,
@@ -109,5 +112,5 @@ export async function getHome(client) {
     `${HOME_SESSION} WHERE s.starts_at >= ${MADRID_DAY(0)} AND s.starts_at < ${MADRID_DAY(1)} ORDER BY s.starts_at, s.id`);
   const { rows: [next] } = await client.query(
     `${HOME_SESSION} WHERE s.status = 'scheduled' AND s.starts_at > now() ORDER BY s.starts_at, s.id LIMIT 1`);
-  return { figures, students, attendance, sessions, next: next ?? null };
+  return { trained, students, attendance, sessions, next: next ?? null };
 }
