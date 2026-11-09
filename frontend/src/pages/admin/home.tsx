@@ -169,6 +169,22 @@ function Now({ home, now, className }: { home: UseQueryResult<AdminHome>; now: n
 
 // ── Cifras ───────────────────────────────────────────────────────────────────
 
+// La variación en % frente a `before`; sin base (before 0), la cifra de antes.
+function Delta({ now, before, vs, was }: { now: number; before: number; vs: string; was: string }) {
+  const pct = variation(now, before)
+  if (pct === null) return <span className="text-[13px] text-muted-foreground tabular-nums">{was}: {nf.format(before)}</span>
+  return (
+    <span className="flex flex-wrap items-center gap-x-1.5 text-[13px] text-muted-foreground tabular-nums">
+      <span className={cn('flex items-center gap-0.5 font-semibold', pct > 0 ? 'text-success' : pct < 0 && 'text-destructive')}>
+        {pct > 0 && <ArrowUpIcon className="size-3.5" aria-hidden="true" />}
+        {pct < 0 && <ArrowDownIcon className="size-3.5" aria-hidden="true" />}
+        {signed.format(pct)} %
+      </span>
+      {vs}
+    </span>
+  )
+}
+
 function Figures({ home, className }: { home: UseQueryResult<AdminHome>; className?: string }) {
   // La línea de 30 días sale de la foto nocturna; si no está o falla, la tarjeta se ve igual sin línea.
   const rows = useQuery({
@@ -180,8 +196,6 @@ function Figures({ home, className }: { home: UseQueryResult<AdminHome>; classNa
       <View q={home} skeleton={<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}</div>}>
         {(d) => {
           const activeTrend = rows && trend(rows, 'active')
-          const pct = variation(d.attendance.today, d.attendance.last_week)
-          const trainedPct = variation(d.trained.last_30, d.trained.previous_30)
           const cards: { label: string; value: string; to: string; extra?: React.ReactNode; spark?: (number | null)[]; alert?: boolean }[] = [
             {
               label: 'Alumnos activos',
@@ -196,37 +210,13 @@ function Figures({ home, className }: { home: UseQueryResult<AdminHome>; classNa
               value: nf.format(d.trained.last_30),
               to: '/admin/reports',
               spark: d.trained.series,
-              extra:
-                trainedPct === null ? (
-                  <span className="text-[13px] text-muted-foreground tabular-nums">30 días antes: {nf.format(d.trained.previous_30)}</span>
-                ) : (
-                  <span className="flex flex-wrap items-center gap-x-1.5 text-[13px] text-muted-foreground tabular-nums">
-                    <span className={cn('flex items-center gap-0.5 font-semibold', trainedPct > 0 ? 'text-success' : trainedPct < 0 && 'text-destructive')}>
-                      {trainedPct > 0 && <ArrowUpIcon className="size-3.5" aria-hidden="true" />}
-                      {trainedPct < 0 && <ArrowDownIcon className="size-3.5" aria-hidden="true" />}
-                      {signed.format(trainedPct)} %
-                    </span>
-                    vs. 30 días anteriores
-                  </span>
-                ),
+              extra: <Delta now={d.trained.last_30} before={d.trained.previous_30} vs="vs. 30 días anteriores" was="30 días antes" />,
             },
             {
               label: 'Asistencias hoy',
               value: nf.format(d.attendance.today),
               to: '/admin/reports?tab=students',
-              extra:
-                pct === null ? (
-                  <span className="text-[13px] text-muted-foreground tabular-nums">Hace 7 días: {nf.format(d.attendance.last_week)}</span>
-                ) : (
-                  <span className="flex flex-wrap items-center gap-x-1.5 text-[13px] text-muted-foreground tabular-nums">
-                    <span className={cn('flex items-center gap-0.5 font-semibold', pct > 0 ? 'text-success' : pct < 0 && 'text-destructive')}>
-                      {pct > 0 && <ArrowUpIcon className="size-3.5" aria-hidden="true" />}
-                      {pct < 0 && <ArrowDownIcon className="size-3.5" aria-hidden="true" />}
-                      {signed.format(pct)} %
-                    </span>
-                    vs. hace 7 días
-                  </span>
-                ),
+              extra: <Delta now={d.attendance.today} before={d.attendance.last_week} vs="vs. hace 7 días" was="Hace 7 días" />,
             },
           ]
           return (

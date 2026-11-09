@@ -99,9 +99,10 @@ const MADRID_DAY = (offset) => `((now() AT TIME ZONE '${TZ}')::date + ${offset})
  */
 export async function getHome(client) {
   const day = (n) => `((now() AT TIME ZONE '${TZ}')::date + ${n})::timestamp`;
-  const { rows: [trained] } = await client.query(
-    `SELECT ${TRAINED(day(-29), day(1))} AS last_30, ${TRAINED(day(-59), day(-29))} AS previous_30,
+  const { rows: [{ previous_30, series }] } = await client.query(
+    `SELECT ${TRAINED(day(-59), day(-29))} AS previous_30,
             (SELECT array_agg(${TRAINED(day('i - 58'), day('i - 28'))} ORDER BY i) FROM generate_series(0, 29) i) AS series`);
+  const trained = { last_30: series[29], previous_30, series }; // el último punto de la serie es [hoy - 29, hoy]
   const students = await getProfileStats(client, {});
   const { rows: [attendance] } = await client.query(
     `SELECT count(*) FILTER (WHERE s.starts_at >= ${MADRID_DAY(0)} AND s.starts_at < ${MADRID_DAY(1)})::int AS today,
