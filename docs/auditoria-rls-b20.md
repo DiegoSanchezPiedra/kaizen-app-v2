@@ -20,7 +20,7 @@ ponerse `admin`. Por eso lo que solo se aprovecha con SQL arbitrario queda en Me
 | M1 | Media | Funciones `SECURITY DEFINER` sin `pg_temp` al final del `search_path` y `TEMPORARY` para todos | Arreglado (`039`) |
 | M2 | Media | Privilegios por defecto: `SELECT, INSERT, UPDATE, DELETE` a `app_user` en toda tabla nueva | Arreglado (`040`) |
 | M3 | Media | `cash_payments` sin RLS y con todos los permisos para `app_user` | Arreglado (`041`) |
-| M4 | Media | `pgmigrations` sin RLS y con todos los permisos para `app_user` | Checklist |
+| M4 | Media | `pgmigrations` sin RLS y con todos los permisos para `app_user` | Arreglado (`042`) |
 | M5 | Media | `auth_credentials`: `UPDATE` de cualquier columna propia (`email`, `email_verified`, `google_sub`…) | Checklist |
 | M6 | Media | El profesor lee la fila entera de `profiles` de sus alumnos (también `birth_date` de menores) | Checklist |
 | B1 | Baja | `has_risk_cover`, `profile_missing` y `discipline_changes_used` responden sobre cualquier perfil | Checklist |
@@ -85,6 +85,8 @@ Arreglado en la `041`: RLS en `ENABLE` y `FORCE` sin políticas y `REVOKE ALL` a
 Sin RLS y con todos los permisos para `app_user`: con SQL arbitrario se puede marcar como aplicada una migración (p. ej.
 una de seguridad, que no llegaría a ejecutarse) o borrar el historial. Arreglo: `REVOKE ALL ON pgmigrations,
 pgmigrations_id_seq FROM app_user`.
+
+Arreglado en la `042`: `REVOKE ALL ON pgmigrations, pgmigrations_id_seq FROM app_user`; solo la toca `migrator`, su dueño. Sin RLS (con `FORCE` se aplicaría también a `migrator`). `test:rls`: ni el admin la lee, la borra ni lee su secuencia.
 
 ### M5 — `auth_credentials`: cualquier columna propia (Media)
 

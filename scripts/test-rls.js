@@ -338,6 +338,13 @@ async function main() {
       await expectDenied(withCtx(admin, (c) => c.query(`DELETE FROM cash_payments`)));
     });
 
+    // B20 (M4): con SQL arbitrario se marcaría como aplicada una migración de seguridad o se borraría el historial.
+    await run('B20 — app_user no toca pgmigrations ni su secuencia', async () => {
+      await expectDenied(withCtx(admin, (c) => c.query(`SELECT 1 FROM pgmigrations`)));
+      await expectDenied(withCtx(admin, (c) => c.query(`DELETE FROM pgmigrations WHERE false`)));
+      await expectDenied(withCtx(admin, (c) => c.query(`SELECT last_value FROM pgmigrations_id_seq`)));
+    });
+
     await run('service_role se salta RLS y lee auth_credentials', async () => {
       const { rows } = await withServiceCommit((c) =>
         c.query(`SELECT profile_id FROM auth_credentials WHERE profile_id = $1`, [ids.b])
