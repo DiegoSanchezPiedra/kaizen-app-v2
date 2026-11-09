@@ -19,7 +19,7 @@ ponerse `admin`. Por eso lo que solo se aprovecha con SQL arbitrario queda en Me
 | A1 | Alta | `profiles`: `UPDATE` de cualquier columna propia (`stripe_customer_id`, `birth_date`…) | Arreglado (`038`) |
 | M1 | Media | Funciones `SECURITY DEFINER` sin `pg_temp` al final del `search_path` y `TEMPORARY` para todos | Arreglado (`039`) |
 | M2 | Media | Privilegios por defecto: `SELECT, INSERT, UPDATE, DELETE` a `app_user` en toda tabla nueva | Arreglado (`040`) |
-| M3 | Media | `cash_payments` sin RLS y con todos los permisos para `app_user` | Checklist |
+| M3 | Media | `cash_payments` sin RLS y con todos los permisos para `app_user` | Arreglado (`041`) |
 | M4 | Media | `pgmigrations` sin RLS y con todos los permisos para `app_user` | Checklist |
 | M5 | Media | `auth_credentials`: `UPDATE` de cualquier columna propia (`email`, `email_verified`, `google_sub`…) | Checklist |
 | M6 | Media | El profesor lee la fila entera de `profiles` de sus alumnos (también `birth_date` de menores) | Checklist |
@@ -77,6 +77,8 @@ con `FORCE`. `test:rls`: una tabla nueva de `migrator` no da nada a `app_user`, 
 Creada vacía en la 001 para el pago en efectivo (reservado, sin uso en el código), sin RLS y con todos los permisos para
 `app_user`: cualquiera lee y escribe pagos en efectivo. Hoy nada la lee. Arreglo: `ENABLE` y `FORCE` y `REVOKE ALL`
 a `app_user` hasta que tenga bloque. Toca dinero: se decide antes de arreglarlo.
+
+Arreglado en la `041`: RLS en `ENABLE` y `FORCE` sin políticas y `REVOKE ALL` a `app_user`: hasta que el efectivo tenga su bloque, solo el `servicePool`. No borra nada. `test:rls`: ni el admin la lee ni la escribe con `app_user`.
 
 ### M4 — `pgmigrations` (Media)
 

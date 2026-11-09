@@ -332,6 +332,12 @@ async function main() {
       }
     });
 
+    // B20 (M3): el pago en efectivo está reservado; hasta su bloque, solo el servicePool toca cash_payments.
+    await run('B20 — app_user (ni el admin) no lee ni escribe cash_payments', async () => {
+      await expectDenied(withCtx(admin, (c) => c.query(`SELECT 1 FROM cash_payments`)));
+      await expectDenied(withCtx(admin, (c) => c.query(`DELETE FROM cash_payments`)));
+    });
+
     await run('service_role se salta RLS y lee auth_credentials', async () => {
       const { rows } = await withServiceCommit((c) =>
         c.query(`SELECT profile_id FROM auth_credentials WHERE profile_id = $1`, [ids.b])
