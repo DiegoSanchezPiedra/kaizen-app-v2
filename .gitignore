@@ -67,3 +67,4 @@ storage-staging/
 
 # graphify knowledge graph (local index)
 graphify-out/
+.playwright-mcp/

@@ -248,7 +248,7 @@ export function RankingsPage() {
               label="Ranking"
               value={isMedals ? 'medals' : 'month'}
               onChange={(v) => setParams(v === 'month' ? { ver: 'mes' } : {}, { replace: true })}
-              items={[{ value: 'medals', label: 'Medallas · de siempre' }, ...(open ? [] : [{ value: 'month', label: 'Horas · este mes' }])]}
+              items={[{ value: 'medals', label: 'Medallas' }, ...(open ? [] : [{ value: 'month', label: 'Horas del mes' }])]}
             />
           </div>
           {!isMedals && (
@@ -285,7 +285,7 @@ export function RankingsPage() {
                   <span className="w-7 text-center font-heading text-xl font-bold tabular-nums">{r.rank}</span>
                   <TopMedal disciplines={r.achievements?.filter((d) => d.id === chosen)} />
                   <Link to={`/profiles/${r.id}`} className="min-w-0 flex-1 truncate font-semibold hover:underline">{r.display_name}</Link>
-                  <span className="text-right font-mono text-sm tabular-nums">
+                  <span className={`shrink-0 text-right text-sm tabular-nums ${'medals' in r ? '' : 'font-mono'}`}>
                     {'medals' in r ? (
                       <>
                         {r.medals} {r.medals === 1 ? 'medalla' : 'medallas'}
