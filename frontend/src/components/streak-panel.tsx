@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { streakMedal, streakTier } from '@/lib/progress'
+import { glowOf, streakMedal, streakTier } from '@/lib/progress'
 import { cn } from '@/lib/utils'
 
 // ADR 0015: nada de la API se guarda en el dispositivo. La entrada (número y destello del aura) se juega una vez por
@@ -18,7 +18,7 @@ export function StreakPanel({ current, best, subject, theme = null, large }: { c
   }, [])
   const tier = streakTier(current)
   const m = streakMedal(theme, current)
-  const color = tier ? m.palette.c1 : '#9AA0B8'
+  const color = tier ? glowOf(m) : '#9AA0B8'
   return (
     <section aria-label="Racha" className="relative isolate overflow-hidden rounded-2xl border-3 border-black bg-brand-ink p-4 text-white shadow-[4px_4px_0_#000]">
       {tier > 0 && (
@@ -29,11 +29,11 @@ export function StreakPanel({ current, best, subject, theme = null, large }: { c
           {first && <div aria-hidden="true" className="pointer-events-none absolute inset-0 animate-medal-flash bg-white opacity-0" />}
         </>
       )}
-      <span aria-hidden="true" className="absolute top-3 right-3 grid size-9 place-items-center rounded-md border-2 border-black text-lg font-black" style={{ background: tier ? m.palette.hanko : '#3A3F58' }}>
+      <span aria-hidden="true" className="absolute top-3 right-3 grid size-9 place-items-center rounded-md border-2 border-white/70 text-lg font-black" style={{ background: tier ? m.palette.hanko : '#3A3F58' }}>
         {m.kanji}
       </span>
-      <p className="text-sm font-semibold text-white/80">Racha{subject ? ` de ${subject}` : ''}</p>
-      <p className="mt-1 flex items-center gap-3">
+      <p className="truncate pr-12 text-sm font-semibold text-white/80">Racha{subject ? ` de ${subject}` : ''}</p>
+      <p className="mt-1 flex items-center gap-3 pr-10">
         <span
           className={cn('-rotate-3 border-3 border-black px-3 font-heading leading-none font-extrabold text-black italic shadow-[3px_3px_0_#000]', large ? 'py-1 text-7xl' : 'py-0.5 text-5xl', first && current > 0 && 'animate-power-up')}
           style={{ background: color }}

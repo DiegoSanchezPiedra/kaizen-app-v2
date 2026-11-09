@@ -7,6 +7,8 @@
 // El adulto es público y compite (ranking y logros), con 8 rivales de demo; Nico nunca es público.
 // Cada disciplina tiene 1060 h y 53 semanas seguidas de 2024 (8 sesiones de 2 h 30 por semana), en franjas distintas
 // para que ni el alumno ni el profesor se solapen. Es historia vieja: no sale en el calendario, la agenda ni los informes recientes.
+// Además, una racha actual para el recuadro de racha: un presente cada miércoles de las últimas 13 semanas en Muay Thai
+// (adulto) y 5 en Muay Thai Kids (Nico). Esas sí salen en la agenda y los informes recientes, y suman unas horas más.
 // shortcut: la asistencia de Nico es de 2 h 30 por sesión (irreal en niños), para llegar a 1060 h; si molesta, bajar a menos horas y quitar hours_*.
 import pg from 'pg';
 
