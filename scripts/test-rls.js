@@ -318,6 +318,20 @@ async function main() {
       }
     });
 
+    // B20 (B4): al registrarse (createUser, con un id nuevo) solo se insertan id, nombre y una fecha vacía o de adulto.
+    await run('B20 — el registro solo inserta id, display_name y una fecha de adulto (o ninguna)', async () => {
+      const insert = (cols, vals) => {
+        const uid = crypto.randomUUID();
+        return withCtx({ uid, role: 'alumno' }, (c) => c.query(`INSERT INTO profiles (id, ${cols}) VALUES ($1, ${vals})`, [uid]));
+      };
+      for (const [cols, vals] of [['stripe_customer_id', `'cus_hack'`], ['is_public', 'true'], ['bio', `'x'`],
+        ['birth_date', `'${yearsAgo(10)}'`]]) {
+        await expectDenied(insert(cols, vals));
+      }
+      assert.equal((await insert('display_name, birth_date', `'x', '${yearsAgo(30)}'`)).rowCount, 1);
+      assert.equal((await insert('display_name, birth_date', `'x', NULL`)).rowCount, 1);
+    });
+
     // B20 (B5): de su hijo, el tutor edita nombre, fecha y foto; nada del perfil público (un hijo nunca es público).
     await run('B20 — el tutor no edita bio, redes ni campos visibles de su hijo', async () => {
       for (const set of [`bio = 'x'`, `social_links = '{}'`, `visible_fields = '{"bio": true}'`]) {
