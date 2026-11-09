@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  canSeeHealth, classTitle, classTrainer, monthlyTotals, niceMax, periodRange, phaseOf, splitHealth, sumFigures, telHref,
+  canSeeHealth, classTitle, classTrainer, mobileLabels, monthlyTotals, niceMax, periodRange, phaseOf, splitHealth, sumFigures, telHref,
   unmarked, validRange, withMark, type Attendance, type Figures, type HealthStudent, type ReportRow,
 } from '@/lib/professor'
 
@@ -90,5 +90,23 @@ describe('informes', () => {
     expect(classTitle({ ...base, class_id: 'c', weekday: 1, start_time: '18:30', trainer: { id: 't', name: 'Marc' } })).toBe('Muay Thai · lunes 18:30')
     expect(classTrainer({ ...base, class_id: 'c', weekday: 1, start_time: '18:30', trainer: { id: 't', name: null } })).toBe('Clase de otro profesor · tus sustituciones')
     expect(classTitle({ ...base, class_id: null })).toBe('Muay Thai · sesiones sueltas')
+  })
+})
+
+describe('etiquetas del eje en el móvil', () => {
+  it('12 meses: como mucho 6, siempre la última', () => {
+    const shown = mobileLabels(Array.from({ length: 12 }, (_, i) => `m${i}`))
+    expect(shown.filter(Boolean)).toHaveLength(6)
+    expect(shown.at(-1)).toBe(true)
+    expect(shown.slice(0, 2)).toEqual([false, true])
+  })
+  it('24 meses: cada 4, desde la última', () => {
+    const shown = mobileLabels(Array.from({ length: 24 }, (_, i) => `m${i}`))
+    expect(shown.flatMap((v, i) => (v ? [i] : []))).toEqual([3, 7, 11, 15, 19, 23])
+  })
+  it('las vacías no cuentan y no se muestran; con pocas, todas', () => {
+    const days = Array.from({ length: 30 }, (_, i) => (i % 7 === 0 ? String(i) : ''))
+    expect(mobileLabels(days)).toEqual(days.map(Boolean))
+    expect(mobileLabels(['a', 'b', 'c'])).toEqual([true, true, true])
   })
 })

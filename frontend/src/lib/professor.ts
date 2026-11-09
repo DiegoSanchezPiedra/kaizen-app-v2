@@ -169,4 +169,12 @@ export function niceMax(n: number): number {
 }
 
 const shortMonthFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'UTC', month: 'short' })
-export const shortMonth = (m: string): string => shortMonthFmt.format(new Date(`${m}-01T12:00:00Z`)).replace('.', '')
+// Qué etiquetas del eje caben en el móvil: de las no vacías, una de cada `step` contando desde la última (que siempre sale).
+export function mobileLabels(labels: string[], max = 6): boolean[] {
+  const filled = labels.flatMap((l, i) => (l ? [i] : []))
+  const step = Math.ceil(filled.length / max)
+  const keep = new Set(filled.filter((_, k) => (filled.length - 1 - k) % step === 0))
+  return labels.map((_, i) => keep.has(i))
+}
+
+export const shortMonth =(m: string): string => shortMonthFmt.format(new Date(`${m}-01T12:00:00Z`)).replace('.', '')

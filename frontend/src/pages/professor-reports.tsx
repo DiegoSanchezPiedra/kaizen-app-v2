@@ -11,6 +11,7 @@ import { formatMonth } from '@/lib/dates'
 import {
   classTitle,
   classTrainer,
+  mobileLabels,
   monthlyTotals,
   niceMax,
   percent,
@@ -141,6 +142,7 @@ export function MonthBars<T>({ months, max, ticks, unit, stack, tip, labelLast, 
   const [hover, setHover] = useState<number | null>(null)
   const last = months.length - 1
   const gap = months.length > 16 ? 'gap-0.5' : 'gap-2.5'
+  const fits = mobileLabels(months.map(short)) // en el móvil no caben 12 meses: se ocultan sin mover la rejilla
   return (
     <div>
       <div className={cn('relative ml-10 grid h-42 grid-flow-col auto-cols-fr border-b border-foreground/30', gap)}>
@@ -184,8 +186,8 @@ export function MonthBars<T>({ months, max, ticks, unit, stack, tip, labelLast, 
         ))}
       </div>
       <div className={cn('mt-1.5 ml-10 grid grid-flow-col auto-cols-fr text-center text-xs text-muted-foreground', gap)}>
-        {months.map((m) => (
-          <span key={name(m)} className="whitespace-nowrap">{short(m)}</span>
+        {months.map((m, i) => (
+          <span key={name(m)} className={cn('whitespace-nowrap', !fits[i] && 'max-sm:invisible')}>{short(m)}</span>
         ))}
       </div>
     </div>
