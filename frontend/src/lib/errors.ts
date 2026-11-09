@@ -165,6 +165,7 @@ Object.assign(TEXTS, {
   discipline_not_found: 'No encontramos esa disciplina.', // propuesto
   discipline_in_use: 'Hay cuotas que la tienen elegida: no puede ser abierta.', // propuesto
   name_taken: 'Ya hay uno con ese nombre.', // propuesto
+  theme_taken: 'Esa temática ya la tiene otra disciplina activa: elige otra o «Kaizen».',
   plan_has_subscriptions: 'El plan tiene suscriptores: no cambia de disciplinas ni de edad, ni baja a 0 €. Crea otro plan.', // propuesto
   eligible_too_few: 'Hacen falta al menos tantas disciplinas elegibles como incluye el plan.', // propuesto
   unknown_discipline: 'Alguna de las disciplinas ya no existe.', // propuesto

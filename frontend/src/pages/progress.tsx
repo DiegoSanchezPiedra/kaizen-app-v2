@@ -14,9 +14,10 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
 import { useSubject } from '@/hooks/use-subject'
 import { addMonths, formatMonth, madridMonth } from '@/lib/dates'
 import { formatDate } from '@/lib/format'
-import { MEDALS, type Medal as MedalInfo, type MedalKind, formatHours, medalGoal, nextMedal } from '@/lib/progress'
+import { type Medal as MedalInfo, type MedalKind, formatHours, glowOf, ladderOf, medalGoal, nextMedal } from '@/lib/progress'
+import { KAIZEN, THEMES } from '@/lib/themes'
 import { useProgress } from '@/lib/queries'
-import type { Progress as ProgressData } from '@/lib/types'
+import type { DisciplineMedals } from '@/lib/types'
 import type { Subject } from '@/lib/subject'
 
 function Progress({ subject, profileId }: { subject: Subject | null; profileId?: string }) {
@@ -24,19 +25,26 @@ function Progress({ subject, profileId }: { subject: Subject | null; profileId?:
   const current = madridMonth()
   const [month, setMonth] = useState(current)
   const progress = useProgress(profileId, month)
+  const [chosen, setChosen] = useState<string>()
   const name = subjectName(subject)
   return (
     <QueryView query={progress} skeleton={<ListSkeleton rows={3} className="h-32" />}>
       {(p) => {
-        const earned = new Map(p.badges.map((b) => [b.code, b.earned_at]))
         const hours = p.hours.disciplines
         const max = Math.max(1, ...hours.map((d) => d.hours))
-        const none = p.streak.best === 0 && p.badges.length === 0 && hours.length === 0
+        const none = p.streak.best === 0 && p.disciplines.length === 0 && hours.length === 0
+        // La elegida; si no, la de más horas.
+        const d = p.disciplines.find((x) => x.id === chosen) ?? [...p.disciplines].sort((a, z) => z.hours - a.hours)[0]
         return (
           <>
             <MedalReveal progress={p} profileId={profileId} name={subject && !subject.self ? name : undefined} />
             <StreakPanel current={p.streak.current} best={p.streak.best} subject={name} large />
-            <NextMedal p={p} earned={earned} />
+            {d && (
+              <>
+                {p.disciplines.length > 1 && <DisciplinePicker disciplines={p.disciplines} value={d.id} onChange={setChosen} />}
+                <NextMedal key={d.id} d={d} />
+              </>
+            )}
             {none && (
               <EmptyState
                 icon={<ZapIcon />}
@@ -77,10 +85,12 @@ function Progress({ subject, profileId }: { subject: Subject | null; profileId?:
                 ))
               )}
             </section>
-            <section aria-labelledby="medals" className="flex flex-col gap-3">
-              <h2 id="medals" className="sr-only">Medallas</h2>
-              <MedalLadders p={p} earned={earned} name={subject && !subject.self ? name : undefined} />
-            </section>
+            {d && (
+              <section aria-labelledby="medals" className="flex flex-col gap-3">
+                <h2 id="medals" className="sr-only">Medallas de {d.name}</h2>
+                <MedalLadders key={d.id} d={d} name={subject && !subject.self ? name : undefined} />
+              </section>
+            )}
           </>
         )
       }}
@@ -90,58 +100,77 @@ function Progress({ subject, profileId }: { subject: Subject | null; profileId?:
 
 const shortDate = (iso: string) => formatDate(iso).replace(/^\S+, /, '')
 
-// La próxima medalla de horas, protagonista con su anillo; debajo, la de constancia en pequeño.
-function NextMedal({ p, earned }: { p: ProgressData; earned: Map<string, string> }) {
-  const codes = new Set(earned.keys())
-  const hours = nextMedal('hours', codes)
-  const streak = nextMedal('streak', codes)
-  const pct = hours && hours.at > 0 ? Math.min(1, p.total_hours / hours.at) : 0
+// Una escalera por disciplina (037): se elige cuál ver. Botones en fila que se desliza en el móvil.
+function DisciplinePicker({ disciplines, value, onChange }: { disciplines: DisciplineMedals[]; value: string; onChange: (id: string) => void }) {
+  return (
+    <div role="group" aria-label="Medallas de la disciplina" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+      {disciplines.map((x) => (
+        <Button key={x.id} size="lg" variant={x.id === value ? 'default' : 'outline'} aria-pressed={x.id === value} onClick={() => onChange(x.id)} className="shrink-0">
+          {x.name} · {x.badges.length}/11
+        </Button>
+      ))}
+    </div>
+  )
+}
+
+const seriesOf = (theme: string | null) => ((theme && THEMES[theme]) || KAIZEN).series
+
+// La próxima medalla de horas de la disciplina, protagonista con su anillo; debajo, la de constancia en pequeño.
+function NextMedal({ d }: { d: DisciplineMedals }) {
+  const codes = new Set(d.badges.map((b) => b.code))
+  const hours = nextMedal(d.theme, 'hours', codes)
+  const streak = nextMedal(d.theme, 'streak', codes)
+  const ring = glowOf(ladderOf(d.theme)[0])
+  const pct = hours && hours.at > 0 ? Math.min(1, d.hours / hours.at) : 0
   const R = 72
   const C = 2 * Math.PI * R
   return (
     <section aria-labelledby="next-medal" className="flex flex-col items-center gap-2.5 rounded-2xl border-3 border-black bg-brand-ink bg-[repeating-conic-gradient(from_0deg_at_50%_40%,rgb(255_255_255/0.07)_0deg_3deg,transparent_3deg_12deg)] p-4 pt-5 text-center text-white shadow-[4px_4px_0_#000]">
-      <p className="text-sm font-bold tracking-wider text-white/80 uppercase">{hours ? 'Tu próxima medalla' : 'Medallas de horas'}</p>
+      <p className="text-sm font-bold tracking-wider text-white/80 uppercase">
+        {d.name} · {seriesOf(d.theme)}
+      </p>
+      <p className="-mt-1.5 text-xs text-white/70">{hours ? 'Tu próxima medalla' : 'Medallas de horas'}</p>
       {hours ? (
         <>
           <div className="relative grid size-40 place-items-center">
             <svg viewBox="0 0 156 156" className="absolute inset-0 -rotate-90" aria-hidden="true">
               <circle cx="78" cy="78" r={R} fill="none" stroke="rgb(255 255 255 / 0.14)" strokeWidth="8" />
-              <circle cx="78" cy="78" r={R} fill="none" stroke="#FFD23F" strokeWidth="8" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - pct)} className="transition-[stroke-dashoffset] duration-700 ease-out" />
+              <circle cx="78" cy="78" r={R} fill="none" stroke={ring} strokeWidth="8" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - pct)} className="transition-[stroke-dashoffset] duration-700 ease-out" />
             </svg>
             <Medal medal={hours} earned={false} className="size-28" />
           </div>
-          <h3 id="next-medal" className="font-heading text-4xl leading-none font-extrabold text-[#FFD23F] uppercase italic [text-shadow:3px_3px_0_var(--power)]">
+          <h3 id="next-medal" style={{ color: ring }} className="font-heading text-4xl leading-none font-extrabold uppercase italic [text-shadow:3px_3px_0_var(--power)]">
             {hours.name}
           </h3>
           {hours.at === 0 ? (
             <p className="text-[15px]">Se consigue con tu primera sesión</p>
           ) : (
-            <Meter value={p.total_hours} max={hours.at} aria-label={`Horas hacia ${hours.name}`} className="w-full max-w-64 gap-1">
+            <Meter value={d.hours} max={hours.at} aria-label={`Horas hacia ${hours.name}`} className="w-full max-w-64 gap-1">
               <p className="text-[15px]">
                 <span className="font-mono tabular-nums">
-                  {formatHours(p.total_hours).replace(' h', '')} / {formatHours(hours.at)}
+                  {formatHours(d.hours).replace(' h', '')} / {formatHours(hours.at)}
                 </span>{' '}
-                · te faltan {formatHours(Math.max(0, hours.at - p.total_hours))}
+                · te faltan {formatHours(Math.max(0, hours.at - d.hours))}
               </p>
             </Meter>
           )}
         </>
       ) : (
-        <h3 id="next-medal" className="font-heading text-4xl font-extrabold text-[#FFD23F] uppercase italic">Todas conseguidas</h3>
+        <h3 id="next-medal" style={{ color: ring }} className="font-heading text-4xl font-extrabold uppercase italic">Todas conseguidas</h3>
       )}
       <div className="mt-1 w-full border-t border-white/15 pt-3">
         {streak ? (
-          <Meter value={p.streak.best} max={streak.at} aria-label={`Semanas hacia ${streak.name}`} className="gap-1.5">
+          <Meter value={d.streak.best} max={streak.at} aria-label={`Semanas hacia ${streak.name}`} className="gap-1.5">
             <div className="flex items-baseline justify-between gap-2 text-sm">
               <span className="font-semibold">{streak.name}</span>
               <span className="font-mono tabular-nums">
-                {p.streak.best} / {streak.at} semanas
+                {d.streak.best} / {streak.at} semanas
               </span>
             </div>
             <MeterTrack className="h-2 rounded-full bg-white/15">
               <MeterIndicator className="rounded-full bg-ki" />
             </MeterTrack>
-            <p className="text-left text-xs text-white/75">Según tu mejor racha</p>
+            <p className="text-left text-xs text-white/75">Según tu mejor racha en {d.name}</p>
           </Meter>
         ) : (
           <p className="text-sm font-semibold">Medallas de constancia: todas conseguidas</p>
@@ -158,15 +187,17 @@ const LADDERS: { kind: MedalKind; label: string }[] = [
 
 // Escaleras por pestaña: conseguidas con su fecha (al tocarlas se vuelve a ver su animación), la próxima con lo que
 // falta y las bloqueadas con su meta.
-function MedalLadders({ p, earned, name }: { p: ProgressData; earned: Map<string, string>; name?: string }) {
+function MedalLadders({ d, name }: { d: DisciplineMedals; name?: string }) {
+  const earned = new Map(d.badges.map((b) => [b.code, b.earned_at]))
   const codes = new Set(earned.keys())
+  const ladder = ladderOf(d.theme)
   const [replay, setReplay] = useState<MedalInfo | null>(null)
   return (
     <Tabs defaultValue="hours" className="gap-3">
-      {replay && <MedalDialog medal={replay} name={name} label="Medalla conseguida" onClose={() => setReplay(null)} />}
+      {replay && <MedalDialog medal={replay} name={name} label={`Medalla conseguida · ${d.name}`} onClose={() => setReplay(null)} />}
       <TabsList className="w-full">
         {LADDERS.map((l) => {
-          const all = MEDALS.filter((x) => x.kind === l.kind)
+          const all = ladder.filter((x) => x.kind === l.kind)
           return (
             <TabsTab key={l.kind} value={l.kind} className="min-h-11 flex-1">
               {l.label} · {all.filter((x) => codes.has(x.code)).length}/{all.length}
@@ -175,12 +206,12 @@ function MedalLadders({ p, earned, name }: { p: ProgressData; earned: Map<string
         })}
       </TabsList>
       {LADDERS.map((l) => {
-        const next = nextMedal(l.kind, codes)
-        const value = l.kind === 'hours' ? p.total_hours : p.streak.best
+        const next = nextMedal(d.theme, l.kind, codes)
+        const value = l.kind === 'hours' ? d.hours : d.streak.best
         return (
           <TabsPanel key={l.kind} value={l.kind}>
             <ol className="flex flex-col rounded-2xl border-3 border-black bg-card py-1.5 shadow-[4px_4px_0_#000]">
-              {MEDALS.filter((x) => x.kind === l.kind).map((x) => {
+              {ladder.filter((x) => x.kind === l.kind).map((x) => {
                 const at = earned.get(x.code)
                 const left = x.kind === 'hours' ? formatHours(Math.max(0, x.at - value)) : `${Math.max(0, x.at - value)} semanas`
                 const body = (

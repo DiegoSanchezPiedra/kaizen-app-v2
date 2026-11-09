@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ChevronLeftIcon, ExternalLinkIcon, SearchIcon, TrophyIcon, UsersIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Page } from '@/components/page'
 import { ProfileAvatar } from '@/components/profile-avatar'
 import { EmptyState, ErrorState, ListSkeleton, QueryView } from '@/components/screen-state'
@@ -13,10 +13,11 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/c
 import { api } from '@/lib/api'
 import { addMonths, formatMonth, madridMonth } from '@/lib/dates'
 import { Medal } from '@/components/medal'
-import { MEDALS, topMedal } from '@/lib/progress'
+import { ladderOf, topMedal } from '@/lib/progress'
+import { KAIZEN, THEMES } from '@/lib/themes'
 import { path } from '@/lib/queries'
 import { useSession } from '@/lib/session'
-import type { Discipline, MyProfile, PublicProfile } from '@/lib/types'
+import type { Discipline, DisciplineMedals, MyProfile, PublicProfile } from '@/lib/types'
 
 const PAGE = 25
 const ROLE_LABEL: Record<string, string> = { alumno: 'Alumno', profesor: 'Profesor' }
@@ -95,7 +96,7 @@ export function CommunityPage() {
                 <Link to={`/profiles/${p.id}`} className="flex min-h-14 items-center gap-3 px-4 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
                   <ProfileAvatar name={p.display_name} avatar={p.avatar} className="size-10" />
                   <span className="min-w-0 flex-1 truncate font-semibold">{p.display_name}</span>
-                  <TopMedal codes={p.achievements?.badges.map((b) => b.code)} />
+                  <TopMedal disciplines={p.achievements?.disciplines} />
                   <Badge variant="outline" size="lg">{ROLE_LABEL[p.role] ?? p.role}</Badge>
                 </Link>
               </li>
@@ -114,10 +115,16 @@ export function CommunityPage() {
 
 const NETWORKS: Record<string, string> = { instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube', web: 'Web' }
 
-// La medalla más alta junto al nombre (Comunidad y rankings), si la persona enseña sus logros.
-function TopMedal({ codes }: { codes?: string[] }) {
-  const m = codes && topMedal(codes)
-  return m ? <Medal medal={m} earned className="size-9" /> : null
+// La medalla más alta junto al nombre (Comunidad y rankings), con el arte de su disciplina, si enseña sus logros.
+function TopMedal({ disciplines }: { disciplines?: DisciplineMedals[] }) {
+  const top = topMedal(disciplines)
+  if (!top) return null
+  return (
+    <span className="shrink-0" title={`${top.medal.name} · ${top.discipline.name}`}>
+      <Medal medal={top.medal} earned className="size-9" />
+      <span className="sr-only">Mejor medalla: {top.medal.name}, en {top.discipline.name}</span>
+    </span>
+  )
 }
 
 // Ficha pública: solo los campos que la persona deja ver.
@@ -155,19 +162,24 @@ export function ProfilePage() {
                 </div>
               )}
               {p.achievements && (
-                <div>
-                  <h3 className="mb-1.5 text-sm font-semibold">
-                    Medallas · {p.achievements.badges.length} de {MEDALS.length} · mejor racha {p.achievements.streak.best}
-                  </h3>
-                  <ul className="grid grid-cols-3 gap-x-2 gap-y-3 sm:grid-cols-4">
-                    {MEDALS.filter((m) => p.achievements!.badges.some((b) => b.code === m.code)).map((m) => (
-                      <li key={m.code} className="flex flex-col items-center gap-1 text-center">
-                        <Medal medal={m} earned className="size-14" />
-                        <span className="font-heading text-sm leading-tight font-extrabold uppercase italic">{m.name}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                <section aria-labelledby="medals" className="flex flex-col gap-3">
+                  <h3 id="medals" className="text-sm font-semibold">Medallas · mejor racha {p.achievements.streak.best} semanas</h3>
+                  {p.achievements.disciplines.map((d) => (
+                    <div key={d.id}>
+                      <h4 className="mb-1.5 text-[13px] text-muted-foreground">
+                        <span className="font-semibold text-foreground">{d.name}</span> · {((d.theme && THEMES[d.theme]) || KAIZEN).series} · {d.badges.length} de 11
+                      </h4>
+                      <ul className="grid grid-cols-3 gap-x-2 gap-y-3 sm:grid-cols-4">
+                        {ladderOf(d.theme).filter((m) => d.badges.some((b) => b.code === m.code)).map((m) => (
+                          <li key={m.code} className="flex flex-col items-center gap-1 text-center">
+                            <Medal medal={m} earned className="size-14" />
+                            <span className="font-heading text-sm leading-tight font-extrabold uppercase italic">{m.name}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </section>
               )}
               {links.length > 0 && (
                 <ul className="flex flex-wrap gap-2">
@@ -189,28 +201,31 @@ export function ProfilePage() {
   )
 }
 
-type Ranking = { discipline: { id: number; name: string }; month: string; rows: { rank: number; id: string; display_name: string; hours: number; badges?: string[] }[]; total: number }
-type MedalRanking = { rows: { rank: number; id: string; display_name: string; medals: number; hours: number; badges?: string[] }[]; total: number }
+type Ranking = { discipline: { id: number; name: string }; month: string; rows: { rank: number; id: string; display_name: string; hours: number; achievements?: DisciplineMedals[] }[]; total: number }
+type MedalRanking = { discipline: { id: string; name: string }; rows: { rank: number; id: string; display_name: string; medals: number; hours: number; achievements?: DisciplineMedals[] }[]; total: number }
 
 const hoursText = (h: number) => `${Number(h).toLocaleString('es-ES', { maximumFractionDigits: 1 })} h`
 
-// Rankings: el de medallas de siempre (toda la academia) y el mensual por disciplina (sin las abiertas ni las de menores).
+// Rankings por disciplina (sin las de menores: un menor nunca sale): sus medallas de siempre (037) o sus horas del mes
+// (sin las abiertas). ?ver=mes elige el mensual; por defecto, medallas.
 export function RankingsPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
   const role = useSession()?.role
   const current = madridMonth()
   const [month, setMonth] = useState(current)
   const disciplines = useDisciplines()
-  const options = (disciplines.data ?? []).filter((d) => d.is_active && !d.is_open && !d.minors_only)
-  const chosen = id ?? 'medals'
-  const isMedals = chosen === 'medals'
+  const options = (disciplines.data ?? []).filter((d) => d.is_active && !d.minors_only)
+  const chosen = id ?? (options[0] ? String(options[0].id) : '')
+  const open = options.find((d) => String(d.id) === chosen)?.is_open ?? false
+  const isMedals = open || params.get('ver') !== 'mes'
   const ranking = useQuery({
     queryKey: ['ranking', chosen, month],
-    enabled: !isMedals,
+    enabled: !!chosen && !isMedals,
     queryFn: () => api<Ranking>(path(`/rankings/${chosen}`, { month, limit: '50' })),
   })
-  const medals = useQuery({ queryKey: ['ranking', 'medals'], enabled: isMedals, queryFn: () => api<MedalRanking>(path('/rankings/medals', { limit: '50' })) })
+  const medals = useQuery({ queryKey: ['ranking', chosen, 'medals'], enabled: !!chosen && isMedals, queryFn: () => api<MedalRanking>(path(`/rankings/${chosen}/medals`, { limit: '50' })) })
   const mine = useQuery({ queryKey: ['my-profile'], queryFn: () => api<MyProfile>('/me/profile'), enabled: role === 'alumno' })
   const notShown = role === 'alumno' && mine.data && !(mine.data.is_public && mine.data.visible_fields.ranking)
   const list = isMedals ? medals : ranking
@@ -224,10 +239,17 @@ export function RankingsPage() {
         <ErrorState error={disciplines.error} onRetry={() => void disciplines.refetch()} />
       ) : (
         <>
-          <div className="grid grid-cols-[1fr_auto] items-center gap-2">
-            <Filter label="Ranking" value={chosen} onChange={(v) => void navigate(`/rankings/${v}`)} items={[{ value: 'medals', label: 'Medallas · de siempre' }, ...options.map((d) => ({ value: String(d.id), label: d.name }))]} />
-            {!isMedals && (
-              <div className="flex items-center">
+          <div className="grid grid-cols-2 gap-2">
+            <Filter label="Disciplina" value={chosen} onChange={(v) => void navigate(`/rankings/${v}${isMedals ? '' : '?ver=mes'}`)} items={options.map((d) => ({ value: String(d.id), label: d.name }))} />
+            <Filter
+              label="Ranking"
+              value={isMedals ? 'medals' : 'month'}
+              onChange={(v) => setParams(v === 'month' ? { ver: 'mes' } : {}, { replace: true })}
+              items={[{ value: 'medals', label: 'Medallas · de siempre' }, ...(open ? [] : [{ value: 'month', label: 'Horas · este mes' }])]}
+            />
+          </div>
+          {!isMedals && (
+              <div className="flex items-center justify-center">
                 <Button variant="ghost" size="icon-xl" aria-label="Mes anterior" onClick={() => setMonth(addMonths(month, -1))}>
                   <ChevronLeftIcon />
                 </Button>
@@ -237,7 +259,6 @@ export function RankingsPage() {
                 </Button>
               </div>
             )}
-          </div>
           {notShown && (
             <p className="rounded-xl border bg-card p-4 text-sm">
               <span className="font-semibold">No apareces en los rankings.</span> Los rankings son solo entre quienes participan.{' '}
@@ -259,7 +280,7 @@ export function RankingsPage() {
               {list.data.rows.map((r) => (
                 <li key={r.id} className="flex min-h-14 items-center gap-3 border-b px-4 py-2 last:border-b-0">
                   <span className="w-7 text-center font-heading text-xl font-bold tabular-nums">{r.rank}</span>
-                  <TopMedal codes={r.badges} />
+                  <TopMedal disciplines={r.achievements?.filter((d) => d.id === chosen)} />
                   <Link to={`/profiles/${r.id}`} className="min-w-0 flex-1 truncate font-semibold hover:underline">{r.display_name}</Link>
                   <span className="text-right font-mono text-sm tabular-nums">
                     {'medals' in r ? (

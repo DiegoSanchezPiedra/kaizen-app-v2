@@ -1,5 +1,6 @@
 // Tipos de la API tal como los da docs/api.md (a mano: el backend es JS).
-export type Discipline = { id: number | string; name: string; minors_only: boolean; is_active: boolean; is_open: boolean }
+// medal_theme: código de su temática de medallas (036); null = Kaizen.
+export type Discipline = { id: number | string; name: string; minors_only: boolean; is_active: boolean; is_open: boolean; medal_theme?: string | null }
 
 export type BookingStatus = 'confirmed' | 'waitlisted' | 'cancelled'
 export type CancelReason = 'student' | 'late' | 'admin' | 'session_cancelled' | 'no_coverage' | 'discipline_change'
@@ -81,12 +82,16 @@ export type PayerChange = {
   deadline: string
 }
 
+export type Badge = { code: string; earned_at: string }
+// Medallas de una disciplina (037): su escalera, con su temática (null = Kaizen), horas totales y racha propias.
+export type DisciplineMedals = { id: string; name: string; theme: string | null; hours: number; streak: { current: number; best: number }; badges: Badge[] }
+
 export type Progress = {
+  // La racha general (toda la academia, StreakPanel); la de cada escalera va en disciplines.
   streak: { current: number; best: number }
-  badges: { code: string; earned_at: string }[]
+  disciplines: DisciplineMedals[]
   hours: { month: string; disciplines: { id: number | string; name: string; hours: number }[] }
-  total_hours: number
-  // Los códigos que quien mira ya celebró (034); null si nunca cerró una medalla nueva.
+  // Las claves '<disciplina>:<código>' que quien mira ya celebró (037); null si nunca cerró una medalla nueva.
   medals_seen: string[] | null
 }
 
@@ -121,5 +126,5 @@ export type PublicProfile = {
   disciplines?: { id: number | string; name: string }[] | string[]
   member_since?: string | null
   // public_achievements (019): solo si enseña sus logros.
-  achievements?: { streak: { current: number; best: number }; badges: { code: string; earned_at: string }[] }
+  achievements?: { streak: { current: number; best: number }; disciplines: DisciplineMedals[] }
 }
