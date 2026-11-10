@@ -9,6 +9,7 @@ import { registerLocal, loginLocal, loginGoogle, requestPasswordReset, resetPass
 import { signToken } from '../services/jwt.js';
 import {
   assertMfaReauth,
+  readOwnPasswordHash,
   prepareMfaSetup,
   setupMfa,
   verifyAndEnableMfa,
@@ -145,8 +146,8 @@ router.post(
   // argon2 antes de abrir la transacción: no retener la conexión durante el hashing.
   // label: identificador legible para el QR; el frontend puede pedir el email aparte.
   asyncHandler(async (req, res, next) => {
-    await withRls({ uid: req.user.id, role: req.user.role }, (client) =>
-      assertMfaReauth(client, { password: req.body?.password, tokenIat: req.user.iat }));
+    const hash = await withRls({ uid: req.user.id, role: req.user.role }, readOwnPasswordHash);
+    await assertMfaReauth(hash, { password: req.body?.password, tokenIat: req.user.iat });
     req.mfaSetup = await prepareMfaSetup(req.user.id, req.user.id);
     next();
   }),

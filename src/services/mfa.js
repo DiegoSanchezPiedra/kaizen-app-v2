@@ -86,8 +86,13 @@ async function findMfaRow(client, profileId) {
 // B20: con un token robado no se empieza el MFA en la cuenta de otro. Pide la contraseña actual (own_password_hash(),
 // 052) o, sin contraseña, que el token (su iat) sea de un login reciente. 400 invalid_field | wrong_password;
 // 403 reauth_required.
-export async function assertMfaReauth(client, { password, tokenIat }) {
+// Se lee el hash dentro de la transacción RLS y se verifica (argon2) DESPUÉS de cerrarla, sin retener la conexión.
+export async function readOwnPasswordHash(client) {
   const { rows: [{ hash }] } = await client.query(`SELECT own_password_hash() AS hash`);
+  return hash;
+}
+
+export async function assertMfaReauth(hash, { password, tokenIat }) {
   if (hash) {
     if (typeof password !== 'string' || !password) {
       throw httpError(400, 'invalid_field', 'password es obligatorio', { field: 'password' });
