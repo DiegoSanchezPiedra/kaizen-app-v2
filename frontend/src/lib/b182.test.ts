@@ -101,19 +101,19 @@ describe('perfil y avisos', () => {
   })
   it('apila los avisos en el orden del diseño y nombra al hijo', () => {
     const n = homeNotices({
-      status: { ok: false, missing: ['rights_of_image'], risk_cover: false },
+      status: { ok: false, missing: ['rights_of_image'] },
       subscription: { id: 's', status: 'past_due', plan: { id: 1, name: 'p', price_cents: 1, max_disciplines: 1 }, disciplines: [], current_period_end: null },
       subject: { id: 'h', label: 'Pau' },
       self: { ok: false, missing: ['data_protection'] },
     })
-    expect(n.map((x) => x.id)).toEqual(['sign', 'self-dp', 'grace', 'risk'])
+    expect(n.map((x) => x.id)).toEqual(['sign', 'self-dp', 'grace'])
     expect(n[0].text).toContain('Pau')
     expect(homeNotices({ subscription: null, subject: null }).map((x) => x.id)).toEqual(['nosub'])
     // sin datos todavía (cargando), ningún aviso
     expect(homeNotices({ subject: null })).toEqual([])
   })
   it('un hijo con la ficha por completar va a la ficha de Cuenta; uno mismo, a completar el perfil', () => {
-    const miss = { ok: false, missing: ['health_info'], risk_cover: true }
+    const miss = { ok: false, missing: ['health_info'] }
     expect(homeNotices({ status: miss, subject: { id: 'h', label: 'Pau' } })[0].to).toBe('/account/health')
     expect(homeNotices({ status: miss, subject: null })[0].to).toBe('/onboarding')
   })

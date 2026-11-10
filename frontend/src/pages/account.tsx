@@ -226,7 +226,7 @@ function Agreements({ profileId, name }: { profileId?: string; name?: string }) 
       )}
       <section aria-label={name ? `Acuerdos de ${name}` : 'Acuerdos'} className="flex flex-col gap-3">
         {role === 'tutor' && <h2 className="text-lg font-semibold">Acuerdos de {name}</h2>}
-        <AgreementsPanel types={agreementsFor('alumno')} status={status.data!} profileId={profileId} withWaiver />
+        <AgreementsPanel types={agreementsFor('alumno')} status={status.data!} profileId={profileId} />
       </section>
     </div>
   )

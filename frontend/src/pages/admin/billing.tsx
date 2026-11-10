@@ -22,7 +22,7 @@ import { api } from '@/lib/api'
 import { formatDeadline, formatEuros, formatShortDate } from '@/lib/format'
 import { path } from '@/lib/url'
 import { PAGE_SIZE, Pager } from '@/pages/admin/shell'
-import { cancelInsurance, del, post, SubBadge, useConfirm } from '@/pages/admin/user-billing'
+import { del, post, SubBadge, useConfirm } from '@/pages/admin/user-billing'
 
 const name = (p: { display_name: string | null }) => p.display_name ?? 'Sin nombre'
 const TABS = [
@@ -79,25 +79,14 @@ function Overdue({ kind }: { kind: 'delinquents' | 'grace' }) {
 
   // Baja inmediata (la misma confirmación que la ficha). Solo en morosos: en gracia aún no es moroso.
   const cancel = (it: OverdueItem) =>
-    ask(
-      it.kind === 'insurance'
-        ? {
-            title: 'Baja inmediata del seguro',
-            description: `Termina ya y anula sus recibos pendientes. Sin reembolso; se avisa a quien lo paga. Si no ha firmado la exención, no podrá reservar hasta firmarla o contratar otro seguro.`,
-            label: 'Dar de baja ya',
-            done: 'Seguro dado de baja',
-            destructive: true,
-            run: () => cancelInsurance(it.id, true),
-          }
-        : {
-            title: 'Baja inmediata',
-            description: `Termina ya: anula los recibos pendientes y cancela sus reservas futuras. Se avisa al pagador.`,
-            label: 'Dar de baja ya',
-            done: 'Cuota dada de baja',
-            destructive: true,
-            run: post(`/admin/subscriptions/${it.id}/cancel-now`),
-          },
-    )
+    ask({
+      title: 'Baja inmediata',
+      description: `Termina ya: anula los recibos pendientes y cancela sus reservas futuras. Se avisa al pagador.`,
+      label: 'Dar de baja ya',
+      done: 'Cuota dada de baja',
+      destructive: true,
+      run: post(`/admin/subscriptions/${it.id}/cancel-now`),
+    })
 
   return (
     <>
@@ -117,7 +106,7 @@ function Overdue({ kind }: { kind: 'delinquents' | 'grace' }) {
                       <Link to={`/admin/users/${it.student_id}`} className="font-medium text-link underline-offset-3 hover:underline">
                         {it.student_name ?? 'Sin nombre'}
                       </Link>
-                      <span className="text-muted-foreground">{it.kind === 'insurance' ? `Seguro · ${it.label}` : it.label}</span>
+                      <span className="text-muted-foreground">{it.label}</span>
                       <SubBadge status={it.status} />
                     </p>
                     <p className="text-sm text-muted-foreground">

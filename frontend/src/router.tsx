@@ -8,7 +8,7 @@ import { loginPath, redirectFor, safeReturnPath } from '@/lib/paths'
 import { getEndReason, isExpired, useSession } from '@/lib/session'
 import { AccountPage, AgreementsPage, DataPage, HealthPage, PasswordPage } from '@/pages/account'
 import { PublicProfilePage } from '@/pages/account-profile'
-import { BillingPage, DisciplinePage, InsurancePage, PlanPage } from '@/pages/billing'
+import { BillingPage, DisciplinePage, PlanPage } from '@/pages/billing'
 import { CancelPage, ContractPage, PayerChangePage, SuccessPage } from '@/pages/billing-contract'
 import { BookingsPage } from '@/pages/bookings'
 import { CalendarPage } from '@/pages/calendar'
@@ -131,7 +131,6 @@ export const router = createBrowserRouter([
       { path: '/billing/contract', element: <ContractPage /> },
       { path: '/billing/plan', element: <PlanPage /> },
       { path: '/billing/discipline', element: <DisciplinePage /> },
-      { path: '/billing/insurance', element: <InsurancePage /> },
       { path: '/billing/success', element: <SuccessPage /> },
       { path: '/billing/cancel', element: <CancelPage /> },
       { path: '/billing/payer-changes/:id', element: <PayerChangePage /> },

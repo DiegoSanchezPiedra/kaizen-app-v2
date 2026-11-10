@@ -414,7 +414,6 @@ function Summary({ file, refresh }: { file: ProfileFile; refresh: () => void }) 
   }
   if (file.status) {
     rows.push(['Perfil', file.status.ok ? 'Completo' : `Le falta: ${(file.status.missing ?? []).map((m) => MISSING[m as AgreementType] ?? m).join(', ')}`])
-    if (file.status.risk_cover !== undefined) rows.push(['Cobertura de riesgo', file.status.risk_cover ? 'Sí' : 'No'])
   }
   return (
     <section className="flex flex-col gap-3 rounded-2xl border bg-card p-4">

@@ -57,13 +57,11 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
       const start = Date.parse(calendar.data?.find((s) => s.id === id)?.starts_at ?? '')
       if (code === 'outside_booking_window' && start) setBlockedFrom((b) => Math.min(b ?? start, start))
       const action =
-        code === 'no_risk_cover'
-          ? { label: 'Ver opciones', onClick: () => void navigate(withSubject('/agreements')) }
-          : code === 'not_covered'
-            ? { label: 'Ver cuota', onClick: () => void navigate(withSubject('/billing')) }
-            : code === 'profile_incomplete'
-              ? { label: 'Completar', onClick: () => void navigate(profileId ? withSubject('/account/health') : '/onboarding') }
-              : undefined
+        code === 'not_covered'
+          ? { label: 'Ver cuota', onClick: () => void navigate(withSubject('/billing')) }
+          : code === 'profile_incomplete'
+            ? { label: 'Completar', onClick: () => void navigate(profileId ? withSubject('/account/health') : '/onboarding') }
+            : undefined
       toastError(err, action)
     },
     onSettled: () => refreshBookings(),

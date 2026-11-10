@@ -17,7 +17,6 @@ export type AdminEvent = {
   capacity: number | null
   taken: number
   audience: Audience
-  requires_risk_cover: boolean
   price_cents: number
   member_price_cents: number | null
   registration_deadline: string | null
@@ -65,7 +64,6 @@ export type EventDraft = {
   trainer: string // 'none' o el id
   capacity: string // vacío = sin límite
   audience: Audience
-  risk: boolean
   price: string // euros; vacío = gratis
   memberPrice: string // euros; vacío = sin precio de socio
   deadlineDay: string
@@ -74,7 +72,7 @@ export type EventDraft = {
 
 export const emptyDraft = (): EventDraft => ({
   title: '', description: '', day: '', time: '', endDay: '', endTime: '', location: '', discipline: 'none', trainer: 'none',
-  capacity: '', audience: 'all', risk: true, price: '', memberPrice: '', deadlineDay: '', deadlineTime: '',
+  capacity: '', audience: 'all', price: '', memberPrice: '', deadlineDay: '', deadlineTime: '',
 })
 
 const hhmm = (iso: string) => ({ day: madridDay(iso), time: formatTime(iso) })
@@ -85,7 +83,7 @@ export function draftOf(e: AdminEvent): EventDraft {
   return {
     title: e.title, description: e.description ?? '', day: s.day, time: s.time, endDay: f.day, endTime: f.time, location: e.location,
     discipline: e.discipline ? String(e.discipline.id) : 'none', trainer: e.trainer?.id ?? 'none',
-    capacity: e.capacity === null ? '' : String(e.capacity), audience: e.audience, risk: e.requires_risk_cover,
+    capacity: e.capacity === null ? '' : String(e.capacity), audience: e.audience,
     price: e.price_cents ? centsToEuros(e.price_cents) : '', memberPrice: e.member_price_cents === null ? '' : centsToEuros(e.member_price_cents),
     deadlineDay: d.day, deadlineTime: d.time,
   }
@@ -101,7 +99,6 @@ export type EventBody = {
   trainer_id: string | null
   capacity: number | null
   audience: Audience
-  requires_risk_cover: boolean
   price_cents: number
   member_price_cents: number | null
   registration_deadline: string | null
@@ -127,7 +124,7 @@ export function eventBody(d: EventDraft, now: number, checkStart = true): EventB
   if (hasDeadline && (!deadline || Date.parse(deadline) > Date.parse(starts))) return null
   return {
     title, description: description || null, starts_at: starts, ends_at: ends, location, discipline_id: d.discipline === 'none' ? null : d.discipline,
-    trainer_id: d.trainer === 'none' ? null : d.trainer, capacity, audience: d.audience, requires_risk_cover: d.risk, price_cents: price,
+    trainer_id: d.trainer === 'none' ? null : d.trainer, capacity, audience: d.audience, price_cents: price,
     member_price_cents: member, registration_deadline: deadline,
   }
 }
@@ -183,7 +180,7 @@ export function eventPatch(saved: AdminEvent, body: EventBody): Partial<EventBod
   const before: EventBody = {
     title: saved.title, description: saved.description, starts_at: saved.starts_at, ends_at: saved.ends_at, location: saved.location,
     discipline_id: saved.discipline ? String(saved.discipline.id) : null, trainer_id: saved.trainer?.id ?? null, capacity: saved.capacity,
-    audience: saved.audience, requires_risk_cover: saved.requires_risk_cover, price_cents: saved.price_cents,
+    audience: saved.audience, price_cents: saved.price_cents,
     member_price_cents: saved.member_price_cents, registration_deadline: saved.registration_deadline,
   }
   return Object.fromEntries(Object.entries(body).filter(([k, v]) => !same(k, v, before[k as keyof EventBody])))
@@ -264,9 +261,9 @@ export function spotsLabel(e: Pick<EventInfo, 'capacity' | 'taken'>): string | n
   return left <= 0 ? 'Completo' : left === 1 ? 'Queda 1 plaza' : `Quedan ${left} plazas`
 }
 
-export type JoinState = 'cancelled' | 'cancellable' | 'pending' | 'paid' | 'registered' | 'closed' | 'full' | 'audience' | 'profile' | 'cover' | 'open'
-// blocked: perfil incompleto (del sujeto o, con un hijo, del tutor); riskCover: false = sin cobertura (solo importa si el evento la exige).
-export type JoinCtx = { now: number; blocked: boolean; riskCover?: boolean; audienceBlocked?: boolean }
+export type JoinState = 'cancelled' | 'cancellable' | 'pending' | 'paid' | 'registered' | 'closed' | 'full' | 'audience' | 'profile' | 'open'
+// blocked: perfil incompleto (del sujeto o, con un hijo, del tutor).
+export type JoinCtx = { now: number; blocked: boolean; audienceBlocked?: boolean }
 
 // Qué ofrece el botón del detalle. Cancelar solo si es gratis o está pendiente y antes del inicio; una pagada se pide a la academia.
 export function joinState(e: EventInfo, c: JoinCtx): JoinState {
@@ -282,7 +279,6 @@ export function joinState(e: EventInfo, c: JoinCtx): JoinState {
   if (e.capacity !== null && e.taken >= e.capacity) return 'full'
   if (c.audienceBlocked) return 'audience'
   if (c.blocked) return 'profile'
-  if (e.requires_risk_cover && c.riskCover === false) return 'cover'
   return 'open'
 }
 
@@ -295,7 +291,7 @@ export const eventHealthDay = (e: Pick<EventInfo, 'status' | 'starts_at' | 'ends
   e.status === 'scheduled' && madridDay(now) >= madridDay(e.starts_at) && madridDay(now) <= madridDay(e.ends_at)
 
 // Lista del profesor: un evento y sus inscritos confirmados.
-export type EventStudent = { profile_id: string; display_name: string; attended: boolean | null; risk_cover: boolean }
+export type EventStudent = { profile_id: string; display_name: string; attended: boolean | null }
 
 // Sesiones y eventos del profesor, por fecha. Hay sesiones y eventos a la misma hora: a igual inicio, primero la sesión.
 export type Entry<S extends { starts_at: string }> = { kind: 'session'; s: S } | { kind: 'event'; e: EventInfo }

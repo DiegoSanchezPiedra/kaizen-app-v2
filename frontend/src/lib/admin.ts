@@ -2,7 +2,7 @@ import { addDays, madridDay } from '@/lib/dates'
 import type { Role } from '@/lib/paths'
 import { formatEuros } from '@/lib/format'
 import { phaseOf, plural } from '@/lib/professor'
-import type { Insurance, ProfileStatus, Subscription } from '@/lib/types'
+import type { ProfileStatus, Subscription } from '@/lib/types'
 
 // GET /auth/me (B4): el aviso del MFA sale solo si la API dice que no está activo; mientras carga, no.
 export type AuthMe = { user: { id: string; role: string }; mfa_enabled: boolean }
@@ -54,14 +54,9 @@ const DELIVERY_LABEL: Record<string, string> = {
   'notice.payment_failed': 'Cobro fallido',
   'notice.checkout_payment_failed': 'Pago de contratación fallido',
   'notice.checkout_race_refunded': 'Pago duplicado devuelto',
-  'notice.insurance_not_paid': 'Seguro sin pagar',
-  'notice.insurance_renewal': 'Renovación del seguro',
-  'notice.insurance_wont_renew': 'El seguro no se renovará',
-  'notice.insurance_cancelled': 'Seguro dado de baja',
   'notice.plan_downgraded': 'Plan rebajado',
   'notice.upgrade_requires_action': 'Subida de plan pendiente de autorizar',
   'notice.subscription_unpaid': 'Cuota impagada',
-  'notice.insurance_unpaid': 'Seguro impagado',
   'notice.subscription_cancelled': 'Cuota dada de baja',
   'notice.payer_change_requested': 'Cambio de pagador pedido',
   'notice.payer_change_paid': 'Cambio de pagador pagado',
@@ -91,7 +86,7 @@ export const AUDIT_CATEGORIES = [
   { value: 'health', label: 'Salud', prefixes: ['health.'] },
   { value: 'sessions', label: 'Sesiones y clases', prefixes: ['session.', 'class.'] },
   { value: 'catalog', label: 'Catálogo', prefixes: ['plan.', 'discipline.'] },
-  { value: 'billing', label: 'Cobros', prefixes: ['subscription.', 'subscription_schedule.', 'insurance.'] },
+  { value: 'billing', label: 'Cobros', prefixes: ['subscription.', 'subscription_schedule.'] },
   { value: 'users', label: 'Usuarios', prefixes: ['profile.', 'guardian.'] },
   { value: 'documents', label: 'Documentos', prefixes: ['agreement_document.'] },
   { value: 'settings', label: 'Ajustes', prefixes: ['settings.'] },
@@ -127,11 +122,6 @@ const AUDIT_LABEL: Record<string, string> = {
   'subscription.discipline_change': 'Cambió una disciplina de la cuota',
   'subscription.payer_change_request': 'Pidió un cambio de pagador',
   'subscription.payer_change_cancel': 'Anuló un cambio de pagador',
-  'insurance.cancel_now': 'Dio de baja un seguro',
-  'insurance.cancel_at_period_end': 'Programó la baja de un seguro',
-  'insurance.price_change': 'Cambió el precio del seguro',
-  'insurance.enable': 'Activó el seguro',
-  'insurance.disable': 'Desactivó el seguro',
   'profile.role_change': 'Cambió el rol',
   'profile.unpublish': 'Despublicó un perfil',
   'guardian.add': 'Vinculó un tutor',
@@ -185,7 +175,7 @@ export function auditDetail(a: Pick<AuditRow, 'action' | 'changes'>, roleLabel: 
 // event.update trae en `to` solo lo que cambió: se dice qué campos, sin los valores (pueden ser largos).
 const EVENT_FIELD: Record<string, string> = {
   title: 'título', description: 'descripción', starts_at: 'inicio', ends_at: 'fin', location: 'lugar', discipline_id: 'disciplina', trainer_id: 'profesor',
-  capacity: 'aforo', audience: 'público', requires_risk_cover: 'cobertura de riesgo', price_cents: 'precio', member_price_cents: 'precio de socio',
+  capacity: 'aforo', audience: 'público', price_cents: 'precio', member_price_cents: 'precio de socio',
   registration_deadline: 'fecha límite',
 }
 const eventChanges = (to: unknown): string =>
@@ -199,7 +189,7 @@ export function auditTarget(a: Pick<AuditRow, 'resource_type' | 'resource_id'> &
   if (a.resource_type === 'subscription' && student) return { to: `/admin/users/${student}`, label: 'Ficha' }
   if (a.resource_type === 'session') return { to: `/admin/sessions/${a.resource_id}`, label: 'Sesión' }
   if (a.resource_type === 'event') return { to: `/admin/events/${a.resource_id}`, label: 'Evento' }
-  const label: Record<string, string> = { class: 'Clase', plan: 'Plan', discipline: 'Disciplina', subscription: 'Suscripción', insurance: 'Seguro', booking: 'Reserva', event_registration: 'Inscripción', agreement_document: 'Documento', settings: 'Ajustes' }
+  const label: Record<string, string> = { class: 'Clase', plan: 'Plan', discipline: 'Disciplina', subscription: 'Suscripción', booking: 'Reserva', event_registration: 'Inscripción', agreement_document: 'Documento', settings: 'Ajustes' }
   return { to: null, label: label[a.resource_type] ?? a.resource_type }
 }
 
@@ -224,7 +214,7 @@ export const canCancelPayerChange = (c: Pick<PayerChange, 'status'>): boolean =>
 
 // Cobros (GET /admin/billing/delinquents|grace)
 export type OverdueItem = {
-  kind: 'subscription' | 'insurance'
+  kind: 'subscription'
   id: string
   student_id: string
   student_name: string | null
@@ -271,7 +261,6 @@ export type ProfileFile = {
   guardians: Person[]
   children: { id: string; display_name: string | null; pending_claim: boolean }[]
   subscription: (Subscription & { payer: Person }) | null
-  insurance: (Insurance & { payer: Person }) | null
 }
 
 // Un hijo es un perfil sin acceso propio: sin credenciales, así que sin email.

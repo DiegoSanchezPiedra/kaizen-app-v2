@@ -35,7 +35,7 @@ export type Booking = {
   session_status: 'scheduled' | 'cancelled'
 }
 
-export type ProfileStatus = { ok: boolean; missing?: string[]; risk_cover?: boolean }
+export type ProfileStatus = { ok: boolean; missing?: string[] }
 
 export type Subscription = {
   id: string
@@ -58,17 +58,6 @@ export type Plan = {
   minors_only: boolean
   is_active: boolean
   eligible_discipline_ids: (number | string)[]
-}
-
-// Nunca se enseña el tramo (adult/minor): delata la edad.
-export type Insurance = {
-  id: string
-  status: string
-  bracket?: string
-  current_period_end: string | null
-  cancel_at_period_end: boolean
-  payment_status?: string | null
-  client_secret?: string | null
 }
 
 export type PayerChange = {

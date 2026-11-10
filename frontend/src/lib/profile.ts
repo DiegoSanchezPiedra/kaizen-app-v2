@@ -1,11 +1,10 @@
 // `missing` de GET /me/profile-status → qué aviso y qué pasos (docs/pantallas-b18.md § Estados de bloqueo).
 export const AGREEMENTS = ['data_protection', 'rights_of_image'] as const
-export type AgreementType = (typeof AGREEMENTS)[number] | 'waiver'
+export type AgreementType = (typeof AGREEMENTS)[number]
 
 export const AGREEMENT_TITLE: Record<AgreementType, string> = {
   data_protection: 'Protección de datos',
   rights_of_image: 'Derechos de imagen',
-  waiver: 'Exención de responsabilidad',
 }
 
 const isAgreement = (m: string) => (AGREEMENTS as readonly string[]).includes(m)

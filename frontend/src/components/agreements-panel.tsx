@@ -1,7 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { CheckIcon, ExternalLinkIcon, FileTextIcon, ShieldCheckIcon } from 'lucide-react'
+import { CheckIcon, ExternalLinkIcon, FileTextIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router'
 import { ErrorState } from '@/components/screen-state'
 import { StatusAlert } from '@/components/status-alert'
 import { Badge } from '@/components/ui/badge'
@@ -89,41 +88,14 @@ export function Agreement({ type, signed, profileId }: { type: AgreementType; si
   )
 }
 
-// Los acuerdos de un sujeto: firmado o pendiente según `missing`. La exención solo sale sin cobertura de riesgo.
-export function AgreementsPanel({
-  types,
-  status,
-  profileId,
-  withWaiver,
-}: {
-  types: AgreementType[]
-  status: ProfileStatus
-  profileId?: string
-  // La exención solo se ofrece en /agreements, no al completar el perfil.
-  withWaiver?: boolean
-}) {
+// Los acuerdos de un sujeto: firmado o pendiente según `missing`.
+export function AgreementsPanel({ types, status, profileId }: { types: AgreementType[]; status: ProfileStatus; profileId?: string }) {
   const missing = status.missing ?? []
-  const showWaiver = withWaiver && status.risk_cover === false && types.length > 1
   return (
     <div className="flex flex-col gap-3">
       {types.map((t) => (
         <Agreement key={t} type={t} signed={!missing.includes(t)} profileId={profileId} />
       ))}
-      {showWaiver && (
-        <>
-          <Agreement type="waiver" signed={false} profileId={profileId} />
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <ShieldCheckIcon className="size-4 shrink-0" aria-hidden="true" />
-            <span>
-              O contrata el seguro desde{' '}
-              <Link to="/billing" className="font-semibold text-link underline underline-offset-3">
-                la cuota
-              </Link>
-              .
-            </span>
-          </p>
-        </>
-      )}
     </div>
   )
 }

@@ -113,7 +113,7 @@ describe('usuarios del panel (B19.3)', () => {
   const child = { ...adult, id: 'h', display_name: 'Hijo', email: null, is_minor: true, has_password: false }
   const tutor = { id: 't', display_name: 'Tutora', email: 't@x.es' }
   const file = (profile: typeof adult | typeof child, payer?: string) =>
-    ({ profile, status: null, guardians: profile.email ? [] : [tutor, { id: 't2', display_name: 'Otro', email: 'o@x.es' }], children: [], insurance: null, subscription: payer ? { payer: { id: payer, display_name: '' } } : null }) as unknown as ProfileFile
+    ({ profile, status: null, guardians: profile.email ? [] : [tutor, { id: 't2', display_name: 'Otro', email: 'o@x.es' }], children: [], subscription: payer ? { payer: { id: payer, display_name: '' } } : null }) as unknown as ProfileFile
 
   it('el rol no se cambia a un admin ni a un hijo', () => {
     expect(canChangeRole(adult)).toBe(true)
@@ -137,7 +137,6 @@ describe('usuarios del panel (B19.3)', () => {
 describe('auditoría, avisos y cobros (B19.4)', () => {
   it('la categoría se convierte en prefijos de action; una desconocida no filtra', () => {
     expect(categoryPrefixes('sessions')).toBe('session.,class.')
-    expect(categoryPrefixes('billing')).toContain('insurance.')
     expect(categoryPrefixes('nope')).toBeUndefined()
     expect(categoryPrefixes(null)).toBeUndefined()
   })
