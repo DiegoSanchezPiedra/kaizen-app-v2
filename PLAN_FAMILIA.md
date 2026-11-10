@@ -91,7 +91,7 @@ El hijo no tiene móvil ni login. Opciones: el check-in lo hace el tutor con su 
 Destinatario = pagador (facturación) o todos los tutores (avisos del hijo, re-firma, cumplir 18). Nunca el hijo.
 
 ### B12 — Eliminado
-Los consentimientos se validan con el perfil completo del sujeto (y D15 sobre el actor); el `waiver` pasa a la elección seguro / `waiver` de B10.3.
+Los consentimientos se validan con el perfil completo del sujeto (y D15 sobre el actor).
 
 ### B13 / B14 — Perfil público y social
 Un hijo nunca es público ni aparece en el feed, la racha pública o los rankings (`is_public` forzado a false). Añadir a sus checklists.

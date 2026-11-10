@@ -53,7 +53,6 @@ Toda pantalla con datos tiene:
 | Acuerdo pendiente | `missing` con `data_protection` o `rights_of_image` | «tienes que firmar …» y firmar (`/agreements`). La API no distingue una primera firma de una re-firma: el mismo texto vale para las dos |
 | Sin suscripción | `GET /billing/subscription` → `404 subscription_not_found` | «contrata una cuota para reservar» y contratar |
 | No cubierta | `covered: false` en la sesión | «tu cuota no incluye esta disciplina» |
-| Sin cobertura de riesgo | `risk_cover: false`, `403 no_risk_cover` | «necesitas el seguro o firmar la exención» y las dos salidas |
 | Fuera de la ventana | `409 outside_booking_window` o sesión más allá de la ventana | se ve, pero «aún no se puede reservar» |
 | Cobro en gracia / impagado | `status` `past_due` / `unpaid` | «hay un cobro pendiente» y «Gestionar pagos» (Portal). Si el Portal responde `404 no_billing_account`, «lo gestiona quien paga la cuota» (la API no dice quién es el pagador) |
 
@@ -98,7 +97,7 @@ hijo, los pasos 2 y 3 los hace el tutor desde Cuenta con el selector de sujeto.
 
 - **Próximas reservas** (`GET /bookings` desde hoy) del sujeto.
 - **Avisos de estado**, con su enlace: perfil incompleto, acuerdo pendiente, sin suscripción, cobro en gracia o
-  impagado, sin cobertura de riesgo (fuentes en la tabla de bloqueo).
+  impagado (fuentes en la tabla de bloqueo).
 - **Tarjeta de avisos push** (solo si el navegador tiene push y el permiso no está decidido; ver B18.6).
 - **Racha** actual (`GET /me/progress`), con el estilo de «nivel de poder».
 - Vacío: sin reservas → «ver calendario».
@@ -120,7 +119,7 @@ el sujeto:
 | Celebrada | `held` | ninguna |
 
 No se muestran las plazas libres (la API no las da). Al reservar, si vuelve `waitlisted`: «la sesión está llena, estás
-en la lista de espera». Errores: `not_covered`, `no_risk_cover`, `profile_incomplete`, `session_not_bookable`,
+en la lista de espera». Errores: `not_covered`, `profile_incomplete`, `session_not_bookable`,
 `outside_booking_window`, `already_booked`, `booking_overlap` («ya tienes otra reserva a esa hora»), `session_started`,
 `booking_conflict_retry` (se reintenta solo una vez y, si no, «inténtalo de nuevo»).
 
@@ -157,8 +156,7 @@ Lo ve cualquier rol con sesión.
   mayor de edad; para seguir, contacta con la academia».
 - **Ficha de salud** del sujeto (`GET /me/health` **B18.0**, `POST /me/health`). `not_guardian`.
 - **Acuerdos** `/agreements` (URL del aviso de re-firma): `data_protection` y `rights_of_image` del sujeto, firmado o
-  pendiente según `missing`; ver el PDF y firmar. El `waiver` aparece como «exención de responsabilidad» solo si el
-  sujeto no tiene cobertura de riesgo (`risk_cover: false`), con firmarla o contratar el seguro. Un tutor (rol) solo
+  pendiente según `missing`; ver el PDF y firmar. Un tutor (rol) solo
   ve su `data_protection`. `agreement_already_signed`, `invalid_version` (se publicó otra mientras tanto: recargar),
   `not_allowed_to_sign`.
 - **Cuota** `/billing` (abajo).
@@ -169,13 +167,12 @@ Lo ve cualquier rol con sesión.
 
 | Pantalla | Endpoints | Estados y errores |
 |---|---|---|
-| **Mi cuota** `/billing` | `GET /billing/subscription`, `GET /billing/insurance`, `POST /billing/portal` | sin suscripción → contratar; estado (activa, en gracia, impagada), plan, disciplinas, fin de periodo, baja programada, bajada programada, cambios de disciplina que quedan, cambio de pagador pendiente. Seguro: estado y renovación. «Gestionar pagos» (tarjeta, recibos) → Portal; `portal_not_configured`, `no_billing_account` |
-| **Contratar** | `GET /plans`, `GET /disciplines`, `POST /billing/checkout` | plan → disciplinas (tantas como permite, entre las elegibles) → cobertura: **seguro** o **firmar la exención** (salvo que ya tenga cobertura de riesgo) → Stripe Checkout. `subscription_exists`, `risk_cover_required`, `plan_not_purchasable`, `plan_minors_only`, `discipline_not_eligible`, `profile_incomplete` |
+| **Mi cuota** `/billing` | `GET /billing/subscription`, `POST /billing/portal` | sin suscripción → contratar; estado (activa, en gracia, impagada), plan, disciplinas, fin de periodo, baja programada, bajada programada, cambios de disciplina que quedan, cambio de pagador pendiente. «Gestionar pagos» (tarjeta, recibos) → Portal; `portal_not_configured`, `no_billing_account` |
+| **Contratar** | `GET /plans`, `GET /disciplines`, `POST /billing/checkout` | plan → disciplinas (tantas como permite, entre las elegibles) → Stripe Checkout. `subscription_exists`, `plan_not_purchasable`, `plan_minors_only`, `discipline_not_eligible`, `profile_incomplete` |
 | **Volviendo del pago** `/billing/success?session_id=` | `GET /billing/subscription` con reintentos | «confirmando el pago…» hasta que aparece la suscripción; si tarda, «puede tardar unos minutos» |
 | **Pago cancelado** `/billing/cancel` | — | «no se ha cobrado nada» y volver a intentarlo |
 | **Cambiar de plan** | `POST /billing/subscriptions/:id/plan`, `DELETE …/plan/scheduled` | subida: inmediata con cobro proporcional (`requires_action` → 3DS con Stripe.js; `payment_failed`); bajada: «se aplica el …» y anularla. `same_plan`, `upgrade_pending`, `period_ending_soon`, `not_payer` |
 | **Cambiar de disciplina** | `POST /billing/subscriptions/:id/disciplines` | cuántos cambios quedan; «es inmediato y cancela tus reservas de la disciplina que dejas»; gratis si la que se deja ya no se cubre. `discipline_change_limit` |
-| **Contratar el seguro** | `POST /billing/insurance` | precio por tramo; 3DS si hace falta. `insurance_disabled`, `insurance_exists` |
 | **Cambio de pagador** `/billing/payer-changes/:id[?session_id=]` | `GET /billing/payer-changes/:id`, `POST …/checkout` | para el nuevo pagador: alumno, plan, precio, desde cuándo y fecha límite; pagar (0 € hoy). `not_new_payer`, `payer_change_expired`, `payer_change_paid`, `profile_incomplete` |
 
 ## Profesor — barra inferior con 4 pestañas
@@ -183,7 +180,7 @@ Lo ve cualquier rol con sesión.
 | Pantalla | Endpoints | Estados y errores |
 |---|---|---|
 | **Sesiones** `/professor` (entrada) | `GET /professor/sessions?from&to` | sus sesiones (sustituciones incluidas), hoy y los próximos días; ir hacia atrás para las pasadas. Vacío: «no tienes sesiones estos días» |
-| **Detalle de sesión** `/professor/sessions/:id` | `GET /professor/sessions/:id`, `GET /sessions/:id/attendance` | datos y **lista**: nombre, presente, «llegó por check-in», «sin cobertura de riesgo» (sin más detalle). Antes del inicio, solo lectura (`session_not_started`). Cancelada: «sesión cancelada», sin lista |
+| **Detalle de sesión** `/professor/sessions/:id` | `GET /professor/sessions/:id`, `GET /sessions/:id/attendance` | datos y **lista**: nombre, presente, «llegó por check-in» (sin más detalle). Antes del inicio, solo lectura (`session_not_started`). Cancelada: «sesión cancelada», sin lista |
 | **Pasar lista** (en el detalle) | `PUT /sessions/:id/attendance/:studentId`, `POST …/close` | desde el inicio: interruptores grandes; cerrar con confirmación («quien no esté marcado pasa a falta»). `attendance_closed`, `no_active_booking` |
 | **Corregir** (en el detalle, lista cerrada) | `POST …/:studentId/correct` | presente ↔ falta con motivo obligatorio (≤ 500). `correction_window_expired` («pídelo a la academia»), `no_change`, `attendance_not_closed` |
 | **Fichas de salud** (en el detalle, solo una sesión de hoy no cancelada) | `GET /professor/sessions/:id/health` | botón «Ver fichas de salud» con «esta consulta queda registrada»; solo se piden al tocarlo y no se guardan: lesiones, condiciones, alergias, medicación y contacto de emergencia por alumno. Vacío: «nadie ha indicado nada» |

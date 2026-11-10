@@ -677,6 +677,7 @@
   - [x] Tests (`npm run test:billing`).
 
 ### B10.3 — Seguro y cobertura de riesgo — CERRADO
+> Retirado por B28 (2026-11-10).
 - **Objetivo**: seguro anual de la academia como alternativa al `waiver` (ADR 0005, ADR 0006). Términos en `CONTEXT.md` («Seguro y cobertura de riesgo»).
 - **Reglas**:
   - Cobertura de riesgo = seguro en vigor (`active` / `past_due`) o `waiver` vigente. No hay seguro externo.
@@ -1000,7 +1001,6 @@
 - **Entregable**:
   - Inventario de la cuenta real: número de suscripciones, Prices usados, trials/pausas, Stripe Tax, métodos de pago, configuración del portal, cómo se identifica a cada persona (email) y si maat es una plataforma Connect.
   - Script de importación idempotente: cliente → perfil pagador (`profiles.stripe_customer_id`), alumno y menores, Price de maat → plan de Kaizen (`subscriptions.update` al Price del plan con `proration_behavior: 'none'`), disciplinas (CSV o exportación de maat), fila en `subscriptions` + `subscription_disciplines`, recibos con `syncInvoice`.
-  - *Upcoming renewal events* (aviso del seguro, B10.3) es un ajuste de toda la cuenta: acordar con maat los 30 días.
   - Emails de cliente de Stripe que tenga activos maat (cobro fallido, 3DS, renovación, recibos): son de toda la cuenta y se solapan con los de Kaizen (B10.6); acordar con maat antes del corte.
   - Descriptor: `STRIPE_STATEMENT_DESCRIPTOR` en el `.env` de producción y `npm run sync-stripe-plans` tras importar los planes, para que los Products de Kaizen lo lleven. Confirmar que «KAI ZEN TRAINING CAMP» es el nombre comercial con el que se conoce la academia (lo exigen las redes de tarjetas).
   - *Revenue recovery → Retries* de la cuenta: Kaizen necesita «mark the subscription as unpaid» al agotar los reintentos (en el sandbox estaba en cancelar; ver E2E de B11). Es un ajuste de toda la cuenta: si maat cancela, acordarlo antes del corte.
@@ -1015,6 +1015,7 @@
   - [ ] Importación en producción y conteo cuadrado con Stripe.
 
 ### B11 — Baja del seguro y cambio de pagador — CERRADO
+> Retirado por B28 (2026-11-10).
 - **Objetivo**: baja del seguro por el admin (a fin de año o inmediata) y **cambio de pagador**. Además, arreglar que la baja inmediata de una suscripción deje su recibo pendiente cobrándose. Términos en `CONTEXT.md` («Suscripción», «Seguro y cobertura de riesgo»), decisión en ADR 0009.
 - **Ya hecho en B10** (2026-10-29): `POST /admin/subscriptions/:id/cancel-now` y `/cancel-at-period-end` (`cancelSubscription`). Se pide la baja a Stripe y el estado local llega por el webhook. `audit_log` `subscription.cancel_now` / `subscription.cancel_at_period_end`.
 - **Sondeo del sandbox** (2026-10-30, `kaizen-app-testing`, *test clock*):

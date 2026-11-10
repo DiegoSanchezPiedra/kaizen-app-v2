@@ -144,7 +144,7 @@ try {
     ['show', 'Exhibición de fin de trimestre', 6, 9, 3, 1500, 1000, 'all', 40, 10],
     ['cup', 'Velada interna de Boxeo', -20, 9, 4, 0, null, 'adults', 24, 12],
   ];
-  await ins('events', EV.map(([k, title, d, h, dur, price, member, aud, cap]) => ({ id: id('ev:' + k), title, description: 'Evento de demo del staging.', starts_at: at(d, h), ends_at: at(d, h + dur), location: 'Tatami 1', discipline_id: k === 'show' ? null : k === 'open' ? ADULT[1] : ADULT[0], trainer_id: marc, capacity: cap, audience: aud, requires_risk_cover: false, price_cents: price, member_price_cents: member, status: 'scheduled', created_by: admin, created_at: ago(d < 0 ? 40 : 10) })));
+  await ins('events', EV.map(([k, title, d, h, dur, price, member, aud, cap]) => ({ id: id('ev:' + k), title, description: 'Evento de demo del staging.', starts_at: at(d, h), ends_at: at(d, h + dur), location: 'Tatami 1', discipline_id: k === 'show' ? null : k === 'open' ? ADULT[1] : ADULT[0], trainer_id: marc, capacity: cap, audience: aud, price_cents: price, member_price_cents: member, status: 'scheduled', created_by: admin, created_at: ago(d < 0 ? 40 : 10) })));
   const regs = [];
   for (const [k, , d, , , price, member, , , n] of EV) {
     const pool = k === 'show' ? [...subs.filter((u) => u.status === 'active' && u.plan !== KID).slice(0, n - 2).map((u) => u.student), kids[0], kids[2]] : subs.filter((u) => u.status === 'active' && u.plan !== KID).slice(6, 6 + n).map((u) => u.student);

@@ -97,20 +97,19 @@ Un vistazo y lo que pide atención. Todo enlaza a su pantalla. Sin MFA, el aviso
 
 - **Resumen**: alta, cómo entra (contraseña, Google o ninguna en un hijo), perfil público (sí/no) y **Despublicar**
   (`POST /admin/profiles/:id/unpublish`, con confirmación: «el dueño puede volver a publicarlo»). Para un alumno, el
-  estado del perfil (`status.missing` como en B18: qué le falta) y la cobertura de riesgo (sí/no, sin la forma).
+  estado del perfil (`status.missing` como en B18: qué le falta).
   **Cambiar el rol** (Select con alumno, tutor, profesor; `PUT /admin/profiles/:id/role`, **B19.0**), con
   confirmación «el cambio es inmediato; si tiene la app abierta, tendrá que volver a entrar». No sale para un admin ni para un hijo. Errores:
   `same_role`, `admin_role_locked`, `child_role_locked`, `trainer_has_sessions` («antes, reasigna o retira sus
-  clases y sesiones futuras» con enlace a Clases), `student_has_subscription` («tiene una cuota o un seguro vivos;
-  dalos de baja antes»).
+  clases y sesiones futuras» con enlace a Clases), `student_has_subscription` («tiene una cuota viva;
+  dala de baja antes»).
 - **Familia**: para un hijo, sus tutores (nombre y email) con **Vincular otro tutor** (Combobox que busca adultos con
   `GET /admin/profiles?q`; `POST /admin/profiles/:id/guardians`, **B19.0**) y **Desvincular** (`DELETE …/guardians/:tutorId`,
   con confirmación). Para un adulto, sus hijos (enlace a su ficha). Errores: `not_a_child`, `already_guardian`,
   `invalid_guardian` (un hijo o alguien sin acceso propio), `last_guardian` («un hijo siempre tiene al menos un
-  tutor»), `guardian_is_payer` («paga su cuota o su seguro: cambia antes el pagador»).
-- **Cuota y seguro** (solo alumnos): la suscripción viva (plan, disciplinas, estado, fin de periodo, baja programada,
-  bajada programada, cambios de disciplina que quedan, **pagador** con enlace a su ficha, cambio de pagador en curso) y
-  el seguro (tramo, estado, fin del año, renovación, pagador). Sin cuota: «no tiene cuota» (el admin no contrata por
+  tutor»), `guardian_is_payer` («paga su cuota: cambia antes el pagador»).
+- **Cuota** (solo alumnos): la suscripción viva (plan, disciplinas, estado, fin de periodo, baja programada,
+  bajada programada, cambios de disciplina que quedan, **pagador** con enlace a su ficha, cambio de pagador en curso). Sin cuota: «no tiene cuota» (el admin no contrata por
   el alumno: lo hace el pagador). Acciones, cada una con su confirmación:
 
   | Acción | Endpoint | Confirmación y errores |
@@ -121,7 +120,6 @@ Un vistazo y lo que pide atención. Todo enlaza a su pantalla. Sin MFA, el aviso
   | Cambiar de disciplina | `POST /admin/subscriptions/:id/disciplines` | «es inmediato y cancela sus reservas de la disciplina que deja»; gratis si ya no se cubría. `discipline_change_limit`, `payer_change_pending` |
   | Cambiar de pagador | `POST /admin/subscriptions/:id/payer-change` (candidatos: sus tutores o él mismo si es adulto, de `guardians`) | «el nuevo pagador recibe un email y tiene hasta el … para pagar; si no, sigue pagando …». `same_payer`, `invalid_payer`, `period_ending_soon`, `upgrade_pending`, `cancel_scheduled`, `payer_change_paid` |
   | Anular el cambio de pagador | `DELETE /admin/subscriptions/:id/payer-change` | solo si no está pagado (`payer_change_paid`) |
-  | Baja del seguro a fin de año / inmediata | `POST /admin/insurances/:id/cancel-at-period-end` \| `cancel-now` | «sin reembolso; se avisa a quien lo paga»; la inmediata, «anula sus recibos pendientes». Si se queda sin cobertura de riesgo: «no podrá reservar hasta firmar la exención o contratar otro» |
 
 - **Reservas** (solo alumnos): `GET /bookings?profile_id&from&to` por tramos de ≤ 92 días (próximas y pasadas), con
   estado y motivo de cancelación; **Cancelar** (`POST /bookings/:id/cancel`, motivo «cancelada por la academia», nunca
@@ -131,9 +129,9 @@ Un vistazo y lo que pide atención. Todo enlaza a su pantalla. Sin MFA, el aviso
 
 | Pestaña | Endpoints | Estados y errores |
 |---|---|---|
-| **Morosos** | `GET /admin/billing/delinquents?limit&offset` | un bloque por pagador (nombre → su ficha): sus suscripciones y seguros impagados o en gracia (alumno → su ficha, plan o tramo, estado, fin de periodo) y sus recibos pendientes (importe, intentos, siguiente reintento, último error en texto pequeño, **Abrir el recibo** → `hosted_invoice_url` en otra pestaña, para enviárselo al pagador). Acción por elemento: baja inmediata (con la confirmación de la ficha). Vacío: «nadie debe nada» |
+| **Morosos** | `GET /admin/billing/delinquents?limit&offset` | un bloque por pagador (nombre → su ficha): sus suscripciones impagadas o en gracia (alumno → su ficha, plan, estado, fin de periodo) y sus recibos pendientes (importe, intentos, siguiente reintento, último error en texto pequeño, **Abrir el recibo** → `hosted_invoice_url` en otra pestaña, para enviárselo al pagador). Acción por elemento: baja inmediata (con la confirmación de la ficha). Vacío: «nadie debe nada» |
 | **En gracia** | `GET /admin/billing/grace?limit&offset` | igual, solo `past_due`: «Stripe sigue reintentando el cobro hasta el …». Sin acciones de baja destacadas (aún no es moroso) |
-| **Cambios de pagador** | `GET /admin/payer-changes?status&limit&offset` (**B19.1**) | dos vistas: **En curso** (`requested`, `paid`) y **Caducados** (`expired`). Cada fila: alumno, pagador actual → nuevo, plan, desde (D), fecha límite, estado. En curso y sin pagar: **Anular**. Caducado: «no pagó a tiempo; sigue pagando …» y **Volver a pedirlo** (abre la ficha en «Cuota y seguro»). Vacío: «no hay cambios en curso» / «ninguno ha caducado» |
+| **Cambios de pagador** | `GET /admin/payer-changes?status&limit&offset` (**B19.1**) | dos vistas: **En curso** (`requested`, `paid`) y **Caducados** (`expired`). Cada fila: alumno, pagador actual → nuevo, plan, desde (D), fecha límite, estado. En curso y sin pagar: **Anular**. Caducado: «no pagó a tiempo; sigue pagando …» y **Volver a pedirlo** (abre la ficha en «Cuota»). Vacío: «no hay cambios en curso» / «ninguno ha caducado» |
 
 ## Avisos `/admin/notices` (`?tab=`)
 
@@ -174,7 +172,7 @@ Errores: `invalid_range` («revisa las fechas: como mucho 92 días o 24 meses»)
 
 | Pantalla | Endpoints | Estados y errores |
 |---|---|---|
-| **Documentos** | `GET /admin/agreements/documents`, `GET /admin/agreements/documents/:id/file` (**B19.1**) | por tipo (exención de responsabilidad, protección de datos, derechos de imagen): la **vigente**, los **borradores** y los **retirados**, cada uno con versión, fechas y **Ver el PDF**. Un tipo sin vigente: «aún no hay documento publicado: nadie puede completar su perfil» en rojo |
+| **Documentos** | `GET /admin/agreements/documents`, `GET /admin/agreements/documents/:id/file` (**B19.1**) | por tipo (protección de datos, derechos de imagen): la **vigente**, los **borradores** y los **retirados**, cada uno con versión, fechas y **Ver el PDF**. Un tipo sin vigente: «aún no hay documento publicado: nadie puede completar su perfil» en rojo |
 | **Subir** (Dialog) | `POST /admin/agreements/documents?type&version` (cuerpo crudo PDF) | tipo, versión X.Y y el PDF (≤ 10 MB). Queda como borrador. `duplicate_document`, `version_exists_different_content`, `invalid_type`, `invalid_version` o `invalid_file` (la API no usa `invalid_field` aquí), archivo que no es PDF o muy grande (se comprueba antes de enviar) |
 | **Publicar** (en un borrador) | `POST /admin/agreements/documents/:id/publish` | confirmación fuerte: «retira la versión vigente; **todos** los que la firmaron tendrán que volver a firmar y no podrán reservar hasta hacerlo; se les avisa». Retirar un documento **solo** se hace publicando otro del mismo tipo: no hay botón de retirar a secas (dejaría a todos sin poder completar el perfil) |
 
@@ -189,7 +187,7 @@ Errores: `invalid_range` («revisa las fechas: como mucho 92 días o 24 meses»)
 | Pantalla | Endpoints | Estados y errores |
 |---|---|---|
 | **Tablets** | `GET /admin/tablets`, `POST /admin/tablets`, `POST /admin/tablets/:id/revoke` | nombre, estado (esperando vinculación, vinculada, revocada), vinculada el, vista por última vez. **Nueva tablet**: nombre → el **código** en grande (Geist Mono) con «caduca a las …; solo se ve ahora» y cómo usarlo (`/tablet` en la tablet). **Revocar** con confirmación («la tablet deja de mostrar el QR al momento») |
-| **Ajustes** | `GET /admin/settings` (**B19.1**), `PUT /admin/settings/checkin`, `PUT /admin/settings/insurance`, `PUT /admin/settings/discipline-changes` | tres grupos, cada uno con su «Guardar»: **check-in** (abre N min antes, cierra N min después, el QR cambia cada N s; 1–1440), **seguro** (precio adulto, precio menor, ofrecerlo: «no se puede activar sin los dos precios»; desactivarlo: «los seguros vivos no se renuevan y se avisa a sus pagadores»), **cambios de disciplina por periodo** (0 o más). `invalid_field` en su campo |
+| **Ajustes** | `GET /admin/settings` (**B19.1**), `PUT /admin/settings/checkin`, `PUT /admin/settings/discipline-changes` | dos grupos, cada uno con su «Guardar»: **check-in** (abre N min antes, cierra N min después, el QR cambia cada N s; 1–1440), **cambios de disciplina por periodo** (0 o más). `invalid_field` en su campo |
 
 ## Mapa de errores nuevos por `code`
 
@@ -204,11 +202,11 @@ Los de B18 siguen valiendo. Texto de la UI para los nuevos y los del admin que l
 | `admin_role_locked` | «el rol de administración no se cambia desde la app» |
 | `child_role_locked` | «un hijo siempre es alumno» |
 | `trainer_has_sessions` | «antes, reasigna o retira sus clases y sesiones futuras» |
-| `student_has_subscription` | «tiene una cuota o un seguro vivos; dalos de baja antes» |
+| `student_has_subscription` | «tiene una cuota viva; dala de baja antes» |
 | `not_a_child`, `invalid_guardian` | «solo se vincula un adulto con acceso propio a un menor» |
 | `already_guardian` | «ya es su tutor» |
 | `last_guardian` | «un hijo siempre tiene al menos un tutor» |
-| `guardian_is_payer` | «paga su cuota o su seguro: cambia antes el pagador» |
+| `guardian_is_payer` | «paga su cuota: cambia antes el pagador» |
 | `requires_payer_action` | «el pagador recibirá un email para autorizar el pago» |
 | `capacity_below_bookings` | «hay más reservas que ese aforo» (con `fits_from`: «cabe desde el …») |
 | `trainer_overlap` | «ese profesor ya tiene otra sesión a esa hora» |

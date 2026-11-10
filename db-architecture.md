@@ -4,7 +4,7 @@
 PostgreSQL en VPS con RLS habilitado y FORCE ROW LEVEL SECURITY en todas las tablas. Tres roles de base de datos:
 - `migrator`: propietario de las tablas, ejecuta migraciones.
 - `app_user`: rol de la aplicación. Sin BYPASSRLS, no propietario. Usado por el backend para consultas con contexto de usuario.
-- `service_role`: usado solo por tareas internas (webhook Stripe, cron de agregaciones, waiver). Puede saltar RLS.
+- `service_role`: usado solo por tareas internas (webhook Stripe, cron de agregaciones). Puede saltar RLS.
 
 ## Enums
 - `app_role`: alumno, profesor, admin
@@ -89,22 +89,6 @@ PK compuesta `(plan_id, discipline_id)`.
 
 Índices: `(student_id)`, `(status)`, `(stripe_subscription_id)`.
 
-### insurances (B10.3; `subscription_agreements` se borró en 013)
-| Columna | Tipo |
-|---|---|
-| id | uuid PK |
-| student_id | uuid FK profiles |
-| payer_id | uuid FK profiles |
-| status | sub_status |
-| bracket | text (`adult` / `minor`) |
-| stripe_subscription_id | text UNIQUE NOT NULL |
-| current_period_start / current_period_end | timestamptz |
-| cancel_at_period_end | boolean |
-| cancelled_at | timestamptz |
-| created_at | timestamptz |
-
-Índices: `(payer_id)`, único parcial `(student_id)` con estado vivo. `invoices.insurance_id` apunta aquí.
-
 ### cash_payments (creada vacía, reservada para futuro)
 | Columna | Tipo |
 |---|---|
@@ -185,7 +169,6 @@ Restricción: `UNIQUE (session_id, student_id)`.
 | trainer_id | uuid FK profiles NULL (profesor; lo comprueba el servicio) |
 | capacity | integer NULL (> 0; NULL = sin límite) |
 | audience | text `all\|minors\|adults` (por defecto `all`) |
-| requires_risk_cover | boolean (por defecto `true`) |
 | price_cents | integer (0 o ≥ 50) |
 | member_price_cents | integer NULL (0 o ≥ 50, ≤ `price_cents`) |
 | registration_deadline | timestamptz NULL (≤ `starts_at`) |

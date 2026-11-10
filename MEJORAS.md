@@ -173,8 +173,8 @@ Una sola sesión inicial (antes de cerrar B4.5) debería fijar el vocabulario tr
 ### 6.3 Plan que pasa de 0 € a precio — **Impacto: Bajo**
 - Pendiente de B10. La sincronización crea otro Product en Stripe en vez de reutilizar el del plan.
 
-### 6.4 Reactivar el seguro — **Impacto: Bajo (bug conocido)**
-- Pendiente de B10.3. Reactivar el seguro no deshace los `cancel_at_period_end` que puso la desactivación: los seguros vivos siguen sin renovarse.
+### 6.4 ~~Reactivar el seguro~~ — **[ELIMINADO]**
+- Retirado por B28 (2026-11-10): ya no hay seguro que reactivar.
 
 ### 6.5 `checkEligible` y las disciplinas abiertas — **Impacto: Bajo (bug conocido)**
 - Pendiente de B14. Una disciplina abierta en `plan_disciplines` se ignora para cubrir, pero `checkEligible` (B5) la sigue contando entre las elegibles de un plan.
