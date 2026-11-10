@@ -161,10 +161,18 @@ try {
     await at('2020-04-01 10:00', d);
     await at('2020-10-24 23:59', e); // 21:59 UTC; 25: cambio de hora de octubre
     await at('2020-10-25 00:30', g); // 22:30 UTC del 24
-    // Por día, solo el total del rango: las filas por día cortan hoy en la medianoche UTC (generate_series da timestamptz).
-    const total = async (from, to = from) => (await getSubscriptionStats(c, { group: 'day', from, to })).trained;
-    assert.deepEqual([await total('2020-03-28'), await total('2020-03-29'), await total('2020-03-28', '2020-04-01')], [1, 2, 3]);
-    assert.deepEqual([await total('2020-10-24'), await total('2020-10-25'), await total('2020-10-24', '2020-10-25')], [1, 1, 2]);
+    await at('2020-01-15 00:30', a); // invierno: 23:30 UTC del 14
+    await at('2020-01-15 23:30', b); // 22:30 UTC
+    await at('2020-07-15 00:30', a); // verano: 22:30 UTC del 14
+    await at('2020-07-15 23:30', b); // 21:30 UTC
+    // Cada fila por día corta en la medianoche de Madrid; el total, distintos en el rango.
+    const day = async (from, to) => { const r = await getSubscriptionStats(c, { group: 'day', from, to }); return [r.rows.map((x) => x.trained), r.trained]; };
+    assert.deepEqual(await day('2020-01-14', '2020-01-16'), [[0, 2, 0], 2]);
+    assert.deepEqual(await day('2020-07-14', '2020-07-16'), [[0, 2, 0], 2]);
+    assert.deepEqual(await day('2020-03-28', '2020-04-01'), [[1, 2, 0, 1, 2], 3]);
+    assert.deepEqual(await day('2020-10-24', '2020-10-25'), [[1, 1], 2]);
+    const jan = await getSubscriptionStats(c, { group: 'month', from: '2020-01', to: '2020-01' });
+    assert.equal(jan.rows[0].trained, 2); // el mes cuadra con la suma de sus días (un día por alumno)
     const month = await getSubscriptionStats(c, { group: 'month', from: '2020-03', to: '2020-04' });
     assert.deepEqual(month.rows.map((r) => [r.month, r.trained]), [['2020-03', 3], ['2020-04', 2]]); // h, ausente: no
     assert.equal(month.trained, 3); // a y d, en los dos meses: una vez

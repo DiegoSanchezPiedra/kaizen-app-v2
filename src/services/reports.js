@@ -65,7 +65,7 @@ export async function getSubscriptionStats(client, { group, from, to }) {
     }
     const { rows } = await client.query(
       `SELECT to_char(g.d, 'YYYY-MM-DD') AS date, a.active, a.past_due, a.unpaid,
-              a.new_subscriptions, a.cancelled_subscriptions, ${TRAINED('g.d', "g.d + interval '1 day'")} AS trained
+              a.new_subscriptions, a.cancelled_subscriptions, ${TRAINED('g.d::date::timestamp', '(g.d::date + 1)::timestamp')} AS trained
          FROM generate_series($1::date, $2::date, interval '1 day') g(d)
          LEFT JOIN academy_stats_daily a ON a.date = g.d::date
         ORDER BY g.d`, [f, t]);
