@@ -21,7 +21,7 @@ import { errorCode, toastError, toastOk } from '@/lib/notify'
 import type { Child } from '@/lib/subject'
 
 // Misma clave que el selector de sujeto: una sola lectura de /me/children.
-const useChildren = () => useQuery({ queryKey: ['me', 'children'], queryFn: () => api<{ children: Child[] }>('/me/children').then((r) => r.children) })
+const useChildren = () => useQuery({ queryKey: ['me', 'children'], queryFn: () => api<{ children: Child[] }>('/me/children').then((r) => r.children), staleTime: 30_000 })
 
 const Back = () => (
   <Link to="/account/children" className="-mt-3 inline-flex min-h-11 items-center gap-1 self-start font-semibold text-link">
