@@ -173,6 +173,7 @@ export async function verifyAndEnableMfa(client, profileId, code) {
     `UPDATE auth_credentials SET credentials_changed_at = date_trunc('second', now())
       WHERE profile_id = $1 RETURNING extract(epoch FROM credentials_changed_at)::bigint AS iat`,
     [profileId]);
+  await client.query(`SELECT write_audit($1, 'auth.mfa_enable', 'profile', $2, '{}'::jsonb)`, [profileId, profileId]);
 
   return { enabled: true, iat: Number(r.iat) };
 }

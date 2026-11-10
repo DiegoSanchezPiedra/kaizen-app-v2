@@ -63,7 +63,7 @@ El backend construye enlaces con `APP_URL`; el frontend **tiene** que servir est
 | `POST /auth/password/reset` | — | `{ token, password }` | `204`. `400 invalid_reset_token` (caducado, usado o inexistente), `weak_password`. Un perfil solo con Google se pone así contraseña |
 | `GET /auth/me` | cualquiera | — | `{ user: { id, role }, mfa_enabled, rls_context }` |
 | `POST /auth/mfa/setup` | admin | `{ password }` | `201 { otpauth_uri, recovery_codes }`: el secreto y el `otpauth://` para el QR. Pide la contraseña actual (B20); una cuenta solo con Google no la manda y necesita un token de un login de hace ≤ 10 min. `400 invalid_field`, `wrong_password`; `403 reauth_required` (solo Google, login antiguo: volver a entrar); `409 mfa_already_enabled`. Con el límite del login |
-| `POST /auth/mfa/activate` | admin | `{ code }` | `{ enabled: true, token }`: activa el MFA y, como `POST /me/password` (ADR 0020), da el token nuevo de esta sesión; los anteriores dan `401 session_revoked`. `invalid_totp`, `mfa_not_setup` |
+| `POST /auth/mfa/activate` | admin | `{ code }` | `{ enabled: true, token }`: activa el MFA y, como `POST /me/password` (ADR 0020), da el token nuevo de esta sesión; los anteriores dan `401 session_revoked`. `invalid_totp`, `mfa_not_setup`. `audit_log` `auth.mfa_enable` |
 
 **Solo un alumno adulto se registra** (un menor lo da de alta su tutor). El rol `tutor`, `profesor` y `admin` no se
 crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).

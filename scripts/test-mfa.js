@@ -242,6 +242,12 @@ async function main() {
       [adminProfileId]
     );
     assert(rows[0].mfa_enabled === true, 'mfa_enabled != true');
+    const { rows: audit } = await servicePool.query(
+      `SELECT actor_id, resource_type FROM audit_log WHERE action = 'auth.mfa_enable' AND resource_id = $1`,
+      [adminProfileId]
+    );
+    assert(audit.length === 1 && audit[0].actor_id === adminProfileId && audit[0].resource_type === 'profile',
+      `audit_log auth.mfa_enable: ${JSON.stringify(audit)}`);
   });
 
   // 5) setupMfa con mfa_enabled=true → 409 mfa_already_enabled
