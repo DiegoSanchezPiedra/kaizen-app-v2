@@ -18,8 +18,9 @@ const sameId = (a: number | string, b: number | string) => String(a) === String(
 export const visiblePlans = (plans: Plan[], self: boolean): Plan[] =>
   plans.filter((p) => p.is_active && p.price_cents > 0 && !(self && p.minors_only)).sort((a, b) => a.price_cents - b.price_cents)
 
-// Edad de hoy (Madrid) del sujeto, como el backend: sin fecha de nacimiento, adulto (18).
-export const ageToday = (birthDate: string | null): number => (birthDate ? ageOn(birthDate, madridDay()) : 18)
+// Edad de hoy (Madrid) del sujeto, como el backend: sin fecha de nacimiento, adulto.
+const ADULT_AGE = 18
+export const ageToday = (birthDate: string | null): number => (birthDate ? ageOn(birthDate, madridDay()) : ADULT_AGE)
 // Cubre la disciplina hoy: sin máximo, o la edad de hoy no lo supera. La mínima no se mira al contratar.
 export const fitsAge = (d: Discipline, birthDate: string | null): boolean => d.max_age === null || ageToday(birthDate) <= d.max_age
 // Del plan (lista vacía = todas).

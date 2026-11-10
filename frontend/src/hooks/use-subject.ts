@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { useSearchParams } from 'react-router'
 import { api } from '@/lib/api'
 import { takeCheckoutSubject } from '@/lib/billing'
+import { useMeKey } from '@/components/my-data-form'
 import { useSession } from '@/lib/session'
 import { activeSubject, subjectOptions, type Child } from '@/lib/subject'
 import type { Me } from '@/lib/types'
@@ -20,7 +21,7 @@ export function useSubject() {
     staleTime: 30_000, // igual en pages/children.tsx: cada pantalla monta el selector y no debe volver a pedirla
   })
   // La fecha propia (para la edad de las disciplinas) sale de /me: misma clave que my-data-form.
-  const me = useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/me'), enabled: session?.role === 'alumno', staleTime: 30_000 })
+  const me = useQuery({ queryKey: useMeKey, queryFn: () => api<Me>('/me'), enabled: session?.role === 'alumno', staleTime: 30_000 })
   const options = session && data && (session.role !== 'alumno' || me.data) ? subjectOptions(session.role, session.id, me.data?.birth_date ?? null, data) : []
   const subject = activeSubject(options, params.get('para'))
   const select = (id: string) =>

@@ -105,6 +105,7 @@ function DisciplineSheet({ d, onClose }: { d: Discipline | null; onClose: () => 
   const fe = useFieldError()
   const minAge = ageOf(f.min_age)
   const maxAge = ageOf(f.max_age)
+  const crossed = minAge != null && maxAge != null && minAge > maxAge
   const body = { name: f.name.trim(), min_age: minAge ?? null, max_age: maxAge ?? null, is_open: f.is_open, is_active: f.is_active, medal_theme: f.medal_theme }
   // PATCH: solo lo que cambia (sin nada, la API da empty_patch).
   const diff = d ? Object.fromEntries(Object.entries(body).filter(([k, v]) => v !== d[k as keyof Discipline])) : body
@@ -134,7 +135,7 @@ function DisciplineSheet({ d, onClose }: { d: Discipline | null; onClose: () => 
       title={d ? `Editar ${d.name}` : 'Nueva disciplina'}
       description="Las disciplinas son las que se eligen en la cuota y se reservan en el calendario."
       submitLabel={deactivating ? 'Desactivar' : d ? 'Guardar' : 'Crear la disciplina'}
-      disabled={!body.name || body.name.length > 100 || minAge === undefined || maxAge === undefined || (!!d && Object.keys(diff).length === 0)}
+      disabled={!body.name || body.name.length > 100 || minAge === undefined || maxAge === undefined || crossed || (!!d && Object.keys(diff).length === 0)}
       loading={save.isPending}
       confirm={
         deactivating
@@ -151,7 +152,7 @@ function DisciplineSheet({ d, onClose }: { d: Discipline | null; onClose: () => 
       <TextField label="Nombre" value={f.name} onChange={set('name')} maxLength={100} error={fe.error('name')} />
       <div className="grid grid-cols-2 gap-3">
         <TextField label="Edad mínima" inputMode="numeric" value={f.min_age} onChange={set('min_age')} error={minAge === undefined ? 'Escribe un entero de 0 a 99.' : fe.error('min_age')} />
-        <TextField label="Edad máxima" inputMode="numeric" value={f.max_age} onChange={set('max_age')} error={maxAge === undefined ? 'Escribe un entero de 0 a 99.' : fe.error('max_age')} />
+        <TextField label="Edad máxima" inputMode="numeric" value={f.max_age} onChange={set('max_age')} error={maxAge === undefined ? 'Escribe un entero de 0 a 99.' : crossed ? 'No puede ser menor que la mínima.' : fe.error('max_age')} />
       </div>
       <p className="-mt-1 text-xs text-muted-foreground">Vacío: sin límite.</p>
       <SwitchRow label="Abierta" hint="La cubre cualquier cuota, sin elegirla ni ocupar hueco del plan." checked={f.is_open} onChange={set('is_open')} />
