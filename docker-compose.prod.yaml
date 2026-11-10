@@ -15,7 +15,7 @@ services:
       - db:/var/lib/postgresql/data
       - ./deploy/staging/init-roles.sh:/docker-entrypoint-initdb.d/init-roles.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${DB_NAME}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -24,10 +24,34 @@ services:
     build: { context: ., target: api }
     restart: unless-stopped
     depends_on: { db: { condition: service_healthy } }
-    env_file: .env
+    # Solo lo que lee la API (nombre sin valor = se toma del .env): sin POSTGRES_*, contraseñas de BD ni DATABASE_URL de migrator.
     environment:
-      PORT: 3000
-      AGREEMENTS_STORAGE_PATH: /app/storage/agreements # las fotos (avatars) y los logs cuelgan del mismo storage/
+      - DATABASE_URL_APP
+      - DATABASE_URL_SERVICE
+      - APP_URL
+      - TRUST_PROXY
+      - GOOGLE_CLIENT_ID
+      - JWT_SECRET
+      - JWT_EXPIRES_IN
+      - ADMIN_JWT_EXPIRES_IN
+      - MFA_ENCRYPTION_KEY
+      - MFA_TOKEN_EXPIRES_IN
+      - MFA_TOTP_ISSUER
+      - MFA_RECOVERY_CODE_COUNT
+      - STRIPE_SECRET_KEY
+      - STRIPE_WEBHOOK_SECRET
+      - STRIPE_PORTAL_CONFIGURATION_ID
+      - STRIPE_STATEMENT_DESCRIPTOR
+      - EMAIL_TRANSPORT
+      - RESEND_API_KEY
+      - EMAIL_FROM
+      - EMAIL_REPLY_TO
+      - PUSH_TRANSPORT
+      - VAPID_PUBLIC_KEY
+      - VAPID_PRIVATE_KEY
+      - VAPID_SUBJECT
+      - PORT=3000
+      - AGREEMENTS_STORAGE_PATH=/app/storage/agreements # las fotos (avatars) y los logs cuelgan del mismo storage/
     volumes:
       - storage:/app/storage
 
@@ -36,7 +60,8 @@ services:
     build: { context: ., target: migrate }
     profiles: [tools]
     depends_on: { db: { condition: service_healthy } }
-    env_file: .env # DATABASE_URL (rol migrator)
+    environment:
+      - DATABASE_URL # rol migrator
 
   web:
     build:

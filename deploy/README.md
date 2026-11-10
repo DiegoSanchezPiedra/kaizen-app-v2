@@ -53,3 +53,7 @@ que son los roles del `init-roles.sh`. Para ensayar sin riesgo, restaura en un `
 Las de `.env.example` más `deploy/.env.prod.example`: contraseñas de los tres roles y `POSTGRES_PASSWORD`, `DB_NAME`,
 `DATABASE_URL*` (host `db`), `APP_URL` (https), `TRUST_PROXY=1`, `GOOGLE_CLIENT_ID` y `VITE_STRIPE_PUBLISHABLE_KEY` (entran
 en el frontend al compilar), `WEB_BIND`. `PORT` y `AGREEMENTS_STORAGE_PATH` los fija el compose.
+
+El `.env` no se ejecuta como shell (admite `MFA_TOTP_ISSUER=Kaizen App` o `EMAIL_FROM=Kaizen <...>` sin comillas). La API recibe
+solo las variables que lista `docker-compose.prod.yaml` (sin `POSTGRES_*` ni la `DATABASE_URL` de migrator, que solo ve `migrate`):
+si añades una variable nueva a la API, añádela también a esa lista.
