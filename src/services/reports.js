@@ -39,12 +39,17 @@ export const pagination = ({ limit = 25, offset = 0 }) => {
   return { limit, offset };
 };
 
-// Alumnos que entrenaron (CONTEXT § Informes) entre dos instantes locales de Madrid [f, t): distintos con algún presente en
-// una sesión no cancelada, por su inicio. En vivo, nunca de la foto (ADR 0012); los eventos no cuentan.
-export const TRAINED = (f, t) => `(SELECT count(DISTINCT a.student_id)::int FROM attendance a
+// Alumnos que entrenaron (CONTEXT § Informes): una fila (alumno, día de Madrid) por presente en una sesión no cancelada que
+// empieza entre dos instantes locales de Madrid [f, t); se cuentan alumnos distintos. En vivo, nunca de la foto (ADR 0012);
+// los eventos no cuentan.
+export const TRAINED_DAYS = (f, t) => `SELECT a.student_id, (s.starts_at AT TIME ZONE '${TZ}')::date AS d FROM attendance a
     JOIN class_sessions s ON s.id = a.session_id
    WHERE a.status = 'present' AND s.status <> 'cancelled'
-     AND s.starts_at >= (${f}) AT TIME ZONE '${TZ}' AND s.starts_at < (${t}) AT TIME ZONE '${TZ}')`;
+     AND s.starts_at >= (${f}) AT TIME ZONE '${TZ}' AND s.starts_at < (${t}) AT TIME ZONE '${TZ}'`;
+// Varias ventanas de días de Madrid: `WITH td AS MATERIALIZED (${TRAINED_DAYS(...)})` una vez y contar sobre td, porque
+// cada recorrido de attendance paga la RLS fila a fila; TRAINED_IN, una ventana [f, t) de td.
+export const TRAINED = (f, t) => `(SELECT count(DISTINCT student_id)::int FROM (${TRAINED_DAYS(f, t)}) td)`;
+export const TRAINED_IN = (f, t) => `(SELECT count(DISTINCT student_id)::int FROM td WHERE td.d >= ${f} AND td.d < ${t})`;
 
 /**
  * Foto diaria por día o por mes, con los alumnos que entrenaron (por fila y, distintos, en todo el rango). Un día o un
@@ -76,11 +81,14 @@ export async function getSubscriptionStats(client, { group, from, to }) {
   const { rows } = await client.query(
     `WITH m AS (SELECT g.m::date AS m, (g.m + interval '1 month')::date AS e
                   FROM generate_series(($1::text || '-01')::date, ($2::text || '-01')::date, interval '1 month') g(m)),
-          t AS (SELECT (now() AT TIME ZONE '${TZ}')::date AS d)
+          t AS (SELECT (now() AT TIME ZONE '${TZ}')::date AS d),
+          td AS MATERIALIZED (${TRAINED_DAYS("($1::text || '-01')::timestamp", "(($2::text || '-01')::date + interval '1 month')")})
      SELECT to_char(m.m, 'YYYY-MM') AS month, l.active, l.past_due, l.unpaid,
-            s.new_subscriptions, s.cancelled_subscriptions, ${TRAINED('m.m::timestamp', 'm.e::timestamp')} AS trained,
-            s.days_with_data, least(m.e - m.m, greatest(t.d - m.m, 0)) AS days_in_month
+            s.new_subscriptions, s.cancelled_subscriptions, COALESCE(tm.n, 0) AS trained,
+            s.days_with_data, least(m.e - m.m, greatest(t.d - m.m, 0)) AS days_in_month,
+            (SELECT count(DISTINCT student_id)::int FROM td) AS range_trained
        FROM m CROSS JOIN t
+       LEFT JOIN (SELECT date_trunc('month', d)::date AS m, count(DISTINCT student_id)::int AS n FROM td GROUP BY 1) tm ON tm.m = m.m
        LEFT JOIN LATERAL (SELECT active, past_due, unpaid FROM academy_stats_daily
                            WHERE date >= m.m AND date < m.e ORDER BY date DESC LIMIT 1) l ON true
        CROSS JOIN LATERAL (SELECT sum(new_subscriptions)::int AS new_subscriptions,
@@ -88,8 +96,8 @@ export async function getSubscriptionStats(client, { group, from, to }) {
                                   count(*)::int AS days_with_data
                              FROM academy_stats_daily WHERE date >= m.m AND date < m.e) s
       ORDER BY m.m`, [f, t]);
-  const { rows: [{ trained }] } = await client.query(
-    `SELECT ${TRAINED("($1::text || '-01')::timestamp", "(($2::text || '-01')::date + interval '1 month')")} AS trained`, [f, t]);
+  const trained = rows[0].range_trained; // el total, del mismo recorrido de attendance
+  for (const r of rows) delete r.range_trained;
   return { group, from: f, to: t, trained, rows };
 }
 

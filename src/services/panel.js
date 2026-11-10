@@ -3,7 +3,7 @@
 import { httpError } from '../lib/errors.js';
 import { invalid } from './catalog.js';
 import { dateParam } from './sessions.js';
-import { pagination, TRAINED } from './reports.js';
+import { pagination, TRAINED_DAYS, TRAINED_IN } from './reports.js';
 import { getCheckinSettings } from './checkin.js';
 import { getInsuranceSettings, getDisciplineChangeSettings } from './billing.js';
 import { getProfileStats } from './users.js';
@@ -100,8 +100,9 @@ const MADRID_DAY = (offset) => `((now() AT TIME ZONE '${TZ}')::date + ${offset})
 export async function getHome(client) {
   const day = (n) => `((now() AT TIME ZONE '${TZ}')::date + ${n})::timestamp`;
   const { rows: [{ previous_30, series }] } = await client.query(
-    `SELECT ${TRAINED(day(-59), day(-29))} AS previous_30,
-            (SELECT array_agg(${TRAINED(day('i - 58'), day('i - 28'))} ORDER BY i) FROM generate_series(0, 29) i) AS series`);
+    `WITH td AS MATERIALIZED (${TRAINED_DAYS(day(-59), day(1))})
+     SELECT ${TRAINED_IN(day(-59), day(-29))} AS previous_30,
+            (SELECT array_agg(${TRAINED_IN(day('i - 58'), day('i - 28'))} ORDER BY i) FROM generate_series(0, 29) i) AS series`);
   const trained = { last_30: series[29], previous_30, series }; // el último punto de la serie es [hoy - 29, hoy]
   const students = await getProfileStats(client, {});
   const { rows: [attendance] } = await client.query(
