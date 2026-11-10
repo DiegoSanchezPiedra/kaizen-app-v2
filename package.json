@@ -45,6 +45,7 @@
     "stripe-portal-config": "dotenv -e .env -- node scripts/stripe-portal-config.js",
     "lint": "eslint \"src/**/*.js\" \"scripts/**/*.js\" \"migrations/**/*.js\"",
     "format": "prettier --write \"src/**/*.js\"",
+    "build:prod": "docker compose -f docker-compose.prod.yaml build",
     "build:frontend": "npm --prefix frontend ci && npm --prefix frontend run build",
     "dev:frontend": "npm --prefix frontend run dev",
     "staging:db": "docker compose -f deploy/staging/docker-compose.staging.yaml --env-file .env.staging up -d db",

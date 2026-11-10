@@ -1,0 +1,55 @@
+# Producción en un VPS (ADR 0017). Uso: deploy/deploy.sh. Lee el .env de la raíz (copia de deploy/.env.prod.example).
+name: kaizen
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MIGRATOR_PASSWORD: ${MIGRATOR_PASSWORD}
+      APP_PASSWORD: ${APP_PASSWORD}
+      SERVICE_PASSWORD: ${SERVICE_PASSWORD}
+      DB_NAME: ${DB_NAME:-kaizen}
+    volumes:
+      - db:/var/lib/postgresql/data
+      - ./deploy/staging/init-roles.sh:/docker-entrypoint-initdb.d/init-roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: { context: ., target: api }
+    restart: unless-stopped
+    depends_on: { db: { condition: service_healthy } }
+    env_file: .env
+    environment:
+      PORT: 3000
+      AGREEMENTS_STORAGE_PATH: /app/storage/agreements # las fotos (avatars) y los logs cuelgan del mismo storage/
+    volumes:
+      - storage:/app/storage
+
+  # Solo bajo demanda: docker compose run --rm migrate
+  migrate:
+    build: { context: ., target: migrate }
+    profiles: [tools]
+    depends_on: { db: { condition: service_healthy } }
+    env_file: .env # DATABASE_URL (rol migrator)
+
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+        VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY:-}
+    restart: unless-stopped
+    depends_on: [api]
+    ports:
+      - "${WEB_BIND:-0.0.0.0:80}:80" # TLS pendiente (certbot): con TLS delante, WEB_BIND=127.0.0.1:8080
+
+volumes:
+  db:
+  storage:

@@ -1,0 +1,9 @@
+.git
+.env*
+node_modules
+frontend/node_modules
+frontend/dist
+storage
+storage-staging
+graphify-out
+.claude
