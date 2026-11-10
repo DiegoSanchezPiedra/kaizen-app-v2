@@ -75,7 +75,7 @@
 | B26 | Racha: recuadro con la temática de la disciplina con más horas y aura por niveles | B25 | CERRADO |
 | B27 | Verificación de email al registrarse y confirmar el cambio de contraseña por email (ADR 0021) | B24 | Diseñado (antes de producción) |
 | B28 | Retirar el seguro y el `waiver`: solo se cobran membresías | B10.3, B11 | CERRADO |
-| B29 | Rango de edad por disciplina (kids 5–12) en contratar, reservar y al cumplir años | B28 | Diseñado (antes de producción) |
+| B29 | Rango de edad por disciplina (kids 5–12) en contratar, reservar y al cumplir años | B28 | CERRADO |
 | B30 | Pausa con cuota de mantenimiento (Stripe, Subscription Schedule) | B28, B29 | Diseñado (antes de producción) |
 | B31 | Registro de jornada (fichaje) de profesores empleados | B28 | Diseñado (antes de producción) |
 | B32 | Acceso propio del menor con permisos limitados (sustituye ADR 0002) | B29, B30, B31 | Diseñado (antes de producción) |
@@ -2618,7 +2618,18 @@ excepción del seguro en `agreement_notice` y el handler de `invoice.upcoming`. 
 - **A validar fuera de la app**: la academia necesita su propia póliza de responsabilidad civil (varias leyes autonómicas
   del deporte la exigen) — ver `docs/research/legal-fichaje-menores.md` §3.
 
-### B29 — Rango de edad por disciplina (kids 5–12) — Diseñado (antes de producción)
+### B29 — Rango de edad por disciplina (kids 5–12) — CERRADO
+
+Rama `b29-edad`, 2026-11-10. B29.0 (Opus, medio): `a05dba7`, `f19e93d`, `9949110`. B29.1 (Haiku, medio): `73d39ae`,
+`6a5eded`; retoques de la revisión `ffdf698`. Migración `058` (`in_age_range`, `age_out_sweep` en la nocturna, motivo
+`out_of_age`, avisos `notice.out_of_age` y `notice.out_of_age_soon`) y `test:migrations` nuevo. Hallazgo: la conversión
+`minors_only → max_age = 17` no cambiaba filas por la RLS forzada de `disciplines` sobre `migrator`; la 058 la quita solo
+durante el `UPDATE`. Decisiones al implementar: sin fecha de nacimiento cuenta como 18; al reservar, la edad va antes
+que la cobertura (un adulto recibe `age_out_of_range`); la nocturna también cancela si el admin baja la máxima; el
+indicador «cubre» del calendario mira el rango el día de cada sesión; la ficha del admin no filtra por edad (la API del
+admin no da la fecha de nacimiento) y decide el backend; el calendario no muestra la etiqueta (las sesiones no traen el
+rango); Rankings oculta las disciplinas con máxima menor de 18. Aceptado: si `revoke_coverage` corre antes que la
+nocturna cancela con `no_coverage`; un `unpaid` no recibe el aviso de los 30 días.
 
 - **Objetivo**: una disciplina puede limitar la edad de quien la entrena. Muay Thai Kids queda en **5–12 años**.
 - **Modelo de dominio**:
@@ -2651,12 +2662,13 @@ excepción del seguro en `agreement_notice` y el handler de `invoice.upcoming`. 
   tarea nocturna). **B29.1** (campos del admin, catálogo y seed): **Haiku, medio**. Skills:
   `mattpocock-skills:tdd`, `graphify`.
 - **Criterios de aceptación**:
-  - [ ] Reserva en una sesión de 5–12: OK el día que cumple 5 y el día antes de cumplir 13; 403 `age_out_of_range` en una
+  - [x] Reserva en una sesión de 5–12: OK el día que cumple 5 y el día antes de cumplir 13; 403 `age_out_of_range` en una
         sesión del día que cumple 13 o posterior, y para un adulto.
-  - [ ] Un niño de 4 contrata la disciplina; no reserva sesiones anteriores a su quinto cumpleaños.
-  - [ ] La espera salta a quien estará fuera de rango el día de la sesión.
-  - [ ] Nocturna: aviso a 30 días, cancelación con motivo y aviso el día del cumpleaños, sustitución gratis.
-  - [ ] Las disciplinas que eran solo menores siguen excluyendo a los adultos.
+  - [x] Un niño de 4 contrata la disciplina; no reserva sesiones anteriores a su quinto cumpleaños.
+  - [x] La espera salta a quien estará fuera de rango el día de la sesión.
+  - [x] Nocturna: aviso a 30 días, cancelación con motivo y aviso el día del cumpleaños, sustitución gratis.
+  - [x] Las disciplinas que eran solo menores siguen excluyendo a los adultos.
+  - [ ] Prueba en un iPhone real (la hace el usuario al final).
 - **Verificación**: `test:catalog`, `test:bookings`, `test:billing`, `test:nightly`, `test:progress`, `test:calendar` y
   Vitest (`lib/billing.test.ts`) con fechas fijas que cubran cumpleaños, cambio de hora y medianoche de Madrid; revisión
   manual a 375 px del formulario de disciplina y del catálogo del tutor.
