@@ -90,8 +90,12 @@ try {
       for (const s of ['in29', 'ago5']) assert.ok(shown.includes(S[s]), s);
       for (const s of ['in31', 'ago11', 'closed']) assert.ok(!shown.includes(S[s]), s);
       await sp(c, () => assert.rejects(c.query(`SELECT 1 FROM device_tokens WHERE token_hash IS NOT NULL`), /permission denied/));
-      await revokeTablet(c, t.id);
+      await revokeTablet(c, t.id, U.admin);
       await sp(c, () => assert.rejects(c.query(`SELECT * FROM tablet_feed($1)`, [h('tok')]), /device_not_found/));
+      const { rows: au } = await c.query(
+        `SELECT action, actor_id FROM audit_log WHERE resource_type = 'tablet' AND resource_id = $1 ORDER BY action`, [t.id]);
+      assert.deepEqual(au.map((a) => a.action), ['tablet.link', 'tablet.revoke']);
+      assert.ok(au.every((a) => a.actor_id === U.admin));
     });
 
     await run('tablet: código caducado o de tablet revocada no vincula; solo el admin crea tablets', async () => {
@@ -101,7 +105,7 @@ try {
       await c.query(`UPDATE device_tokens SET link_expires_at = now() - interval '1 s' WHERE id = $1`, [t1.id]);
       await sp(c, () => assert.rejects(c.query(`SELECT link_tablet($1, 'x')`, [h(t1.link_code)]), /invalid_link_code/));
       const t2 = await createTablet(c, { name: 'B', actorId: U.admin });
-      await revokeTablet(c, t2.id);
+      await revokeTablet(c, t2.id, U.admin);
       await sp(c, () => assert.rejects(c.query(`SELECT link_tablet($1, 'x')`, [h(t2.link_code)]), /invalid_link_code/));
       await as(c, U.alu1, 'alumno');
       await sp(c, () => assert.rejects(createTablet(c, { name: 'C', actorId: U.alu1 }), /row-level security/));

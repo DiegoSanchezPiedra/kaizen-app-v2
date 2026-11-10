@@ -25,7 +25,7 @@ router.post('/tablets', withRlsContext(async (req, client) => {
 }));
 
 router.post('/tablets/:id/revoke', withRlsContext(async (req, client) => ({
-  tablet: await revokeTablet(client, req.params.id),
+  tablet: await revokeTablet(client, req.params.id, req.user.id),
 })));
 
 // PUT /admin/settings/checkin { opens_minutes?, closes_minutes?, qr_seconds? } → valores vigentes.
