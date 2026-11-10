@@ -36,7 +36,9 @@ const slug = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCa
 const person = (key, name, kind, birth) => ({ key, id: id('p:' + key), name, kind, birth, email: `${slug(name)}.${key.replace(/\D/g, '')}@demo.kaizen.test` });
 const adults = FIRST.map((f, i) => person('a' + i, `${f} ${LAST[(i * 7) % 30]} ${LAST[(i * 11 + 3) % 30]}`, 'alumno', `${1962 + Math.floor(rnd() * 42)}-0${1 + Math.floor(rnd() * 9)}-1${Math.floor(rnd() * 9)}`));
 const tutors = ['Mercedes', 'Antonio', 'Pilar', 'Francisco', 'Dolores', 'Manuel'].map((f, i) => person('t' + i, `${f} ${LAST[(i * 5 + 1) % 30]} ${LAST[(i * 3 + 8) % 30]}`, 'tutor', `${1978 + i}-0${1 + i}-2${i}`));
-const kids = KIDS.map((f, i) => { const t = tutors[[0, 0, 1, 1, 2, 2, 3, 3, 4, 5][i]]; const k = person('k' + i, `${f} ${t.name.split(' ')[1]} ${t.name.split(' ')[2]}`, 'alumno', `${2011 + (i % 8)}-0${1 + (i % 9)}-1${i % 9}`); k.tutor = t; return k; });
+const kids = KIDS.map((f, i) => { const t = tutors[[0, 0, 1, 1, 2, 2, 3, 3, 4, 5][i]]; // Entre 5 y 12 (Muay Thai Kids), salvo la segunda, que cumple 13 en diciembre de 2026 (aviso «fuera de edad pronto»).
+  const birth = i === 1 ? '2013-12-05' : `${2015 + (i % 6)}-0${1 + (i % 9)}-1${i % 9}`;
+  const k = person('k' + i, `${f} ${t.name.split(' ')[1]} ${t.name.split(' ')[2]}`, 'alumno', birth); k.tutor = t; return k; });
 
 const [{ admin }] = await q(`select profile_id as admin from auth_credentials where email = $1`, [`admin@${DOMAIN}`]);
 const [{ profile_id: marc }] = await q(`select profile_id from auth_credentials where email = $1`, [`profe1@${DOMAIN}`]);
