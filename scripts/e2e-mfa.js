@@ -43,7 +43,9 @@ try {
   assert.ok(recovery.length > 0);
 
   // 3. Activar con un código: token nuevo; el anterior queda revocado.
-  r = await http('POST', '/auth/mfa/activate', { token, body: { code: totp.generate() } });
+  await new Promise((ok) => setTimeout(ok, 1100)); // el iat va en segundos: un token del mismo segundo que el cambio seguiría valiendo (ADR 0020)
+  const activationCode = totp.generate();
+  r = await http('POST', '/auth/mfa/activate', { token, body: { code: activationCode } });
   assert.equal(r.status, 200);
   assert.equal(r.body.enabled, true);
   assert.equal((await http('GET', '/auth/me', { token: r.body.token })).status, 200);
@@ -56,7 +58,9 @@ try {
   const mfaToken = r.body.mfa_token;
   assert.equal(code(await http('GET', '/auth/me', { token: mfaToken })), 'invalid_token');
   assert.deepEqual([(r = await verify(mfaToken, '000000')).status, code(r)], [401, 'invalid_mfa_code']);
-  r = await verify(mfaToken, totp.generate());
+  // Un TOTP es de un solo uso (B20): el paso de activar ya está gastado, así que el del paso siguiente (window 1).
+  assert.equal(code(await verify(mfaToken, activationCode)), 'invalid_mfa_code');
+  r = await verify(mfaToken, totp.generate({ timestamp: Date.now() + 30_000 }));
   assert.equal(r.status, 200);
   assert.deepEqual(jwt.decode(r.body.token).amr, ['mfa']);
   assert.equal((await http('GET', '/auth/me', { token: r.body.token })).status, 200);

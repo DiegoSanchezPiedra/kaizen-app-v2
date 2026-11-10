@@ -143,7 +143,8 @@ const setupAdmin = async () => {
   return asAdmin((c) => setupMfa(c, adminProfileId, prepared));
 };
 
-async function currentTotpFor(profileId) {
+// steps: 1 = el código del paso siguiente (validate lo acepta con window 1); sirve para un segundo código sin esperar.
+async function currentTotpFor(profileId, steps = 0) {
   const { rows } = await servicePool.query(
     `SELECT totp_secret_encrypted FROM user_mfa WHERE user_id = $1`,
     [profileId]
@@ -158,7 +159,7 @@ async function currentTotpFor(profileId) {
     period: 30,
     secret: OTPAuth.Secret.fromBase32(secretBase32),
   });
-  return totp.generate();
+  return totp.generate({ timestamp: Date.now() + steps * 30_000 });
 }
 
 // ---------------------------------------------------------------------------
@@ -266,10 +267,21 @@ async function main() {
   });
 
   // 7) verifyMfaCode con TOTP correcto → true
+  // El de activar ya gastó el paso actual: el siguiente.
   await run('verifyMfaCode: TOTP correcto → true', async () => {
-    const code = await currentTotpFor(adminProfileId);
+    const code = await currentTotpFor(adminProfileId, 1);
     const ok = await asAdmin((c) => verifyMfaCode(c, adminProfileId, code));
     assert(ok === true, 'verifyMfaCode TOTP devolvió false');
+  });
+
+  await run('B20: verifyMfaCode rechaza un TOTP ya usado y uno de un paso anterior', async () => {
+    const used = await currentTotpFor(adminProfileId, 1);
+    assert(await asAdmin((c) => verifyMfaCode(c, adminProfileId, used)) === false, 'el mismo código entró dos veces');
+    const older = await currentTotpFor(adminProfileId);
+    assert(await asAdmin((c) => verifyMfaCode(c, adminProfileId, older)) === false, 'un código de un paso anterior entró');
+    const code = await currentTotpFor(adminProfileId);
+    await assertRejects(() => asAdmin((c) => verifyAndEnableMfa(c, adminProfileId, code)),
+      (e) => e.code === 'invalid_totp', 'activar con un paso ya usado');
   });
 
   // 8) verifyMfaCode con TOTP incorrecto → false
@@ -461,7 +473,7 @@ async function httpCases() {
       assert(act.status === 200, `activate ${act.status}`);
       const r = await login();
       assert(r.body.mfa_required === true, 'login sin mfa_required');
-      const v = await http('POST', '/auth/mfa/verify', { body: { mfa_token: r.body.mfa_token, code } });
+      const v = await http('POST', '/auth/mfa/verify', { body: { mfa_token: r.body.mfa_token, code: await currentTotpFor(adminProfileId, 1) } });
       assert(v.status === 200 && ttlHours(v.body.token) === 12, `verify ${v.status}`);
       assert((await http('GET', '/admin/profiles?limit=1', { token: v.body.token })).status === 200, '/admin con MFA');
     });

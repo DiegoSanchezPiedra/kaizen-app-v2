@@ -53,6 +53,20 @@ function buildTotp(secretBase32, label) {
   });
 }
 
+// B20: el TOTP es de un solo uso. Si vale, gasta su paso (el de ahora + el delta de validate) solo si es posterior al
+// último usado; en una sentencia, para que dos peticiones con el mismo código no entren las dos.
+async function useTotp(client, profileId, totp, code) {
+  const timestamp = Date.now();
+  const delta = totp.validate({ token: String(code), window: 1, timestamp });
+  if (delta === null) return false;
+  const step = totp.counter({ timestamp }) + delta;
+  const { rowCount } = await client.query(
+    `UPDATE user_mfa SET last_totp_step = $2
+      WHERE user_id = $1 AND (last_totp_step IS NULL OR last_totp_step < $2)`,
+    [profileId, step]);
+  return rowCount === 1;
+}
+
 async function findMfaRow(client, profileId) {
   const { rows } = await client.query(
     `SELECT user_id, totp_secret_encrypted, recovery_codes_encrypted,
@@ -128,6 +142,7 @@ export async function setupMfa(client, profileId, prepared) {
           SET totp_secret_encrypted    = $1,
               recovery_codes_encrypted = $2,
               mfa_enabled              = false,
+              last_totp_step           = NULL,
               updated_at               = CURRENT_TIMESTAMP
         WHERE user_id = $3`,
       [totpSecretEncrypted, recoveryCodesEncrypted, profileId],
@@ -156,8 +171,7 @@ export async function verifyAndEnableMfa(client, profileId, code) {
 
   const secretBase32 = decrypt(row.totp_secret_encrypted);
   const totp = buildTotp(secretBase32, profileId);
-  const delta = totp.validate({ token: String(code), window: 1 });
-  if (delta === null) {
+  if (!(await useTotp(client, profileId, totp, code))) {
     throw httpError(400, 'invalid_totp', 'Invalid TOTP code');
   }
 
@@ -185,14 +199,13 @@ export async function verifyMfaCode(client, profileId, code) {
   if (!row || row.mfa_enabled !== true) return false;
 
   // 1) TOTP
+  let totp = null;
   try {
-    const secretBase32 = decrypt(row.totp_secret_encrypted);
-    const totp = buildTotp(secretBase32, profileId);
-    const delta = totp.validate({ token: String(code), window: 1 });
-    if (delta !== null) return true;
+    totp = buildTotp(decrypt(row.totp_secret_encrypted), profileId);
   } catch {
     // secret corrupto: caemos a recovery
   }
+  if (totp && (await useTotp(client, profileId, totp, code))) return true;
 
   // 2) Recovery codes
   let hashes = [];

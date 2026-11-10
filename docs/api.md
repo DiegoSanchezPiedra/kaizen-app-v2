@@ -58,7 +58,7 @@ El backend construye enlaces con `APP_URL`; el frontend **tiene** que servir est
 | `POST /auth/register` | — | `{ email, password, displayName, birthDate }` | `201 { token, user: { id, email, role: 'alumno' } }`. Errores: `email_taken`, `weak_password`, `invalid_birth_date`, `minor_cannot_register`, `invalid_payload` |
 | `POST /auth/login` | — | `{ email, password }` | `{ token, user }` o, con MFA, `{ mfa_required: true, mfa_token }`. `401 invalid_credentials` |
 | `POST /auth/google` | — | `{ id_token }` (Google Identity Services) | como `/auth/login`. `invalid_google_token` |
-| `POST /auth/mfa/verify` | — (con `mfa_token`) | `{ mfa_token, code }` | `{ token, user }`. `401 invalid_mfa_code` |
+| `POST /auth/mfa/verify` | — (con `mfa_token`) | `{ mfa_token, code }` | `{ token, user }`. `401 invalid_mfa_code` (también un TOTP ya usado o de un paso anterior al último usado: cada código vale una vez) |
 | `POST /auth/password/forgot` | — | `{ email }` | `204` **siempre** (no dice si el email existe). Si existe, email con el enlace a `/reset-password?token=…`, válido 1 h y una vez; pedir otro anula los anteriores |
 | `POST /auth/password/reset` | — | `{ token, password }` | `204`. `400 invalid_reset_token` (caducado, usado o inexistente), `weak_password`. Un perfil solo con Google se pone así contraseña |
 | `GET /auth/me` | cualquiera | — | `{ user: { id, role }, mfa_enabled, rls_context }` |
