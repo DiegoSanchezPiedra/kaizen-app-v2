@@ -55,6 +55,7 @@ try {
     for (const who of ['tutorA', 'alumno']) assert.equal((await http('POST', `/admin${url}`, { token: tok[who], body: {} })).status, 403);
     assert.deepEqual(status(await admin('POST', url, {})), [409, 'insurance_cancelled']);
     assert.deepEqual(status(await admin('POST', `/insurances/${crypto.randomUUID()}/${path}`, {})), [404, 'insurance_not_found']);
+    assert.deepEqual(status(await admin('POST', `/insurances/no-es-uuid/${path}`, {})), [400, 'invalid_id']);
   }
 
   // Cambio de pagador, pedirlo (admin): validaciones previas a Stripe.
