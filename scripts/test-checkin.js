@@ -98,6 +98,15 @@ try {
       assert.ok(au.every((a) => a.actor_id === U.admin));
     });
 
+    await run('tablet: sin admin creador (borrado) vincula igual, sin auditoría', async () => {
+      await as(c, U.admin, 'admin');
+      const h = (s) => crypto.createHash('sha256').update(s).digest('hex');
+      const t = await createTablet(c, { name: 'Huérfana', actorId: null }); // como si se hubiera borrado al admin (SET NULL)
+      await c.query(`SELECT link_tablet($1, $2)`, [h(t.link_code), h('tok-huerfana')]);
+      const { rows } = await c.query(`SELECT 1 FROM audit_log WHERE resource_type = 'tablet' AND resource_id = $1`, [t.id]);
+      assert.equal(rows.length, 0);
+    });
+
     await run('tablet: código caducado o de tablet revocada no vincula; solo el admin crea tablets', async () => {
       await as(c, U.admin, 'admin');
       const h = (s) => crypto.createHash('sha256').update(s).digest('hex');
