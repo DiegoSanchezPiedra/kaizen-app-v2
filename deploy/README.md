@@ -11,6 +11,7 @@ worker de avisos) y `web` (nginx con `deploy/nginx.conf` y el frontend compilado
    real es la de maat; no pongas claves `live` hasta B10.7.
 3. `deploy/deploy.sh`: `git pull`, build, arranca `db` (el primer arranque crea roles y base), migraciones y `up -d`.
    Producción no se abre sin TLS (decidido: certbot en el host). Sin TLS publica el `:80`. Con TLS (certbot en el host) pon `WEB_BIND=127.0.0.1:8080` y proxy desde el nginx del host.
+   `GOOGLE_CLIENT_ID` y `VITE_STRIPE_PUBLISHABLE_KEY` se compilan en la imagen `web`: deben estar en el `.env` antes del primer `deploy/deploy.sh`; si faltan, el pago con tarjeta no carga y hay que recompilar `web`.
 4. `deploy/check-gzip.sh https://<dominio>`: comprueba que el JS, el CSS y `sw.js` llegan con `content-encoding: gzip`. Si falla, el
    contenedor `web` comprime pero el nginx del host no lo deja pasar: que no quite `Accept-Encoding` y, si añade `Via`, `gzip_proxied any;`.
 5. Cron del sistema (`crontab -e`; en Debian/Ubuntu la zona sale de `timedatectl`, ver `scripts/README.md`):
@@ -46,7 +47,7 @@ $C up -d api web && $C exec -T api tar -xzf - -C /app < S                       
 ```
 
 En un VPS nuevo: primero el primer despliegue (crea roles y base vacía), luego lo anterior. Los dumps conservan los dueños,
-que son los roles del `init-roles.sh`. Para ensayar sin riesgo, restaura en un `docker run postgres:16` aparte.
+que son los roles del `init-roles.sh`. Para ensayar sin riesgo, restaura en un `docker run postgres:16` aparte, o en una base nueva del mismo `db` sin tocar la real: `$C exec -T db createdb -U postgres kaizen_restore`, `$C exec -T db pg_restore -U postgres --exit-on-error -d kaizen_restore < D` (sin `--clean`), compara y bórrala con `$C exec -T db dropdb -U postgres kaizen_restore`.
 
 ## Variables
 

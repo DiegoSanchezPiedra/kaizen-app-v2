@@ -1,7 +1,12 @@
 # Producción en un VPS (ADR 0017). Uso: deploy/deploy.sh. Lee el .env de la raíz (copia de deploy/.env.prod.example).
 name: kaizen
+# Disco de 75 GB: sin límite los logs de Docker crecen sin parar.
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
 services:
   db:
+    logging: *logging
     image: postgres:16
     restart: unless-stopped
     # Ajuste para VPS de 8 GB con NVMe, compartido con la API y nginx.
@@ -24,6 +29,7 @@ services:
       retries: 10
 
   api:
+    logging: *logging
     build: { context: ., target: api }
     restart: unless-stopped
     depends_on: { db: { condition: service_healthy } }
@@ -60,6 +66,7 @@ services:
 
   # Solo bajo demanda: docker compose run --rm migrate
   migrate:
+    logging: *logging
     build: { context: ., target: migrate }
     profiles: [tools]
     depends_on: { db: { condition: service_healthy } }
@@ -67,6 +74,7 @@ services:
       - DATABASE_URL # rol migrator
 
   web:
+    logging: *logging
     build:
       context: .
       target: web
