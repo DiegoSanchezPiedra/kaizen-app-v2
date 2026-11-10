@@ -60,6 +60,7 @@ PostgreSQL en VPS con RLS habilitado y FORCE ROW LEVEL SECURITY en todas las tab
 | name | text UNIQUE |
 | is_active | boolean |
 | is_open | boolean NOT NULL DEFAULT false (disciplina abierta, B14) |
+| min_age, max_age | smallint NULL, 0–99, `min_age ≤ max_age` (rango de edad inclusive, B29; sustituye a `minors_only` = máxima 17) |
 
 ### plans
 | Columna | Tipo |

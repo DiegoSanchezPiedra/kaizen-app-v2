@@ -3,7 +3,7 @@
 > Documento vivo. Refleja **dónde estamos**. Se actualiza al cerrar cada bloque.
 > La hoja de ruta completa está en `plan-de-bloques.md`.
 
-Última actualización: **2026-11-10 — B28 HECHO (sin seguro ni `waiver`; ADR 0023)**. Antes, **2026-10-27 — B4.6 REABIERTO (rediseño Cuenta Familiar)**. B4.5 y B4.5.1 cerrados (commits `65bd98b`, `672d870`). B4.6 se implementó con el modelo "menor con login propio" (commit `bc4685d`) y se **reabre** antes de B5: el hijo pasa a ser un perfil sin credenciales gestionado por su tutor. Plan completo en **`PLAN_FAMILIA.md`**; vocabulario en `CONTEXT.md`; razón en `docs/adr/0002-hijo-sin-credenciales.md`. Sin código escrito todavía para el rediseño. (Las secciones §4 B4.5/B4.5.1 y §8 conservan el detalle histórico de su cierre.)
+Última actualización: **2026-11-10 — B29.0 HECHO (rango de edad por disciplina, backend)**. Antes, **2026-11-10 — B28 HECHO (sin seguro ni `waiver`; ADR 0023)**. Antes, **2026-10-27 — B4.6 REABIERTO (rediseño Cuenta Familiar)**. B4.5 y B4.5.1 cerrados (commits `65bd98b`, `672d870`). B4.6 se implementó con el modelo "menor con login propio" (commit `bc4685d`) y se **reabre** antes de B5: el hijo pasa a ser un perfil sin credenciales gestionado por su tutor. Plan completo en **`PLAN_FAMILIA.md`**; vocabulario en `CONTEXT.md`; razón en `docs/adr/0002-hijo-sin-credenciales.md`. Sin código escrito todavía para el rediseño. (Las secciones §4 B4.5/B4.5.1 y §8 conservan el detalle histórico de su cierre.)
 
 ---
 
@@ -397,6 +397,7 @@ Estado al 2026-10-31 (detalle, decisiones y pendientes de cada bloque en `plan-d
 - **Pendientes**: B10.7 migración de los clientes de maat (al pasar a producción), B19 y B20. B18 se cerró el 2026-11-01 (con pruebas en dispositivos reales pendientes; `plan-de-bloques.md` § B18). **B19 diseñado** el 2026-11-01 (MFA del admin opcional y fomentado, token del admin a 12 h, ADR 0016; pantallas en `docs/pantallas-b19.md`; sub-bloques B19.0–B19.6). B19.0, B19.1 y B19.2 hechos; siguiente en orden: **B19.3** (usuarios, frontend).
 - B12 eliminado (absorbido por B4.5 y B10.3).
 - **B28 hecho el 2026-11-10** (retirar el seguro y el `waiver`; `plan-de-bloques.md` § B28, ADR 0023 que sustituye a 0005 y 0006; migración `057`, script de Stripe ya ejecutado en el sandbox). Solo se cobran membresías. Los acuerdos son `data_protection` y `rights_of_image`. No hay cobertura de riesgo: para reservar basta el perfil completo y una suscripción que cubra la sesión. B10.3 y B11 quedan como historia.
+- **B29.0 hecho el 2026-11-10** (rango de edad por disciplina, BD y backend; `plan-de-bloques.md` § B29; migración `058`). `disciplines.min_age`/`max_age` (inclusive, años cumplidos) sustituyen a `minors_only` (= máxima 17). Una regla, `in_age_range(birth, min, max, instante)` en el día de Madrid (sin fecha de nacimiento = 18): `covers` mira solo la máxima hoy (contratar, elegir, cambiar); `book_session` y `promote_waitlist`, mínima y máxima el día de la sesión (`403 age_out_of_range` con el rango; la promoción salta). `age_out_sweep()` en la nocturna: `notice.out_of_age_soon` a 30 días (al tutor) y, desde el cumpleaños, cancela reservas y esperas futuras con `out_of_age` (`notice.out_of_age`). `change_discipline`: la abandonada fuera de edad es gratis. Pendiente B29.1 (admin, catálogo, seed).
 
 ---
 
@@ -590,7 +591,7 @@ Owner de todas las tablas: `migrator`. **RLS activo con `FORCE` en las 8 tablas 
 | `bookings` | operativa | reservas (B7) |
 | `cash_payments` | pagos | vacía, reservada para futuro |
 | `class_sessions` | operativa | sesiones de clase (B6). `slot` (B7.1): inicio que le toca según su clase, `NULL` en una suelta (`CHECK`); `UNIQUE (class_id, slot) WHERE class_id IS NOT NULL` es el de la generación. `changed_at` (B7.1): último cambio que afecta a la sesión (inicio, duración o profesor). `adjusted_fields`: campos ajustados a mano, que un cambio de clase no pisa. `cancelled_at`, `cancelled_by` y `cancel_note` (B6.1, ≤ 500; motivo que solo ve el admin, nunca en un aviso): `CHECK ((status = 'cancelled') = (cancelled_at IS NOT NULL))`. `class_trainer_id`, `class_duration_min`, `class_capacity` y `class_location` (B6.1): lo que dice su clase para la sesión, a lo que vuelve deshacer un ajuste; los escriben la generación y `change_class` (también en campos ajustados y canceladas), `NULL` en una suelta (`CHECK`); no salen en la API. Sin `UPDATE` para `app_user` (B6.1): toda escritura sobre una sesión existente pasa por funciones; el `INSERT` sigue (generación y sueltas) |
-| `disciplines` | catálogo | disciplinas (B5); `is_open` = disciplina abierta (B14) |
+| `disciplines` | catálogo | disciplinas (B5); `is_open` = disciplina abierta (B14); `min_age`/`max_age` = rango de edad (B29, `058`; sustituye a `minors_only`) |
 | `event_registrations` | eventos | inscripciones a eventos |
 | `events` | eventos | eventos especiales |
 | `invoices` | pagos | facturas (ampliar en B10.1) |

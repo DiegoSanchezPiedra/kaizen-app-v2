@@ -100,14 +100,14 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 
 | Método y ruta | Rol | Cuerpo / query | Respuesta |
 |---|---|---|---|
-| `GET /disciplines` | cualquiera | — | `{ disciplines: [{ id, name, minors_only, is_active, is_open }] }` (activas; las desactivadas solo si las ve por suscripción o por sus sesiones) |
+| `GET /disciplines` | cualquiera | — | `{ disciplines: [{ id, name, min_age, max_age, is_active, is_open }] }` (`min_age`/`max_age`: rango de edad inclusive en años cumplidos, `null` = sin límite) (activas; las desactivadas solo si las ve por suscripción o por sus sesiones) |
 | `GET /plans` | cualquiera | — | `{ plans: [{ id, name, price_cents, billing_period, max_disciplines, minors_only, is_active, eligible_discipline_ids }] }` |
 | `GET /sessions/calendar?from&to&discipline_id&profile_id` | alumno, tutor, admin (`profile_id`: el admin, o quien sea tutor de ese perfil; si no, `403 not_guardian`) | rango ≤ 92 días, por defecto hoy + 30 | `{ sessions: [{ id, class_id (null en una sesión suelta), starts_at, ends_at, discipline: { id, name }, trainer: { id, display_name }, location, capacity, taken (reservas confirmadas de todos, solo la cuenta: `session_taken`), status, held, covered, booking }] }`. Al tutor sin `profile_id`, `covered` y `booking` vienen **por hijo** (objeto por id); con `profile_id`, planos para ese sujeto |
 | `GET /bookings?profile_id&from&to` | alumno, tutor, admin | rango ≤ 92 días | `{ bookings: [{ id, session_id, student_id, booked_by, status, cancel_reason, discipline_id, discipline_name, starts_at, ends_at, location, session_status }] }`; una fila por sesión y alumno (la activa o, si no hay, la última cancelada) |
 | `POST /bookings` | alumno, tutor, admin (perfil completo) | `{ session_id, profile_id? }` | `201 { booking }` con `status` `confirmed` o `waitlisted` |
 | `POST /bookings/:id/cancel` | alumno, tutor, admin | — | `{ booking }` (también sale de la espera; `cancel_reason` `late` si es tardía) |
 
-Errores de reservas: `403 not_covered`, `409 session_not_bookable`, `409 outside_booking_window`,
+Errores de reservas: `403 age_out_of_range` (`{ …, min_age, max_age }`: no tiene la edad de la disciplina el día de la sesión, en Madrid; se mira antes que la cobertura), `403 not_covered`, `409 session_not_bookable`, `409 outside_booking_window`,
 `409 already_booked`, `409 booking_overlap`, `409 booking_not_active`, `409 session_started`,
 `409 booking_conflict_retry` (reintentar), `404 session_not_found|booking_not_found`, `403 not_allowed`.
 
@@ -158,7 +158,7 @@ Errores: `400 invalid_qr`, `404 no_candidates`, `409 attendance_closed`.
 | `POST /billing/payer-changes/:id/checkout` (nuevo pagador, perfil completo) | — | `{ url }` (Checkout de 0 € hoy) |
 
 Errores frecuentes: `409 subscription_exists`,
-`409 plan_not_purchasable`, `409 plan_minors_only`, `409 discipline_not_eligible`, `409 discipline_change_limit`,
+`409 plan_not_purchasable`, `409 plan_minors_only`, `409 discipline_not_eligible` (también si hoy supera su edad máxima), `409 discipline_change_limit`,
 `409 same_plan`, `409 upgrade_pending`, `409 period_ending_soon`,
 `402 payment_failed`, `403 not_payer`, `403 not_new_payer`, `404 payer_change_not_found` (también si el RLS no te deja
 verlo: no se revela que existe), `409 payer_change_expired|payer_change_paid`,
@@ -230,8 +230,8 @@ Todas exigen `role = admin` (y el admin entra con MFA si lo tiene activado). El 
 |---|---|---|
 | `GET /admin/disciplines` | — | `{ disciplines }` (todas, con `medal_theme`) |
 | `GET /admin/medal-themes` | — | `{ themes: [{ code, name, discipline_id }] }`: el repertorio de temáticas (036) y la disciplina **activa** que tiene cada una (`null` = libre) |
-| `POST /admin/disciplines` | `{ name, minors_only?, is_active?, is_open?, medal_theme? }` | `201 { discipline }`. `medal_theme`: código de temática o `null` (Kaizen); desconocido, 400 `invalid_field`; la tiene otra disciplina activa, 409 `theme_taken` |
-| `PATCH /admin/disciplines/:id` | `{ name?, minors_only?, is_active?, is_open?, medal_theme? }` | `{ discipline }`; al desactivar, `discipline` trae además `retired_classes` y `cancelled_sessions` (la desactivada conserva su temática y la deja libre). 409 `theme_taken` al poner una temática ocupada o al reactivar con la suya ya ocupada |
+| `POST /admin/disciplines` | `{ name, min_age?, max_age?, is_active?, is_open?, medal_theme? }` | `201 { discipline }`. `min_age`/`max_age`: entero 0–99 o `null`, con `min_age ≤ max_age` (si no, 400 `invalid_field`). `medal_theme`: código de temática o `null` (Kaizen); desconocido, 400 `invalid_field`; la tiene otra disciplina activa, 409 `theme_taken` |
+| `PATCH /admin/disciplines/:id` | `{ name?, min_age?, max_age?, is_active?, is_open?, medal_theme? }` | `{ discipline }`; al desactivar, `discipline` trae además `retired_classes` y `cancelled_sessions` (la desactivada conserva su temática y la deja libre). 409 `theme_taken` al poner una temática ocupada o al reactivar con la suya ya ocupada |
 | `GET /admin/plans` | — | `{ plans }` (todos) |
 | `POST /admin/plans` | `{ name, price_cents, max_disciplines (null = todas), billing_period?, minors_only?, is_active? }` | `201 { plan }` |
 | `PATCH /admin/plans/:id` | campos del plan | `{ plan }` |
