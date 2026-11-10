@@ -162,7 +162,8 @@ Errores: `400 invalid_qr`, `404 no_candidates`, `409 attendance_closed`.
 Errores frecuentes: `409 subscription_exists`, `409 risk_cover_required` (sin seguro hace falta el waiver firmado),
 `409 plan_not_purchasable`, `409 plan_minors_only`, `409 discipline_not_eligible`, `409 discipline_change_limit`,
 `409 same_plan`, `409 upgrade_pending`, `409 period_ending_soon`, `409 insurance_disabled|insurance_exists`,
-`402 payment_failed`, `403 not_payer`, `403 not_new_payer`, `409 payer_change_expired|payer_change_paid`,
+`402 payment_failed`, `403 not_payer`, `403 not_new_payer`, `404 payer_change_not_found` (también si el RLS no te deja
+verlo: no se revela que existe), `409 payer_change_expired|payer_change_paid`,
 `503 portal_not_configured`.
 
 ## Comunidad
