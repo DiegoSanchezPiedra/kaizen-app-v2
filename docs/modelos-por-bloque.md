@@ -12,10 +12,13 @@
 | **Implementar** un bloque ya diseñado, sin nada de lo anterior | Sonnet | medio |
 | **Depurar** un test rojo o un fallo de Stripe que no se entiende | Opus | alto |
 | **E2E** con Chrome, `stripe listen` y *test clock* | Opus | medio |
-| Tareas mecánicas: limpiar docs, renombrar, commits, actualizar la tabla de estados | Sonnet | bajo |
+| Tareas mecánicas con una lista cerrada y un comprobador (`tsc -b`, tests, `grep` vacío): borrar código ya localizado, limpiar docs, renombrar, adaptar el seed, commits, actualizar la tabla de estados | Haiku | medio |
+| Subagentes de búsqueda (`Explore`): localizar referencias e inventariar archivos antes de un cambio | Haiku | bajo |
+| Ejecutar y anotar medidas con comandos ya escritos (rendimiento, `npm audit`) | Haiku | medio |
 
 Qué sube el nivel: dinero real o Stripe, permisos (RLS, quién ve qué), menores o salud, concurrencia (bloqueos, carreras), migraciones con datos.
 Qué lo baja: especificación cerrada en el plan, código que sigue un patrón ya existente y tests que cubren el comportamiento.
+Haiku solo cuando el resultado se comprueba solo (compila, los tests pasan, el `grep` sale vacío) y no hay decisiones: si duda o aparece una regla nueva, para y sube a Sonnet u Opus. Nunca para RLS, Stripe, menores o migraciones con datos.
 
 `max` y `xhigh` solo para revisiones de seguridad completas o para incidentes con dinero de por medio. En el resto cuestan más y no aportan.
 
@@ -30,6 +33,13 @@ Qué lo baja: especificación cerrada en el plan, código que sigue un patrón y
 | **B20** — hardening | Opus, **xhigh** para la auditoría de RLS y seguridad | Opus, alto (rate limiting); Sonnet, medio (backups) | Es la revisión de todo lo anterior: conviene la máxima profundidad en la parte de seguridad. |
 | **B21** — eventos | Opus, alto (hecho, 2026-11-02) | **B21.0** backend: Opus, **alto**. **B21.1** panel: Sonnet, alto. **B21.2** alumno, tutor y profesor: Sonnet, alto | Diseñado: cobro único con plaza retenida y reembolsos solo por decisión de la academia (ADR 0018). B21.0 en Opus alto por Stripe (Checkout de pago, webhook, reembolsos idempotentes), RLS de tablas nuevas y menores. Las pantallas siguen patrones de B18.3 y B19 sobre endpoints ya cerrados. |
 | **B22** — rediseño (calendario semanal, menú del catálogo, Clases en móvil, KPIs de usuarios) | Opus, alto (hecho, 2026-11-06) | **B22.0** auditoría y dirección: Opus, alto. **B22.1** calendario: Sonnet, alto. **B22.1b** Clases en móvil: Sonnet, alto. **B22.2** Membresías y Disciplinas: Sonnet, alto. **B22.3** KPIs y filtros de usuarios: Opus, medio | Diseñado en `plan-de-bloques.md` § B22 y `docs/pantallas-b22.md`. B22.3 sube a Opus por la RLS, los menores y el estado de cobro; el resto es UI sobre endpoints que ya existen. |
+| **B28** — retirar seguro y `waiver` | Opus, alto (hecho, 2026-11-10) | **B28.0** backend, migración y webhook: Opus, medio. **B28.1** quitar el seguro del frontend, tests de frontend, docs y seed (lista cerrada en el plan): **Haiku, medio** | B28.0 toca Stripe, `SECURITY DEFINER` y una migración destructiva; B28.1 es borrar lo ya localizado, con `tsc -b`, Vitest y el `grep` vacío como comprobador. |
+| **B29** — rango de edad por disciplina | Opus, alto (hecho, 2026-11-10) | **B29.0** BD, reservas y nocturna: Opus, medio. **B29.1** campos del admin, etiqueta del catálogo y seed: **Haiku, medio** | B29.0 toca funciones de reserva y menores; B29.1 sigue el formulario existente. |
+| **B30** — pausa con cuota de mantenimiento | Opus, alto (hecho; falta comprobar la API de fases con `stripe-docs`) | Opus, **alto** (backend y webhook); Sonnet, alto (pantallas) | Dinero y Subscription Schedule (ADR 0007). Haiku no: todo depende del cobro. |
+| **B31** — registro de jornada | Opus, alto (hecho, 2026-11-10) | Opus, medio (backend); Sonnet, alto (pantallas); **Haiku, medio** (página imprimible del PDF y docs) | Obligación legal, RLS y tablas de solo añadir. |
+| **B32** — acceso propio del menor | Opus, alto (grill corto de los «Por decidir») | **B32.0** Opus, **alto**; **B32.1** Sonnet, alto | Reabre la RLS sujeto/actor de toda la app y la auth, con menores. |
+| **B33** — auditoría de rendimiento | — | **Haiku, medio** para ejecutar las medidas y rellenar el informe; Opus, medio para interpretar y arreglar | Medir es repetir comandos; decidir qué es una regresión y arreglarla, no. |
+| **B34** — auditoría de seguridad | — | Opus, **xhigh** (auditoría); Opus, alto (arreglos); Haiku, bajo (`npm audit` y los subagentes de inventario) | Revisión completa antes de producción. |
 
 Cerrados (ya no hace falta elegir): B6, B13, B14, B15 y B16.
 
