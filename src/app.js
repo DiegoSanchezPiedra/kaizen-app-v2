@@ -28,6 +28,8 @@ import profilesRouter from './routes/profiles.js';
 import rankingsRouter from './routes/rankings.js';
 import tabletRouter from './routes/tablet.js';
 import checkinRouter from './routes/checkin.js';
+import clockRouter from './routes/clock.js';
+import adminClockRouter from './routes/admin/clock.js';
 import billingRouter from './routes/billing.js';
 import webhooksRouter from './routes/webhooks.js';
 import pushRouter from './routes/push.js';
@@ -53,6 +55,7 @@ app.get('/health', async (_req, res) => {
 });
 
 app.use('/auth', authRouter);
+app.use('/me/clock', clockRouter); // antes que /me
 app.use('/me', meRouter);
 app.use('/agreements', agreementsRouter);
 app.use('/admin/agreements', adminAgreementsRouter);
@@ -64,6 +67,7 @@ app.use('/admin', adminBillingRouter);
 app.use('/admin', adminProfilesRouter);
 app.use('/admin', adminPanelRouter);
 app.use('/admin', adminEventsRouter);
+app.use('/admin', adminClockRouter);
 app.use('/admin/reports', adminReportsRouter);
 app.use('/tablet', tabletRouter);
 app.use('/checkin', checkinRouter);

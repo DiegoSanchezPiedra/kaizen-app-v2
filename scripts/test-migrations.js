@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import pg from 'pg';
 
-const migrate = (dir) => {
-  const r = spawnSync('node_modules/.bin/node-pg-migrate', [dir, ...(dir === 'down' ? ['1'] : [])], { encoding: 'utf8' });
+const migrate = (dir, n = 1) => {
+  const r = spawnSync('node_modules/.bin/node-pg-migrate', [dir, ...(dir === 'down' ? [String(n)] : [])], { encoding: 'utf8' });
   assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
 };
 const c = new pg.Client({ connectionString: process.env.DATABASE_URL_SERVICE }); // la RLS frena a migrator
@@ -13,8 +13,9 @@ await c.connect();
 let failed = 0;
 try {
   const [{ name }] = (await c.query(`SELECT name FROM pgmigrations ORDER BY id DESC LIMIT 1`)).rows;
-  assert.equal(name, '058_discipline_age_range', 'el test baja solo la última: actualízalo si hay otra después');
-  migrate('down');
+  // B31: la 059 (registro de jornada) no tiene datos que migrar; se baja con la 058 y vuelve a subir.
+  assert.equal(name, '059_clock', 'el test baja las dos últimas: actualízalo si hay otra después');
+  migrate('down', 2);
   await c.query(`INSERT INTO disciplines (name, minors_only) VALUES ('T-Mig-Kids', true), ('T-Mig-BJJ', false)`);
   migrate('up');
   const { rows } = await c.query(`SELECT name, min_age, max_age FROM disciplines WHERE name LIKE 'T-Mig-%' ORDER BY name`);

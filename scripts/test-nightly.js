@@ -218,6 +218,8 @@ try {
     assert.equal(r1.code, 1, r1.stderr);
     assert.match(r1.stdout, new RegExp(`foto ${D}: creada`));
     assert.match(r1.stdout, /fuera de edad: \d+ avisos, \d+ reservas canceladas/);
+    assert.match(r1.stdout, /jornadas abiertas: \d+ avisos/);
+    assert.match(r1.stdout, /registro de jornada: \d+ registros de más de 4 años borrados/);
     assert.match(r1.stderr, new RegExp(k.id));
     assert.equal((await q(`SELECT 1 FROM academy_stats_daily WHERE date = $1`, [D])).length, 1);
     const r2 = await nightly(D);
