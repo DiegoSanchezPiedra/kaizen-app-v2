@@ -20,11 +20,23 @@ export async function getCurrentVersions(client) {
 /** Documento vigente de un tipo (o undefined). */
 export async function getCurrentDocument(client, type) {
   const { rows } = await client.query(
-    `SELECT id, type, version, storage_path, mime_type FROM agreement_documents
+    `SELECT id, type, version, storage_path, mime_type, checksum FROM agreement_documents
       WHERE type = $1 AND ${CURRENT}`,
     [type]
   );
   return rows[0];
+}
+
+/** Documento vigente con su fichero; 500 `agreement_corrupted` si el fichero no coincide con el checksum guardado. */
+export async function getCurrentFile(client, type) {
+  const doc = await getCurrentDocument(client, type);
+  if (!doc) return undefined;
+  const buffer = await readFile(doc.storage_path);
+  if (crypto.createHash('sha256').update(buffer).digest('hex') !== doc.checksum) {
+    console.error(`[agreements] checksum no coincide: ${doc.type} v${doc.version} (${doc.storage_path})`);
+    throw httpError(500, 'agreement_corrupted', 'El documento no se puede servir', { type });
+  }
+  return { ...doc, buffer };
 }
 
 /** PDF de cualquier documento, también borrador o retirado (admin). 404 si no existe. */
