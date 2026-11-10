@@ -74,7 +74,7 @@
 | B25 | Medallas por disciplina con temática (escalera de 11 por disciplina, temáticas, ranking por disciplina) | B13, B14, B22 | CERRADO |
 | B26 | Racha: recuadro con la temática de la disciplina con más horas y aura por niveles | B25 | CERRADO |
 | B27 | Verificación de email al registrarse y confirmar el cambio de contraseña por email (ADR 0021) | B24 | Diseñado (antes de producción) |
-| B28 | Retirar el seguro y el `waiver`: solo se cobran membresías | B10.3, B11 | Diseñado (antes de producción) |
+| B28 | Retirar el seguro y el `waiver`: solo se cobran membresías | B10.3, B11 | CERRADO |
 | B29 | Rango de edad por disciplina (kids 5–12) en contratar, reservar y al cumplir años | B28 | Diseñado (antes de producción) |
 | B30 | Pausa con cuota de mantenimiento (Stripe, Subscription Schedule) | B28, B29 | Diseñado (antes de producción) |
 | B31 | Registro de jornada (fichaje) de profesores empleados | B28 | Diseñado (antes de producción) |
@@ -2555,7 +2555,15 @@ Cada chat de implementación de estos bloques:
 5. Staging: los datos actuales son de prueba y se **recrean** (`npm run staging:*` y `deploy/staging/seed.mjs`), no se
    migran. El seed se adapta en el bloque que cambia el modelo.
 
-### B28 — Retirar el seguro y el `waiver` — Diseñado (antes de producción)
+### B28 — Retirar el seguro y el `waiver` — CERRADO
+
+Rama `b28-sin-seguro`, 2026-11-10. B28.0 (Opus, medio): `607b162`, `0f5ff56`, `089c0ad`, `4f4e29b`, `cd8e10c`, `cf576e8`,
+`7d52bd2`. B28.1 (Haiku, medio): `fcf072b`, `9fdfbff`; retoques de la revisión `1a28e47`, `ba6c116`. ADR 0023. En el
+sandbox: 3 seguros cancelados, 147 Products «Seguro» y 250 Prices archivados (cada `test:billing` antiguo creaba uno).
+Además de lo listado se fueron `visible_risk_cover`, `events.requires_risk_cover` (y su regla en `register_event`), la
+excepción del seguro en `agreement_notice` y el handler de `invoice.upcoming`. La 057 no borra los PDFs del `waiver`
+(iría antes del COMMIT); los huérfanos se fueron al recrear staging. El checkout rechaza cualquier campo desconocido
+(400 `invalid_field`).
 
 - **Objetivo**: la academia solo cobra **membresías** (suscripciones). Desaparecen el seguro de la academia, el acuerdo
   `waiver` y la **cobertura de riesgo**. Para reservar basta con perfil completo y una suscripción que cubra la sesión.
@@ -2595,13 +2603,15 @@ Cada chat de implementación de estos bloques:
   funciones `SECURITY DEFINER` y una migración destructiva). **B28.1** (frontend, Vitest, docs y seed, de la lista de
   arriba): **Haiku, medio**, en otro chat tras B28.0; si aparece algo que no es borrar, para y sube a Sonnet. Skills: `mattpocock-skills:tdd`, `graphify`, `stripe-docs` si hay dudas de la API.
 - **Criterios de aceptación**:
-  - [ ] `grep -rniE "insurance|seguro|waiver|risk_cover" src frontend/src scripts` sin resultados; en `migrations/` solo
+  - [x] `grep -rniE "insurance|seguro|waiver|risk_cover" src frontend/src scripts` sin resultados; en `migrations/` solo
         las históricas y la nueva.
-  - [ ] Un alumno con perfil completo (`data_protection`, `rights_of_image`, ficha) y suscripción reserva sin firmar nada
+  - [x] Un alumno con perfil completo (`data_protection`, `rights_of_image`, ficha) y suscripción reserva sin firmar nada
         más; un hijo igual, con las firmas de su tutor.
-  - [ ] El contrato de una membresía en el sandbox va del catálogo al Checkout sin paso de seguro.
-  - [ ] La lista del profesor y la ficha del admin no muestran cobertura de riesgo ni seguro.
-  - [ ] Morosos solo con suscripciones.
+  - [x] El contrato de una membresía en el sandbox va del catálogo al Checkout sin paso de seguro (por API en
+        `test:e2e-agreements`; en pantalla, a 375 px, sin restos de seguro, pero sin recorrerlo hasta el Checkout).
+  - [ ] Prueba en un iPhone real (la hace el usuario al final).
+  - [x] La lista del profesor y la ficha del admin no muestran cobertura de riesgo ni seguro.
+  - [x] Morosos solo con suscripciones.
 - **Verificación**: la batería completa (`npm run test` y los `test:*` de la lista), `test:e2e-agreements` y
   `test:e2e-b11` adaptados, Vitest y `tsc -b`; staging recreado con el seed; revisión manual a 375 px de contratar,
   reservar, ficha del admin y Ajustes.
