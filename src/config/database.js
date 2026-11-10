@@ -33,7 +33,7 @@ function buildPool(name, connectionString, max = 10) {
   return pool;
 }
 
-export const appPool = buildPool('app', process.env.DATABASE_URL_APP, 10);
+export const appPool = buildPool('app', process.env.DATABASE_URL_APP, 20);
 export const servicePool = buildPool('service', process.env.DATABASE_URL_SERVICE, 5);
 
 export async function pingPool(pool) {
