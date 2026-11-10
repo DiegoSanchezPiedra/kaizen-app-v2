@@ -10,6 +10,7 @@ import { signToken } from '../src/services/jwt.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import adminProfilesRouter from '../src/routes/admin/profiles.js';
 import adminBillingRouter from '../src/routes/admin/billing.js';
+import adminPanelRouter from '../src/routes/admin/panel.js';
 
 let failed = 0;
 async function run(name, fn) {
@@ -27,7 +28,9 @@ const people = {
   gone: ['alumno', yearsAgo(30)], kid: [null, yearsAgo(10)], kid2: [null, yearsAgo(9)],
 };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
-const ids = Object.values(U);
+const twinTag = `twin${crypto.randomBytes(3).toString('hex')}`; // dos profesores con el mismo nombre: desempate por id
+const twins = [crypto.randomUUID(), crypto.randomUUID()].sort();
+const ids = [...Object.values(U), ...twins];
 const D = {};
 const P = {};
 const subs = [];
@@ -35,7 +38,7 @@ const sessions = [];
 let insurance;
 const realError = console.error;
 
-const app = express().use(express.json()).use('/admin', adminProfilesRouter, adminBillingRouter).use(errorHandler);
+const app = express().use(express.json()).use('/admin', adminProfilesRouter, adminBillingRouter, adminPanelRouter).use(errorHandler);
 const server = app.listen(0);
 const base = `http://127.0.0.1:${server.address().port}`;
 const http = async (url, who = 'admin') => {
@@ -51,6 +54,11 @@ for (const [k, [role, birth]] of Object.entries(people)) {
   if (role) await q(`INSERT INTO user_roles (user_id, role) VALUES ($1, $2)`, [U[k], role]);
 }
 await q(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2), ($1, $3)`, [U.tutor, U.kid, U.kid2]);
+await q(`INSERT INTO auth_credentials (profile_id, email, password_hash) VALUES ($1, $2, 'x')`, [U.act, `mail-${tag}@test.local`]);
+for (const id of [twins[1], twins[0]]) {
+  await q(`INSERT INTO profiles (id, display_name) VALUES ($1, $2)`, [id, twinTag]);
+  await q(`INSERT INTO user_roles (user_id, role) VALUES ($1, 'profesor')`, [id]);
+}
 
 const disc = async (name) => (await q(`INSERT INTO disciplines (name) VALUES ($1) RETURNING id`, [`${tag}-${name}`])).rows[0].id;
 D.X = await disc('X');
@@ -85,7 +93,7 @@ insurance = crypto.randomUUID();
 await q(`INSERT INTO insurances (id, student_id, payer_id, status, bracket, stripe_subscription_id)
          VALUES ($1, $2, $2, 'unpaid', 'adult', $3)`, [insurance, U.ins, `sub_test_${insurance}`]);
 
-const attend = async (student, ago, status = 'scheduled') => {
+const attend = async (student, ago, status = 'scheduled', att = 'present') => {
   const { rows: [s] } = await q(
     `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status, cancelled_at)
      VALUES ($1, $2, now() - $3::interval, now() - $3::interval + interval '60 min', 60, 10, $4::session_status,
@@ -95,17 +103,19 @@ const attend = async (student, ago, status = 'scheduled') => {
   const { rows: [b] } = await q(
     `INSERT INTO bookings (session_id, student_id, booked_by, status) VALUES ($1, $2, $2, 'confirmed') RETURNING id`,
     [s.id, U[student]]);
-  await q(`INSERT INTO attendance (session_id, student_id, booking_id, status, method) VALUES ($1, $2, $3, 'present', 'manual')`,
-    [s.id, U[student], b.id]);
+  await q(`INSERT INTO attendance (session_id, student_id, booking_id, status, method) VALUES ($1, $2, $3, $4, 'manual')`,
+    [s.id, U[student], b.id, att]);
   return s.starts_at;
 };
 const actAt = await attend('act', '2 days');
-await attend('idle', '20 days');
+const idleAt = await attend('idle', '20 days');
 await attend('idle', '1 day', 'cancelled'); // sesión cancelada: no cuenta
 await attend('grace', '3 days');
 await attend('ins', '26 hours');
 await attend('other', '28 hours');
 await attend('tutor', '30 hours');
+await attend('act', '5 hours', 'scheduled', 'absent'); // ausente: no cuenta
+await attend('idle', '10 hours', 'scheduled', 'absent'); // ni le hace activo
 
 const names = (r) => r.body.profiles.map((p) => p.display_name.slice(tag.length + 1)).sort();
   console.error = (...a) => (String(a[0]).startsWith('[error]') || String(a[0]).startsWith('Error:') ? null : realError(...a));
@@ -141,6 +151,7 @@ const names = (r) => r.body.profiles.map((p) => p.display_name.slice(tag.length 
     assert.equal(by.kid2.plan_name, `${tag}-one`); // la impagada es su plan
     assert.equal(by.gone.plan_name, null);
     assert.equal(new Date(by.act.last_attendance_at).getTime(), actAt.getTime());
+    assert.equal(new Date(by.idle.last_attendance_at).getTime(), idleAt.getTime()); // ni cancelada ni ausente
     assert.equal(by.all.last_attendance_at, null);
   });
 
@@ -154,6 +165,35 @@ const names = (r) => r.body.profiles.map((p) => p.display_name.slice(tag.length 
     const page = await http(`/admin/profiles?q=${tag}&discipline_id=${D.X}&role=alumno&limit=2&offset=2`);
     assert.equal(page.body.profiles.length, 2);
     assert.equal(page.body.total, 7); // act, all, grace, idle, ins, kid, kid2
+  });
+
+  await run('lista: q en nombre y email (% y _ literales), rol, orden, total y páginas', async () => {
+    const all = await http(`/admin/profiles?q=${tag}&limit=100`);
+    const order = all.body.profiles.map((p) => p.display_name.slice(tag.length + 1));
+    assert.deepEqual(order, ['act', 'admin', 'all', 'gone', 'grace', 'idle', 'ins', 'kid', 'kid2', 'other', 'prof', 'tutor']);
+    assert.equal(all.body.total, 12);
+    assert.equal(all.body.profiles.find((p) => p.email)?.email, `mail-${tag}@test.local`);
+    const mail = await http(`/admin/profiles?q=${encodeURIComponent(`mail-${tag}`)}`);
+    assert.deepEqual([names(mail), mail.body.total], [['act'], 1]);
+    for (const lit of [`${tag}%act`, `${tag}_act`]) {
+      assert.deepEqual((await http(`/admin/profiles?q=${encodeURIComponent(lit)}`)).body.total, 0, lit);
+    }
+    assert.deepEqual(names(await http(`/admin/profiles?q=${tag}&role=tutor`)), ['tutor']);
+    assert.equal((await http(`/admin/profiles?q=${tag}&role=alumno`)).body.total, 9); // los menores sin fila de rol también
+    const tw = await http(`/admin/profiles?q=${twinTag}`);
+    assert.deepEqual(tw.body.profiles.map((p) => p.id), twins);
+    const last = await http(`/admin/profiles?q=${tag}&limit=5&offset=10`);
+    assert.deepEqual([names(last), last.body.total, last.body.limit, last.body.offset], [['prof', 'tutor'], 12, 5, 10]);
+    const out = await http(`/admin/profiles?q=${tag}&limit=5&offset=100`);
+    assert.deepEqual([out.status, out.body.profiles, out.body.total, out.body.offset], [200, [], 12, 100]);
+    const none = await http(`/admin/profiles?q=nadie${tag}&offset=0`);
+    assert.deepEqual([none.body.profiles, none.body.total], [[], 0]);
+  });
+
+  await run('Inicio: students = los KPIs de Usuarios sin disciplina', async () => {
+    const home = await http('/admin/home');
+    assert.equal(home.status, 200);
+    assert.deepEqual(home.body.students, (await http('/admin/profiles/stats')).body);
   });
 
   await run('validación de los filtros', async () => {
@@ -179,6 +219,7 @@ const names = (r) => r.body.profiles.map((p) => p.display_name.slice(tag.length 
   await q(`DELETE FROM plans WHERE id = ANY($1::bigint[])`, [Object.values(P)]);
   await q(`DELETE FROM disciplines WHERE id = ANY($1::bigint[])`, [Object.values(D)]);
   await q(`DELETE FROM guardianships WHERE tutor_id = $1`, [U.tutor]);
+  await q(`DELETE FROM auth_credentials WHERE profile_id = ANY($1::uuid[])`, [ids]);
   await q(`DELETE FROM user_roles WHERE user_id = ANY($1::uuid[])`, [ids]);
   await q(`DELETE FROM profiles WHERE id = ANY($1::uuid[])`, [ids]);
   await closePools();
