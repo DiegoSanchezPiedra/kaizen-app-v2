@@ -11,7 +11,9 @@ worker de avisos) y `web` (nginx con `deploy/nginx.conf` y el frontend compilado
    real es la de maat; no pongas claves `live` hasta B10.7.
 3. `deploy/deploy.sh`: `git pull`, build, arranca `db` (el primer arranque crea roles y base), migraciones y `up -d`.
    Producción no se abre sin TLS (decidido: certbot en el host). Sin TLS publica el `:80`. Con TLS (certbot en el host) pon `WEB_BIND=127.0.0.1:8080` y proxy desde el nginx del host.
-4. Cron del sistema (`crontab -e`; en Debian/Ubuntu la zona sale de `timedatectl`, ver `scripts/README.md`):
+4. `deploy/check-gzip.sh https://<dominio>`: comprueba que el JS, el CSS y `sw.js` llegan con `content-encoding: gzip`. Si falla, el
+   contenedor `web` comprime pero el nginx del host no lo deja pasar: que no quite `Accept-Encoding` y, si añade `Via`, `gzip_proxied any;`.
+5. Cron del sistema (`crontab -e`; en Debian/Ubuntu la zona sale de `timedatectl`, ver `scripts/README.md`):
 
 ```cron
 CRON_TZ=Europe/Madrid
@@ -23,7 +25,7 @@ El worker de avisos va dentro de la API: no necesita cron. `npm run build:prod` 
 
 ## Actualizar
 
-`deploy/deploy.sh` (se para si `git pull --ff-only` no puede avanzar). Las migraciones corren antes de levantar la API nueva.
+`deploy/deploy.sh` (se para si `git pull --ff-only` no puede avanzar). Las migraciones corren antes de levantar la API nueva. Si cambias el nginx, repite `deploy/check-gzip.sh`.
 
 ## Backups
 
