@@ -10,7 +10,7 @@ worker de avisos) y `web` (nginx con `deploy/nginx.conf` y el frontend compilado
 2. `cp deploy/.env.prod.example .env` y rellénalo (más lo que falta de la API en `.env.example`). Claves de Stripe: la cuenta
    real es la de maat; no pongas claves `live` hasta B10.7.
 3. `deploy/deploy.sh`: `git pull`, build, arranca `db` (el primer arranque crea roles y base), migraciones y `up -d`.
-   Sin TLS publica el `:80`. Con TLS (certbot en el host) pon `WEB_BIND=127.0.0.1:8080` y proxy desde el nginx del host.
+   Producción no se abre sin TLS (decidido: certbot en el host). Sin TLS publica el `:80`. Con TLS (certbot en el host) pon `WEB_BIND=127.0.0.1:8080` y proxy desde el nginx del host.
 4. Cron del sistema (`crontab -e`; en Debian/Ubuntu la zona sale de `timedatectl`, ver `scripts/README.md`):
 
 ```cron
@@ -30,9 +30,7 @@ El worker de avisos va dentro de la API: no necesita cron. `npm run build:prod` 
 `deploy/backup.sh` deja en `BACKUP_DIR` (por defecto `/var/backups/kaizen`, modo 600) `db-FECHA.dump` (`pg_dump -Fc`) y
 `storage-FECHA.tar.gz` (agreements, avatars y logs), y borra los de más de `KEEP_DAYS` (14). Un fallo deja el `.part` y sale con error.
 
-**Pendiente de decidir: la copia fuera del VPS.** Mientras tanto estas copias comparten disco y servidor con los datos: no
-protegen de perder el VPS. Falta elegir proveedor (almacenamiento de objetos, otro servidor por `rsync`...), cifrado de la
-copia (contiene datos personales y los PDFs firmados) y un aviso si el cron falla. Los snapshots del proveedor ayudan, no sustituyen.
+**Copia fuera del VPS (decidido el 2026-11-10, sin montar):** almacenamiento de objetos compatible con S3 y copia cifrada (`restic`, o `age` antes de subir), más un aviso si el cron falla. Hasta montarla, estas copias comparten disco y servidor con los datos: no protegen de perder el VPS. Los snapshots del proveedor ayudan, no sustituyen.
 
 ## Restaurar
 
