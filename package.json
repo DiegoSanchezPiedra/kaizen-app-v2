@@ -10,6 +10,7 @@
     "migrate": "dotenv -e .env -- node-pg-migrate up",
     "migrate:down": "dotenv -e .env -- node-pg-migrate down",
     "migrate:create": "dotenv -e .env -- node-pg-migrate create",
+    "test": "node scripts/run-tests.js",
     "test:rls": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-rls.js",
     "test:mfa": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-mfa.js",
     "test:agreements": "dotenv -e .env -- node scripts/test-agreements.js",

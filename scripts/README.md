@@ -15,7 +15,8 @@ Modelo: `scripts/e2e-mfa.js` (`npm run test:e2e-mfa`).
   puerto libre; `http(method, url, { token, body })` devuelve `{ status, body }`. Al final, `await close()` y
   `await closePools()`. Nunca `pkill`: el servidor es del propio proceso.
 - Salida: `OK   …` / `FAIL …` y `process.exitCode = 1` si algo falla; el errorHandler escribe cada 4xx en `console.error`.
-- `npm run test` lo recoge solo si el script se llama `test:*`.
+- `npm run test` (todos los `test:*` en serie y un resumen) lo recoge solo si se llama `test:*`; los que usan el
+  sandbox de Stripe (`test:catalog`, `billing`, `webhook`, `events`) entran con `npm run test -- --stripe`.
 
 ## Tareas nocturnas (`npm run nightly`, B16, ADR 0012)
 
