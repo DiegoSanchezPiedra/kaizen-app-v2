@@ -1,4 +1,4 @@
-// Webhook de Stripe (B10, B10.1, B10.3): firma e idempotencia por HTTP; handlers con objetos reales del sandbox.
+// Webhook de Stripe (B10, B10.1): firma e idempotencia por HTTP; handlers con objetos reales del sandbox.
 import 'dotenv/config';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -9,8 +9,8 @@ import { stripe, STRIPE_WEBHOOK_SECRET } from '../src/config/stripe.js';
 import { createPlan, updatePlan } from '../src/services/catalog.js';
 import { handleEvent } from '../src/services/stripeWebhook.js';
 import {
-  cancelSubscription, updateInsuranceSettings, changePlan, cancelScheduledChange, getSubscription,
-  cancelInsurance, listOverduePayers, requestPayerChange, cancelPayerChange,
+  cancelSubscription, changePlan, cancelScheduledChange, getSubscription,
+  requestPayerChange, cancelPayerChange,
 } from '../src/services/billing.js';
 import { listAudit } from '../src/services/panel.js';
 import webhooksRouter from '../src/routes/webhooks.js';
@@ -23,7 +23,7 @@ async function run(name, fn) {
 const q = async (sql, params) => (await servicePool.query(sql, params)).rows;
 
 const people = {
-  admin: 'admin', prof: 'profesor', alu: 'alumno', tutor: 'tutor', child: 'alumno', ins: 'alumno', ins2: 'alumno',
+  admin: 'admin', prof: 'profesor', alu: 'alumno', tutor: 'tutor', child: 'alumno',
   pc: 'alumno', pc2: 'alumno', // B10.5
   unp: 'alumno', // B10.6
   kid: 'alumno', t1: 'tutor', t2: 'tutor', // B11: kid (menor) lo paga t1; t2, también vinculado
@@ -83,10 +83,6 @@ const post = (payload, header) => fetch(url, {
 });
 const sign = (payload, secret = STRIPE_WEBHOOK_SECRET) => stripe.webhooks.generateTestHeaderString({ payload, secret });
 
-// Seguro (B10.3): parámetros globales; se guardan, se activan con precios de prueba y se restauran al final.
-const savedSettings = await q(`SELECT key, value FROM academy_settings WHERE key LIKE 'insurance\\_%'`);
-const insuranceAdmin = (body) => withRls({ uid: U.admin, role: 'admin' }, (c) => updateInsuranceSettings(c, body, U.admin));
-const localIns = async (student) => (await q(`SELECT * FROM insurances WHERE student_id = $1 ORDER BY created_at DESC`, [U[student]]))[0];
 const noticeOf = async (action, resourceId) =>
   (await q(`SELECT changes FROM audit_log WHERE action = $1 AND resource_id = $2 ORDER BY created_at`, [action, resourceId]))
     .map((r) => r.changes);
@@ -247,90 +243,6 @@ try {
     const [atEnd, now] = await noticeOf('notice.subscription_cancelled', id);
     assert.deepEqual([atEnd.recipients, atEnd.discarded_plan_id], [[U.alu], null]);
     assert.ok(new Date(atEnd.ends_at) > new Date(Date.now() + 86400_000) && new Date(now.ends_at) <= new Date());
-  });
-
-  let insCuota, ins;
-  await run('checkout con seguro: nace la cuota y el seguro (2.ª suscripción anual, misma tarjeta) con su recibo', async () => {
-    // Precios propios: subir el de adulto archivaría en Stripe el Price de los ajustes guardados (se restauran al final).
-    await q(`DELETE FROM academy_settings WHERE key LIKE 'insurance\\_%'`);
-    await insuranceAdmin({ price_adult_cents: 3000, price_minor_cents: 2000, enabled: true });
-    const cus = await customer('ins', 'pm_card_visa');
-    insCuota = await paidSub(cus, 'ins', 'ins', { insurance: 'true' });
-    const e = completed(insCuota);
-    await handleEvent(e);
-    assert.equal((await localSub(insCuota.id)).status, 'active');
-    ins = await localIns('ins');
-    stripeSubs.push(ins.stripe_subscription_id);
-    assert.deepEqual([ins.status, ins.payer_id, ins.bracket], ['active', U.ins, 'adult']);
-    const st = await stripe.subscriptions.retrieve(ins.stripe_subscription_id);
-    assert.deepEqual([st.customer, st.items.data[0].price.recurring.interval, st.items.data[0].price.unit_amount],
-      [cus, 'year', 3000]);
-    assert.equal((await q(`SELECT has_risk_cover($1) r`, [U.ins]))[0].r, true);
-    await handleEvent(evt('invoice.paid', { id: st.latest_invoice, object: 'invoice' }));
-    const [inv] = await q(`SELECT * FROM invoices WHERE stripe_invoice_id = $1`, [st.latest_invoice]);
-    assert.deepEqual([inv.insurance_id, inv.subscription_id, inv.status, inv.amount_paid_cents], [ins.id, null, 'paid', 3000]);
-    // Reprocesar el Checkout no crea otro seguro (idempotencyKey + upsert).
-    await q(`DELETE FROM webhook_events WHERE id = $1`, [e.id]);
-    await handleEvent(e);
-    assert.equal((await q(`SELECT 1 FROM insurances WHERE student_id = $1`, [U.ins])).length, 1);
-  });
-  await run('seguro rechazado: la suscripción sigue, sin cobertura de riesgo; sin aviso por el recibo fallido, sí al caducar', async () => {
-    const cus = await customer('ins2', 'pm_card_visa');
-    const cuota = await paidSub(cus, 'ins2', 'ins2', { insurance: 'true' });
-    // La tarjeta falla después del cobro de la cuota.
-    const bad = await stripe.paymentMethods.attach('pm_card_chargeCustomerFail', { customer: cus });
-    await stripe.customers.update(cus, { invoice_settings: { default_payment_method: bad.id } });
-    await handleEvent(completed(cuota));
-    assert.equal((await localSub(cuota.id)).status, 'active');
-    const i = await localIns('ins2');
-    stripeSubs.push(i.stripe_subscription_id);
-    assert.equal(i.status, 'incomplete');
-    assert.equal((await q(`SELECT has_risk_cover($1) r`, [U.ins2]))[0].r, false);
-    const st = await stripe.subscriptions.retrieve(i.stripe_subscription_id);
-    await handleEvent(evt('invoice.payment_failed', { id: st.latest_invoice, object: 'invoice' }));
-    const [inv] = await q(`SELECT id, insurance_id FROM invoices WHERE stripe_invoice_id = $1`, [st.latest_invoice]);
-    assert.equal(inv.insurance_id, i.id);
-    assert.deepEqual(await noticeOf('notice.payment_failed', inv.id), [], 'primer cobro del seguro: sin aviso de cobro fallido');
-    // A las 23 h Stripe la cancela (incomplete_expired); aquí, a mano.
-    await stripe.subscriptions.cancel(i.stripe_subscription_id);
-    await handleEvent(evt('customer.subscription.deleted', { id: i.stripe_subscription_id, object: 'subscription' }));
-    assert.equal((await localIns('ins2')).status, 'cancelled');
-    assert.deepEqual((await noticeOf('notice.insurance_not_paid', i.id)).map((n) => n.recipients), [[U.ins2]]);
-  });
-  await run('invoice.upcoming: fija el precio vigente del tramo y avisa; hijo que cumple 18 antes → no renueva', async () => {
-    await insuranceAdmin({ price_adult_cents: 3500 });
-    const upcoming = () => handleEvent(evt('invoice.upcoming', {
-      object: 'invoice', parent: { subscription_details: { subscription: ins.stripe_subscription_id } } }));
-    await upcoming();
-    const st = await stripe.subscriptions.retrieve(ins.stripe_subscription_id);
-    assert.equal(st.items.data[0].price.unit_amount, 3500);
-    const [n] = await noticeOf('notice.insurance_renewal', ins.id);
-    assert.deepEqual([n.bracket, n.amount_cents, n.recipients], ['adult', 3500, [U.ins]]);
-    // Hijo de un tutor que cumple 18 antes de la renovación.
-    await q(`UPDATE profiles SET birth_date = CURRENT_DATE - interval '18 years' + interval '30 days' WHERE id = $1`, [U.ins]);
-    await q(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [U.tutor, U.ins]);
-    await upcoming();
-    assert.equal((await stripe.subscriptions.retrieve(ins.stripe_subscription_id)).cancel_at_period_end, true);
-    assert.equal((await noticeOf('notice.insurance_wont_renew', ins.id))[0].reason, 'turns_18');
-    await q(`DELETE FROM guardianships WHERE minor_id = $1`, [U.ins]);
-    await q(`UPDATE profiles SET birth_date = NULL WHERE id = $1`, [U.ins]);
-    await stripe.subscriptions.update(ins.stripe_subscription_id, { cancel_at_period_end: false });
-    await handleEvent(evt('customer.subscription.updated', { id: ins.stripe_subscription_id, object: 'subscription' }));
-    assert.equal((await localIns('ins')).cancel_at_period_end, false);
-  });
-  await run('baja de la cuota sin otra viva: el seguro sigue en vigor hasta el final de su año y no renueva', async () => {
-    await q(`DELETE FROM audit_log WHERE action = 'notice.insurance_wont_renew' AND resource_id = $1`, [ins.id]);
-    await stripe.subscriptions.cancel(insCuota.id);
-    await handleEvent(evt('customer.subscription.deleted', { id: insCuota.id, object: 'subscription' }));
-    assert.equal((await stripe.subscriptions.retrieve(ins.stripe_subscription_id)).cancel_at_period_end, true);
-    await handleEvent(evt('customer.subscription.updated', { id: ins.stripe_subscription_id, object: 'subscription' }));
-    const i = await localIns('ins');
-    assert.deepEqual([i.status, i.cancel_at_period_end], ['active', true]);
-    assert.equal((await q(`SELECT has_risk_cover($1) r`, [U.ins]))[0].r, true);
-    assert.deepEqual((await noticeOf('notice.insurance_wont_renew', ins.id)).map((n) => n.reason), ['subscription_cancelled']);
-    // Repetido: no avisa dos veces.
-    await handleEvent(evt('customer.subscription.deleted', { id: insCuota.id, object: 'subscription' }));
-    assert.equal((await noticeOf('notice.insurance_wont_renew', ins.id)).length, 1);
   });
 
   // --- B10.5: cambio de plan. Subida = pending update; bajada = Schedule; el webhook aplica la metadata. ---
@@ -580,21 +492,6 @@ try {
     assert.equal((await noticeOf('notice.subscription_unpaid', row.id)).length, 2);
   });
 
-  await run('seguro impagado: insurance_unpaid con el recibo y su entrega, solo en la transición', async () => {
-    const i = await localIns('ins');
-    const subId = i.stripe_subscription_id;
-    const ev = () => handleEvent(evt('customer.subscription.updated', { id: subId, object: 'subscription' }));
-    await asUnpaid(subId, async () => { await ev(); await ev(); });
-    assert.equal((await localIns('ins')).status, 'unpaid');
-    const [n, again] = await noticeOf('notice.insurance_unpaid', i.id);
-    assert.equal(again, undefined);
-    assert.deepEqual([n.recipients, n.student_id], [[U.ins], U.ins]);
-    assert.match(n.hosted_invoice_url, /^https:\/\//);
-    assert.deepEqual(await deliveriesOf('notice.insurance_unpaid', i.id), [{ recipient_id: U.ins, channel: 'email' }]);
-    await ev();
-    assert.equal((await localIns('ins')).status, 'active');
-  });
-
   // --- B11: bajas. Un recibo open de una suscripción cancelada sigue cobrándose: la baja inmediata lo anula. ---
   // Recibo open sin intento de cobro (auto_advance false), como el que deja un cobro fallido.
   const openInvoice = async (subId) => {
@@ -603,43 +500,6 @@ try {
     const inv = await stripe.invoices.create({ customer: cus, subscription: subId, auto_advance: false });
     return stripe.invoices.finalizeInvoice(inv.id, { auto_advance: false });
   };
-  const cancelIns = (id, atPeriodEnd) => asAdmin((c) => cancelInsurance(c, { id, atPeriodEnd, actorId: U.admin }));
-  const insEvent = (type) => handleEvent(evt(type, { id: ins.stripe_subscription_id, object: 'subscription' }));
-
-  await run('baja del seguro a fin de año: sigue en vigor y no renueva; aviso con la fecha de fin', async () => {
-    // Ya no renueva por la baja de la cuota (arriba): 409, por cualquier motivo.
-    await assert.rejects(cancelIns(ins.id, true), (e) => e.status === 409 && e.code === 'insurance_cancel_scheduled');
-    await stripe.subscriptions.update(ins.stripe_subscription_id, { cancel_at_period_end: false });
-    const r = await cancelIns(ins.id, true);
-    await insEvent('customer.subscription.updated');
-    const i = await localIns('ins');
-    assert.deepEqual([i.status, i.cancel_at_period_end, r.ends_at.getTime()], ['active', true, i.current_period_end.getTime()]);
-    assert.equal((await q(`SELECT has_risk_cover($1) r`, [U.ins]))[0].r, true);
-    const [n] = await noticeOf('notice.insurance_cancelled', ins.id);
-    assert.deepEqual([n.recipients, n.voided, new Date(n.ends_at).getTime()], [[U.ins], 0, i.current_period_end.getTime()]);
-  });
-
-  await run('baja inmediata del seguro impagado: recibo open anulado, fuera de morosos, sin cobertura de riesgo', async () => {
-    const inv = await openInvoice(ins.stripe_subscription_id);
-    await asUnpaid(ins.stripe_subscription_id, () => insEvent('customer.subscription.updated'));
-    await handleEvent(evt('invoice.finalized', { id: inv.id, object: 'invoice' }));
-    const delinquent = async () => (await asAdmin((c) => listOverduePayers(c, { list: 'delinquent', limit: 100 })))
-      .payers.some((p) => p.payer_id === U.ins);
-    assert.equal(await delinquent(), true);
-    const r = await cancelIns(ins.id, false);
-    assert.deepEqual([r.stripe_status, r.risk_cover], ['canceled', false]);
-    assert.equal((await stripe.invoices.retrieve(inv.id)).status, 'void');
-    await insEvent('customer.subscription.deleted');
-    await handleEvent(evt('invoice.voided', { id: inv.id, object: 'invoice' }));
-    assert.equal((await localIns('ins')).status, 'cancelled');
-    assert.equal((await q(`SELECT status FROM invoices WHERE stripe_invoice_id = $1`, [inv.id]))[0].status, 'void');
-    assert.equal(await delinquent(), false);
-    assert.equal((await q(`SELECT has_risk_cover($1) r`, [U.ins]))[0].r, false);
-    const [, n] = await noticeOf('notice.insurance_cancelled', ins.id);
-    assert.deepEqual([n.voided, new Date(n.ends_at) <= new Date()], [1, true]);
-    await assert.rejects(cancelIns(ins.id, false), (e) => e.status === 409 && e.code === 'insurance_cancelled');
-  });
-
   await run('baja inmediata de la suscripción: anula sus recibos open y el aviso lo dice', async () => {
     const s = (await q(`SELECT stripe_subscription_id, id FROM subscriptions WHERE student_id = $1`, [U.unp]))[0];
     const inv = await openInvoice(s.stripe_subscription_id);
@@ -655,13 +515,6 @@ try {
   const kidOld = await paidSub(cusT1, 'kid', 't1');
   await handleEvent(completed(kidOld));
   const kidRow = await localSub(kidOld.id);
-  // Seguro del menor pagado por t1.
-  const [{ v: insPriceMinor }] = await q(`SELECT value #>> '{}' v FROM academy_settings WHERE key = 'insurance_stripe_price_minor'`);
-  const kidIns = await stripe.subscriptions.create({ customer: cusT1, items: [{ price: insPriceMinor }],
-    metadata: { kind: 'insurance', student_id: U.kid, payer_id: U.t1 } });
-  stripeSubs.push(kidIns.id);
-  await handleEvent(evt('customer.subscription.created', { id: kidIns.id, object: 'subscription' }));
-  const kidInsId = (await localIns('kid')).id;
   const pcOf = async (id) => (await q(`SELECT * FROM payer_changes WHERE id = $1`, [id]))[0];
   const requestPc = async (subId, payer) =>
     (await asAdmin((c) => requestPayerChange(c, { id: subId, payerId: U[payer], actorId: U.admin }))).body;
@@ -717,7 +570,7 @@ try {
     assert.deepEqual([(await pcOf(pc1.id)).stripe_subscription_id, await noticeOf('notice.payer_change_cancelled', pc1.id)], [succ1.id, []]);
   });
 
-  await run('traspaso con la antigua primero: una sola fila, reservas intactas, seguro payer_changed; repetido no cambia nada', async () => {
+  await run('traspaso con la antigua primero: una sola fila y reservas intactas; repetido no cambia nada', async () => {
     const bk = await bookOn(disc, U.kid);
     await stripe.subscriptions.cancel(kidOld.id); // D
     await handleEvent(evt('customer.subscription.deleted', { id: kidOld.id, object: 'subscription' }));
@@ -729,20 +582,14 @@ try {
     assert.equal((await pcOf(pc1.id)).status, 'completed');
     assert.deepEqual(await altasOf(row.id), [], 'un traspaso no es un alta');
     assert.deepEqual(Object.values(await bookingOf(bk)), ['confirmed', null], 'la cobertura no se interrumpe');
-    assert.equal((await stripe.subscriptions.retrieve(kidIns.id)).cancel_at_period_end, true);
-    const [w] = await noticeOf('notice.insurance_wont_renew', kidInsId);
-    assert.deepEqual([w.reason, w.recipients], ['payer_changed', [U.t1, U.t2]]);
     await handleEvent(evt('customer.subscription.deleted', { id: kidOld.id, object: 'subscription' }));
     await handleEvent(evt('customer.subscription.updated', { id: succ1.id, object: 'subscription' }));
     assert.equal(await liveOfKid(), 1);
-    assert.equal((await noticeOf('notice.insurance_wont_renew', kidInsId)).length, 1);
   });
 
-  await run('traspaso con la sucesora primero (su recibo); el seguro ya del nuevo pagador no se toca', async () => {
-    await stripe.subscriptions.update(kidIns.id, { cancel_at_period_end: false });
-    await handleEvent(evt('customer.subscription.updated', { id: kidIns.id, object: 'subscription' }));
+  await run('traspaso con la sucesora primero (su recibo)', async () => {
     const row1 = await localSub(succ1.id);
-    const pc2 = await requestPc(row1.id, 't1'); // de vuelta a t1, que paga el seguro
+    const pc2 = await requestPc(row1.id, 't1'); // de vuelta a t1
     succ2 = await successor(pc2, cusT1, 't1');
     await paidCheckout(succ2);
     await stripe.subscriptions.cancel(succ1.id); // D
@@ -751,7 +598,6 @@ try {
     const row2 = await localSub(succ2.id);
     assert.deepEqual([row2.payer_id, (await localSub(succ1.id)).status, (await pcOf(pc2.id)).status], [U.t1, 'cancelled', 'completed']);
     assert.equal((await q(`SELECT subscription_id FROM invoices WHERE stripe_invoice_id = $1`, [inv.id]))[0].subscription_id, row2.id);
-    assert.equal((await stripe.subscriptions.retrieve(kidIns.id)).cancel_at_period_end, false, 'el seguro ya lo paga t1');
     await handleEvent(evt('customer.subscription.deleted', { id: succ1.id, object: 'subscription' }));
     assert.equal(await liveOfKid(), 1);
   });
@@ -838,12 +684,6 @@ try {
     await q(`DELETE FROM class_sessions WHERE id = $1`, [sess.id]);
   }
   await q(`DELETE FROM invoices WHERE student_id = ANY($1::uuid[])`, [ids]);
-  await q(`DELETE FROM insurances WHERE student_id = ANY($1::uuid[])`, [ids]);
-  await q(`DELETE FROM academy_settings WHERE key LIKE 'insurance\\_%'`);
-  // value llega ya parseado (jsonb): un string («prod_…») hay que volver a pasarlo como JSON.
-  for (const { key, value } of savedSettings) {
-    await q(`INSERT INTO academy_settings (key, value) VALUES ($1, $2::jsonb)`, [key, JSON.stringify(value)]);
-  }
   await q(`DELETE FROM payer_changes WHERE student_id = ANY($1::uuid[])`, [ids]);
   await q(`DELETE FROM subscription_disciplines WHERE subscription_id = ANY($1::uuid[])`, [subs]);
   await q(`DELETE FROM subscriptions WHERE id = ANY($1::uuid[])`, [subs]);

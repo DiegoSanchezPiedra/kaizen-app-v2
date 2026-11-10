@@ -24,7 +24,7 @@ async function run(name, fn) {
 const [admin, tutor, otro, nino] = Array.from({ length: 4 }, () => crypto.randomUUID());
 const yearsAgo = (n) => new Date(Date.now() - n * 365.25 * 864e5).toISOString().slice(0, 10);
 const files = [];
-const TYPES = ['waiver', 'data_protection', 'rights_of_image'];
+const TYPES = ['data_protection', 'rights_of_image'];
 
 await servicePool.query(
   `INSERT INTO profiles (id, display_name, birth_date) VALUES
@@ -105,34 +105,31 @@ try {
     });
     await run('el hijo no puede firmar por sí mismo (defensa en profundidad)', async () => {
       await as(c, hijo, 'alumno');
-      await denied(c, () => sign('waiver', hijo, hijo));
+      await denied(c, () => sign('data_protection', hijo, hijo));
     });
     await run('tutor no vinculado no puede firmar por el hijo', async () => {
       await as(c, otro, 'alumno');
-      await denied(c, () => sign('waiver', hijo, otro));
+      await denied(c, () => sign('data_protection', hijo, otro));
     });
     await run('tutor no puede suplantar signed_by', async () => {
       await as(c, tutor, 'alumno');
-      await denied(c, () => sign('waiver', hijo, otro));
+      await denied(c, () => sign('data_protection', hijo, otro));
     });
     await run('perfil del hijo incompleto hasta que el tutor firma los acuerdos', async () => {
       await as(c, tutor, 'alumno');
-      // El waiver no es del perfil completo: es la cobertura de riesgo (B10.3).
       assert.deepEqual(await getProfileStatus(c, hijo, 'alumno'),
-        { ok: false, missing: ['data_protection', 'rights_of_image'], risk_cover: false });
-      const a = await sign('waiver', hijo, tutor);
+        { ok: false, missing: ['data_protection', 'rights_of_image'] });
+      const a = await sign('data_protection', hijo, tutor);
       assert.equal(a.signed_by, tutor);
       assert.equal(a.profile_id, hijo);
-      await sign('data_protection', hijo, tutor);
       await sign('rights_of_image', hijo, tutor);
-      assert.deepEqual(await getProfileStatus(c, hijo, 'alumno'), { ok: true, risk_cover: true });
+      assert.deepEqual(await getProfileStatus(c, hijo, 'alumno'), { ok: true });
     });
     await run('a los 18: firmas del tutor no cuentan; sin edición, salud ni firma; sigue en la lista', async () => {
       await as(c, admin, 'admin');
       await c.query(`UPDATE profiles SET birth_date = $2 WHERE id = $1`, [hijo, yearsAgo(19)]);
-      // El waiver del tutor tampoco cuenta: sin cobertura de riesgo.
       assert.deepEqual(await getProfileStatus(c, hijo, 'alumno'),
-        { ok: false, missing: ['data_protection', 'rights_of_image'], risk_cover: false });
+        { ok: false, missing: ['data_protection', 'rights_of_image'] });
       await as(c, tutor, 'alumno');
       await denied(c, () => sign('data_protection', hijo, tutor));
       await fails(c, () => assertGuardianOf(c, hijo), 'not_guardian');

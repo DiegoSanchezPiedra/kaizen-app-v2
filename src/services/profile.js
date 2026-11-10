@@ -3,15 +3,13 @@ import crypto from 'node:crypto';
 import { httpError } from '../lib/errors.js';
 
 /**
- * Estado del perfil completo de un alumno o tutor (CONTEXT § Perfil completo) y su cobertura de riesgo.
+ * Estado del perfil completo de un alumno o tutor (CONTEXT § Perfil completo).
  *
  * Contrato:
- *   { ok: true, risk_cover?: boolean }
- *   | { ok: false, missing: string[], risk_cover?: boolean }
+ *   { ok: true } | { ok: false, missing: string[] }
  *
  * `missing`: 'display_name', 'health_info', 'emergency_contact', 'data_protection', 'rights_of_image'
- * (función SQL profile_missing, la misma que usa la promoción). El `waiver` no cuenta: es cobertura de riesgo,
- * requisito aparte para reservar (B10.3); `risk_cover` solo sale para el alumno (un tutor no entrena).
+ * (función SQL profile_missing, la misma que usa la promoción).
  *
  * Recibe el `client` de la transacción RLS que abrió quien orquesta.
  * Admin y profesor siempre están completos: devuelve { ok: true } sin tocar BD.
@@ -19,7 +17,7 @@ import { httpError } from '../lib/errors.js';
  * @param {import('pg').PoolClient} client
  * @param {string} profileId  UUID del perfil (req.user.id)
  * @param {string} role       Rol del JWT ('alumno' | 'tutor' | 'profesor' | 'admin')
- * @returns {Promise<{ ok: boolean, missing?: string[], risk_cover?: boolean }>}
+ * @returns {Promise<{ ok: boolean, missing?: string[] }>}
  */
 export async function getProfileStatus(client, profileId, role) {
   if (!profileId) {
@@ -35,7 +33,7 @@ export async function getProfileStatus(client, profileId, role) {
   }
 
   const { rows: [r] } = await client.query(
-    `SELECT visible_profile_missing($1) AS missing, visible_risk_cover($1) AS risk_cover`, [profileId]); // 053
+    `SELECT visible_profile_missing($1) AS missing`, [profileId]); // 053
   // Perfil inexistente (NULL): incompleto.
   const missing = r.missing ?? ['display_name'];
 
@@ -44,9 +42,7 @@ export async function getProfileStatus(client, profileId, role) {
     const required = missing.filter((m) => TUTOR_REQUIRED.includes(m));
     return required.length === 0 ? { ok: true } : { ok: false, missing: required };
   }
-  return missing.length === 0
-    ? { ok: true, risk_cover: r.risk_cover }
-    : { ok: false, missing, risk_cover: r.risk_cover };
+  return missing.length === 0 ? { ok: true } : { ok: false, missing };
 }
 
 const TUTOR_REQUIRED = ['display_name', 'data_protection'];

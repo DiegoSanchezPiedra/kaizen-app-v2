@@ -16,7 +16,7 @@ router.get('/documents', withRlsContext(async (req, client) => ({
   documents: await listDocuments(client),
 })));
 
-// Sube el PDF como cuerpo crudo: POST /admin/agreements/documents?type=waiver&version=1.1
+// Sube el PDF como cuerpo crudo: POST /admin/agreements/documents?type=data_protection&version=1.1
 // (Content-Type: application/pdf). Sin multipart para no añadir dependencia.
 router.post(
   '/documents',

@@ -131,10 +131,9 @@ try {
   await run('ficha: el hijo con su pagador, sus tutores y su estado; sin birth_date ni salud', async () => {
     const r = await http('GET', `/admin/profiles/${U.child}`, 'admin');
     assert.equal(r.status, 200);
-    assert.deepEqual(Object.keys(r.body).sort(), ['children', 'guardians', 'insurance', 'profile', 'status', 'subscription']);
+    assert.deepEqual(Object.keys(r.body).sort(), ['children', 'guardians', 'profile', 'status', 'subscription']);
     assert.equal(r.body.subscription.id, subs[1]);
     assert.deepEqual(r.body.subscription.payer, { id: U.parent, display_name: `${tag}-parent` });
-    assert.equal(r.body.insurance, null);
     assert.deepEqual(r.body.guardians, [{ id: U.parent, display_name: `${tag}-parent`, email: email('parent') }]);
     assert.equal(typeof r.body.status.ok, 'boolean');
     const json = JSON.stringify(r.body);
@@ -262,12 +261,10 @@ try {
   await run('ajustes: GET igual a lo que devuelven los PUT, y ve un cambio', async () => {
     const get = async () => (await http('GET', '/admin/settings', 'admin')).body;
     const before = await get();
-    assert.deepEqual(Object.keys(before).sort(), ['checkin', 'discipline_changes', 'insurance']);
+    assert.deepEqual(Object.keys(before).sort(), ['checkin', 'discipline_changes']);
     assert.deepEqual(Object.keys(before.checkin).sort(), ['closes_minutes', 'opens_minutes', 'qr_seconds']);
-    assert.deepEqual(Object.keys(before.insurance).sort(), ['enabled', 'price_adult_cents', 'price_minor_cents']);
-    // Sin cambiar nada: los PUT devuelven lo mismo (el del seguro, sin campos, no toca Stripe).
+    // Sin cambiar nada: los PUT devuelven lo mismo.
     assert.deepEqual((await http('PUT', '/admin/settings/checkin', 'admin', {})).body.settings, before.checkin);
-    assert.deepEqual((await http('PUT', '/admin/settings/insurance', 'admin', {})).body.settings, before.insurance);
     const put = (n) => http('PUT', '/admin/settings/discipline-changes', 'admin', { per_period: n });
     assert.deepEqual((await put(before.discipline_changes.per_period)).body.settings, before.discipline_changes);
     const n = before.discipline_changes.per_period + 1;
@@ -503,8 +500,8 @@ try {
     draft: Buffer.from(`%PDF-1.4 borrador ${tag}`), retired: Buffer.from(`%PDF-1.4 retirado ${tag}`),
   };
   const docs = {
-    draft: await createDocument(servicePool, { type: 'waiver', version: `${nonce}.1`, buffer: pdfs.draft }),
-    retired: await createDocument(servicePool, { type: 'waiver', version: `${nonce}.2`, buffer: pdfs.retired }),
+    draft: await createDocument(servicePool, { type: 'rights_of_image', version: `${nonce}.1`, buffer: pdfs.draft }),
+    retired: await createDocument(servicePool, { type: 'rights_of_image', version: `${nonce}.2`, buffer: pdfs.retired }),
   };
   for (const d of Object.values(docs)) documents.push(d.id);
   await servicePool.query(

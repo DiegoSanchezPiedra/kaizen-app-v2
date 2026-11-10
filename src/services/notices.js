@@ -13,10 +13,8 @@ import { send as sendPush } from './push.js';
 // re-firma no pasan por aquí (SQL). stripe_risk solo va a admins, que nunca reciben entregas.
 const CHANNELS = Object.fromEntries([
   'payment_failed', 'checkout_payment_failed', 'checkout_race_refunded',
-  'insurance_not_paid', 'insurance_renewal', 'insurance_wont_renew',
-  'plan_downgraded', 'upgrade_requires_action',
-  'subscription_unpaid', 'insurance_unpaid', 'subscription_cancelled',
-  'insurance_cancelled', 'payer_change_requested', 'payer_change_paid', 'payer_change_expired', 'payer_change_cancelled',
+  'plan_downgraded', 'upgrade_requires_action', 'subscription_unpaid', 'subscription_cancelled',
+  'payer_change_requested', 'payer_change_paid', 'payer_change_expired', 'payer_change_cancelled',
   'event_refunded', 'avatar_removed',
 ].map((a) => [`notice.${a}`, ['email']]));
 
@@ -62,13 +60,6 @@ ${paragraphs.map((p) => `<p>${esc(p)}</p>`).join('\n')}
 }
 
 const plan = (d, key) => d.plans[d.c[key]] ?? '';
-const WONT_RENEW = {
-  disabled: 'la academia ha dejado de ofrecer el seguro',
-  subscription_cancelled: 'ya no hay una suscripción activa',
-  payer_changed: 'la suscripción la paga ahora otra persona',
-  turns_18: 'hay un cambio de tramo de edad', // nunca la edad ni la fecha
-};
-
 const VOIDED = 'Los recibos que quedaban pendientes se han anulado: ya no se cobrarán.';
 const future = (d) => new Date(d) > new Date();
 
@@ -82,10 +73,10 @@ const CANCELLED = {
   expired: 'el plazo para pagarlo ya había terminado',
 };
 
-// d = { to, c: changes, payer, student, plans: { id: nombre }, invoice, insurance_end, change }
+// d = { to, c: changes, payer, student, plans: { id: nombre }, invoice, change }
 const TEMPLATES = {
   'notice.payment_failed': (d) => mail(`No hemos podido cobrar el recibo de ${d.student}`, d, [
-    `El cobro de ${eur(d.invoice.amount_due_cents)} ${d.invoice.plan ? `del plan ${d.invoice.plan}` : 'del seguro'} `
+    `El cobro de ${eur(d.invoice.amount_due_cents)}${d.invoice.plan ? ` del plan ${d.invoice.plan}` : ''} `
       + `de ${d.student} no se ha podido realizar.`,
     d.c.next_payment_attempt
       ? `Lo volveremos a intentar el ${day(d.c.next_payment_attempt)}. Si hace falta, cambia la tarjeta antes desde la app.`
@@ -99,20 +90,6 @@ const TEMPLATES = {
     `Se completaron dos pagos de suscripción para ${d.student} a la vez. Hemos mantenido la primera suscripción, `
       + 'cancelado la segunda y devuelto su importe.',
     'El reembolso puede tardar unos días en aparecer en tu cuenta.',
-  ]),
-  'notice.insurance_not_paid': (d) => mail(`El seguro de ${d.student} no está activo`, d, [
-    d.c.reason === 'not_paid'
-      ? `El primer año del seguro de ${d.student} no llegó a pagarse, así que el seguro no está activo.`
-      : `No se ha podido contratar el seguro de ${d.student}. La suscripción sigue activa.`,
-    'Sin seguro ni waiver firmado no se pueden reservar clases. Puedes contratarlo o firmar el waiver desde la app.',
-  ]),
-  'notice.insurance_renewal': (d) => mail(`El seguro de ${d.student} se renueva el ${day(d.c.renews_at)}`, d, [
-    `El seguro de ${d.student} se renovará el ${day(d.c.renews_at)} por ${eur(d.c.amount_cents)} al año, `
-      + 'con la tarjeta de tu suscripción.',
-  ]),
-  'notice.insurance_wont_renew': (d) => mail(`El seguro de ${d.student} no se renovará`, d, [
-    `El seguro de ${d.student} seguirá vigente${d.insurance_end ? ` hasta el ${day(d.insurance_end)}` : ''} `
-      + `y no se renovará porque ${WONT_RENEW[d.c.reason] ?? 'ha cambiado su situación'}.`,
   ]),
   'notice.plan_downgraded': (d) => mail(`Cambio de plan de ${d.student} aplicado`, d, [
     `${d.student} ha pasado del plan ${plan(d, 'from_plan_id')} al plan ${plan(d, 'to_plan_id')}.`,
@@ -128,22 +105,11 @@ const TEMPLATES = {
     `Mientras siga impagada, ${d.student} no puede reservar clases y sus reservas futuras se han cancelado. `
       + 'Al pagar el recibo vuelve a estar activa.',
   ], ['Pagar el recibo', d.c.hosted_invoice_url]),
-  'notice.insurance_unpaid': (d) => mail(`El seguro de ${d.student} está impagado`, d, [
-    `No hemos podido cobrar ${eur(d.c.amount_cents)} del seguro de ${d.student} tras varios intentos.`,
-    'Mientras siga impagado, el seguro no cubre al alumno. Al pagar el recibo vuelve a estar activo.',
-  ], ['Pagar el recibo', d.c.hosted_invoice_url]),
   'notice.subscription_cancelled': (d) => mail(`Baja de la suscripción de ${d.student}`, d, [
     `La academia ha dado de baja la suscripción de ${d.student} (plan ${plan(d, 'plan_id')}). `
       + (future(d.c.ends_at) ? `Seguirá activa hasta el ${day(d.c.ends_at)}.` : 'La baja es efectiva desde hoy.'),
     ...(d.c.discarded_plan_id ? [`El cambio al plan ${plan(d, 'discarded_plan_id')} que estaba programado queda anulado.`] : []),
     ...(d.c.voided ? [VOIDED] : []),
-  ]),
-  'notice.insurance_cancelled': (d) => mail(`Baja del seguro de ${d.student}`, d, [
-    `La academia ha dado de baja el seguro de ${d.student}. `
-      + (future(d.c.ends_at) ? `Seguirá vigente hasta el ${day(d.c.ends_at)} y no se renovará.` : 'La baja es efectiva desde hoy.')
-      + ' No se devuelve la parte del año no usada.',
-    ...(d.c.voided ? [VOIDED] : []),
-    `Sin el seguro, ${d.student} necesita el waiver firmado para reservar clases. Se puede firmar desde la app.`,
   ]),
   'notice.payer_change_requested': (d) => mail(`Pago de la suscripción de ${d.student}`, d, [
     `La academia ha pedido que pases a pagar la suscripción de ${d.student} (plan ${plan(d, 'plan_id')}, `
@@ -189,7 +155,6 @@ const one = (g, single, many) => (g.sessions.length === 1
 const BOOKINGS = `${APP_URL}/bookings`;
 const AGREEMENTS_URL = `${APP_URL}/agreements`;
 const AGREEMENT_NAMES = {
-  waiver: 'la exención de responsabilidad (waiver)',
   data_protection: 'la política de protección de datos',
   rights_of_image: 'la autorización de derechos de imagen',
 };
@@ -339,7 +304,7 @@ export async function compose(db, d) {
   if (SERVICE[d.action]) return composeService(db, d);
   const { recipient_id: to, action, resource_type: type, resource_id: resId, changes: c } = d;
   const { rows: [r] } = await db.query(
-    `SELECT pr.display_name AS payer, ac.email, st.display_name AS student, i.current_period_end AS insurance_end,
+    `SELECT pr.display_name AS payer, ac.email, st.display_name AS student,
             CASE WHEN v.id IS NOT NULL THEN jsonb_build_object('amount_due_cents', v.amount_due_cents, 'plan', pl.name) END
               AS invoice,
             CASE WHEN pc.id IS NOT NULL THEN jsonb_build_object(
@@ -348,7 +313,6 @@ export async function compose(db, d) {
        FROM profiles pr LEFT JOIN auth_credentials ac ON ac.profile_id = pr.id
        LEFT JOIN invoices v ON $3 = 'invoice' AND v.id::text = $4
        LEFT JOIN subscriptions s ON s.id = v.subscription_id LEFT JOIN plans pl ON pl.id = s.plan_id
-       LEFT JOIN insurances i ON $3 = 'insurance' AND i.id::text = $4
        LEFT JOIN payer_changes pc ON $3 = 'payer_change' AND pc.id::text = $4
        LEFT JOIN profiles np ON np.id = pc.new_payer_id LEFT JOIN plans pp ON pp.id = pc.plan_id
        LEFT JOIN profiles st ON st.id = COALESCE($2::uuid, v.student_id)

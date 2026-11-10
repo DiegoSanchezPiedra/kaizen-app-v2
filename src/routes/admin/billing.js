@@ -1,10 +1,10 @@
-// src/routes/admin/billing.js — bajas de suscripciones y del seguro y cambio de pagador (B11), parámetros del seguro
-// (B10.3), morosos (B10.2) y cambio de plan y de disciplina (B10.5). Solo admin.
+// src/routes/admin/billing.js — bajas de suscripciones y cambio de pagador (B11), morosos (B10.2) y cambio de plan y de
+// disciplina (B10.5). Solo admin.
 import { Router } from 'express';
 import { requireAuth, requireRole, withRlsContext } from '../../middleware/auth.js';
 import { httpError } from '../../lib/errors.js';
 import {
-  cancelSubscription, cancelInsurance, updateInsuranceSettings, listOverduePayers,
+  cancelSubscription, listOverduePayers,
   changePlan, cancelScheduledChange, changeDiscipline, updateDisciplineChangeSettings,
   requestPayerChange, cancelPayerChange, getPayerChange, listPayerChanges,
 } from '../../services/billing.js';
@@ -25,13 +25,6 @@ router.post('/subscriptions/:id/cancel-now', withRlsContext(async (req, client) 
 router.post('/subscriptions/:id/cancel-at-period-end', withRlsContext(async (req, client) => ({
   subscription: await cancelSubscription(client, { id: req.params.id, atPeriodEnd: true, actorId: req.user.id }),
 })));
-
-// POST /admin/insurances/:id/cancel-now | cancel-at-period-end → { id, stripe_status, ends_at, risk_cover }
-// Baja del seguro (B11): inmediata (anula sus recibos open) o a fin de su año. Sin reembolso.
-for (const [path, atPeriodEnd] of [['cancel-now', false], ['cancel-at-period-end', true]]) {
-  router.post(`/insurances/:id/${path}`, withRlsContext(async (req, client) =>
-    cancelInsurance(client, { id: req.params.id, atPeriodEnd, actorId: req.user.id })));
-}
 
 // POST /admin/subscriptions/:id/payer-change { payer_id } → 201 { id, status, new_payer_id, plan_id, discipline_ids,
 //   starts_at, deadline }. Cambio de pagador (B11): el nuevo pagador paga desde la app antes de la fecha límite.
@@ -63,12 +56,6 @@ router.post('/subscriptions/:id/disciplines', withRlsContext(async (req, client)
 // PUT /admin/settings/discipline-changes { per_period } → cambios de disciplina por periodo (entero ≥ 0)
 router.put('/settings/discipline-changes', withRlsContext(async (req, client) => ({
   settings: await updateDisciplineChangeSettings(client, req.body ?? {}, req.user.id),
-})));
-
-// PUT /admin/settings/insurance { price_adult_cents?, price_minor_cents?, enabled? } → valores vigentes.
-// Activar exige los dos precios; desactivar deja que los seguros vivos terminen sin renovarse.
-router.put('/settings/insurance', withRlsContext(async (req, client) => ({
-  settings: await updateInsuranceSettings(client, req.body ?? {}, req.user.id),
 })));
 
 // GET /admin/billing/delinquents|grace?limit&offset → pagadores con algo unpaid / solo past_due (CONTEXT § Moroso)

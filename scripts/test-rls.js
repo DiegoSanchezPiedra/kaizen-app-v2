@@ -92,13 +92,12 @@ async function seed() {
       [a, b]
     );
 
-    // B4.5 — agreements: A firma los 3 en v1.0; B no firma ninguno.
+    // B4.5 — agreements: A firma los 2 en v1.0; B no firma ninguno.
     await c.query(
       `INSERT INTO user_agreements (id, profile_id, signed_by, type, version) VALUES
-         ($1, $2, $2, 'waiver', '1.0'),
-         ($3, $2, $2, 'data_protection', '1.0'),
-         ($4, $2, $2, 'rights_of_image', '1.0')`,
-      [crypto.randomUUID(), a, crypto.randomUUID(), crypto.randomUUID()]
+         ($1, $2, $2, 'data_protection', '1.0'),
+         ($3, $2, $2, 'rights_of_image', '1.0')`,
+      [crypto.randomUUID(), a, crypto.randomUUID()]
     );
   });
 
@@ -413,9 +412,9 @@ async function main() {
         const id = crypto.randomUUID();
         // Como publishDocument: se retira el vigente y se publica el nuevo (todo se deshace al final).
         await c.query(`UPDATE agreement_documents SET retired_at = now()
-                        WHERE type = 'waiver' AND published_at IS NOT NULL AND retired_at IS NULL`);
+                        WHERE type = 'data_protection' AND published_at IS NOT NULL AND retired_at IS NULL`);
         await c.query(`INSERT INTO agreement_documents (id, type, version, storage_path, checksum, published_at, published_by)
-                       VALUES ($1, 'waiver', $2, 'x.pdf', 'x', now(), $3)`, [id, `9.${Date.now()}`, ids.admin]);
+                       VALUES ($1, 'data_protection', $2, 'x.pdf', 'x', now(), $3)`, [id, `9.${Date.now()}`, ids.admin]);
         for (const set of [`version = '0.1'`, `checksum = 'y'`, `storage_path = 'y.pdf'`, 'published_at = NULL', 'published_by = NULL']) {
           assert.equal(await codeOf(`UPDATE agreement_documents SET ${set} WHERE id = $1`, [id]), '42501', set);
         }
@@ -457,20 +456,20 @@ async function main() {
         await n(admin, `DELETE FROM user_mfa WHERE user_id = $1`)], [0, 0, 0]);
     });
 
-    // B20 (B1): de otro perfil solo se pregunta lo que se ve (él, su tutor, el admin; la cobertura, también su profesor).
-    await run('B20 — app_user no llama a has_risk_cover, profile_missing ni discipline_changes_used; visible_* solo de quien ve', async () => {
-      for (const sql of ['SELECT has_risk_cover($1)', 'SELECT profile_missing($1)', 'SELECT discipline_changes_used($1)']) {
+    // B20 (B1): de otro perfil solo se pregunta lo que se ve (él, su tutor, el admin).
+    await run('B20 — app_user no llama a profile_missing ni discipline_changes_used; visible_* solo de quien ve', async () => {
+      for (const sql of ['SELECT profile_missing($1)', 'SELECT discipline_changes_used($1)']) {
         await expectDenied(withCtx(admin, (c) => c.query(sql, [ids.a])));
       }
       const v = (ctx, id) => withCtx(ctx, async (c) => (await c.query(
-        `SELECT visible_profile_missing($1) IS NOT NULL AS m, visible_risk_cover($1) IS NOT NULL AS r,
+        `SELECT visible_profile_missing($1) IS NOT NULL AS m,
                 visible_discipline_changes_used(gen_random_uuid()) IS NULL AS no_sub`, [id])).rows[0]);
-      const all = { m: true, r: true, no_sub: true };
+      const all = { m: true, no_sub: true };
       assert.deepEqual(await v(alumno, ids.a), all);
       assert.deepEqual(await v(admin, ids.a), all);
       assert.deepEqual(await v(tutor, ids.child), all);
-      assert.deepEqual(await v({ uid: ids.b, role: 'alumno' }, ids.a), { ...all, m: false, r: false });
-      assert.deepEqual(await v(profesor, ids.a), { ...all, m: false, r: false }); // A no ha reservado en sus sesiones
+      assert.deepEqual(await v({ uid: ids.b, role: 'alumno' }, ids.a), { ...all, m: false });
+      assert.deepEqual(await v(profesor, ids.a), { ...all, m: false });
     });
 
     // B20 (riesgo de M2): sin privilegios por defecto, una migración que olvide su GRANT dejaría la tabla sin acceso.
@@ -549,7 +548,7 @@ async function main() {
       await withServiceCommit((c) =>
         c.query(
           `INSERT INTO user_agreements (id, profile_id, signed_by, type, version)
-           VALUES ($1, $2, $2, 'waiver', '1.0')`,
+           VALUES ($1, $2, $2, 'data_protection', '1.0')`,
           [crypto.randomUUID(), ids.b]
         )
       );

@@ -36,9 +36,6 @@ const [sub] = await q(
 const [inv] = await q(
   `INSERT INTO invoices (student_id, payer_id, subscription_id, stripe_invoice_id, status, amount_due_cents)
    VALUES ($1, $2, $3, $4, 'open', 4000) RETURNING id`, [U.child, U.tutor, sub.id, `in_test_${U.child}`]);
-const [ins] = await q(
-  `INSERT INTO insurances (student_id, payer_id, status, bracket, stripe_subscription_id, current_period_end)
-   VALUES ($1, $2, 'active', 'minor', $3, '2027-03-01T12:00:00Z') RETURNING id`, [U.child, U.tutor, `sub_ins_${U.child}`]);
 // Cambio de pagador (B11): de tutor (antiguo) a payer (nuevo), al plan Plata desde el 1 de diciembre.
 const [pc] = await q(
   `INSERT INTO payer_changes (subscription_id, student_id, old_payer_id, new_payer_id, plan_id, starts_at, deadline, created_by)
@@ -215,15 +212,10 @@ try {
       ['notice.payment_failed', { type: 'invoice', resourceId: inv.id, next_payment_attempt: '2026-11-05T10:00:00Z' }, billing, /5 de noviembre/],
       ['notice.checkout_payment_failed', { student_id: U.child }, billing],
       ['notice.checkout_race_refunded', { student_id: U.child }, billing],
-      ['notice.insurance_not_paid', { type: 'insurance', resourceId: ins.id, student_id: U.child, reason: 'not_paid' }, billing],
-      ['notice.insurance_renewal', { type: 'insurance', resourceId: ins.id, student_id: U.child, bracket: 'minor', amount_cents: 3500, renews_at: '2027-03-01T12:00:00Z' }, billing, /35,00\s€/],
-      ['notice.insurance_wont_renew', { type: 'insurance', resourceId: ins.id, student_id: U.child, reason: 'turns_18' }, billing, /cambio de tramo de edad/],
       ['notice.plan_downgraded', { student_id: U.child, from_plan_id: planA.id, to_plan_id: planB.id }, billing, /T-Not Oro.*T-Not Plata/],
       ['notice.upgrade_requires_action', { student_id: U.child, from_plan_id: planB.id, plan_id: planA.id, amount_cents: 1250, hosted_invoice_url: hosted, expires_at: new Date(Date.now() + 23 * 3600_000) }, hosted, /12,50\s€/],
       ['notice.subscription_unpaid', { student_id: U.child, plan_id: planA.id, amount_cents: 4000, hosted_invoice_url: hosted }, hosted, /40,00\s€/],
-      ['notice.insurance_unpaid', { type: 'insurance', resourceId: ins.id, student_id: U.child, amount_cents: 3500, hosted_invoice_url: hosted }, hosted],
       ['notice.subscription_cancelled', { student_id: U.child, plan_id: planA.id, ends_at: '2026-12-01T00:00:00Z', discarded_plan_id: planB.id }, billing, /1 de diciembre de 2026.*\n*.*T-Not Plata/],
-      ['notice.insurance_cancelled', { type: 'insurance', resourceId: ins.id, student_id: U.child, ends_at: '2026-10-01T00:00:00Z', voided: 1 }, billing, /efectiva desde hoy[^]*anulado[^]*waiver/],
       // B11, al pagador antiguo (tutor); los textos del nuevo, en el test siguiente.
       ['notice.payer_change_requested', { ...pcNotice, plan_id: planB.id, starts_at: '2026-12-01T10:00:00Z', deadline: '2026-12-01T09:00:00Z' }, `${billing}/payer-changes/${pc.id}`, /20,00\s€ al mes[^]*1 de diciembre de 2026/],
       ['notice.payer_change_paid', { ...pcNotice, from_plan_id: planA.id, plan_id: planB.id }, billing, /Ana Pagadora[^]*1 de diciembre de 2026[^]*T-Not Plata que estaba programado/],
@@ -254,7 +246,6 @@ try {
   await q(`DELETE FROM audit_log WHERE actor_id = ANY($1::uuid[])`, [ids]); // CASCADE a notice_deliveries
   await q(`DELETE FROM payer_changes WHERE student_id = $1`, [U.child]);
   await q(`DELETE FROM invoices WHERE student_id = $1`, [U.child]);
-  await q(`DELETE FROM insurances WHERE student_id = $1`, [U.child]);
   await q(`DELETE FROM subscriptions WHERE student_id = $1`, [U.child]);
   await q(`DELETE FROM plans WHERE id = ANY($1::bigint[])`, [[planA.id, planB.id]]);
   await q(`DELETE FROM guardianships WHERE tutor_id = $1`, [U.tutor]);

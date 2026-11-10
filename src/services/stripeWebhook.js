@@ -1,15 +1,14 @@
-// src/services/stripeWebhook.js — eventos de Stripe (B10, B10.1, B10.3, B10.5, B11, B21.0). Solo el webhook escribe billing (servicePool).
+// src/services/stripeWebhook.js — eventos de Stripe (B10, B10.1, B10.5, B11, B21.0). Solo el webhook escribe billing (servicePool).
 // Los eventos llegan desordenados y repetidos: cada handler relee el objeto actual de Stripe y hace upsert.
 import { servicePool } from '../config/database.js';
 import { stripe } from '../config/stripe.js';
 import {
-  STATUS, ts, idOf, insuranceSettings, insuranceWontRenew, upsertInsurance, startInsurance, pendingPhase, discardSuccessor,
+  STATUS, ts, idOf, pendingPhase, discardSuccessor,
 } from './billing.js';
 import { notice } from './notices.js';
 import { refundRegistration, refundFailed } from './events.js';
 
 const IN_FORCE = ['active', 'past_due'];
-const LIVE = `('active', 'past_due', 'unpaid')`;
 
 /**
  * Procesa un evento ya verificado. La fila de webhook_events se confirma junto con sus efectos:
@@ -98,22 +97,6 @@ async function onCheckoutPaid(client, session) {
   }
   // invoice.paid del primer cobro suele llegar antes que este evento, cuando aún no había fila.
   if (sub.latest_invoice) await syncInvoice(client, idOf(sub.latest_invoice));
-
-  // Eligió el seguro: se crea ahora con la misma tarjeta (ADR 0006). Si no puede crearse, la suscripción sigue.
-  if (m.insurance === 'true') {
-    try {
-      await startInsurance(client, {
-        studentId: m.student_id, payerId: payer, customer: idOf(sub.customer),
-        paymentMethod: idOf(sub.default_payment_method) ?? undefined, idempotencyKey: `insurance-${session.id}`,
-      });
-    } catch (err) {
-      if (!err.status) throw err; // 409: desactivado entre medias o ya tiene seguro
-      await notice(client, {
-        action: 'notice.insurance_not_paid', actorId: payer, type: 'subscription', resourceId: row.id,
-        recipients: [payer], student_id: m.student_id, reason: err.code,
-      });
-    }
-  }
 }
 
 // Pago diferido rechazado: no hay suscripción local; se avisa al pagador.
@@ -295,13 +278,6 @@ async function transferPayer(client, { id }) {
   if (sub.latest_invoice) await syncInvoice(client, idOf(sub.latest_invoice));
 
   await client.query(`SELECT revoke_coverage($1)`, [pc.student_id]);
-  // El seguro no cambia de pagador (CONTEXT § Seguro y cambio de pagador): si lo paga otro, termina sin renovarse.
-  const { rows: [ins] } = await client.query(
-    `SELECT id, student_id, payer_id, stripe_subscription_id FROM insurances
-      WHERE student_id = $1 AND status IN ${LIVE} AND NOT cancel_at_period_end`, [pc.student_id]);
-  if (ins && ins.payer_id !== pc.new_payer_id) {
-    await insuranceWontRenew(client, ins, 'payer_changed', [ins.payer_id, pc.new_payer_id]);
-  }
   return true;
 }
 
@@ -333,7 +309,6 @@ async function markExpired(client, pc, successorId) {
 
 async function onSubscriptionChange(client, obj) {
   const sub = await stripe.subscriptions.retrieve(obj.id);
-  if (sub.metadata?.kind === 'insurance') return onInsuranceChange(client, sub);
   const status = STATUS[sub.status];
   if (!status) {
     // trialing / paused de otra app de la cuenta (maat): solo es un error si la suscripción es nuestra.
@@ -366,18 +341,7 @@ async function onSubscriptionChange(client, obj) {
   }
   // Pérdida de cobertura (CONTEXT § Reservas). En gracia (past_due) no se pierde nada.
   if (!IN_FORCE.includes(status)) await client.query(`SELECT revoke_coverage($1)`, [row.student_id]);
-  if (status === 'unpaid' && row.was !== 'unpaid') {
-    await unpaidNotice(client, 'subscription', row, sub, { plan_id: row.plan_id });
-  }
-  // Baja sin otra suscripción viva: el seguro sigue hasta el final de su año y no renueva (CONTEXT § Seguro).
-  if (status === 'cancelled') {
-    const { rows: [ins] } = await client.query(
-      `SELECT i.id, i.student_id, i.payer_id, i.stripe_subscription_id FROM insurances i
-        WHERE i.student_id = $1 AND i.status IN ${LIVE} AND NOT i.cancel_at_period_end
-          AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.student_id = i.student_id AND s.status IN ${LIVE})`,
-      [row.student_id]);
-    if (ins) await insuranceWontRenew(client, ins, 'subscription_cancelled');
-  }
+  if (status === 'unpaid' && row.was !== 'unpaid') await unpaidNotice(client, row, sub);
 }
 
 const disciplineIds = (m) => (m.discipline_ids ? m.discipline_ids.split(',') : []);
@@ -431,68 +395,12 @@ async function onSchedule(client, obj) {
 }
 
 // Impagada (B10.6): solo en la transición a unpaid, no en cada evento. El pagador paga el recibo open en Stripe.
-async function unpaidNotice(client, kind, row, sub, extra = {}) {
+async function unpaidNotice(client, row, sub) {
   const inv = await stripe.invoices.retrieve(idOf(sub.latest_invoice));
   await notice(client, {
-    action: `notice.${kind}_unpaid`, actorId: row.payer_id, type: kind,
-    resourceId: row.id, recipients: [row.payer_id], student_id: row.student_id, ...extra,
+    action: 'notice.subscription_unpaid', actorId: row.payer_id, type: 'subscription',
+    resourceId: row.id, recipients: [row.payer_id], student_id: row.student_id, plan_id: row.plan_id,
     amount_cents: inv.amount_due, hosted_invoice_url: inv.hosted_invoice_url,
-  });
-}
-
-// Seguro (B10.3). Sin revoke_coverage: perder la cobertura de riesgo impide reservar pero no cancela reservas.
-async function onInsuranceChange(client, sub) {
-  const payer = await payerOf(client, sub.customer);
-  if (!payer || payer !== sub.metadata.payer_id) {
-    throw new Error(`seguro ${sub.id}: el cliente ${idOf(sub.customer)} no es el pagador ${sub.metadata.payer_id}`);
-  }
-  const { rows: [was] } = await client.query(
-    `SELECT status FROM insurances WHERE stripe_subscription_id = $1 FOR UPDATE`, [sub.id]);
-  const row = await upsertInsurance(client, sub);
-  // El primer año no llegó a pagarse (incomplete_expired): sin cobertura de riesgo, aviso al pagador.
-  if (STATUS[sub.status] === 'cancelled' && (was?.status ?? 'incomplete') === 'incomplete') {
-    await notice(client, {
-      action: 'notice.insurance_not_paid', actorId: payer, type: 'insurance', resourceId: row.id,
-      recipients: [payer], student_id: row.student_id, reason: 'not_paid',
-    });
-  }
-  if (STATUS[sub.status] === 'unpaid' && was?.status !== 'unpaid') {
-    await unpaidNotice(client, 'insurance', row, sub);
-  }
-}
-
-// Aviso de renovación del seguro: invoice.upcoming, 30 días antes (Dashboard: Upcoming renewal events).
-// Fija precio y tramo (edad de hoy) o, en los casos de CONTEXT § Seguro, deja que termine sin renovarse.
-async function onUpcoming(client, inv) {
-  const subId = inv.parent?.subscription_details?.subscription;
-  const { rows: [i] } = await client.query(
-    `SELECT i.id, i.student_id, i.payer_id, i.stripe_subscription_id, i.current_period_end,
-            (SELECT s.payer_id FROM subscriptions s WHERE s.student_id = i.student_id AND s.status IN ${LIVE}) AS sub_payer,
-            EXISTS (SELECT 1 FROM guardianships g WHERE g.minor_id = i.student_id)
-              AND p.birth_date + interval '18 years' <= i.current_period_end AS turns_18,
-            CASE WHEN p.birth_date > CURRENT_DATE - interval '18 years' THEN 'minor' ELSE 'adult' END AS bracket
-       FROM insurances i JOIN profiles p ON p.id = i.student_id
-      WHERE i.stripe_subscription_id = $1 AND i.status IN ${LIVE} AND NOT i.cancel_at_period_end`, [subId]);
-  if (!i) return; // cuota, otra app de la cuenta o un seguro que ya no renueva
-  const s = await insuranceSettings(client);
-  // El aviso va al pagador actual de la suscripción (CONTEXT § Seguro y cambio de pagador).
-  const recipients = [...new Set([i.payer_id, i.sub_payer].filter(Boolean))];
-  // Hijo que cumple 18 antes de renovar: se decide en el aviso, haya reclamado o no (plan B10.3).
-  const reason = s.insurance_enabled !== true ? 'disabled'
-    : !i.sub_payer ? 'subscription_cancelled'
-      : i.sub_payer !== i.payer_id ? 'payer_changed'
-        : i.turns_18 ? 'turns_18' : null;
-  if (reason) return insuranceWontRenew(client, i, reason, recipients);
-
-  const price = s[`insurance_stripe_price_${i.bracket}`];
-  const item = (await stripe.subscriptions.retrieve(subId)).items.data[0];
-  if (item.price.id !== price) {
-    await stripe.subscriptions.update(subId, { items: [{ id: item.id, price }], proration_behavior: 'none' });
-  }
-  await notice(client, {
-    action: 'notice.insurance_renewal', actorId: i.payer_id, type: 'insurance', resourceId: i.id, recipients,
-    student_id: i.student_id, bracket: i.bracket, amount_cents: s[`insurance_price_${i.bracket}_cents`],
-    renews_at: i.current_period_end,
   });
 }
 
@@ -503,15 +411,8 @@ async function syncInvoice(client, invoiceId) {
   const subId = inv.parent?.subscription_details?.subscription;
   if (!subId) return null; // Kaizen no emite recibos sueltos
   const owner = async () => (await client.query(
-    `SELECT id, student_id, payer_id, 'subscription' AS kind FROM subscriptions WHERE stripe_subscription_id = $1
-     UNION ALL
-     SELECT id, student_id, payer_id, 'insurance' FROM insurances WHERE stripe_subscription_id = $1`, [subId])).rows[0];
+    `SELECT id, student_id, payer_id FROM subscriptions WHERE stripe_subscription_id = $1`, [subId])).rows[0];
   let s = await owner();
-  // El seguro factura al crearse, a veces antes de que se confirme su fila: se crea desde Stripe.
-  if (!s && inv.parent.subscription_details.metadata?.kind === 'insurance') {
-    await onInsuranceChange(client, await stripe.subscriptions.retrieve(subId));
-    s = await owner();
-  }
   // Recibo de una sucesora sin fila (B11): primer evento de D, hace el traspaso.
   if (!s) {
     const pc = await paidChange(client, 'stripe_subscription_id', subId);
@@ -523,18 +424,18 @@ async function syncInvoice(client, invoiceId) {
   const { rows: [row] } = await client.query(
     `INSERT INTO invoices (student_id, payer_id, subscription_id, stripe_invoice_id, status, currency,
                            amount_due_cents, amount_paid_cents, paid_at, attempt_count, next_payment_attempt,
-                           last_payment_error, hosted_invoice_url, invoice_pdf, period_start, period_end, insurance_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                           last_payment_error, hosted_invoice_url, invoice_pdf, period_start, period_end)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
      ON CONFLICT (stripe_invoice_id) DO UPDATE SET
        status = EXCLUDED.status, amount_due_cents = EXCLUDED.amount_due_cents,
        amount_paid_cents = EXCLUDED.amount_paid_cents, paid_at = EXCLUDED.paid_at,
        attempt_count = EXCLUDED.attempt_count, next_payment_attempt = EXCLUDED.next_payment_attempt,
        last_payment_error = COALESCE(EXCLUDED.last_payment_error, invoices.last_payment_error),
        hosted_invoice_url = EXCLUDED.hosted_invoice_url, invoice_pdf = EXCLUDED.invoice_pdf
-     RETURNING id, payer_id, insurance_id, attempt_count, next_payment_attempt, last_payment_error`,
-    [s.student_id, s.payer_id, s.kind === 'subscription' ? s.id : null, inv.id, inv.status, inv.currency, inv.amount_due, inv.amount_paid,
+     RETURNING id, payer_id, attempt_count, next_payment_attempt, last_payment_error`,
+    [s.student_id, s.payer_id, s.id, inv.id, inv.status, inv.currency, inv.amount_due, inv.amount_paid,
       ts(inv.status_transitions?.paid_at), inv.attempt_count, ts(inv.next_payment_attempt), err ?? null,
-      inv.hosted_invoice_url, inv.invoice_pdf, ts(period?.start), ts(period?.end), s.kind === 'insurance' ? s.id : null]);
+      inv.hosted_invoice_url, inv.invoice_pdf, ts(period?.start), ts(period?.end)]);
   return { ...row, billing_reason: inv.billing_reason };
 }
 
@@ -542,11 +443,9 @@ async function onInvoice(client, obj, event) {
   const row = await syncInvoice(client, obj.id);
   // Cobro fallido: no quita acceso (la suscripción pasa a past_due); aviso solo al pagador, nunca al hijo.
   // Solo el primer intento (B11): los reintentos no avisan y, si se agotan, avisa el paso a unpaid (2 emails, no 9).
-  // Primer cobro del seguro: el pagador está en pantalla (3DS o rechazo); si no llega a pagarse, avisa la caducidad.
   // Prorrateo de una subida (B10.5): quien la pide está en pantalla (402) y el recibo se anula.
-  const onScreen = (row?.insurance_id && row.billing_reason === 'subscription_create')
-    || row?.billing_reason === 'subscription_update';
-  if (row && event.type === 'invoice.payment_failed' && !onScreen && row.attempt_count === 1) {
+  if (row && event.type === 'invoice.payment_failed' && row.billing_reason !== 'subscription_update'
+      && row.attempt_count === 1) {
     await notice(client, {
       action: 'notice.payment_failed', actorId: row.payer_id, type: 'invoice', resourceId: row.id,
       recipients: [row.payer_id], next_payment_attempt: row.next_payment_attempt, error: row.last_payment_error,
@@ -577,14 +476,13 @@ const HANDLERS = {
   'checkout.session.async_payment_succeeded': onCheckoutPaid,
   'checkout.session.async_payment_failed': onCheckoutFailed,
   'checkout.session.expired': onCheckoutExpired, // B21.0: hay que suscribirlo en el endpoint de Stripe
-  'customer.subscription.created': onSubscriptionChange, // el seguro nace en servidor (la cuota, en el Checkout)
+  'customer.subscription.created': onSubscriptionChange,
   'customer.subscription.updated': onSubscriptionChange,
   'customer.subscription.deleted': onSubscriptionChange,
   'invoice.finalized': onInvoice,
   'invoice.paid': onInvoice,
   'invoice.payment_failed': onInvoice,
   'invoice.voided': onInvoice, // subida rechazada o pending update caducado
-  'invoice.upcoming': onUpcoming,
   'charge.refunded': onRisk,
   'refund.failed': onRefundFailed, // B21.0: hay que suscribirlo en el endpoint de Stripe
   'charge.dispute.created': onRisk,

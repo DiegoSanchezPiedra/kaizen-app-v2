@@ -117,7 +117,7 @@ async function cleanup() {
   try {
     await client.query('BEGIN');
     // user_mfa, auth_credentials, user_roles: ON DELETE CASCADE o RESTRICT
-    // Borramos en orden seguro.
+    // Borramos en este orden.
     await client.query(`DELETE FROM user_mfa WHERE user_id = $1`, [adminProfileId]);
     await client.query(`DELETE FROM auth_credentials WHERE profile_id = $1`, [adminProfileId]);
     await client.query(`DELETE FROM user_roles WHERE user_id = $1`, [adminProfileId]);

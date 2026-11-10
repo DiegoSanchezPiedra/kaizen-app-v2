@@ -1,7 +1,7 @@
-// src/services/billing.js — contratar (CONTEXT § Suscripción), portal del pagador (B10) y seguro (B10.3).
+// src/services/billing.js — contratar (CONTEXT § Suscripción) y portal del pagador (B10).
 // La suscripción local no nace aquí: nace en el webhook cuando Stripe confirma el pago.
 import { servicePool } from '../config/database.js';
-import { stripe, STRIPE_PORTAL_CONFIGURATION_ID, APP_URL, STRIPE_STATEMENT_DESCRIPTOR } from '../config/stripe.js';
+import { stripe, STRIPE_PORTAL_CONFIGURATION_ID, APP_URL } from '../config/stripe.js';
 import { httpError } from '../lib/errors.js';
 import { parseId, invalid, audit } from './catalog.js';
 import { notice } from './notices.js';
@@ -84,34 +84,16 @@ async function validateOrder(client, { studentId, planId, disciplineIds = [] }) 
  * tutor→hijo los comprueba antes requireCompleteProfile.
  * @returns {{ url: string }}
  */
-export async function createCheckout(client, { payerId, studentId, planId, disciplineIds = [], insurance = false }) {
-  if (typeof insurance !== 'boolean') throw invalid('insurance', 'insurance debe ser booleano');
+export async function createCheckout(client, { payerId, studentId, planId, disciplineIds = [] }) {
   const { plan, ids } = await validateOrder(client, { studentId, planId, disciplineIds });
 
   const { rowCount } = await client.query(
     `SELECT 1 FROM subscriptions WHERE student_id = $1 AND status IN ${LIVE}`, [studentId]);
   if (rowCount) throw httpError(409, 'subscription_exists', 'El alumno ya tiene una suscripción');
 
-  // Elegir la cobertura (CONTEXT § Seguro): seguro o waiver, salvo que ya tenga cobertura de riesgo.
-  // El waiver se firma antes (acuerdos); el seguro lo crea el webhook tras el pago (ADR 0006).
-  const { rows: [rc] } = await client.query(
-    `SELECT visible_risk_cover($1) AS covered,
-            EXISTS (SELECT 1 FROM insurances WHERE student_id = $1 AND status IN ${LIVE}) AS insured`, [studentId]);
-  if (insurance) {
-    if ((await insuranceSettings(client)).insurance_enabled !== true) {
-      throw httpError(409, 'insurance_disabled', 'La academia no ofrece el seguro');
-    }
-    if (rc.insured) throw httpError(409, 'insurance_exists', 'El alumno ya tiene un seguro');
-  } else if (!rc.covered) {
-    throw httpError(409, 'risk_cover_required', 'Elige el seguro o firma el waiver antes de pagar');
-  }
-
   const customer = await ensureCustomer(client, payerId);
   // Contenido del pedido; el webhook resuelve pagador y suscripción por el grafo de Stripe, no por aquí.
-  const metadata = {
-    student_id: studentId, payer_id: payerId, plan_id: plan.id, discipline_ids: ids.join(','),
-    ...(insurance && { insurance: 'true' }),
-  };
+  const metadata = { student_id: studentId, payer_id: payerId, plan_id: plan.id, discipline_ids: ids.join(',') };
   // Sin payment_method_types (skill de Stripe): «solo tarjeta» se configura en el Dashboard.
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
@@ -152,7 +134,7 @@ async function voidOpenInvoices(subId) {
 /**
  * Baja de una suscripción (CONTEXT § Baja: solo el admin). Se pide a Stripe; el estado local
  * lo actualiza el webhook (customer.subscription.updated / deleted), como todo lo de billing.
- * La inmediata anula sus recibos open. Anula el cambio de pagador pendiente (y su sucesora). No toca el seguro (B10.3).
+ * La inmediata anula sus recibos open. Anula el cambio de pagador pendiente (y su sucesora).
  */
 export async function cancelSubscription(client, { id, atPeriodEnd, actorId }) {
   const { rows: [s] } = await client.query(
@@ -337,7 +319,7 @@ export async function changeDiscipline(client, { id, actorId, isAdmin, fromId, t
     throw httpError(403, 'not_allowed', 'No puedes cambiar las disciplinas de este alumno');
   }
 
-  // change_discipline es interna (servicePool), como startInsurance.
+  // change_discipline es interna (servicePool).
   const db = await servicePool.connect();
   try {
     await db.query('BEGIN');
@@ -393,6 +375,10 @@ export async function getSubscription(client, { studentId }) {
   if (!s) throw httpError(404, 'subscription_not_found', 'El alumno no tiene suscripción');
   return s;
 }
+
+const setSetting = (client, key, value) => client.query(
+  `INSERT INTO academy_settings (key, value) VALUES ($1, $2::jsonb)
+   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [key, JSON.stringify(value)]);
 
 /** Cambios de disciplina por periodo (solo admin). Admite 0: sin cambios, salvo los gratis. */
 export async function updateDisciplineChangeSettings(client, body, actorId) {
@@ -669,265 +655,13 @@ export async function payerChangeCheckout(client, { id, payerId }) {
   });
 }
 
-// --- Seguro (B10.3; CONTEXT § Seguro y cobertura de riesgo; ADR 0006) ---
-// 2.ª suscripción anual de Stripe del mismo cliente (metadata.kind = 'insurance'). Parámetros en academy_settings.
-
-const INSURANCE_KEYS = [
-  'insurance_enabled', 'insurance_price_adult_cents', 'insurance_price_minor_cents',
-  'insurance_stripe_price_adult', 'insurance_stripe_price_minor', 'insurance_stripe_product',
-];
-
-/** Parámetros del seguro tal cual, por clave de academy_settings. */
-export async function insuranceSettings(db) {
-  const { rows } = await db.query(`SELECT key, value FROM academy_settings WHERE key = ANY($1)`, [INSURANCE_KEYS]);
-  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
-}
-
-const setSetting = (client, key, value) => client.query(
-  `INSERT INTO academy_settings (key, value) VALUES ($1, $2::jsonb)
-   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [key, JSON.stringify(value)]);
-
-/**
- * Precios (adulto / menor, > 0 €) y activación del seguro (solo admin). Cada precio nuevo es un Price anual
- * nuevo y el anterior se archiva; los seguros vivos no cambian aquí: el aviso de renovación fija su precio.
- * Desactivar: los seguros vivos terminan al final de su año, con aviso a su pagador.
- */
-export async function updateInsuranceSettings(client, body, actorId) {
-  for (const f of ['price_adult_cents', 'price_minor_cents']) {
-    if (body[f] !== undefined && !(Number.isInteger(body[f]) && body[f] > 0 && body[f] <= 10_000_000)) {
-      throw invalid(f, `${f} debe ser un entero mayor que 0 (céntimos)`);
-    }
-  }
-  if (body.enabled !== undefined && typeof body.enabled !== 'boolean') throw invalid('enabled', 'enabled debe ser booleano');
-  const s = await insuranceSettings(client);
-
-  for (const bracket of ['adult', 'minor']) {
-    const cents = body[`price_${bracket}_cents`];
-    const before = s[`insurance_price_${bracket}_cents`] ?? null;
-    if (cents === undefined || cents === before) continue;
-    if (!s.insurance_stripe_product) {
-      s.insurance_stripe_product = (await stripe.products.create({
-        name: 'Seguro', metadata: { kind: 'insurance' }, statement_descriptor: STRIPE_STATEMENT_DESCRIPTOR,
-      })).id;
-      await setSetting(client, 'insurance_stripe_product', s.insurance_stripe_product);
-    }
-    const price = await stripe.prices.create({
-      product: s.insurance_stripe_product, currency: 'eur', unit_amount: cents, recurring: { interval: 'year' },
-      tax_behavior: 'inclusive', metadata: { bracket },
-    });
-    const old = s[`insurance_stripe_price_${bracket}`];
-    if (old) await stripe.prices.update(old, { active: false });
-    s[`insurance_stripe_price_${bracket}`] = price.id;
-    await setSetting(client, `insurance_price_${bracket}_cents`, cents);
-    await setSetting(client, `insurance_stripe_price_${bracket}`, price.id);
-    await audit(client, actorId, 'insurance.price_change', bracket, { from: before, to: cents });
-  }
-
-  if (body.enabled !== undefined && body.enabled !== (s.insurance_enabled === true)) {
-    if (body.enabled && !(s.insurance_stripe_price_adult && s.insurance_stripe_price_minor)) {
-      throw httpError(409, 'insurance_prices_missing', 'Pon los dos precios antes de activar el seguro');
-    }
-    await setSetting(client, 'insurance_enabled', body.enabled);
-    await audit(client, actorId, body.enabled ? 'insurance.enable' : 'insurance.disable', 'settings', {});
-    if (!body.enabled) {
-      const { rows } = await client.query(
-        `SELECT id, student_id, payer_id, stripe_subscription_id FROM insurances
-          WHERE status IN ${LIVE} AND NOT cancel_at_period_end`);
-      // shortcut: secuencial dentro de la petición, como el cambio de precio de un plan; con cientos de seguros, a un job.
-      // servicePool tras Stripe, como la baja admin: app_user no escribe entregas.
-      for (const i of rows) await insuranceWontRenew(servicePool, i, 'disabled');
-    }
-  }
-  return getInsuranceSettings(client);
-}
-
-export async function getInsuranceSettings(client) {
-  const r = await insuranceSettings(client);
-  return {
-    enabled: r.insurance_enabled === true,
-    price_adult_cents: r.insurance_price_adult_cents ?? null,
-    price_minor_cents: r.insurance_price_minor_cents ?? null,
-  };
-}
-
-/** El seguro termina al final de su año sin renovarse; aviso al pagador (y al actual, si es otro). */
-export async function insuranceWontRenew(db, ins, reason, recipients = [ins.payer_id]) {
-  // Repetido (eventos duplicados o desordenados): Stripe ya lo tiene, no se avisa otra vez.
-  if ((await stripe.subscriptions.retrieve(ins.stripe_subscription_id)).cancel_at_period_end) return;
-  await stripe.subscriptions.update(ins.stripe_subscription_id, { cancel_at_period_end: true });
-  await notice(db, {
-    action: 'notice.insurance_wont_renew', actorId: ins.payer_id, type: 'insurance', resourceId: ins.id,
-    recipients, student_id: ins.student_id, reason,
-  });
-}
-
-/**
- * Baja del seguro (CONTEXT § Baja del seguro: solo el admin). A fin de su año (no renueva) o inmediata, que anula
- * sus recibos open. Sin reembolso: ni prorate ni invoice_now, porque el saldo a favor del cliente, compartido con la
- * cuota (ADR 0006), se comería las cuotas. El estado local llega por el webhook.
- * @returns {{ id, stripe_status, ends_at, risk_cover }} risk_cover: si le queda cobertura de riesgo (waiver) sin el seguro.
- */
-export async function cancelInsurance(client, { id, atPeriodEnd, actorId }) {
-  const { rows: [i] } = await client.query(
-    `SELECT i.student_id, i.payer_id, i.status, i.stripe_subscription_id,
-            (SELECT s.payer_id FROM subscriptions s WHERE s.student_id = i.student_id AND s.status IN ${LIVE}) AS sub_payer
-       FROM insurances i WHERE i.id = $1`, [id]);
-  if (!i) throw httpError(404, 'insurance_not_found', 'Seguro no encontrado');
-  // Stripe manda: se relee antes de decidir.
-  const current = i.status === 'cancelled' ? null : await stripe.subscriptions.retrieve(i.stripe_subscription_id);
-  const status = current ? STATUS[current.status] : 'cancelled';
-  if (status === 'cancelled') throw httpError(409, 'insurance_cancelled', 'El seguro ya está cancelado');
-  if (!['active', 'past_due', 'unpaid'].includes(status)) {
-    throw httpError(409, 'insurance_not_live', 'El seguro aún no se ha pagado');
-  }
-  if (atPeriodEnd && current.cancel_at_period_end) {
-    throw httpError(409, 'insurance_cancel_scheduled', 'El seguro ya no se renueva');
-  }
-  await audit(client, actorId, atPeriodEnd ? 'insurance.cancel_at_period_end' : 'insurance.cancel_now', id, {});
-  const sub = atPeriodEnd
-    ? await stripe.subscriptions.update(current.id, { cancel_at_period_end: true })
-    : await stripe.subscriptions.cancel(current.id);
-  const voided = atPeriodEnd ? 0 : await voidOpenInvoices(sub.id);
-  const endsAt = ts(sub.cancel_at ?? sub.ended_at);
-  // servicePool tras Stripe, como la baja de la suscripción.
-  await notice(servicePool, {
-    action: 'notice.insurance_cancelled', actorId, type: 'insurance', resourceId: id,
-    recipients: [...new Set([i.payer_id, i.sub_payer].filter(Boolean))], student_id: i.student_id, ends_at: endsAt, voided,
-  });
-  // signed_current es interna (013): servicePool.
-  const { rows: [{ waiver }] } = await servicePool.query(`SELECT signed_current($1, 'waiver') AS waiver`, [i.student_id]);
-  return { id, stripe_status: sub.status, ends_at: endsAt, risk_cover: waiver };
-}
-
-/** Fila local del seguro desde la suscripción de Stripe. La escriben startInsurance y el webhook: upsert. */
-export async function upsertInsurance(db, sub) {
-  const status = STATUS[sub.status];
-  if (!status) throw new Error(`estado de Stripe sin mapear: ${sub.status} (${sub.id})`);
-  const item = sub.items.data[0];
-  const { rows: [row] } = await db.query(
-    `INSERT INTO insurances (student_id, payer_id, status, bracket, stripe_subscription_id,
-                             current_period_start, current_period_end, cancel_at_period_end, cancelled_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-     ON CONFLICT (stripe_subscription_id) DO UPDATE SET
-       status = EXCLUDED.status, bracket = EXCLUDED.bracket, current_period_start = EXCLUDED.current_period_start,
-       current_period_end = EXCLUDED.current_period_end, cancel_at_period_end = EXCLUDED.cancel_at_period_end,
-       cancelled_at = EXCLUDED.cancelled_at
-     RETURNING id, student_id, payer_id`,
-    [sub.metadata.student_id, sub.metadata.payer_id, status, item.price.metadata.bracket, sub.id,
-      ts(item.current_period_start), ts(item.current_period_end), sub.cancel_at_period_end, ts(sub.ended_at)]);
-  return row;
-}
-
-// Estado del primer cobro de un seguro incomplete. requires_action → el pagador hace el 3DS con
-// stripe.handleNextAction({ clientSecret }) en el cliente.
-async function firstPayment(sub) {
-  if (sub.status !== 'incomplete') return { status: STATUS[sub.status] };
-  const inv = await stripe.invoices.retrieve(idOf(sub.latest_invoice),
-    { expand: ['confirmation_secret', 'payments.data.payment.payment_intent'] });
-  const pi = inv.payments?.data?.[0]?.payment.payment_intent;
-  return {
-    status: 'incomplete', payment_status: pi?.status ?? null,
-    client_secret: pi?.status === 'requires_action' ? inv.confirmation_secret?.client_secret ?? null : null,
-  };
-}
-
-/**
- * Crea el seguro en Stripe y cobra su primer año con la tarjeta de la cuota (ADR 0006): default_incomplete,
- * pago en servidor y, si el banco pide 3DS, lo completa el pagador. Si no se paga, Stripe lo deja
- * incomplete 23 h y luego lo cancela; la suscripción no se toca. `db`: cliente de servicePool en transacción.
- * Si ya hay un seguro incomplete del alumno, reintenta ese en vez de crear otro (no cobra dos veces).
- */
-export async function startInsurance(db, { studentId, payerId, customer, paymentMethod, idempotencyKey }) {
-  await db.query(`SELECT lock_student($1)`, [studentId]);
-  const { rows: [cur] } = await db.query(
-    `SELECT stripe_subscription_id, status FROM insurances
-      WHERE student_id = $1 AND status IN ('incomplete', 'active', 'past_due', 'unpaid')
-      ORDER BY status = 'incomplete', created_at DESC LIMIT 1`, [studentId]);
-  if (cur && cur.status !== 'incomplete') throw httpError(409, 'insurance_exists', 'El alumno ya tiene un seguro');
-  const s = await insuranceSettings(db);
-  if (s.insurance_enabled !== true) throw httpError(409, 'insurance_disabled', 'La academia no ofrece el seguro');
-
-  let sub;
-  if (cur) {
-    sub = await stripe.subscriptions.retrieve(cur.stripe_subscription_id, { expand: ['latest_invoice'] });
-  } else {
-    // Tramo por la edad de hoy.
-    const { rows: [{ bracket }] } = await db.query(
-      `SELECT CASE WHEN birth_date > CURRENT_DATE - interval '18 years' THEN 'minor' ELSE 'adult' END AS bracket
-         FROM profiles WHERE id = $1`, [studentId]);
-    sub = await stripe.subscriptions.create({
-      customer, items: [{ price: s[`insurance_stripe_price_${bracket}`] }], default_payment_method: paymentMethod,
-      payment_behavior: 'default_incomplete', payment_settings: { save_default_payment_method: 'on_subscription' },
-      metadata: { kind: 'insurance', student_id: studentId, payer_id: payerId }, expand: ['latest_invoice'],
-    }, idempotencyKey && { idempotencyKey });
-  }
-  if (sub.status === 'incomplete' && sub.latest_invoice.status === 'open') {
-    try {
-      await stripe.invoices.pay(sub.latest_invoice.id, { payment_method: paymentMethod, off_session: false });
-    } catch (err) {
-      // 3DS pendiente o tarjeta rechazada: queda incomplete (el rechazo avisa por invoice.payment_failed).
-      if (err.type !== 'StripeCardError' && err.code !== 'invoice_payment_intent_requires_action') throw err;
-    }
-    sub = await stripe.subscriptions.retrieve(sub.id);
-  }
-  const row = await upsertInsurance(db, sub);
-  return { id: row.id, ...(await firstPayment(sub)) };
-}
-
-/**
- * Contratar el seguro después (CONTEXT § Elegir la cobertura): solo el pagador actual de la suscripción viva
- * del alumno, sin seguro vivo y con el seguro activado.
- */
-export async function contractInsurance(client, { payerId, studentId }) {
-  const { rows: [s] } = await client.query(
-    `SELECT payer_id, stripe_subscription_id FROM subscriptions WHERE student_id = $1 AND status IN ${LIVE}`, [studentId]);
-  if (!s) throw httpError(409, 'subscription_required', 'El alumno no tiene una suscripción');
-  if (s.payer_id !== payerId) throw httpError(403, 'not_payer', 'Solo el pagador de la suscripción contrata el seguro');
-  const [sub, { rows: [p] }] = await Promise.all([
-    stripe.subscriptions.retrieve(s.stripe_subscription_id),
-    client.query(`SELECT stripe_customer_id FROM profiles WHERE id = $1`, [payerId]),
-  ]);
-  // app_user no escribe insurances: transacción propia con servicePool.
-  const db = await servicePool.connect();
-  try {
-    await db.query('BEGIN');
-    const out = await startInsurance(db, {
-      studentId, payerId, customer: p.stripe_customer_id, paymentMethod: idOf(sub.default_payment_method) ?? undefined,
-    });
-    await db.query('COMMIT');
-    return out;
-  } catch (err) {
-    await db.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    db.release();
-  }
-}
-
-/** Último seguro del alumno (la RLS decide quién lo ve). El client_secret del 3DS solo va al pagador. */
-export async function getInsurance(client, { userId, studentId }) {
-  const { rows: [i] } = await client.query(
-    `SELECT id, payer_id, status, bracket, current_period_end, cancel_at_period_end, stripe_subscription_id
-       FROM insurances WHERE student_id = $1 ORDER BY created_at DESC LIMIT 1`, [studentId]);
-  if (!i) throw httpError(404, 'insurance_not_found', 'El alumno no tiene seguro');
-  const { payer_id: payer, stripe_subscription_id: subId, ...out } = i;
-  if (i.status === 'incomplete' && payer === userId) {
-    Object.assign(out, await firstPayment(await stripe.subscriptions.retrieve(subId)));
-  }
-  return out;
-}
-
-// Una suscripción o seguro afectado = en periodo de gracia (past_due) o impagado (unpaid).
+// Una suscripción afectada = en periodo de gracia (past_due) o impagado (unpaid).
 // `delinquent`: el placeholder o literal booleano (true = morosos). Lo reusa el KPI «Impago» de Usuarios (users.js).
 export const affectedSql = (delinquent) => `
   affected AS (
     SELECT 'subscription' AS kind, s.id, s.payer_id, s.student_id, s.status, pl.name AS label,
            s.current_period_end, s.cancel_at_period_end
       FROM subscriptions s JOIN plans pl ON pl.id = s.plan_id WHERE s.status IN ('past_due', 'unpaid')
-    UNION ALL
-    SELECT 'insurance', i.id, i.payer_id, i.student_id, i.status, i.bracket,
-           i.current_period_end, i.cancel_at_period_end
-      FROM insurances i WHERE i.status IN ('past_due', 'unpaid')
   ),
   -- Moroso = algo unpaid; en gracia = solo past_due. Un pagador sale en una sola lista.
   payers AS (
@@ -935,8 +669,8 @@ export const affectedSql = (delinquent) => `
   )`;
 
 /**
- * Pagadores morosos (`delinquent`) o en periodo de gracia (`grace`), con sus suscripciones y seguros
- * afectados y los recibos pendientes. Solo lectura: lo escribe el webhook y la RLS decide quién lo ve.
+ * Pagadores morosos (`delinquent`) o en periodo de gracia (`grace`), con sus suscripciones
+ * afectadas y los recibos pendientes. Solo lectura: lo escribe el webhook y la RLS decide quién lo ve.
  */
 export async function listOverduePayers(client, { list, limit = 25, offset = 0 }) {
   limit = Number(limit);
@@ -950,7 +684,7 @@ export async function listOverduePayers(client, { list, limit = 25, offset = 0 }
      pending AS (
        SELECT a.payer_id, a.id AS item_id, v.id, v.period_start, v.amount_due_cents, v.attempt_count,
               v.next_payment_attempt, v.last_payment_error, v.hosted_invoice_url
-         FROM invoices v JOIN affected a ON a.id = COALESCE(v.subscription_id, v.insurance_id)
+         FROM invoices v JOIN affected a ON a.id = v.subscription_id
         WHERE v.status = 'open'
      )
      SELECT p.payer_id, pr.display_name,

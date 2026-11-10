@@ -431,7 +431,7 @@ try {
   await run('hijo con 18 sin reclamar: el tutor no ve su progreso, reservas, asistencia ni acuerdos; sigue en su lista', async () => {
     const ua = crypto.randomUUID(); // firmado por otro tutor: el tutor no lo ve por ser el firmante
     await servicePool.query(`INSERT INTO user_agreements (id, profile_id, signed_by, type, version)
-                             VALUES ($1, $2, $3, 'waiver', '1.0')`, [ua, who.child, who.tutor2]);
+                             VALUES ($1, $2, $3, 'rights_of_image', '1.0')`, [ua, who.child, who.tutor2]);
     const seen = () => withRls({ uid: who.tutor, role: 'tutor' }, (c2) => Promise.all([
       'SELECT 1 FROM bookings WHERE student_id = $1', 'SELECT 1 FROM attendance WHERE student_id = $1',
       'SELECT 1 FROM user_agreements WHERE profile_id = $1', 'SELECT 1 FROM profiles WHERE id = $1',

@@ -31,10 +31,10 @@ const tag = `tev${crypto.randomBytes(3).toString('hex')}`;
 // [rol, fecha de nacimiento]
 const people = {
   admin: ['admin', null], prof: ['profesor', null], prof2: ['profesor', null],
-  alu: ['alumno', yearsAgo(30)], // completo, waiver, socio
-  alu2: ['alumno', yearsAgo(28)], // completo, waiver, no socio
+  alu: ['alumno', yearsAgo(30)], // completo, socio
+  alu2: ['alumno', yearsAgo(28)], // completo, no socio
   alu3: ['alumno', yearsAgo(26)], // sin ficha de salud
-  alu4: ['alumno', yearsAgo(24)], // completo, sin waiver
+  alu4: ['alumno', yearsAgo(24)], // completo
   tutor1: ['tutor', yearsAgo(40)], tutor2: ['tutor', yearsAgo(41)], tutorX: ['tutor', yearsAgo(42)], // tutorX sin data_protection
   child: ['alumno', yearsAgo(10)], // de tutor1 y tutor2
   child2: ['alumno', yearsAgo(9)], // de tutorX
@@ -51,7 +51,7 @@ await q(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2), ($3, $2
 
 // Acuerdos vigentes: los existentes o unos de prueba (se borran al final).
 const testDocs = [];
-for (const type of ['waiver', 'data_protection', 'rights_of_image']) {
+for (const type of ['data_protection', 'rights_of_image']) {
   const { length } = await q(
     `SELECT 1 FROM agreement_documents WHERE type = $1 AND published_at IS NOT NULL AND retired_at IS NULL`, [type]);
   if (length) continue;
@@ -66,7 +66,7 @@ const sign = (who, type, by = who) => q(
     WHERE type = $3 AND published_at IS NOT NULL AND retired_at IS NULL`, [U[who], U[by], type]);
 const tutorOf = { child: 'tutor1', child2: 'tutorX', grown: 'tutor1' };
 for (const k of ['alu', 'alu2', 'alu3', 'alu4', 'child', 'child2', 'grown']) {
-  for (const type of ['data_protection', 'rights_of_image', ...(k === 'alu4' ? [] : ['waiver'])]) {
+  for (const type of ['data_protection', 'rights_of_image']) {
     await sign(k, type, tutorOf[k] ?? k);
   }
   if (k !== 'alu3') {
@@ -164,8 +164,8 @@ try {
 
   await run('admin crea eventos (auditado); un alumno no; validación de campos', async () => {
     E.free = await mkEvent({ title: `${tag} gratis`, trainer_id: U.prof });
-    assert.deepEqual([E.free.status, E.free.price_cents, E.free.requires_risk_cover, E.free.audience, E.free.taken],
-      ['scheduled', 0, true, 'all', 0]);
+    assert.deepEqual([E.free.status, E.free.price_cents, E.free.audience, E.free.taken],
+      ['scheduled', 0, 'all', 0]);
     assert.equal(E.free.trainer.id, U.prof);
     const a = await lastAudit('event.create', E.free.id);
     assert.deepEqual([a.actor_id, a.resource_type, a.changes.title], [U.admin, 'event', `${tag} gratis`]);
@@ -173,7 +173,7 @@ try {
     E.memberFree = await mkEvent({ title: `${tag} socios gratis`, price_cents: 800, member_price_cents: 0 });
     E.minors = await mkEvent({ title: `${tag} menores`, audience: 'minors' });
     E.adults = await mkEvent({ title: `${tag} adultos`, audience: 'adults' });
-    E.social = await mkEvent({ title: `${tag} social`, requires_risk_cover: false });
+    E.social = await mkEvent({ title: `${tag} social` });
     E.closed = await mkEvent({ title: `${tag} cerrado`, registration_deadline: inHours(-1) });
     E.cap1 = await mkEvent({ title: `${tag} una plaza`, price_cents: 1500, capacity: 1 });
     E.fam = await mkEvent({ title: `${tag} cancelable`, price_cents: 1200 });
@@ -199,15 +199,14 @@ try {
   events.push(E.now.id);
   const R = {};
 
-  await run('requisitos: perfil del sujeto y del actor, cobertura solo con la marca, público, cierre, tutoría', async () => {
+  await run('requisitos: perfil del sujeto y del actor, público, cierre, tutoría', async () => {
     let r = await register('alu3', E.free.id);
     expectError(r, 403, 'profile_incomplete');
     assert.deepEqual(r.body.missing, ['health_info']);
     r = await register('tutorX', E.free.id, 'child2'); // el hijo está completo; el tutor no
     expectError(r, 403, 'profile_incomplete');
     assert.deepEqual(r.body.missing, ['data_protection']);
-    expectError(await register('alu4', E.free.id), 403, 'no_risk_cover');
-    r = await register('alu4', E.social.id); // evento social: sin cobertura de riesgo
+    r = await register('alu4', E.social.id);
     assert.deepEqual([r.status, r.body.registration.status, r.body.url], [201, 'confirmed', undefined]);
     expectError(await register('alu', E.minors.id), 409, 'audience_mismatch');
     expectError(await register('tutor1', E.adults.id, 'child'), 409, 'audience_mismatch');
@@ -240,8 +239,6 @@ try {
     const a = await lastAudit('event_registration.guest', r.body.registration.id);
     assert.deepEqual([a.actor_id, a.changes.profile_id], [U.admin, U.alu2]);
     // Los requisitos siguen valiendo para el admin.
-    expectError(await http('POST', `/admin/events/${E.free.id}/registrations`, 'admin', { profile_id: U.alu4 }), 403,
-      'no_risk_cover');
     expectError(await http('POST', `/admin/events/${E.free.id}/registrations`, 'admin', { profile_id: U.tutor1 }), 409,
       'not_a_student');
   });
@@ -535,8 +532,8 @@ try {
     r = await http('PUT', `/events/${E.now.id}/attendance/${U.child}`, 'admin', { present: false });
     assert.equal(r.status, 200);
     const d = await http('GET', `/professor/events/${E.now.id}`, 'prof');
-    assert.deepEqual(d.body.students.map((s) => [s.profile_id, s.attended, s.risk_cover]).sort(),
-      [[U.alu, true, true], [U.child, false, true]].sort());
+    assert.deepEqual(d.body.students.map((s) => [s.profile_id, s.attended]).sort(),
+      [[U.alu, true], [U.child, false]].sort());
     assert.ok(d.body.students.every((s) => s.display_name?.startsWith(tag)));
     expectError(await http('GET', `/professor/events/${E.now.id}`, 'prof2'), 404, 'event_not_found');
     const list = await http('GET', '/professor/events?from=' + new Date(Date.now() - 864e5).toISOString().slice(0, 10), 'prof');

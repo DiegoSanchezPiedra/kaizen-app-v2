@@ -8,7 +8,7 @@ router.use(requireAuth, requireRole('admin'));
 
 // GET /admin/home → { trained, students, attendance, sessions, next }: el Inicio en vivo (B23)
 router.get('/home', withRlsContext((req, client) => getHome(client)));
-// GET /admin/settings → { checkin, insurance, discipline_changes }: lo que devuelven los tres PUT
+// GET /admin/settings → { checkin, discipline_changes }: lo que devuelven los dos PUT
 router.get('/settings', withRlsContext((req, client) => getSettings(client)));
 // GET /admin/audit?action&actor_id&resource_type&resource_id&from&to&limit&offset → { rows, total, limit, offset } (sin notice.*)
 router.get('/audit', withRlsContext((req, client) => listAudit(client, req.query)));
