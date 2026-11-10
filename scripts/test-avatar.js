@@ -156,6 +156,12 @@ try {
     const [n] = (await q(`SELECT actor_id, changes FROM audit_log WHERE action = 'notice.avatar_removed' AND resource_id = $1`, [U.kid])).rows;
     assert.deepEqual([n.actor_id, n.changes.recipients], [U.admin, [U.tom]]);
   });
+
+  await run('B20: el aviso de quitar la foto sale tras el COMMIT: si la transacción falla (404), no hay aviso', async () => {
+    const ghost = crypto.randomUUID();
+    assert.equal((await http('DELETE', `/admin/profiles/${ghost}/avatar`, 'admin')).status, 404);
+    assert.equal((await q(`SELECT 1 FROM audit_log WHERE action = 'notice.avatar_removed' AND resource_id = $1`, [ghost])).rowCount, 0);
+  });
 } finally {
   console.error = realError;
   server.close();
