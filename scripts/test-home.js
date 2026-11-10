@@ -17,7 +17,8 @@ async function run(name, fn) {
 const q = (sql, params) => servicePool.query(sql, params);
 
 const tag = `thome${crypto.randomBytes(3).toString('hex')}`;
-const people = { admin: 'admin', prof: 'profesor', tutor: 'tutor', ana: 'alumno', leo: 'alumno', eva: 'alumno', mia: 'alumno' };
+const people = { admin: 'admin', prof: 'profesor', tutor: 'tutor', ana: 'alumno', leo: 'alumno', eva: 'alumno', mia: 'alumno',
+  zoe: 'alumno', max: 'alumno' };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 const ids = Object.values(U);
 const subs = [];
@@ -33,8 +34,8 @@ const http = async (url, who = 'admin') => {
   const res = await fetch(base + url, { headers: { authorization: `Bearer ${signToken({ sub: U[who], role: people[who] })}` } });
   return { status: res.status, body: await res.json() };
 };
-// Mediodía de Madrid de hoy + `days`.
-const noon = (days) => `(((now() AT TIME ZONE 'Europe/Madrid')::date + ${days}) + time '12:00') AT TIME ZONE 'Europe/Madrid'`;
+// Una hora (mediodía por defecto) de Madrid de hoy + `days`.
+const noon = (days, at = '12:00') => `(((now() AT TIME ZONE 'Europe/Madrid')::date + ${days}) + time '${at}') AT TIME ZONE 'Europe/Madrid'`;
 
 try {
   for (const [k, role] of Object.entries(people)) {
@@ -90,6 +91,9 @@ try {
   // Bordes de la ventana de 30 días: hoy-29 entra en last_30; hoy-30 cae en previous_30.
   await book(await session(-29), 'eva', true);
   await book(await session(-30), 'mia', true);
+  // Medianoche de Madrid (no UTC) entre hoy-30 y hoy-29: max, la última hora de hoy-30; zoe, a las 00:00 de hoy-29.
+  await book(await session(-30, 'scheduled', noon(-30, '23:00')), 'max', true);
+  await book(await session(-29, 'scheduled', noon(-29, '00:00')), 'zoe', true);
 
   const home = (await http('/admin/home')).body;
 
@@ -100,14 +104,12 @@ try {
 
   await run('alumnos que entrenaron: últimos 30 días, los 30 anteriores y la serie móvil (sin canceladas)', async () => {
     const d = (k, i) => (i === undefined ? home.trained[k] - before.trained[k] : home.trained[k][i] - before.trained[k][i]);
-    assert.equal(d('last_30'), 3); // ana (hoy y hace 7), leo (hace 7; su cancelada no cuenta), eva (hoy-29)
-    assert.equal(d('previous_30'), 1); // mia (hoy-30)
+    assert.equal(d('last_30'), 4); // ana (hoy y hace 7: una vez), leo (hace 7; su cancelada no cuenta), eva y zoe (hoy-29)
+    assert.equal(d('previous_30'), 2); // mia y max (hoy-30)
     assert.equal(home.trained.series.length, 30);
     assert.equal(home.trained.series[29], home.trained.last_30);
-    assert.equal(d('series', 0), 2); // ventana [hoy-58, hoy-29]: eva y mia
-    assert.equal(d('series', 21), 2); // [hoy-37, hoy-8]: eva y mia
-    assert.equal(d('series', 22), 4); // [hoy-36, hoy-7]: más ana y leo
-    assert.equal(d('series', 28), 4); // [hoy-30, hoy-1]: el último día de mia
+    assert.deepEqual(home.trained.series.map((n, i) => n - before.trained.series[i]),
+      [...Array(22).fill(4), ...Array(7).fill(6), 4]); // [hoy-58+i, hoy-29+i]: eva, mia, zoe y max; desde i=22 (hoy-7) ana y leo; i=29 sin hoy-30
   });
 
   await run('alumnos de Usuarios', async () => {
