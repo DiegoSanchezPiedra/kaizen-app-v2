@@ -112,6 +112,25 @@ try {
     for (const id of ids) assert.equal((await deliveries(id))[0].status, 'sent');
   });
 
+  await run('el envío va fuera de la transacción: la entrega no está bloqueada y queda reservada (si el proceso muere, vuelve a salir)', async () => {
+    const r = await emit('notice.checkout_payment_failed', { student_id: U.child });
+    let during;
+    await sendPending(servicePool, async (email) => {
+      const c = await servicePool.connect();
+      try {
+        await c.query('BEGIN');
+        // NOWAIT falla si la transacción del lote siguiera abierta con su bloqueo.
+        during = (await c.query(
+          `SELECT status, extract(epoch FROM next_attempt_at - now()) AS wait_s FROM notice_deliveries
+            WHERE id = $1 FOR UPDATE NOWAIT`, [email.idempotencyKey])).rows[0];
+      } finally { await c.query('ROLLBACK'); c.release(); }
+      return fake(email);
+    });
+    assert.equal(during.status, 'pending');
+    assert.ok(during.wait_s > 5 * 60, `reservada ${during.wait_s}s`);
+    assert.equal((await deliveries(r))[0].status, 'sent');
+  });
+
   await run('error transitorio: reintento a 1, 5, 30, 120 y 360 min; después failed', async () => {
     const r = await emit('notice.checkout_payment_failed', { student_id: U.child });
     fail = err(true);
