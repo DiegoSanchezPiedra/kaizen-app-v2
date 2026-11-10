@@ -4,6 +4,7 @@ import type React from 'react'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { Page } from '@/components/page'
+import { PasswordInput } from '@/components/password-input'
 import { QrCode } from '@/components/qr-code'
 import { ErrorState, ListSkeleton } from '@/components/screen-state'
 import { FieldMessage } from '@/components/status-alert'
@@ -14,8 +15,10 @@ import { Form } from '@/components/ui/form'
 import { OTPField, OTPFieldInput, OTPFieldSeparator } from '@/components/ui/otp-field'
 import { ApiError, api } from '@/lib/api'
 import { errorText } from '@/lib/errors'
-import { queryClient } from '@/lib/logout'
+import { logout, queryClient } from '@/lib/logout'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
+import { setToken } from '@/lib/session'
+import type { Me } from '@/lib/types'
 
 type Setup = { otpauth_uri: string; recovery_codes: string[] }
 
@@ -24,17 +27,18 @@ const OTP_SLOT = 'h-14 w-12 sm:h-14 sm:w-12 font-mono text-2xl sm:text-2xl leadi
 // La clave para teclearla a mano: el `secret` de la URI, en grupos de 4.
 const secretOf = (uri: string): string => (new URL(uri).searchParams.get('secret') ?? '').replace(/(.{4})(?=.)/g, '$1 ')
 
-function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+function Step({ n, title, children }: { n?: number; title: string; children: React.ReactNode }) {
   return (
     <section aria-label={title} className="enter-soft flex flex-col gap-4 rounded-2xl border bg-card p-5">
-      <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Paso {n} de 3</p>
+      {n !== undefined && <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Paso {n} de 3</p>}
       <h2 className="font-heading text-2xl font-bold">{title}</h2>
       {children}
     </section>
   )
 }
 
-// docs/pantallas-b19.md § Acceso. Cada visita pide un secreto nuevo (el anterior deja de valer); la sesión sigue tras activar.
+// docs/pantallas-b19.md § Acceso. Cada visita pide un secreto nuevo (el anterior deja de valer); la sesión sigue tras activar
+// y las demás se cierran (ADR 0020). B20: empezar pide la contraseña, o un login reciente si la cuenta solo entra con Google.
 export function MfaSetupPage() {
   const navigate = useNavigate()
   const back: string = (useLocation().state as { from?: string } | null)?.from ?? '/admin'
@@ -42,16 +46,23 @@ export function MfaSetupPage() {
   const [saved, setSaved] = useState(false)
   const [code, setCode] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [password, setPassword] = useState('')
+  const [attempt, setAttempt] = useState(0) // cada envío de la contraseña es una petición nueva
 
+  const me = useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/me') })
+  const hasPassword = me.data?.has_password === true
   // Una query (no un efecto) para que StrictMode no pida dos secretos; sin caché: volver aquí pide otro.
   const setup = useQuery({
-    queryKey: ['mfa-setup'],
-    queryFn: () => api<Setup>('/auth/mfa/setup', { method: 'POST' }),
+    queryKey: ['mfa-setup', attempt],
+    queryFn: () => api<Setup>('/auth/mfa/setup', { method: 'POST', body: hasPassword ? { password } : undefined }),
+    enabled: me.isSuccess && (!hasPassword || attempt > 0),
     staleTime: Infinity,
     gcTime: 0,
     retry: false,
   })
   const already = setup.error instanceof ApiError && setup.error.code === 'mfa_already_enabled'
+  const wrongPassword = errorCode(setup.error) === 'wrong_password'
+  const askPassword = hasPassword && !setup.data && (!setup.isError || wrongPassword)
   useEffect(() => {
     if (!already) return
     void queryClient.invalidateQueries({ queryKey: ['auth-me'] })
@@ -59,10 +70,11 @@ export function MfaSetupPage() {
   }, [already, navigate])
 
   const activate = useMutation({
-    mutationFn: (value: string) => api('/auth/mfa/activate', { method: 'POST', body: { code: value } }),
-    onSuccess: async () => {
+    mutationFn: (value: string) => api<{ token: string }>('/auth/mfa/activate', { method: 'POST', body: { code: value } }),
+    onSuccess: async ({ token }) => {
+      setToken(token)
       await queryClient.invalidateQueries({ queryKey: ['auth-me'] })
-      toastOk('Doble factor activado', 'Desde el próximo inicio de sesión te pedirá el código.')
+      toastOk('Doble factor activado', 'Se han cerrado tus otras sesiones. Desde el próximo inicio de sesión te pedirá el código.')
       navigate(back, { replace: true })
     },
     onError: (err) => {
@@ -92,7 +104,40 @@ export function MfaSetupPage() {
         </Button>
       }
     >
-      {setup.isPending || already ? (
+      {me.isError ? (
+        <ErrorState error={me.error} onRetry={() => void me.refetch()} />
+      ) : askPassword ? (
+        <Step title="Confirma que eres tú">
+          <p className="text-muted-foreground">Escribe tu contraseña para empezar a configurar el doble factor.</p>
+          <Form
+            className="flex flex-col gap-4"
+            errors={wrongPassword && !setup.isFetching ? { password: errorText('wrong_password') } : undefined}
+            onFormSubmit={(v) => {
+              setPassword(String(v.password))
+              setAttempt((a) => a + 1)
+            }}
+          >
+            <Field name="password" className="items-stretch">
+              <FieldLabel>Contraseña actual</FieldLabel>
+              <PasswordInput autoComplete="current-password" required autoFocus />
+              <FieldMessage match="valueMissing">Escribe tu contraseña actual.</FieldMessage>
+              {wrongPassword && !setup.isFetching && <FieldMessage>{errorText('wrong_password')}</FieldMessage>}
+            </Field>
+            <Button type="submit" size="xl" loading={setup.isFetching}>
+              Seguir
+            </Button>
+          </Form>
+        </Step>
+      ) : errorCode(setup.error) === 'reauth_required' ? (
+        <Step title="Vuelve a entrar">
+          <p className="text-muted-foreground">
+            Por seguridad, para activar el doble factor tienes que haber entrado hace poco. Cierra la sesión y vuelve a entrar con Google.
+          </p>
+          <Button size="xl" onClick={() => void logout()}>
+            Cerrar sesión
+          </Button>
+        </Step>
+      ) : me.isPending || setup.isPending || already ? (
         <ListSkeleton rows={1} className="h-96" />
       ) : setup.isError ? (
         <ErrorState error={setup.error} onRetry={() => void setup.refetch()} />

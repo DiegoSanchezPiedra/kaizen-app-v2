@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import pg from 'pg';
 import { servicePool, closePools } from '../src/config/database.js';
 import { withRls } from '../src/db/rls.js';
 
@@ -57,14 +58,21 @@ async function seed() {
   const pub = crypto.randomUUID();
   const professor = crypto.randomUUID();
   const admin = crypto.randomUUID();
+  const tutor = crypto.randomUUID();
+  const child = crypto.randomUUID();
 
   await withServiceCommit(async (c) => {
+    // B20: B sin fecha de nacimiento (alta con Google); el resto, con la suya.
     await c.query(
-      `INSERT INTO profiles (id, display_name, is_public) VALUES
-         ($1,'alumnoA',false),($2,'alumnoB',false),($3,'publico',true),
-         ($4,'profe',false),($5,'admin',false)`,
-      [a, b, pub, professor, admin]
+      `INSERT INTO profiles (id, display_name, is_public, birth_date) VALUES
+         ($1,'alumnoA',false,$8),($2,'alumnoB',false,NULL),($3,'publico',true,$8),
+         ($4,'profe',false,$8),($5,'admin',false,$8),($6,'tutor',false,$8),($7,'hijo',false,$9)`,
+      [a, b, pub, professor, admin, tutor, child, yearsAgo(30), yearsAgo(10)]
     );
+    await c.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [tutor, child]);
+    // B20 (B9): A tiene el doble factor activado.
+    await c.query(`INSERT INTO user_mfa (id, user_id, totp_secret_encrypted, recovery_codes_encrypted, mfa_enabled)
+                   VALUES ($1, $2, 'x', 'x', true)`, [crypto.randomUUID(), a]);
     await c.query(
       `INSERT INTO auth_credentials (profile_id, email, password_hash) VALUES
          ($1,$2,'x'),($3,$4,'x')`,
@@ -72,8 +80,8 @@ async function seed() {
     );
     await c.query(
       `INSERT INTO user_roles (user_id, role) VALUES
-         ($1,'alumno'),($2,'alumno'),($3,'alumno'),($4,'profesor'),($5,'admin')`,
-      [a, b, pub, professor, admin]
+         ($1,'alumno'),($2,'alumno'),($3,'alumno'),($4,'profesor'),($5,'admin'),($6,'tutor'),($7,'alumno')`,
+      [a, b, pub, professor, admin, tutor, child]
     );
     await c.query(
       `INSERT INTO student_health_info
@@ -94,8 +102,15 @@ async function seed() {
     );
   });
 
-  return { a, b, pub, professor, admin };
+  return { a, b, pub, professor, admin, tutor, child };
 }
+
+const yearsAgo = (n) => new Date(Date.now() - n * 365.25 * 864e5).toISOString().slice(0, 10);
+const AVATAR = `${'a'.repeat(64)}.jpg`;
+// B20: columnas de profiles que solo escribe el sistema (servicePool) o nadie (heredadas sin uso).
+const SYSTEM_COLUMNS = {
+  stripe_customer_id: `'cus_hack'`, id: 'gen_random_uuid()', created_at: 'now()', phone: `'600000000'`, avatar_url: `'x'`,
+};
 
 // ---------------------------------------------------------------------------
 // cleanup con COMMIT (idempotente)
@@ -106,6 +121,7 @@ async function cleanup(ids) {
     await c.query(`DELETE FROM user_agreements WHERE profile_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM student_health_info WHERE profile_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM audit_log WHERE actor_id = ANY($1::uuid[])`, [arr]);
+    await c.query(`DELETE FROM user_mfa WHERE user_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM user_roles WHERE user_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM auth_credentials WHERE profile_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM profiles WHERE id = ANY($1::uuid[])`, [arr]);
@@ -239,6 +255,234 @@ async function main() {
           c.query(`DELETE FROM audit_log WHERE actor_id=$1`, [ids.admin])
         )
       );
+    });
+
+    // B20: profiles_update_self_or_admin dejaba cambiar por SQL cualquier columna propia.
+    const alumno = { uid: ids.a, role: 'alumno' };
+    const tutor = { uid: ids.tutor, role: 'tutor' };
+    const profesor = { uid: ids.professor, role: 'profesor' };
+    const admin = { uid: ids.admin, role: 'admin' };
+    const update = (ctx, id, set) => withCtx(ctx, (c) => c.query(`UPDATE profiles SET ${set} WHERE id = $1`, [id]));
+
+    await run('B20 — alumno, tutor y profesor no cambian las columnas del sistema (stripe_customer_id…) de su perfil', async () => {
+      for (const ctx of [alumno, tutor, profesor]) {
+        for (const [col, value] of Object.entries(SYSTEM_COLUMNS)) {
+          await expectDenied(update(ctx, ctx.uid, `${col} = ${value}`));
+        }
+      }
+    });
+
+    await run('B20 — el tutor no cambia las columnas del sistema de su hijo', async () => {
+      for (const [col, value] of Object.entries(SYSTEM_COLUMNS)) {
+        await expectDenied(update(tutor, ids.child, `${col} = ${value}`));
+      }
+    });
+
+    await run('B20 — el admin tampoco cambia stripe_customer_id (solo el servicePool)', async () => {
+      await expectDenied(update(admin, ids.b, `stripe_customer_id = 'cus_hack'`));
+    });
+
+    await run('B20 — alumno, tutor y profesor no cambian su fecha de nacimiento ya puesta', async () => {
+      for (const ctx of [alumno, tutor, profesor]) {
+        await expectDenied(update(ctx, ctx.uid, `birth_date = '${yearsAgo(10)}'`));
+        await expectDenied(update(ctx, ctx.uid, `birth_date = '${yearsAgo(50)}'`));
+        await expectDenied(update(ctx, ctx.uid, `birth_date = NULL`));
+      }
+    });
+
+    await run('B20 — sin fecha (alta con Google) se pone una vez, de adulto', async () => {
+      const r = await update({ uid: ids.b, role: 'alumno' }, ids.b, `birth_date = '${yearsAgo(25)}'`);
+      assert.equal(r.rowCount, 1);
+      await expectDenied(update({ uid: ids.b, role: 'alumno' }, ids.b, `birth_date = '${yearsAgo(10)}'`));
+    });
+
+    await run('B20 — cada uno cambia lo que la API le deja editar', async () => {
+      // PATCH /me (birth_date en el SET aunque no cambie), PATCH /me/profile y la foto.
+      for (const ctx of [alumno, tutor, profesor]) {
+        const r = await update(ctx, ctx.uid, `display_name = 'x', birth_date = COALESCE(NULL, birth_date), bio = 'b',
+          social_links = '{"web": "https://example.com"}', visible_fields = '{"bio": true}', is_public = false,
+          avatar = '${AVATAR}'`);
+        assert.equal(r.rowCount, 1, ctx.role);
+      }
+      // PATCH /me/children/:id y la foto del hijo.
+      const r = await update(tutor, ids.child, `display_name = 'y', birth_date = '${yearsAgo(8)}', avatar = '${AVATAR}'`);
+      assert.equal(r.rowCount, 1);
+    });
+
+    await run('B20 — el admin despublica, quita la foto y corrige la fecha de nacimiento de otro', async () => {
+      const r = await update(admin, ids.pub, `is_public = false, avatar = NULL, birth_date = '${yearsAgo(31)}'`);
+      assert.equal(r.rowCount, 1);
+    });
+
+    // B20 (B2): el admin no edita el contenido de un perfil ajeno (CONTEXT: despublica y quita la foto).
+    await run('B20 — el admin no edita el contenido del perfil de otro, ni lo publica, ni le pone una foto', async () => {
+      for (const set of [`display_name = 'x'`, `bio = 'x'`, `social_links = '{}'`, `visible_fields = '{"bio": true}'`,
+        'is_public = true', `avatar = '${AVATAR}'`]) {
+        await expectDenied(update(admin, ids.b, set));
+      }
+    });
+
+    // B20 (B4): al registrarse (createUser, con un id nuevo) solo se insertan id, nombre y una fecha vacía o de adulto.
+    await run('B20 — el registro solo inserta id, display_name y una fecha de adulto (o ninguna)', async () => {
+      const insert = (cols, vals) => {
+        const uid = crypto.randomUUID();
+        return withCtx({ uid, role: 'alumno' }, (c) => c.query(`INSERT INTO profiles (id, ${cols}) VALUES ($1, ${vals})`, [uid]));
+      };
+      for (const [cols, vals] of [['stripe_customer_id', `'cus_hack'`], ['is_public', 'true'], ['bio', `'x'`],
+        ['birth_date', `'${yearsAgo(10)}'`]]) {
+        await expectDenied(insert(cols, vals));
+      }
+      assert.equal((await insert('display_name, birth_date', `'x', '${yearsAgo(30)}'`)).rowCount, 1);
+      assert.equal((await insert('display_name, birth_date', `'x', NULL`)).rowCount, 1);
+    });
+
+    // B20 (B5): de su hijo, el tutor edita nombre, fecha y foto; nada del perfil público (un hijo nunca es público).
+    await run('B20 — el tutor no edita bio, redes ni campos visibles de su hijo', async () => {
+      for (const set of [`bio = 'x'`, `social_links = '{}'`, `visible_fields = '{"bio": true}'`]) {
+        await expectDenied(update(tutor, ids.child, set));
+      }
+    });
+
+    // B20 (M1): una tabla temporal tapa la real dentro de las funciones SECURITY DEFINER (search_path sin pg_temp al final).
+    await run('B20 — app_user no crea tablas temporales (no puede tapar las de las funciones SECURITY DEFINER)', async () => {
+      await expectDenied(withCtx(alumno, (c) => c.query(`CREATE TEMP TABLE guardianships (tutor_id uuid, minor_id uuid)`)));
+    });
+
+    // B20 (M2): lo que crea migrator ya no da nada a app_user por defecto; cada migración da sus permisos.
+    await run('B20 — una tabla nueva de migrator no da nada a app_user (ni su secuencia)', async () => {
+      const m = new pg.Client({ connectionString: process.env.DATABASE_URL });
+      await m.connect();
+      try {
+        await m.query('BEGIN');
+        await m.query('CREATE TABLE b20_m2_probe (id serial)');
+        const { rows: [r] } = await m.query(
+          `SELECT has_table_privilege('app_user', 'b20_m2_probe', 'SELECT, INSERT, UPDATE, DELETE') AS tbl,
+                  has_sequence_privilege('app_user', 'b20_m2_probe_id_seq', 'SELECT, USAGE') AS seq`);
+        assert.deepEqual(r, { tbl: false, seq: false });
+      } finally {
+        await m.query('ROLLBACK').catch(() => {});
+        await m.end();
+      }
+    });
+
+    // B20 (M3): el pago en efectivo está reservado; hasta su bloque, solo el servicePool toca cash_payments.
+    await run('B20 — app_user (ni el admin) no lee ni escribe cash_payments', async () => {
+      await expectDenied(withCtx(admin, (c) => c.query(`SELECT 1 FROM cash_payments`)));
+      await expectDenied(withCtx(admin, (c) => c.query(`DELETE FROM cash_payments`)));
+    });
+
+    // B20 (M4): con SQL arbitrario se marcaría como aplicada una migración de seguridad o se borraría el historial.
+    await run('B20 — app_user no toca pgmigrations ni su secuencia', async () => {
+      await expectDenied(withCtx(admin, (c) => c.query(`SELECT 1 FROM pgmigrations`)));
+      await expectDenied(withCtx(admin, (c) => c.query(`DELETE FROM pgmigrations WHERE false`)));
+      await expectDenied(withCtx(admin, (c) => c.query(`SELECT last_value FROM pgmigrations_id_seq`)));
+    });
+
+    // B20 (M5): auth_credentials_update_self_or_admin dejaba cambiar por SQL cualquier columna de la fila.
+    const updateCreds = (ctx, id, set) =>
+      withCtx(ctx, (c) => c.query(`UPDATE auth_credentials SET ${set} WHERE profile_id = $1`, [id]));
+    await run('B20 — nadie cambia con app_user email, email_verified ni google_sub (tampoco el admin)', async () => {
+      for (const set of [`email = 'x@t.test'`, 'email_verified = true', `google_sub = 'g-hack'`, 'profile_id = profile_id',
+        'created_at = now()', 'updated_at = now()']) {
+        await expectDenied(updateCreds(alumno, ids.a, set));
+        await expectDenied(updateCreds(admin, ids.a, set));
+      }
+    });
+
+    await run('B20 — cada uno cambia su contraseña (password_hash y credentials_changed_at)', async () => {
+      const r = await updateCreds(alumno, ids.a, `password_hash = 'y', credentials_changed_at = now()`);
+      assert.equal(r.rowCount, 1);
+    });
+
+    // B20 (B6): toda tabla con RLS en ENABLE y FORCE; pgmigrations no (FORCE se la aplicaría a migrator, M4).
+    await run('B20 — toda tabla de public tiene RLS en ENABLE y FORCE (salvo pgmigrations)', async () => {
+      const { rows } = await servicePool.query(
+        `SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND c.relname <> 'pgmigrations'
+            AND NOT (c.relrowsecurity AND c.relforcerowsecurity) ORDER BY 1`);
+      assert.deepEqual(rows.map((r) => r.relname), []);
+    });
+
+    // B20 (B8): las firmas apuntan a tipo y versión; un documento publicado no se cambia, solo se retira.
+    await run('B20 — un documento publicado solo se retira (ni el admin cambia versión, checksum, ruta ni lo despublica)', async () => {
+      await withCtx(admin, async (c) => {
+        const codeOf = async (sql, params) => {
+          await c.query('SAVEPOINT s');
+          try { await c.query(sql, params); return null; } catch (e) { return e.code; } finally { await c.query('ROLLBACK TO SAVEPOINT s'); }
+        };
+        const id = crypto.randomUUID();
+        // Como publishDocument: se retira el vigente y se publica el nuevo (todo se deshace al final).
+        await c.query(`UPDATE agreement_documents SET retired_at = now()
+                        WHERE type = 'waiver' AND published_at IS NOT NULL AND retired_at IS NULL`);
+        await c.query(`INSERT INTO agreement_documents (id, type, version, storage_path, checksum, published_at, published_by)
+                       VALUES ($1, 'waiver', $2, 'x.pdf', 'x', now(), $3)`, [id, `9.${Date.now()}`, ids.admin]);
+        for (const set of [`version = '0.1'`, `checksum = 'y'`, `storage_path = 'y.pdf'`, 'published_at = NULL', 'published_by = NULL']) {
+          assert.equal(await codeOf(`UPDATE agreement_documents SET ${set} WHERE id = $1`, [id]), '42501', set);
+        }
+        await c.query(`UPDATE agreement_documents SET retired_at = now() WHERE id = $1`, [id]);
+        assert.equal(await codeOf(`UPDATE agreement_documents SET retired_at = NULL WHERE id = $1`, [id]), '42501');
+      });
+    });
+
+    // B20 (B3): el rol admin solo lo da un admin con el doble factor activado; una fila admin no se cambia ni se borra.
+    await run('B20 — el rol admin solo lo da un admin con doble factor; nadie quita el de un admin por SQL', async () => {
+      await expectDenied(withCtx(admin, (c) => c.query(`UPDATE user_roles SET role = 'admin' WHERE user_id = $1`, [ids.b])));
+      await withCtx(admin, async (c) => {
+        await c.query(`INSERT INTO user_mfa (id, user_id, totp_secret_encrypted, recovery_codes_encrypted, mfa_enabled)
+                       VALUES ($1, $2, 'x', 'x', true)`, [crypto.randomUUID(), ids.admin]);
+        assert.equal((await c.query(`UPDATE user_roles SET role = 'admin' WHERE user_id = $1`, [ids.b])).rowCount, 1);
+        assert.equal((await c.query(`UPDATE user_roles SET role = 'alumno' WHERE user_id = $1`, [ids.b])).rowCount, 0);
+        assert.equal((await c.query(`DELETE FROM user_roles WHERE user_id = $1`, [ids.b])).rowCount, 0);
+      });
+    });
+
+    // B20 (B9): nadie lee password_hash con app_user (has_password y own_password_hash() en su lugar).
+    await run('B20 — nadie lee password_hash con app_user; cada uno el suyo por own_password_hash()', async () => {
+      const hash = `SELECT password_hash FROM auth_credentials WHERE profile_id = $1`;
+      await expectDenied(withCtx(admin, (c) => c.query(hash, [ids.a])));
+      await expectDenied(withCtx(alumno, (c) => c.query(hash, [ids.a])));
+      const { rows: [r] } = await withCtx(admin, (c) =>
+        c.query(`SELECT has_password FROM auth_credentials WHERE profile_id = $1`, [ids.a]));
+      assert.equal(r.has_password, true);
+      const { rows: [h] } = await withCtx(alumno, (c) => c.query(`SELECT own_password_hash() AS h`));
+      assert.equal(h.h, 'x');
+    });
+
+    // B20 (B9): el doble factor (secreto cifrado y códigos de recuperación) solo lo ve y lo toca su dueño.
+    await run('B20 — el doble factor de cada uno solo lo ve y lo toca él (tampoco el admin)', async () => {
+      const n = (ctx, sql) => withCtx(ctx, async (c) => (await c.query(sql, [ids.a])).rowCount);
+      assert.equal(await n(alumno, `SELECT 1 FROM user_mfa WHERE user_id = $1`), 1);
+      assert.deepEqual([await n(admin, `SELECT 1 FROM user_mfa WHERE user_id = $1`),
+        await n(admin, `UPDATE user_mfa SET mfa_enabled = false WHERE user_id = $1`),
+        await n(admin, `DELETE FROM user_mfa WHERE user_id = $1`)], [0, 0, 0]);
+    });
+
+    // B20 (B1): de otro perfil solo se pregunta lo que se ve (él, su tutor, el admin; la cobertura, también su profesor).
+    await run('B20 — app_user no llama a has_risk_cover, profile_missing ni discipline_changes_used; visible_* solo de quien ve', async () => {
+      for (const sql of ['SELECT has_risk_cover($1)', 'SELECT profile_missing($1)', 'SELECT discipline_changes_used($1)']) {
+        await expectDenied(withCtx(admin, (c) => c.query(sql, [ids.a])));
+      }
+      const v = (ctx, id) => withCtx(ctx, async (c) => (await c.query(
+        `SELECT visible_profile_missing($1) IS NOT NULL AS m, visible_risk_cover($1) IS NOT NULL AS r,
+                visible_discipline_changes_used(gen_random_uuid()) IS NULL AS no_sub`, [id])).rows[0]);
+      const all = { m: true, r: true, no_sub: true };
+      assert.deepEqual(await v(alumno, ids.a), all);
+      assert.deepEqual(await v(admin, ids.a), all);
+      assert.deepEqual(await v(tutor, ids.child), all);
+      assert.deepEqual(await v({ uid: ids.b, role: 'alumno' }, ids.a), { ...all, m: false, r: false });
+      assert.deepEqual(await v(profesor, ids.a), { ...all, m: false, r: false }); // A no ha reservado en sus sesiones
+    });
+
+    // B20 (riesgo de M2): sin privilegios por defecto, una migración que olvide su GRANT dejaría la tabla sin acceso.
+    // Toda tabla o vista da algo a app_user, salvo las que solo usa el servicePool (añadir aquí las nuevas que lo sean).
+    const SERVICE_ONLY = ['cash_payments', 'medal_views', 'password_resets', 'pgmigrations', 'webhook_events'];
+    await run('B20 — toda tabla o vista da permisos a app_user, salvo las solo del servicePool', async () => {
+      const { rows } = await servicePool.query(
+        `SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v')
+            AND NOT has_table_privilege('app_user', c.oid, 'SELECT, INSERT, UPDATE, DELETE')
+            AND NOT has_any_column_privilege('app_user', c.oid, 'SELECT, INSERT, UPDATE') ORDER BY 1`);
+      assert.deepEqual(rows.map((r) => r.relname), SERVICE_ONLY);
     });
 
     await run('service_role se salta RLS y lee auth_credentials', async () => {

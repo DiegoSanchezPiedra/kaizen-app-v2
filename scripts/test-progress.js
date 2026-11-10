@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import express from 'express';
 import { servicePool, closePools } from '../src/config/database.js';
+import { withRls } from '../src/db/rls.js';
 import { signToken } from '../src/services/jwt.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import meRouter from '../src/routes/me.js';
@@ -425,6 +426,26 @@ try {
       assert.equal((await post('/me/progress/seen', 'alu', { codes })).body.code, 'invalid_field', JSON.stringify(codes));
     }
     assert.equal((await post('/me/progress/seen', 'alu', { profile_id: 'x', codes: [] })).body.code, 'invalid_profile_id');
+  });
+  // B20 (B7): con 18 y sin reclamar su perfil, el tutor solo lo ve en su lista (y lo que paga), no su actividad.
+  await run('hijo con 18 sin reclamar: el tutor no ve su progreso, reservas, asistencia ni acuerdos; sigue en su lista', async () => {
+    const ua = crypto.randomUUID(); // firmado por otro tutor: el tutor no lo ve por ser el firmante
+    await servicePool.query(`INSERT INTO user_agreements (id, profile_id, signed_by, type, version)
+                             VALUES ($1, $2, $3, 'waiver', '1.0')`, [ua, who.child, who.tutor2]);
+    const seen = () => withRls({ uid: who.tutor, role: 'tutor' }, (c2) => Promise.all([
+      'SELECT 1 FROM bookings WHERE student_id = $1', 'SELECT 1 FROM attendance WHERE student_id = $1',
+      'SELECT 1 FROM user_agreements WHERE profile_id = $1', 'SELECT 1 FROM profiles WHERE id = $1',
+    ].map(async (sql) => (await c2.query(sql, [who.child])).rowCount > 0)), { commit: false });
+    try {
+      assert.deepEqual(await seen(), [true, true, true, true]);
+      await servicePool.query(`UPDATE profiles SET birth_date = '2000-01-01' WHERE id = $1`, [who.child]);
+      assert.deepEqual(await seen(), [false, false, false, true]);
+      assert.equal((await http(`/me/progress?profile_id=${who.child}`, 'tutor')).body.code, 'not_guardian');
+      assert.equal((await post('/me/progress/seen', 'tutor', { profile_id: who.child, codes: [] })).body.code, 'not_guardian');
+    } finally {
+      await servicePool.query(`UPDATE profiles SET birth_date = '2015-01-01' WHERE id = $1`, [who.child]);
+      await servicePool.query(`DELETE FROM user_agreements WHERE id = $1`, [ua]);
+    }
   });
   await run('ranking de medallas por disciplina: quien enseña su ranking y tiene alguna en ella; medallas solo con logros; un menor nunca', async () => {
     // El hijo, aunque se marque público y con todo visible, no puede serlo (can_be_public): no sale.

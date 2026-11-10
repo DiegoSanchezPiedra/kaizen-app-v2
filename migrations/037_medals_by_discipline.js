@@ -61,7 +61,7 @@ const achievementsSql = (disc) => `
     $$;
 `;
 
-const progressSql = `
+export const progressSql = `
   CREATE OR REPLACE FUNCTION student_progress(p_id uuid, p_month date) RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
       SELECT student_achievements(p_id) || jsonb_build_object('hours', jsonb_build_object(

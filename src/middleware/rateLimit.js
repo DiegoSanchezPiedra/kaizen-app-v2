@@ -26,4 +26,6 @@ export const authLimit = rateLimit({ name: 'auth', max: 30, windowMs: 15 * MIN }
 export const forgotLimit = rateLimit({ name: 'password_forgot', max: 5, windowMs: 60 * MIN });
 export const tabletLinkLimit = rateLimit({ name: 'tablet_link', max: 10, windowMs: 15 * MIN });
 export const avatarLimit = rateLimit({ name: 'avatar', max: 20, windowMs: 60 * MIN });
+// Dar el rol admin pide el código del doble factor: que no se adivine (B20, B3).
+export const adminGrantLimit = rateLimit({ name: 'admin_grant', max: 10, windowMs: 15 * MIN });
 export const agreementsAdminLimit = rateLimit({ name: 'admin_agreements', max: 60, windowMs: 15 * MIN });

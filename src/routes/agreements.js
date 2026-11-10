@@ -5,8 +5,7 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { withRls } from '../db/rls.js';
 import { httpError } from '../lib/errors.js';
 import { AGREEMENT_TYPES } from '../config/agreements.js';
-import { getCurrentDocument } from '../services/agreements.js';
-import { readFile } from '../services/storage.js';
+import { getCurrentFile } from '../services/agreements.js';
 
 const router = Router();
 
@@ -21,14 +20,14 @@ router.get(
       throw httpError(404, 'unknown_agreement_type', 'Tipo desconocido', { allowed: AGREEMENT_TYPES });
     }
     const doc = await withRls({ uid: req.user.id, role: req.user.role }, (client) =>
-      getCurrentDocument(client, type)
+      getCurrentFile(client, type)
     );
     if (!doc) throw httpError(404, 'no_current_document', 'No hay documento vigente', { type });
 
     res.type(doc.mime_type);
     res.set('X-Agreement-Type', type);
     res.set('X-Agreement-Version', doc.version);
-    res.send(await readFile(doc.storage_path));
+    res.send(doc.buffer);
   })
 );
 

@@ -378,7 +378,7 @@ router.post(
   withRlsContext(async (req, client) => {
     const { iat, email } = await changePassword(client, req.user.id, req.body ?? {});
     sendPasswordChanged(email);
-    return { token: signToken({ sub: req.user.id, role: req.user.role, iat }) };
+    return { token: signToken({ sub: req.user.id, role: req.user.role, iat, mfa: req.user.mfa }) };
   }),
 );
 

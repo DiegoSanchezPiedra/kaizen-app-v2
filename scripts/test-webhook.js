@@ -251,6 +251,8 @@ try {
 
   let insCuota, ins;
   await run('checkout con seguro: nace la cuota y el seguro (2.ª suscripción anual, misma tarjeta) con su recibo', async () => {
+    // Precios propios: subir el de adulto archivaría en Stripe el Price de los ajustes guardados (se restauran al final).
+    await q(`DELETE FROM academy_settings WHERE key LIKE 'insurance\\_%'`);
     await insuranceAdmin({ price_adult_cents: 3000, price_minor_cents: 2000, enabled: true });
     const cus = await customer('ins', 'pm_card_visa');
     insCuota = await paidSub(cus, 'ins', 'ins', { insurance: 'true' });
@@ -838,7 +840,10 @@ try {
   await q(`DELETE FROM invoices WHERE student_id = ANY($1::uuid[])`, [ids]);
   await q(`DELETE FROM insurances WHERE student_id = ANY($1::uuid[])`, [ids]);
   await q(`DELETE FROM academy_settings WHERE key LIKE 'insurance\\_%'`);
-  for (const { key, value } of savedSettings) await q(`INSERT INTO academy_settings (key, value) VALUES ($1, $2)`, [key, value]);
+  // value llega ya parseado (jsonb): un string («prod_…») hay que volver a pasarlo como JSON.
+  for (const { key, value } of savedSettings) {
+    await q(`INSERT INTO academy_settings (key, value) VALUES ($1, $2::jsonb)`, [key, JSON.stringify(value)]);
+  }
   await q(`DELETE FROM payer_changes WHERE student_id = ANY($1::uuid[])`, [ids]);
   await q(`DELETE FROM subscription_disciplines WHERE subscription_id = ANY($1::uuid[])`, [subs]);
   await q(`DELETE FROM subscriptions WHERE id = ANY($1::uuid[])`, [subs]);

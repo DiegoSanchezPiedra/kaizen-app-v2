@@ -303,13 +303,14 @@ try {
           assert.deepEqual([cleared.bio, cleared.social_links, cleared.is_public], [null, null, true]);
       });
     });
-    await run('el tutor no puede poner is_public a su hijo por SQL (WITH CHECK), pero sí editarlo', async () => {
+    // Lo para el trigger de la 045 antes que el WITH CHECK: los dos con 42501.
+    await run('el tutor no puede poner is_public a su hijo por SQL, pero sí editarlo', async () => {
       await sp(c, async () => {
         await as(c, U.admin, 'admin');
         await c.query(`UPDATE profiles SET is_public = false WHERE id = $1`, [U.child]);
         await as(c, U.tutor, 'tutor');
         await sp(c, () => assert.rejects(
-          c.query(`UPDATE profiles SET is_public = true WHERE id = $1`, [U.child]), /row-level security/));
+          c.query(`UPDATE profiles SET is_public = true WHERE id = $1`, [U.child]), (e) => e.code === '42501'));
         assert.equal((await c.query(`UPDATE profiles SET display_name = 'x' WHERE id = $1`, [U.child])).rowCount, 1);
       });
     });
@@ -336,13 +337,22 @@ try {
       await as(c, U.aluOther, 'alumno');
       assert.equal((await c.query(`SELECT 1 FROM profiles WHERE id = $1`, [U.aluPub])).rowCount, 0);
     });
-    await run('el profesor ve a los alumnos de sus sesiones (cancelada, pasada, sustitución) y no al resto', async () => {
+    // B20 (M6): de sus alumnos, el profesor solo ve nombre y foto, por student_names; en profiles, solo su fila.
+    await run('el profesor ve nombre y foto de los alumnos de sus sesiones (cancelada, pasada, sustitución) y no al resto', async () => {
       const seen = async () => (await c.query(`SELECT id FROM profiles WHERE id = ANY($1::uuid[])`, [ids])).rows
         .map((r) => r.id).sort();
+      const names = async () => (await c.query(`SELECT * FROM student_names WHERE id = ANY($1::uuid[])`, [ids])).rows;
       await as(c, U.prof1, 'profesor');
-      assert.deepEqual(await seen(), [U.prof1, U.aluPub, U.aluPriv].sort());
+      assert.deepEqual(await seen(), [U.prof1]);
+      const n = await names();
+      assert.deepEqual(n.map((r) => r.id).sort(), [U.aluPub, U.aluPriv].sort());
+      assert.deepEqual(Object.keys(n[0]).sort(), ['avatar', 'display_name', 'id']);
       await as(c, U.prof2, 'profesor');
-      assert.deepEqual(await seen(), [U.prof2]);
+      assert.deepEqual([await seen(), await names()], [[U.prof2], []]);
+      await as(c, U.aluOther, 'alumno');
+      assert.deepEqual(await names(), []);
+      await as(c, U.admin, 'admin'); // getAttendance es también del admin
+      assert.ok((await names()).some((r) => r.id === U.aluPriv));
     });
     await run('el profesor no lee user_roles ajenos', async () => {
       await as(c, U.prof1, 'profesor');

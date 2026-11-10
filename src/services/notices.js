@@ -364,6 +364,9 @@ export async function compose(db, d) {
 // --- Worker ---
 
 const BATCH = 20;
+// Alquiler del lote: se reserva empujando next_attempt_at; si el proceso muere enviando, vuelve a salir al vencer
+// (se reenvía con la misma Idempotency-Key / Topic, sin duplicar y sin perder el aviso). Mayor que 20 × 15 s.
+const LEASE_MIN = 10;
 const RETRY_MIN = [1, 5, 30, 120, 360]; // tras el 6.º intento fallido, failed
 
 const mark = (client, id, { status, attempts, retryMin = 0, messageId = null, error = null }) => client.query(
@@ -402,10 +405,11 @@ async function deliverPush(client, db, d, attempts, transport) {
  * @returns {Promise<number>} entregas tratadas
  */
 export async function sendPending(db = servicePool, transport = send, pushTransport = sendPush) {
-  const client = await db.connect();
+  const lock = await db.connect();
+  let rows;
   try {
-    await client.query('BEGIN');
-    const { rows } = await client.query(
+    await lock.query('BEGIN');
+    ({ rows } = await lock.query(
       `SELECT d.*, now() > x.expires AS stale, GREATEST(ceil(extract(epoch FROM x.expires - now())), 0)::int AS ttl
          FROM (SELECT d.id, d.recipient_id, d.attempts, d.channel, d.audit_id, a.action, a.resource_type,
                       a.resource_id, a.changes, a.created_at
@@ -417,45 +421,49 @@ export async function sendPending(db = servicePool, transport = send, pushTransp
                             JOIN bookings b ON b.id::text = g.resource_id JOIN class_sessions cs ON cs.id = b.session_id
                            WHERE g.created_at = d.created_at AND g.resource_type = 'booking'
                              AND g.action = d.action AND g.changes->>'student_id' = d.changes->>'student_id')
-                    ELSE (d.changes->>'expires_at')::timestamptz END) AS expires) x`);
-    for (const d of rows) {
-      const attempts = d.attempts + 1;
-      if (d.stale) {
-        await mark(client, d.id, { status: 'skipped', attempts: d.attempts, error: 'stale' });
-        continue;
-      }
-      try {
-        if (d.channel === 'push') {
-          await deliverPush(client, db, d, attempts, pushTransport);
-          continue;
-        }
-        // Con el pool: un error de SQL al componer no aborta la transacción de los bloqueos.
-        const email = await compose(db, d);
-        if (!email) {
-          await mark(client, d.id, { status: 'skipped', attempts: d.attempts, error: 'no_email' });
-          continue;
-        }
-        const { id } = await transport({ ...email, idempotencyKey: d.id });
-        await mark(client, d.id, { status: 'sent', attempts, messageId: id });
-      } catch (err) {
-        if (err.stale) {
-          await mark(client, d.id, { status: 'skipped', attempts: d.attempts, error: 'stale' });
-          continue;
-        }
-        const retry = err.transient && RETRY_MIN[d.attempts];
-        await mark(client, d.id, retry
-          ? { status: 'pending', attempts, retryMin: retry, error: err.message }
-          : { status: 'failed', attempts, error: err.message });
-      }
-    }
-    await client.query('COMMIT');
-    return rows.length;
+                    ELSE (d.changes->>'expires_at')::timestamptz END) AS expires) x`));
+    // Reservar y confirmar: el envío (hasta 20 × 15 s) va fuera de la transacción.
+    await lock.query(
+      `UPDATE notice_deliveries SET next_attempt_at = now() + $2 * interval '1 minute' WHERE id = ANY($1::uuid[])`,
+      [rows.map((d) => d.id), LEASE_MIN]);
+    await lock.query('COMMIT');
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await lock.query('ROLLBACK').catch(() => {});
     throw err;
   } finally {
-    client.release();
+    lock.release();
   }
+  // Cada marca se confirma sola: un fallo a mitad no deshace los envíos ya hechos.
+  for (const d of rows) {
+    const attempts = d.attempts + 1;
+    if (d.stale) {
+      await mark(db, d.id, { status: 'skipped', attempts: d.attempts, error: 'stale' });
+      continue;
+    }
+    try {
+      if (d.channel === 'push') {
+        await deliverPush(db, db, d, attempts, pushTransport);
+        continue;
+      }
+      const email = await compose(db, d);
+      if (!email) {
+        await mark(db, d.id, { status: 'skipped', attempts: d.attempts, error: 'no_email' });
+        continue;
+      }
+      const { id } = await transport({ ...email, idempotencyKey: d.id });
+      await mark(db, d.id, { status: 'sent', attempts, messageId: id });
+    } catch (err) {
+      if (err.stale) {
+        await mark(db, d.id, { status: 'skipped', attempts: d.attempts, error: 'stale' });
+        continue;
+      }
+      const retry = err.transient && RETRY_MIN[d.attempts];
+      await mark(db, d.id, retry
+        ? { status: 'pending', attempts, retryMin: retry, error: err.message }
+        : { status: 'failed', attempts, error: err.message });
+    }
+  }
+  return rows.length;
 }
 
 const EVERY_MS = 30_000;

@@ -101,6 +101,27 @@ try {
       await sp(c, () => assert.rejects(c.query(`UPDATE class_sessions SET capacity = 1`), /permission denied/));
       await sp(c, () => assert.rejects(c.query(`DELETE FROM class_sessions`), /permission denied/));
     });
+    // B20 (B10): del horario, el profesor ve sus clases y las de las sesiones que sustituye (su informe por clase), no el resto.
+    await run('profesor ve sus clases y las de las sesiones que sustituye; no el resto del horario', async () => {
+      await sp(c, async () => {
+        const seen = async () => (await c.query(`SELECT id FROM classes WHERE discipline_id = $1`, [disc.id])).rows
+          .map((r) => r.id).sort();
+        await as(c, admin, 'admin');
+        const byTrainer = async (t) => (await c.query(`SELECT id FROM classes WHERE discipline_id = $1 AND trainer_id = $2
+                                                        ORDER BY weekday, starts_on`, [disc.id, t])).rows.map((r) => r.id);
+        const [mine, others] = [await byTrainer(prof1), await byTrainer(prof2)];
+        assert.ok(mine.length > 0 && others.length > 0);
+        await as(c, prof1, 'profesor');
+        assert.deepEqual(await seen(), [...mine].sort());
+        await as(c, admin, 'admin');
+        const { rows: [s] } = await c.query(`SELECT id, class_id FROM class_sessions WHERE class_id = ANY($1::uuid[])
+                                               AND starts_at > now() ORDER BY starts_at LIMIT 1`, [others]);
+        await c.query(`SELECT adjust_session($1, $2)`, [s.id, { trainer_id: prof1 }]);
+        await as(c, prof1, 'profesor');
+        assert.deepEqual(await seen(), [...mine, s.class_id].sort());
+      });
+      await as(c, prof1, 'profesor');
+    });
     await run('rango > 92 días se ignora (devuelve vacío)', async () => {
       assert.deepEqual(await listTrainerSessions(c, prof1, { from: '2026-01-01', to: '2026-12-31' }), []);
       await rejects(listTrainerSessions(c, prof1, { from: 'mañana' }), 400, 'invalid_field');

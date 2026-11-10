@@ -66,11 +66,12 @@ export async function listTablets(client) {
   return (await client.query(`SELECT ${TABLET_COLUMNS} FROM device_tokens ORDER BY created_at, id`)).rows;
 }
 
-export async function revokeTablet(client, id) {
+export async function revokeTablet(client, id, actorId) {
   const { rows: [t] } = await client.query(
     `UPDATE device_tokens SET revoked_at = COALESCE(revoked_at, now()), link_code_hash = NULL, link_expires_at = NULL
       WHERE id = $1 RETURNING ${TABLET_COLUMNS}`, [id]);
   if (!t) throw httpError(404, 'tablet_not_found', 'Tablet no encontrada');
+  await client.query(`SELECT write_audit($1, 'tablet.revoke', 'tablet', $2, '{}'::jsonb)`, [actorId, id]);
   return t;
 }
 

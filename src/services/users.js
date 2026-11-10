@@ -3,11 +3,12 @@
 import { httpError } from '../lib/errors.js';
 import { invalid, audit } from './catalog.js';
 import { getProfileStatus } from './profile.js';
+import { getMfaStatus, verifyMfaCode } from './mfa.js';
 import { getSubscription, getInsurance, affectedSql } from './billing.js';
 
 const LIVE = `('active', 'past_due', 'unpaid')`;
 const ROLES = ['alumno', 'tutor', 'profesor', 'admin'];
-const SETTABLE = ['alumno', 'tutor', 'profesor'];
+const SETTABLE = ['alumno', 'tutor', 'profesor', 'admin'];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ID_RE = /^\d{1,18}$/;
 const STATES = ['activo', 'impago', 'inactivo', 'sin_plan'];
@@ -109,7 +110,7 @@ async function profileRow(client, id) {
   const { rows: [row] } = await client.query(
     `SELECT p.id, p.display_name, p.avatar, c.email, ${ROLE} AS role, p.created_at, ${MINOR} AS is_minor,
             ${PENDING_CLAIM} AS pending_claim, COALESCE(p.is_public, false) AS is_public,
-            COALESCE(c.password_hash IS NOT NULL, false) AS has_password,
+            COALESCE(c.has_password, false) AS has_password,
             COALESCE(c.google_sub IS NOT NULL, false) AS has_google
        ${FROM} WHERE p.id = $1`, [id]);
   if (!row) throw notFound();
@@ -157,13 +158,17 @@ export async function getProfile(client, { id, actorId }) {
   };
 }
 
-/** Cambiar el rol entre alumno, tutor y profesor (CONTEXT § Cambiar el rol). Vale al momento (requireAuth). */
-export async function changeRole(client, { id, role, actorId }) {
-  if (!SETTABLE.includes(role)) throw invalid('role', 'role debe ser alumno, tutor o profesor');
+/**
+ * Cambiar el rol entre alumno, tutor y profesor, o dar el de admin (CONTEXT § Cambiar el rol). Vale al momento
+ * (requireAuth). Dar admin exige el doble factor del admin activado, una sesión que entró con él (mfaSession: un token
+ * robado de antes de activarlo no basta) y su código en esta petición (B20, B3). Quitar admin no se hace desde la app.
+ */
+export async function changeRole(client, { id, role, actorId, mfaSession, mfaCode }) {
+  if (!SETTABLE.includes(role)) throw invalid('role', 'role debe ser alumno, tutor, profesor o admin');
   const { rows: [p] } = await client.query(
     `SELECT ${ROLE} AS role, c.profile_id IS NOT NULL AS has_access ${FROM} WHERE p.id = $1 FOR UPDATE OF p`, [id]);
   if (!p) throw notFound();
-  if (p.role === 'admin') throw conflict('admin_role_locked', 'El rol admin no se da ni se quita desde la app');
+  if (p.role === 'admin') throw conflict('admin_role_locked', 'El rol admin no se quita desde la app');
   if (!p.has_access) throw conflict('child_role_locked', 'Un hijo siempre es alumno');
   if (p.role === role) throw conflict('same_role', 'El perfil ya tiene ese rol');
   if (p.role === 'profesor') {
@@ -179,6 +184,14 @@ export async function changeRole(client, { id, role, actorId }) {
       `SELECT EXISTS (SELECT 1 FROM subscriptions WHERE student_id = $1 AND status IN ${LIVE})
            OR EXISTS (SELECT 1 FROM insurances WHERE student_id = $1 AND status IN ${LIVE}) AS live`, [id]);
     if (live.live) throw conflict('student_has_subscription', 'Tiene una suscripción o un seguro vivos');
+  }
+  // El código, lo último: si algo más falla, no se ha probado (un código de recuperación no se gasta sin dar el rol).
+  if (role === 'admin') {
+    if (!(await getMfaStatus(client, actorId)).enabled) {
+      throw httpError(403, 'mfa_required', 'Activa el doble factor para dar el rol de admin');
+    }
+    if (!mfaSession) throw httpError(403, 'mfa_login_required', 'Vuelve a entrar con el doble factor para dar el rol de admin');
+    if (!(await verifyMfaCode(client, actorId, mfaCode))) throw httpError(403, 'invalid_mfa_code', 'El código no es correcto');
   }
   await client.query(
     `INSERT INTO user_roles (user_id, role) VALUES ($1, $2)

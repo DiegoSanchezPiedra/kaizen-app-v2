@@ -35,7 +35,7 @@ export async function getProfileStatus(client, profileId, role) {
   }
 
   const { rows: [r] } = await client.query(
-    `SELECT profile_missing($1) AS missing, has_risk_cover($1) AS risk_cover`, [profileId]);
+    `SELECT visible_profile_missing($1) AS missing, visible_risk_cover($1) AS risk_cover`, [profileId]); // 053
   // Perfil inexistente (NULL): incompleto.
   const missing = r.missing ?? ['display_name'];
 
@@ -55,7 +55,7 @@ const TUTOR_REQUIRED = ['display_name', 'data_protection'];
 export async function getMe(client, user) {
   const { rows } = await client.query(
     `SELECT p.id, $2::text AS role, p.display_name, c.email, p.birth_date::text AS birth_date,
-            c.password_hash IS NOT NULL AS has_password, p.avatar
+            COALESCE(c.has_password, false) AS has_password, p.avatar
        FROM profiles p LEFT JOIN auth_credentials c ON c.profile_id = p.id
       WHERE p.id = $1`,
     [user.id, user.role]

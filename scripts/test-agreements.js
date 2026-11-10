@@ -4,9 +4,11 @@ import crypto from 'node:crypto';
 import { servicePool, closePools } from '../src/config/database.js';
 import { withRls } from '../src/db/rls.js';
 import {
-  createDocument, publishDocument, getCurrentVersions, signAgreement,
+  createDocument, publishDocument, getCurrentVersions, getCurrentFile, signAgreement,
 } from '../src/services/agreements.js';
 import { getProfileStatus } from '../src/services/profile.js';
+import fs from 'node:fs/promises';
+import { AGREEMENTS_STORAGE_PATH } from '../src/config/storage.js';
 import { deleteFile } from '../src/services/storage.js';
 
 const pdf = (s) => Buffer.from(`%PDF-1.4 ${s}`);
@@ -59,6 +61,11 @@ try {
       assert.equal((await getCurrentVersions(c)).waiver, '9.2');
       await rejects(publishDocument(c, { id: d1.id, actorId: admin }), 409, 'already_published');
       await rejects(publishDocument(c, { id: crypto.randomUUID(), actorId: admin }), 404, 'document_not_found');
+    });
+    await run('GET current: sirve el fichero íntegro; si no coincide el checksum, 500 agreement_corrupted', async () => {
+      assert.deepEqual((await getCurrentFile(c, 'waiver')).buffer, pdf('c'));
+      await fs.writeFile(`${AGREEMENTS_STORAGE_PATH}/${d2.id}.pdf`, pdf('manipulado'));
+      await rejects(getCurrentFile(c, 'waiver'), 500, 'agreement_corrupted');
     });
     await run('admin no puede borrar documentos', async () => {
       await c.query('SAVEPOINT d');

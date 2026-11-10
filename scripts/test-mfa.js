@@ -143,7 +143,8 @@ const setupAdmin = async () => {
   return asAdmin((c) => setupMfa(c, adminProfileId, prepared));
 };
 
-async function currentTotpFor(profileId) {
+// steps: 1 = el código del paso siguiente (validate lo acepta con window 1); sirve para un segundo código sin esperar.
+async function currentTotpFor(profileId, steps = 0) {
   const { rows } = await servicePool.query(
     `SELECT totp_secret_encrypted FROM user_mfa WHERE user_id = $1`,
     [profileId]
@@ -158,7 +159,7 @@ async function currentTotpFor(profileId) {
     period: 30,
     secret: OTPAuth.Secret.fromBase32(secretBase32),
   });
-  return totp.generate();
+  return totp.generate({ timestamp: Date.now() + steps * 30_000 });
 }
 
 // ---------------------------------------------------------------------------
@@ -242,6 +243,12 @@ async function main() {
       [adminProfileId]
     );
     assert(rows[0].mfa_enabled === true, 'mfa_enabled != true');
+    const { rows: audit } = await servicePool.query(
+      `SELECT actor_id, resource_type FROM audit_log WHERE action = 'auth.mfa_enable' AND resource_id = $1`,
+      [adminProfileId]
+    );
+    assert(audit.length === 1 && audit[0].actor_id === adminProfileId && audit[0].resource_type === 'profile',
+      `audit_log auth.mfa_enable: ${JSON.stringify(audit)}`);
   });
 
   // 5) setupMfa con mfa_enabled=true → 409 mfa_already_enabled
@@ -260,10 +267,21 @@ async function main() {
   });
 
   // 7) verifyMfaCode con TOTP correcto → true
+  // El de activar ya gastó el paso actual: el siguiente.
   await run('verifyMfaCode: TOTP correcto → true', async () => {
-    const code = await currentTotpFor(adminProfileId);
+    const code = await currentTotpFor(adminProfileId, 1);
     const ok = await asAdmin((c) => verifyMfaCode(c, adminProfileId, code));
     assert(ok === true, 'verifyMfaCode TOTP devolvió false');
+  });
+
+  await run('B20: verifyMfaCode rechaza un TOTP ya usado y uno de un paso anterior', async () => {
+    const used = await currentTotpFor(adminProfileId, 1);
+    assert(await asAdmin((c) => verifyMfaCode(c, adminProfileId, used)) === false, 'el mismo código entró dos veces');
+    const older = await currentTotpFor(adminProfileId);
+    assert(await asAdmin((c) => verifyMfaCode(c, adminProfileId, older)) === false, 'un código de un paso anterior entró');
+    const code = await currentTotpFor(adminProfileId);
+    await assertRejects(() => asAdmin((c) => verifyAndEnableMfa(c, adminProfileId, code)),
+      (e) => e.code === 'invalid_totp', 'activar con un paso ya usado');
   });
 
   // 8) verifyMfaCode con TOTP incorrecto → false
@@ -377,6 +395,8 @@ async function main() {
 // Por HTTP con un express en memoria. Al empezar borra el MFA del admin de prueba y lo activa por la API.
 // ---------------------------------------------------------------------------
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 const ttlHours = (token) => {
   const { iat, exp } = jwt.decode(token);
   return (exp - iat) / 3600;
@@ -408,14 +428,52 @@ async function httpCases() {
       const list = await http('GET', '/admin/profiles?limit=1', { token });
       assert(list.status === 200 && typeof list.body.total === 'number', `GET /admin/profiles ${list.status}`);
     });
+    await run('B20: empezar el MFA pide la contraseña actual (400 invalid_field | wrong_password)', async () => {
+      const none = await http('POST', '/auth/mfa/setup', { token });
+      assert(none.status === 400 && none.body.code === 'invalid_field', `sin contraseña ${none.status} ${none.body?.code}`);
+      const bad = await http('POST', '/auth/mfa/setup', { token, body: { password: 'otra-cosa-1234' } });
+      assert(bad.status === 400 && bad.body.code === 'wrong_password', `otra contraseña ${bad.status} ${bad.body?.code}`);
+    });
+    await run('B20: cuenta solo con Google: sin login reciente → 403 reauth_required; con él, sin contraseña', async () => {
+      await servicePool.query(`UPDATE auth_credentials SET password_hash = NULL, google_sub = $2, credentials_changed_at = NULL
+          WHERE profile_id = $1`, // sin la hora: el token de hace 11 min no es session_revoked
+        [adminProfileId, `mfa-test-${adminProfileId}`]);
+      try {
+        const old = signToken({ sub: adminProfileId, role: 'admin', iat: Math.floor(Date.now() / 1000) - 11 * 60 });
+        const r = await http('POST', '/auth/mfa/setup', { token: old });
+        assert(r.status === 403 && r.body.code === 'reauth_required', `login de hace 11 min ${r.status} ${r.body?.code}`);
+        const fresh = await http('POST', '/auth/mfa/setup', { token: signToken({ sub: adminProfileId, role: 'admin' }) });
+        assert(fresh.status === 201, `login reciente ${fresh.status} ${fresh.body?.code}`);
+      } finally {
+        await servicePool.query(`UPDATE auth_credentials SET password_hash = $2, google_sub = NULL WHERE profile_id = $1`,
+          [adminProfileId, await hashPassword(ADMIN_PASSWORD)]);
+      }
+    });
+    await run('B20: activar el MFA cierra las demás sesiones (ADR 0020) y devuelve el token de esta', async () => {
+      const other = (await login()).body.token;
+      const s = await http('POST', '/auth/mfa/setup', { token, body: { password: ADMIN_PASSWORD } });
+      assert(s.status === 201, `setup ${s.status} ${s.body?.code}`);
+      await sleep(1100); // el iat va en segundos: un token del mismo segundo que el cambio seguiría valiendo (ADR 0020)
+      const act = await http('POST', '/auth/mfa/activate', { token, body: { code: await currentTotpFor(adminProfileId) } });
+      assert(act.status === 200 && act.body.enabled === true && act.body.token, `activate ${act.status} ${act.body?.code}`);
+      for (const t of [token, other]) {
+        const r = await http('GET', '/auth/me', { token: t });
+        assert(r.status === 401 && r.body.code === 'session_revoked', `token anterior ${r.status} ${r.body?.code}`);
+      }
+      const me = await http('GET', '/auth/me', { token: act.body.token });
+      assert(me.status === 200 && me.body.mfa_enabled === true, `token nuevo ${me.status}`);
+      await servicePool.query(`DELETE FROM user_mfa WHERE user_id = $1`, [adminProfileId]);
+      token = act.body.token;
+    });
     await run('B19.0: con MFA, el token de /auth/mfa/verify también es de 12 h', async () => {
-      assert((await http('POST', '/auth/mfa/setup', { token })).status === 201, 'setup');
+      const s = await http('POST', '/auth/mfa/setup', { token, body: { password: ADMIN_PASSWORD } });
+      assert(s.status === 201, `setup ${s.status}`);
       const code = await currentTotpFor(adminProfileId);
       const act = await http('POST', '/auth/mfa/activate', { token, body: { code } });
       assert(act.status === 200, `activate ${act.status}`);
       const r = await login();
       assert(r.body.mfa_required === true, 'login sin mfa_required');
-      const v = await http('POST', '/auth/mfa/verify', { body: { mfa_token: r.body.mfa_token, code } });
+      const v = await http('POST', '/auth/mfa/verify', { body: { mfa_token: r.body.mfa_token, code: await currentTotpFor(adminProfileId, 1) } });
       assert(v.status === 200 && ttlHours(v.body.token) === 12, `verify ${v.status}`);
       assert((await http('GET', '/admin/profiles?limit=1', { token: v.body.token })).status === 200, '/admin con MFA');
     });

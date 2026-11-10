@@ -31,9 +31,9 @@ export async function getAttendance(client, sessionId) {
   if (!s) throw httpError(404, 'session_not_found', SQL_ERRORS.session_not_found[1]);
   const { rows: students } = await client.query(
     `SELECT b.id AS booking_id, b.student_id, p.display_name, p.avatar, a.status, a.method, a.corrected_at, a.correction_reason,
-            has_risk_cover(b.student_id) AS risk_cover -- solo el sí/no (CONTEXT § Quién ve el seguro)
+            visible_risk_cover(b.student_id) AS risk_cover -- solo el sí/no (CONTEXT § Quién ve el seguro)
        FROM bookings b
-       JOIN profiles p ON p.id = b.student_id
+       JOIN student_names p ON p.id = b.student_id -- del alumno, el profesor solo ve nombre y foto (044)
        LEFT JOIN attendance a ON a.booking_id = b.id
       WHERE b.session_id = $1 AND b.status = 'confirmed'
       ORDER BY p.display_name, b.student_id`,

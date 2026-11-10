@@ -14,6 +14,7 @@ import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, Com
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
+import { OTPField, OTPFieldInput, OTPFieldSeparator } from '@/components/ui/otp-field'
 import {
   ageMarks,
   canChangeRole,
@@ -285,25 +286,34 @@ const MISSING: Record<string, string> = {
 const access = (p: ProfileFile['profile']) =>
   p.has_password && p.has_google ? 'Contraseña y Google' : p.has_password ? 'Contraseña' : p.has_google ? 'Google' : 'Sin acceso propio'
 
+const OTP_SLOT = 'h-12 w-10 font-mono text-xl'
+
 function RoleChange({ file, refresh }: { file: ProfileFile; refresh: () => void }) {
   const p = file.profile
   const [role, setRole] = useState<Role | ''>('')
   const [open, setOpen] = useState(false)
+  // Dar admin se confirma con el código del doble factor de quien lo da (B20): un token robado no basta.
+  const [code, setCode] = useState('')
+  const toAdmin = role === 'admin'
   const navigate = useNavigate()
   const change = useMutation({
-    mutationFn: () => api(`/admin/profiles/${p.id}/role`, { method: 'PUT', body: { role } }),
+    mutationFn: () => api(`/admin/profiles/${p.id}/role`, { method: 'PUT', body: { role, ...(toAdmin && { mfa_code: code }) } }),
     onSuccess: () => {
       toastOk(`Ahora es ${ROLE_LABEL[role as Role].toLowerCase()}`)
       setRole('')
     },
-    onError: (err) =>
-      toastError(err, err instanceof ApiError && err.code === 'trainer_has_sessions' ? { label: 'Ir a Clases', onClick: () => navigate('/admin/classes') } : undefined),
+    onError: (err) => {
+      const errCode = err instanceof ApiError ? err.code : null
+      const go = (label: string, to: string) => ({ label, onClick: () => navigate(to) })
+      toastError(err, errCode === 'trainer_has_sessions' ? go('Ir a Clases', '/admin/classes') : errCode === 'mfa_required' ? go('Activar el doble factor', '/admin/mfa') : undefined)
+    },
     onSettled: () => {
       setOpen(false)
+      setCode('')
       refresh()
     },
   })
-  const options = (['alumno', 'tutor', 'profesor'] as const).filter((r) => r !== p.role)
+  const options = (['alumno', 'tutor', 'profesor', 'admin'] as const).filter((r) => r !== p.role)
   return (
     <div className="flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center">
       <div className="sm:w-52">
@@ -321,12 +331,29 @@ function RoleChange({ file, refresh }: { file: ProfileFile; refresh: () => void 
         open={open}
         onOpenChange={(o) => !o && !change.isPending && setOpen(false)}
         title={role ? `¿Pasar a ${name(p)} a ${ROLE_LABEL[role].toLowerCase()}?` : ''}
-        description="El cambio es inmediato; si tiene la app abierta, tendrá que volver a entrar."
+        description={
+          toAdmin
+            ? 'Podrá hacer todo lo que haces tú y desde la app no se le podrá quitar. Confírmalo con el código de tu app de autenticación.'
+            : 'El cambio es inmediato; si tiene la app abierta, tendrá que volver a entrar.'
+        }
         confirmLabel="Cambiar el rol"
         variant="default"
         loading={change.isPending}
+        disabled={toAdmin && code.length < 6}
         onConfirm={() => change.mutate()}
-      />
+      >
+        {toAdmin && (
+          <OTPField length={6} value={code} onValueChange={setCode} validationType="numeric" autoComplete="one-time-code" aria-label="Código de tu app de autenticación">
+            {[0, 1, 2].map((i) => (
+              <OTPFieldInput key={i} className={OTP_SLOT} autoFocus={i === 0} />
+            ))}
+            <OTPFieldSeparator />
+            {[3, 4, 5].map((i) => (
+              <OTPFieldInput key={i} className={OTP_SLOT} />
+            ))}
+          </OTPField>
+        )}
+      </ConfirmDialog>
     </div>
   )
 }

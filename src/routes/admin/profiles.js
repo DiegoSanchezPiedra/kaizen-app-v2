@@ -4,6 +4,7 @@ import { requireAuth, requireRole, withRlsContext } from '../../middleware/auth.
 import { httpError } from '../../lib/errors.js';
 import { unpublishProfile } from '../../services/profiles.js';
 import { withRls } from '../../db/rls.js';
+import { adminGrantLimit } from '../../middleware/rateLimit.js';
 import { setAvatar, deleteAvatarFile, noticeAvatarRemoved } from '../../services/avatar.js';
 import { listProfiles, getProfileStats, getProfile, changeRole, addGuardian, removeGuardian } from '../../services/users.js';
 
@@ -24,9 +25,11 @@ router.get('/profiles/stats', withRlsContext((req, client) => getProfileStats(cl
 // GET /admin/profiles/:id → { profile, status, guardians, children, subscription, insurance } (sin birth_date ni salud)
 router.get('/profiles/:id', withRlsContext((req, client) => getProfile(client, { id: req.params.id, actorId: req.user.id })));
 
-// PUT /admin/profiles/:id/role { role } → { profile } (audit_log profile.role_change)
-router.put('/profiles/:id/role', withRlsContext((req, client) =>
-  changeRole(client, { id: req.params.id, role: req.body?.role, actorId: req.user.id })));
+// PUT /admin/profiles/:id/role { role, mfa_code? } → { profile } (audit_log profile.role_change); admin exige mfa_code,
+// una sesión con doble factor y como mucho 10 intentos cada 15 min por IP.
+const grantLimit = (req, res, next) => (req.body?.role === 'admin' ? adminGrantLimit(req, res, next) : next());
+router.put('/profiles/:id/role', grantLimit, withRlsContext((req, client) => changeRole(client, {
+  id: req.params.id, role: req.body?.role, actorId: req.user.id, mfaSession: req.user.mfa, mfaCode: req.body?.mfa_code })));
 
 // POST /admin/profiles/:id/guardians { tutor_id } → 201 { guardians }; DELETE …/guardians/:tutorId → 204
 router.post('/profiles/:id/guardians', withRlsContext((req, client) =>

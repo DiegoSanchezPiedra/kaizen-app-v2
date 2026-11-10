@@ -9,6 +9,10 @@ import {
   MFA_RECOVERY_CODE_COUNT,
 } from '../config/mfa.js';
 import { encrypt, decrypt } from './crypto.js';
+import { verifyPassword } from './password.js';
+
+// Una cuenta solo con Google no tiene contraseña que pedir: empezar el MFA exige un login de hace como mucho esto (B20).
+const MFA_REAUTH_MAX_AGE_S = 10 * 60;
 
 // ---------------------------------------------------------------------------
 // Helpers internos
@@ -49,6 +53,20 @@ function buildTotp(secretBase32, label) {
   });
 }
 
+// B20: el TOTP es de un solo uso. Si vale, gasta su paso (el de ahora + el delta de validate) solo si es posterior al
+// último usado; en una sentencia, para que dos peticiones con el mismo código no entren las dos.
+async function useTotp(client, profileId, totp, code) {
+  const timestamp = Date.now();
+  const delta = totp.validate({ token: String(code), window: 1, timestamp });
+  if (delta === null) return false;
+  const step = totp.counter({ timestamp }) + delta;
+  const { rowCount } = await client.query(
+    `UPDATE user_mfa SET last_totp_step = $2
+      WHERE user_id = $1 AND (last_totp_step IS NULL OR last_totp_step < $2)`,
+    [profileId, step]);
+  return rowCount === 1;
+}
+
 async function findMfaRow(client, profileId) {
   const { rows } = await client.query(
     `SELECT user_id, totp_secret_encrypted, recovery_codes_encrypted,
@@ -64,6 +82,26 @@ async function findMfaRow(client, profileId) {
 // ---------------------------------------------------------------------------
 // API pública
 // ---------------------------------------------------------------------------
+
+// B20: con un token robado no se empieza el MFA en la cuenta de otro. Pide la contraseña actual (own_password_hash(),
+// 052) o, sin contraseña, que el token (su iat) sea de un login reciente. 400 invalid_field | wrong_password;
+// 403 reauth_required.
+// Se lee el hash dentro de la transacción RLS y se verifica (argon2) DESPUÉS de cerrarla, sin retener la conexión.
+export async function readOwnPasswordHash(client) {
+  const { rows: [{ hash }] } = await client.query(`SELECT own_password_hash() AS hash`);
+  return hash;
+}
+
+export async function assertMfaReauth(hash, { password, tokenIat }) {
+  if (hash) {
+    if (typeof password !== 'string' || !password) {
+      throw httpError(400, 'invalid_field', 'password es obligatorio', { field: 'password' });
+    }
+    if (!(await verifyPassword(hash, password))) throw httpError(400, 'wrong_password', 'la contraseña actual no es correcta');
+  } else if (!(Date.now() / 1000 - tokenIat <= MFA_REAUTH_MAX_AGE_S)) { // sin iat, también
+    throw httpError(403, 'reauth_required', 'vuelve a iniciar sesión para empezar el doble factor');
+  }
+}
 
 // Cálculo pesado (argon2) sin BD: llamar ANTES de abrir la transacción RLS.
 export async function prepareMfaSetup(profileId, label) {
@@ -109,6 +147,7 @@ export async function setupMfa(client, profileId, prepared) {
           SET totp_secret_encrypted    = $1,
               recovery_codes_encrypted = $2,
               mfa_enabled              = false,
+              last_totp_step           = NULL,
               updated_at               = CURRENT_TIMESTAMP
         WHERE user_id = $3`,
       [totpSecretEncrypted, recoveryCodesEncrypted, profileId],
@@ -137,8 +176,7 @@ export async function verifyAndEnableMfa(client, profileId, code) {
 
   const secretBase32 = decrypt(row.totp_secret_encrypted);
   const totp = buildTotp(secretBase32, profileId);
-  const delta = totp.validate({ token: String(code), window: 1 });
-  if (delta === null) {
+  if (!(await useTotp(client, profileId, totp, code))) {
     throw httpError(400, 'invalid_totp', 'Invalid TOTP code');
   }
 
@@ -149,8 +187,14 @@ export async function verifyAndEnableMfa(client, profileId, code) {
       WHERE user_id = $1`,
     [profileId],
   );
+  // Como el cambio de contraseña (ADR 0020): los tokens de antes dejan de valer; iat, el del token nuevo de esta sesión.
+  const { rows: [r] } = await client.query(
+    `UPDATE auth_credentials SET credentials_changed_at = date_trunc('second', now())
+      WHERE profile_id = $1 RETURNING extract(epoch FROM credentials_changed_at)::bigint AS iat`,
+    [profileId]);
+  await client.query(`SELECT write_audit($1, 'auth.mfa_enable', 'profile', $2, '{}'::jsonb)`, [profileId, profileId]);
 
-  return { enabled: true };
+  return { enabled: true, iat: Number(r.iat) };
 }
 
 export async function verifyMfaCode(client, profileId, code) {
@@ -160,14 +204,13 @@ export async function verifyMfaCode(client, profileId, code) {
   if (!row || row.mfa_enabled !== true) return false;
 
   // 1) TOTP
+  let totp = null;
   try {
-    const secretBase32 = decrypt(row.totp_secret_encrypted);
-    const totp = buildTotp(secretBase32, profileId);
-    const delta = totp.validate({ token: String(code), window: 1 });
-    if (delta !== null) return true;
+    totp = buildTotp(decrypt(row.totp_secret_encrypted), profileId);
   } catch {
     // secret corrupto: caemos a recovery
   }
+  if (totp && (await useTotp(client, profileId, totp, code))) return true;
 
   // 2) Recovery codes
   let hashes = [];

@@ -33,7 +33,7 @@ export const progressSql = (codes) => `
     $$;
 `;
 
-const markSql = (codes) => codes ? `
+export const markSql = (codes) => codes ? `
   -- Quien puede ver el progreso añade los códigos que ya celebró; si no, NULL (403 en la API).
   CREATE FUNCTION mark_medals_seen(p_id uuid, p_codes text[]) RETURNS text[]
     LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = public AS $$
