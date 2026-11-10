@@ -43,6 +43,7 @@ export const CANCEL_REASON: Record<CancelReason, string> = {
   session_cancelled: 'La sesión se canceló',
   no_coverage: 'Tu cuota no la cubría',
   discipline_change: 'Cambio de disciplina',
+  out_of_age: 'Fuera de edad',
 }
 
 // Próximas: todo lo que no ha empezado. Pasadas: lo que ya empezó, de más reciente a más antigua.

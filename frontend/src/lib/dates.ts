@@ -7,6 +7,13 @@ const monthFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'UTC', month: 'lon
 export const madridDay = (d: Date | string | number = new Date()): string => dayFmt.format(new Date(d))
 export const madridMonth = (d: Date | string | number = new Date()): string => madridDay(d).slice(0, 7)
 
+// Años cumplidos a `day` (ambos YYYY-MM-DD) por una fecha de nacimiento.
+export function ageOn(birth: string, day: string): number {
+  const [by, bm, bd] = birth.split('-').map(Number)
+  const [y, m, d] = day.split('-').map(Number)
+  return y - by - (m < bm || (m === bm && d < bd) ? 1 : 0)
+}
+
 export function addDays(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + n)

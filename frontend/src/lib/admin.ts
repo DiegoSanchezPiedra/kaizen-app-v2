@@ -67,6 +67,8 @@ const DELIVERY_LABEL: Record<string, string> = {
   'notice.session_changed': 'Sesión cambiada',
   'notice.session_restored': 'Sesión recuperada',
   'notice.no_coverage': 'Sin cobertura',
+  'notice.out_of_age': 'Fuera de edad',
+  'notice.out_of_age_soon': 'Fuera de edad pronto',
   'notice.discipline_change': 'Cambio de disciplina',
   'notice.agreement_published': 'Documento nuevo para firmar',
   'notice.event_changed': 'Evento cambiado',

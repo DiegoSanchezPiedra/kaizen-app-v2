@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { takeCheckoutSubject } from '@/lib/billing'
 import { useSession } from '@/lib/session'
 import { activeSubject, subjectOptions, type Child } from '@/lib/subject'
+import type { Me } from '@/lib/types'
 
 // El sujeto activo vive en ?para= y en la caché en memoria de /me/children; nunca en localStorage.
 export function useSubject() {
@@ -18,7 +19,9 @@ export function useSubject() {
     enabled,
     staleTime: 30_000, // igual en pages/children.tsx: cada pantalla monta el selector y no debe volver a pedirla
   })
-  const options = session && data ? subjectOptions(session.role, session.id, data) : []
+  // La fecha propia (para la edad de las disciplinas) sale de /me: misma clave que my-data-form.
+  const me = useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/me'), enabled: session?.role === 'alumno', staleTime: 30_000 })
+  const options = session && data && (session.role !== 'alumno' || me.data) ? subjectOptions(session.role, session.id, me.data?.birth_date ?? null, data) : []
   const subject = activeSubject(options, params.get('para'))
   const select = (id: string) =>
     setParams((p) => {
@@ -34,9 +37,9 @@ export function useSubject() {
     subject,
     // Para uno mismo no se manda: el calendario solo acepta profile_id de un hijo (o del admin) y responde 403.
     profileId: subject && !subject.self ? subject.id : undefined,
-    loading: enabled && isPending,
-    error,
-    retry: () => void refetch(),
+    loading: enabled && (isPending || (session?.role === 'alumno' && me.isPending)),
+    error: error ?? me.error,
+    retry: () => void Promise.all([refetch(), me.refetch()]),
     select,
   }
 }

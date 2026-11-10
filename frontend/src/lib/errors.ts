@@ -63,6 +63,7 @@ Object.assign(TEXTS, {
   plan_not_purchasable: 'Este plan ya no se puede contratar.', // propuesto
   plan_not_found: 'Este plan ya no se puede contratar.', // propuesto
   discipline_not_eligible: 'Esa disciplina no entra en este plan.', // propuesto
+  age_out_of_range: 'No tiene la edad de esta disciplina el día de la sesión.',
   payment_failed: 'El banco ha rechazado el pago. No ha cambiado nada.', // propuesto (el decline_message va en inglés)
   not_payer: 'Solo puede hacerlo quien paga la cuota.', // propuesto
   upgrade_pending: 'Hay otro cambio de plan a medias.', // propuesto

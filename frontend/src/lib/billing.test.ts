@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   changesLeft,
   disciplineLocked,
@@ -15,6 +15,9 @@ import {
 import { formatDeadline, formatShortDate } from '@/lib/format'
 import type { Discipline, Plan, Subscription } from '@/lib/types'
 
+// Fija el «hoy» (Madrid) de las pruebas de edad.
+const today = (iso: string) => vi.useFakeTimers().setSystemTime(new Date(iso))
+
 const plan = (o: Partial<Plan>): Plan => ({
   id: 1,
   name: 'P',
@@ -26,7 +29,7 @@ const plan = (o: Partial<Plan>): Plan => ({
   eligible_discipline_ids: [],
   ...o,
 })
-const disc = (id: number, o: Partial<Discipline> = {}): Discipline => ({ id, name: `D${id}`, minors_only: false, is_active: true, is_open: false, ...o })
+const disc = (id: number, o: Partial<Discipline> = {}): Discipline => ({ id, name: `D${id}`, min_age: null, max_age: null, is_active: true, is_open: false, ...o })
 const sub = (o: Partial<Subscription>): Subscription => ({
   id: 's',
   status: 'active',
@@ -46,9 +49,9 @@ describe('planes y disciplinas visibles', () => {
     expect(visiblePlans(plans, false).map((p) => p.id)).toEqual([1, 3])
   })
   it('elegibles del plan (vacío = todas), sin abiertas ni inactivas ni solo menores para uno mismo', () => {
-    const ds = [disc(1), disc(2, { minors_only: true }), disc(3, { is_open: true }), disc(4, { is_active: false }), disc(5)]
-    expect(eligibleDisciplines(plan({ eligible_discipline_ids: [] }), ds, true).map((d) => d.id)).toEqual([1, 5])
-    expect(eligibleDisciplines(plan({ eligible_discipline_ids: ['2', '5'] }), ds, false).map((d) => d.id)).toEqual([2, 5])
+    const ds = [disc(1), disc(2, { max_age: 12 }), disc(3, { is_open: true }), disc(4, { is_active: false }), disc(5)]
+    expect(eligibleDisciplines(plan({ eligible_discipline_ids: [] }), ds, null).map((d) => d.id)).toEqual([1, 5])
+    expect(eligibleDisciplines(plan({ eligible_discipline_ids: ['2', '5'] }), ds, '2015-03-02').map((d) => d.id)).toEqual([2, 5])
   })
   it('al cambiar de plan conserva las que valen, y todas si no hay dónde elegir', () => {
     expect(keepDisciplines(['1', 2], [disc(1), disc(2), disc(3)], 1)).toEqual(['1'])
@@ -63,6 +66,27 @@ describe('subida, bajada o mismo precio', () => {
     expect(planChange(4500, plan({ price_cents: 3900 }), false)).toBe('down')
     expect(planChange(4500, plan({ price_cents: 4500 }), false)).toBe('same')
     expect(planChange(4500, plan({ price_cents: 3900 }), true)).toBe('up')
+  })
+})
+
+describe('edad el día de la sesión (Madrid)', () => {
+  afterEach(() => vi.useRealTimers())
+  it('contratar: solo cuenta el máximo; la mínima no se mira; sin fecha, 18 años', () => {
+    today('2026-11-10T12:00:00Z')
+    const ds = [disc(1, { min_age: 14, max_age: 12 }), disc(2, { min_age: 5, max_age: 12 }), disc(3, { max_age: 10 }), disc(4, { max_age: 17 }), disc(5, { max_age: 18 }), disc(6)]
+    const ids = (b: string | null) => eligibleDisciplines(plan({}), ds, b).map((d) => d.id)
+    expect(ids('2015-03-02')).toEqual([1, 2, 4, 5, 6]) // 11 años: entra en la de máximo 12, no en la de 10
+    expect(ids(null)).toEqual([5, 6]) // sin fecha, 18: no entra en la de máximo 17
+  })
+  it('cumple años hoy cuenta ya; el día de antes, no', () => {
+    today('2026-11-10T12:00:00Z')
+    expect(eligibleDisciplines(plan({}), [disc(1, { max_age: 13 })], '2013-11-10').map((d) => d.id)).toEqual([1]) // 13 hoy
+    expect(eligibleDisciplines(plan({}), [disc(1, { max_age: 12 })], '2013-11-10').map((d) => d.id)).toEqual([]) // 13 hoy, máximo 12
+    expect(eligibleDisciplines(plan({}), [disc(1, { max_age: 12 })], '2013-11-11').map((d) => d.id)).toEqual([1]) // 12 hoy
+  })
+  it('usa el día de Madrid, no el UTC', () => {
+    today('2026-11-10T23:30:00Z') // ya es 11 de noviembre en Madrid
+    expect(eligibleDisciplines(plan({}), [disc(1, { max_age: 12 })], '2013-11-11').map((d) => d.id)).toEqual([]) // 13 cumplidos hoy
   })
 })
 
@@ -86,11 +110,14 @@ describe('qué se puede cambiar', () => {
     expect(changesLeft(1)).toBe('Queda 1 cambio')
     expect(changesLeft(2)).toBe('Quedan 2 cambios')
   })
-  it('gratis si la que se deja ya no se cubre', () => {
-    expect(freeChange(disc(1, { is_active: false }), false)).toBe(true)
-    expect(freeChange(disc(1, { minors_only: true }), true)).toBe(true)
-    expect(freeChange(disc(1, { minors_only: true }), false)).toBe(false)
-    expect(freeChange(undefined, true)).toBe(false)
+  it('gratis si la que se deja ya no se cubre: desactivada o fuera de edad hoy', () => {
+    today('2026-11-10T12:00:00Z')
+    expect(freeChange(disc(1, { is_active: false }), null)).toBe(true)
+    expect(freeChange(disc(1, { max_age: 12 }), '2013-01-01')).toBe(true) // 13
+    expect(freeChange(disc(1, { max_age: 12 }), '2015-03-02')).toBe(false) // 11
+    expect(freeChange(disc(1, { max_age: 17 }), null)).toBe(true) // sin fecha, 18
+    expect(freeChange(disc(1, { max_age: 18 }), null)).toBe(false)
+    expect(freeChange(undefined, null)).toBe(false)
   })
 })
 

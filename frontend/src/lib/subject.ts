@@ -1,14 +1,15 @@
 import type { Role } from '@/lib/paths'
 
 export type Child = { id: string; display_name: string; avatar?: string | null; birth_date: string | null; pending_claim: boolean }
-export type Subject = { id: string; label: string; self: boolean; avatar?: string | null }
+// birth_date: la edad de hoy (rango de disciplinas) sale de aquí; null = sin fecha, se toma como adulto.
+export type Subject = { id: string; label: string; self: boolean; avatar?: string | null; birth_date: string | null }
 
 // Selector de sujeto (CONTEXT.md): un tutor, entre sus hijos; un alumno, él y sus hijos. Nunca un hijo pending_claim.
 // Sin hijos vigentes, lista vacía: no hay selector.
-export function subjectOptions(role: Role, selfId: string, children: Child[]): Subject[] {
-  const kids = children.filter((c) => !c.pending_claim).map((c) => ({ id: c.id, label: c.display_name, self: false, avatar: c.avatar }))
+export function subjectOptions(role: Role, selfId: string, selfBirth: string | null, children: Child[]): Subject[] {
+  const kids = children.filter((c) => !c.pending_claim).map((c) => ({ id: c.id, label: c.display_name, self: false, avatar: c.avatar, birth_date: c.birth_date }))
   if (role === 'tutor') return kids
-  if (role === 'alumno' && kids.length) return [{ id: selfId, label: 'Tú', self: true }, ...kids]
+  if (role === 'alumno' && kids.length) return [{ id: selfId, label: 'Tú', self: true, birth_date: selfBirth }, ...kids]
   return []
 }
 

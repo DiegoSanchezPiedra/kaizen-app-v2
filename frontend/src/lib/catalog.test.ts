@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ageRangeLabel,
   centsToEuros,
   catalogRedirect,
   changed,
@@ -12,6 +13,15 @@ import {
   tabletState,
   type AgreementDoc,
 } from '@/lib/catalog'
+
+describe('rango de edad de una disciplina', () => {
+  it('ambos, solo mínima, solo máxima o ninguno', () => {
+    expect(ageRangeLabel(5, 12)).toBe('5–12 años')
+    expect(ageRangeLabel(5, null)).toBe('Desde 5 años')
+    expect(ageRangeLabel(null, 17)).toBe('Hasta 17 años')
+    expect(ageRangeLabel(null, null)).toBeNull()
+  })
+})
 
 describe('precio: euros ↔ céntimos', () => {
   it('lee coma, punto y enteros sin pasar por float', () => {
