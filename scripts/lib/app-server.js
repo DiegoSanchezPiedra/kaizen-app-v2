@@ -7,11 +7,11 @@ export async function startApp() {
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const base = `http://127.0.0.1:${server.address().port}`;
-  const http = async (method, url, { token, body } = {}) => {
-    const headers = { 'content-type': 'application/json', ...(token && { authorization: `Bearer ${token}` }) };
-    const res = await fetch(base + url, { method, headers, body: body && JSON.stringify(body) });
+  const http = async (method, url, { token, body, type = 'application/json' } = {}) => {
+    const headers = { 'content-type': type, ...(token && { authorization: `Bearer ${token}` }) };
+    const res = await fetch(base + url, { method, headers, body: Buffer.isBuffer(body) ? body : body && JSON.stringify(body) });
     const text = await res.text();
-    return { status: res.status, body: text ? JSON.parse(text) : null };
+    return { status: res.status, body: text && res.headers.get('content-type')?.includes('json') ? JSON.parse(text) : text || null };
   };
   return { http, close: () => new Promise((resolve) => server.close(resolve)) };
 }

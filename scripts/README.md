@@ -5,14 +5,14 @@ No van aquí las migraciones: esas viven en `migrations/`.
 
 ## Tests con BD efímera y app en proceso (B20)
 
-Modelo: `scripts/e2e-mfa.js` (`npm run test:e2e-mfa`).
+Modelos: `scripts/e2e-mfa.js` (`npm run test:e2e-mfa`) y `scripts/e2e-agreements.js` (`test:e2e-agreements`, con cuerpo crudo).
 
 - **BD efímera**: en `package.json`, `"test:x": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-x.js"`. Crea
   `kaizen_test_<pid>` con todas las migraciones, pone las tres `DATABASE_URL*` apuntando a ella y la borra al acabar
   (también si falla). Necesita `POSTGRES_USER`/`POSTGRES_PASSWORD` (superusuario) en `.env`. La base está vacía: el
   test crea sus datos con `servicePool` y no hace falta limpiar.
 - **App en proceso**: `const { http, close } = await startApp()` (`scripts/lib/app-server.js`) monta `src/app.js` en un
-  puerto libre; `http(method, url, { token, body })` devuelve `{ status, body }`. Al final, `await close()` y
+  puerto libre; `http(method, url, { token, body, type })` (`body` Buffer + `type` = cuerpo crudo) devuelve `{ status, body }`. Al final, `await close()` y
   `await closePools()`. Nunca `pkill`: el servidor es del propio proceso.
 - Salida: `OK   …` / `FAIL …` y `process.exitCode = 1` si algo falla; el errorHandler escribe cada 4xx en `console.error`.
 - `npm run test` (todos los `test:*` en serie y un resumen) lo recoge solo si se llama `test:*`; los que usan el

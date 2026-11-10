@@ -60,7 +60,8 @@
     "local:medals": "SEED_API=http://127.0.0.1:3001 SEED_PASSWORD=${SEED_PASSWORD:-kaizen-local-1} node --env-file=.env deploy/staging/medals.mjs",
     "staging:nightly": "DOTENV_CONFIG_PATH=.env.staging dotenv -e .env.staging -- node scripts/nightly.js",
     "test:ratelimit": "node scripts/test-ratelimit.js",
-    "test:e2e-mfa": "dotenv -e .env -- node scripts/with-temp-db.js scripts/e2e-mfa.js"
+    "test:e2e-mfa": "dotenv -e .env -- node scripts/with-temp-db.js scripts/e2e-mfa.js",
+    "test:e2e-agreements": "dotenv -e .env -- node scripts/with-temp-db.js scripts/e2e-agreements.js"
   },
   "keywords": [],
   "author": "",
