@@ -1,3 +1,5 @@
+Sustituido por 0023.
+
 # Cobertura de riesgo: seguro de la academia o waiver
 
 B4.5 hizo del `waiver` uno de los tres acuerdos obligatorios del perfil completo: todo alumno lo firmaba antes de pagar. Pero la academia ofrece un **seguro anual** y quiere que el `waiver` sea su alternativa: quien contrata el seguro no lo firma; quien no tiene seguro o no quiere contratarlo, sí. Por eso el `waiver` sale del perfil completo y nace la **cobertura de riesgo** (seguro en vigor o `waiver` vigente), que pasa a ser un requisito propio para reservar. La elección se hace al contratar, porque ahí se decide si se paga el seguro.

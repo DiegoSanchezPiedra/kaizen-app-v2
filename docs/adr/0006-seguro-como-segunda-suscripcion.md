@@ -1,3 +1,5 @@
+Sustituido por 0023.
+
 # El seguro es una segunda suscripción, cobrada en el mismo paso que la cuota
 
 El seguro (ADR 0005) es anual y por aniversario, mientras que la cuota es mensual. Además se cancelan por separado: la baja de la suscripción deja el seguro hasta el final de su año, y un seguro impagado no debe arrastrar a la cuota. Por eso el seguro es una **segunda suscripción anual** de Stripe, del mismo cliente, con su propio ciclo de cobro. El pagador lo vive como **un solo paso**: paga la cuota en el Checkout y Kaizen crea el seguro justo después con la misma tarjeta, gestionando ahí la autenticación del banco (3DS) si la pide. Si el seguro no llega a pagarse, la suscripción **se mantiene** y el alumno queda sin cobertura de riesgo hasta que pague el seguro o firme el `waiver`.
