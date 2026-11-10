@@ -2,9 +2,8 @@
 // B28: sin seguro ni waiver, solo membresías (ADR 0023, que sustituye a 0005 y 0006). Se borra todo sin copia: solo
 // había datos de staging y del sandbox (los seguros de Stripe los cancela antes scripts/drop-insurance-stripe.js).
 // Reservar, la promoción y la inscripción a eventos dejan de pedir cobertura de riesgo. down() recrea el esquema vacío.
+// Los PDFs del waiver no se borran aquí (irían antes del COMMIT): los huérfanos de local y staging se van al recrearlos.
 /* eslint-disable camelcase */
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { bookSessionSql } from './013_insurance.js';
 
 export const shorthands = undefined;
@@ -155,12 +154,7 @@ const agreementNoticeSql = (risk) => `
       $$;
 `;
 
-export const up = async (pgm) => {
-  // PDFs de los waiver: se leen ya (service_role salta la RLS forzada) y se borran al final.
-  await pgm.db.query('SET ROLE service_role');
-  const { rows: pdfs } = await pgm.db.query(`SELECT storage_path FROM agreement_documents WHERE type = 'waiver'`);
-  await pgm.db.query('RESET ROLE');
-
+export const up = (pgm) => {
   pgm.sql(bookSessionSql(false));
   pgm.sql(promoteSql(false));
   pgm.sql(registerSql(false));
@@ -185,9 +179,6 @@ export const up = async (pgm) => {
     pgm.dropConstraint(t, `${t}_type_check`);
     pgm.addConstraint(t, `${t}_type_check`, { check: TYPES(false) });
   }
-
-  const dir = path.resolve(process.env.AGREEMENTS_STORAGE_PATH || './storage/agreements');
-  for (const { storage_path: p } of pdfs) await fs.rm(path.join(dir, path.basename(p)), { force: true });
 };
 
 export const down = (pgm) => {
