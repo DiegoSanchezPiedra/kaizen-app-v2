@@ -9,7 +9,8 @@ if (!key) {
 }
 
 export const STRIPE_API_VERSION = '2026-09-30.endive';
-export const stripe = new Stripe(key, { apiVersion: STRIPE_API_VERSION });
+// Reintentos con la misma clave de idempotencia (la pone el SDK): un timeout no repite el cobro (docs: error-low-level).
+export const stripe = new Stripe(key, { apiVersion: STRIPE_API_VERSION, timeout: 10_000, maxNetworkRetries: 2 });
 export const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 // Portal limitado a método de pago y recibos (scripts/stripe-portal-config.js); sin él Stripe usaría el de por defecto.
 export const STRIPE_PORTAL_CONFIGURATION_ID = process.env.STRIPE_PORTAL_CONFIGURATION_ID;

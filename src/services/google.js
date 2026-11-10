@@ -3,7 +3,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { GOOGLE_CLIENT_ID } from '../config/auth.js';
 import { httpError } from '../lib/errors.js';
 
-const client = new OAuth2Client(GOOGLE_CLIENT_ID);
+const client = new OAuth2Client({ clientId: GOOGLE_CLIENT_ID, transporterOptions: { timeout: 10_000 } }); // la descarga de certificados de Google
 
 export async function verifyGoogleIdToken(idToken) {
   const ticket = await client.verifyIdToken({
