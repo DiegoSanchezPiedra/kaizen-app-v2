@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { api } from '@/lib/api'
-import { centsToEuros, eurosToCents, maxDisciplinesLabel } from '@/lib/catalog'
+import { ageRangeLabel, centsToEuros, eurosToCents, maxDisciplinesLabel } from '@/lib/catalog'
 import { formatEuros } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import { plural } from '@/lib/professor'
@@ -221,7 +221,7 @@ function EligibleSheet({ p, all, onClose }: { p: Plan; all: Discipline[]; onClos
             />
             <span className="flex-1">{d.name}</span>
             {!d.is_active && <Tag variant="secondary">Desactivada</Tag>}
-            {d.minors_only && <Tag variant="info">Solo menores</Tag>}
+            {ageRangeLabel(d.min_age, d.max_age) && <Tag variant="info">{ageRangeLabel(d.min_age, d.max_age)}</Tag>}
           </label>
         ))}
       </fieldset>

@@ -13,6 +13,7 @@
     "test": "node scripts/run-tests.js",
     "test:rls": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-rls.js",
     "test:mfa": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-mfa.js",
+    "test:migrations": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-migrations.js",
     "test:agreements": "dotenv -e .env -- node scripts/test-agreements.js",
     "test:minors": "dotenv -e .env -- node scripts/test-minors.js",
     "test:catalog": "dotenv -e .env -- node scripts/test-catalog.js",

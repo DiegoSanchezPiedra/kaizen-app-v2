@@ -20,6 +20,7 @@ import {
   changesLeft,
   disciplineLocked,
   eligibleDisciplines,
+  fitsAge,
   freeChange,
   isLive,
   keepDisciplines,
@@ -33,6 +34,7 @@ import { formatDeadline, formatShortDate } from '@/lib/format'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
 import { path, refreshBilling, refreshBookings, useDisciplines, usePlans, useSubscription } from '@/lib/queries'
 import { useSession } from '@/lib/session'
+import { ageRangeLabel } from '@/lib/catalog'
 import type { Subject } from '@/lib/subject'
 import type { Subscription } from '@/lib/types'
 
@@ -374,6 +376,7 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
   const plans = usePlans()
   const disciplines = useDisciplines()
   const self = !subject || subject.self
+  const birth = subject?.birth_date ?? null
   const [planId, setPlanId] = useState<string>('')
   const [picked, setPicked] = useState<string[]>([])
   const [open, setOpen] = useState(false)
@@ -385,7 +388,7 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
   const current = all.find((p) => String(p.id) === String(s.plan.id))
   const list = visiblePlans(all, self)
   const target = list.find((p) => String(p.id) === planId)
-  const eligible = target ? eligibleDisciplines(target, disciplines.data ?? [], self) : []
+  const eligible = target ? eligibleDisciplines(target, disciplines.data ?? [], birth) : []
   const max = target?.max_disciplines ?? null
   const choose = target && max !== null && eligible.length > max
   const ready = !!target && (max === null || picked.length === max)
@@ -396,7 +399,7 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
     setPlanId(id)
     setProblem(null)
     const p = list.find((x) => String(x.id) === id)
-    if (p) setPicked(keepDisciplines(s.disciplines.map((d) => d.id), eligibleDisciplines(p, disciplines.data ?? [], self), p.max_disciplines))
+    if (p) setPicked(keepDisciplines(s.disciplines.map((d) => d.id), eligibleDisciplines(p, disciplines.data ?? [], birth), p.max_disciplines))
   }
 
   const change = useMutation({
@@ -488,6 +491,7 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
           </p>
           {eligible.map((d) => {
             const on = picked.includes(String(d.id))
+            const range = ageRangeLabel(d.min_age, d.max_age)
             return (
               <label key={d.id} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border bg-card px-4 has-data-checked:border-primary has-data-disabled:cursor-default has-data-disabled:opacity-64">
                 <Checkbox
@@ -497,7 +501,7 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
                   onCheckedChange={(c) => setPicked((xs) => (c ? [...xs, String(d.id)] : xs.filter((x) => x !== String(d.id))))}
                 />
                 <span className="flex-1 font-medium">{d.name}</span>
-                {d.minors_only && <Tag variant="secondary">Solo menores</Tag>}
+                {range && <Tag variant="secondary">{range}</Tag>}
               </label>
             )
           })}
@@ -553,7 +557,7 @@ function DisciplineChange({ s, subject }: Props & { s: Subscription }) {
   const { withSubject } = useSubject()
   const plans = usePlans()
   const disciplines = useDisciplines()
-  const self = !subject || subject.self
+  const birth = subject?.birth_date ?? null // la edad de hoy del sujeto decide qué disciplinas cubre
   const [from, setFrom] = useState(String(s.disciplines[0]?.id ?? ''))
   const [to, setTo] = useState('')
   const [open, setOpen] = useState(false)
@@ -594,13 +598,13 @@ function DisciplineChange({ s, subject }: Props & { s: Subscription }) {
   const plan = plans.data.find((p) => String(p.id) === String(s.plan.id))
   const chosen = s.disciplines.map((d) => String(d.id))
   // Un plan retirado no sale en /plans: sin sus elegibles, se ofrecen todas las disciplinas que el backend aceptaría.
-  const options = (plan ? eligibleDisciplines(plan, disciplines.data, self) : disciplines.data.filter((d) => d.is_active && !d.is_open && !(self && d.minors_only))).filter(
+  const options = (plan ? eligibleDisciplines(plan, disciplines.data, birth) : disciplines.data.filter((d) => d.is_active && !d.is_open && fitsAge(d, birth))).filter(
     (d) => !chosen.includes(String(d.id)),
   )
   const fromD = disciplines.data.find((d) => String(d.id) === from)
   const fromName = s.disciplines.find((d) => String(d.id) === from)?.name ?? ''
   const toName = options.find((d) => String(d.id) === to)?.name ?? ''
-  const free = freeChange(fromD, self)
+  const free = freeChange(fromD, birth)
   const left = s.discipline_changes_left ?? 0
   const out = left === 0 && !free
 
@@ -625,7 +629,7 @@ function DisciplineChange({ s, subject }: Props & { s: Subscription }) {
                 key={d.id}
                 value={String(d.id)}
                 title={d.name}
-                tags={freeChange(dd, self) ? <Tag variant="success">Ya no se cubre: el cambio es gratis</Tag> : undefined}
+                tags={freeChange(dd, birth) ? <Tag variant="success">Ya no se cubre: el cambio es gratis</Tag> : undefined}
               />
             )
           })}
@@ -638,7 +642,7 @@ function DisciplineChange({ s, subject }: Props & { s: Subscription }) {
         ) : (
           <RadioGroup value={to} onValueChange={(v) => setTo(String(v))} className="flex flex-col gap-2">
             {options.map((d) => (
-              <OptionCard key={d.id} value={String(d.id)} title={d.name} tags={d.minors_only ? <Tag variant="secondary">Solo menores</Tag> : undefined} />
+              <OptionCard key={d.id} value={String(d.id)} title={d.name} tags={ageRangeLabel(d.min_age, d.max_age) ? <Tag variant="secondary">{ageRangeLabel(d.min_age, d.max_age)}</Tag> : undefined} />
             ))}
           </RadioGroup>
         )}

@@ -41,7 +41,7 @@ export async function ensureCustomer(client, payerId) {
 
 /**
  * Plan y disciplinas de un pedido, con las mismas reglas al contratar y al cambiar de plan (B10.5):
- * plan activo y de pago, edad, solo menores, número y disciplinas elegibles.
+ * plan activo y de pago, edad, solo menores, número y disciplinas elegibles (y su rango de edad).
  * @returns {{ plan, ids: string[], adult: boolean }}
  */
 async function validateOrder(client, { studentId, planId, disciplineIds = [] }) {
@@ -70,10 +70,13 @@ async function validateOrder(client, { studentId, planId, disciplineIds = [] }) 
   }
   if (ids.length) {
     const { rows } = await client.query(
-      `SELECT id, minors_only FROM disciplines WHERE id = ANY($1::bigint[]) AND is_active AND NOT is_open`, [ids]);
+      // Rango de edad: solo la máxima, con la edad de hoy (un niño de 4 contrata kids 5–12).
+      `SELECT d.id, in_age_range(p.birth_date, NULL, d.max_age, now()) AS fits
+         FROM disciplines d, profiles p
+        WHERE d.id = ANY($1::bigint[]) AND d.is_active AND NOT d.is_open AND p.id = $2`, [ids, studentId]);
     const ok = new Map(rows.map((d) => [d.id, d]));
     const bad = ids.filter((id) => !ok.has(id) || (plan.eligible.length && !plan.eligible.includes(id))
-      || (adult && ok.get(id).minors_only));
+      || !ok.get(id).fits);
     if (bad.length) throw httpError(409, 'discipline_not_eligible', 'Disciplina no elegible', { ids: bad });
   }
   return { plan, ids, adult };

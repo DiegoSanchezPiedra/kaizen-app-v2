@@ -25,7 +25,7 @@ const HOUR_BADGES = [10, 50, 100, 250, 500, 1000];
 const STREAK_BADGES = [4, 12, 26, 52];
 
 // Cubrir (012) + la disciplina abierta: la cubre cualquier suscripción en vigor, respetando «solo menores».
-const coversSql = (open) => `
+export const coversSql = (open) => `
   CREATE OR REPLACE FUNCTION covers(p_student uuid, p_discipline bigint) RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
       SELECT EXISTS (

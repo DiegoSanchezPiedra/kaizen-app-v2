@@ -38,8 +38,10 @@ Solo términos de dominio. Sin detalles de implementación.
 ### Catálogo
 
 - **Disciplina**: arte marcial o actividad que imparte la academia (p. ej. BJJ, Muay Thai). Nunca se borra si tiene historial; se desactiva.
-- **Disciplina solo menores**: disciplina que solo pueden elegir los menores (p. ej. Muay Thai Kids). Un menor puede elegir cualquier disciplina; un adulto, ninguna solo menores.
-- **Disciplina abierta**: disciplina que cubre cualquier suscripción, sin elegirla ni ocupar hueco del plan (p. ej. el sparring, libre para quien practique cualquier disciplina). Si además es solo menores, un adulto sigue sin poder hacerla.
+- **Rango de edad de una disciplina**: edad mínima y máxima, opcionales e inclusive, en años cumplidos, que fija el admin (p. ej. Muay Thai Kids, 5–12). Sin rango, cualquier edad. Al contratar, elegir o cambiar de disciplina cuenta la edad de hoy y solo la máxima: un niño de 4 puede contratar una de 5–12. Al reservar, entrar en espera o ser promovido cuenta la edad el día de la sesión, mínima y máxima: ese niño reserva desde el día que cumple 5; la promoción salta (sin sacarlo de la lista) a quien no la cumple. Un perfil sin fecha de nacimiento cuenta como adulto. Lo que antes era «solo menores» es «máxima 17».
+  _Evitar_: disciplina solo menores.
+- **Superar la máxima**: un mes antes del cumpleaños con el que un alumno deja el rango de una disciplina que le cubre, se avisa a su tutor (o a él si no tiene). Desde ese día se cancelan sus reservas y esperas futuras de esa disciplina con motivo «fuera de edad», con aviso, y sustituirla es gratis.
+- **Disciplina abierta**: disciplina que cubre cualquier suscripción, sin elegirla ni ocupar hueco del plan (p. ej. el sparring, libre para quien practique cualquier disciplina). También respeta su rango de edad.
 - **Plan**: oferta del catálogo de la academia, definida por el admin: nombre, precio, periodo de cobro y **cuántas disciplinas** puede elegir el alumno (1, 2 o todas). El plan no fija qué disciplinas: las elige el alumno entre las elegibles. Kaizen es la fuente de verdad de su precio; un plan existe aunque no haya pasarela de pago.
 - **Disciplinas elegibles**: lista opcional de un plan que limita entre qué disciplinas se elige. Sin lista, es elegible cualquier disciplina activa que permita la edad del alumno. No es lo mismo que "cubrir".
 - **Plan solo menores**: plan que solo puede contratarse para un menor. Es opcional: por defecto un plan está abierto a todos.
@@ -47,7 +49,7 @@ Solo términos de dominio. Sin detalles de implementación.
 - **Precio**: precio final que paga el pagador, impuestos incluidos. Un plan de 0 € no se contrata por la pasarela.
 - **Cambio de precio**: el precio de un plan es editable; el nuevo precio se aplica a todos sus suscriptores desde su siguiente facturación. Lo pagado de verdad queda en los recibos.
 - **Retirar un plan**: impide contratarlo y cambiar a él. Las suscripciones vigentes siguen igual. Un plan con historial nunca se borra.
-- **Catálogo**: las disciplinas y los planes activos. Lo ve cualquier perfil con sesión iniciada; solo el admin lo modifica. Los retirados solo los ve el admin (y el alumno cuya suscripción vigente está en ese plan). "Solo menores" no limita qué se ve, sino qué se contrata.
+- **Catálogo**: las disciplinas y los planes activos. Lo ve cualquier perfil con sesión iniciada; solo el admin lo modifica. Los retirados solo los ve el admin (y el alumno cuya suscripción vigente está en ese plan). "Solo menores" y el rango de edad no limitan qué se ve, sino qué se contrata y se reserva.
 - *Stripe Price*: no es término de dominio. Es el reflejo técnico de un plan en la pasarela.
 
 ### Suscripción
@@ -71,13 +73,13 @@ Solo términos de dominio. Sin detalles de implementación.
 - **Traspaso**: el momento, al final del periodo, en que la suscripción antigua termina y empieza la nueva con el nuevo pagador, con el mismo plan y las mismas disciplinas (o las de la bajada programada). Las reservas no se tocan: la cobertura no se interrumpe.
 - **Pago en efectivo**: reservado. No está activo; cuando se active tendrá su propio bloque.
 - **Disciplinas elegidas**: las disciplinas concretas que el alumno escoge al suscribirse, tantas como permite su plan y entre las elegibles. Pertenecen a la suscripción, no al plan.
-- **Cubrir**: una suscripción cubre una disciplina si está entre sus disciplinas elegidas o si el plan es de todas y la disciplina es elegible para ese alumno, o si es una disciplina abierta (para un adulto, nunca una solo menores). Cubrir da acceso ilimitado: todas las clases de esa disciplina, todos los días; solo limita el aforo de cada sesión.
+- **Cubrir**: una suscripción cubre una disciplina si está entre sus disciplinas elegidas o si el plan es de todas y la disciplina es elegible para ese alumno, o si es una disciplina abierta; siempre que el alumno no supere hoy la edad máxima de la disciplina (y, si es adulto, que el plan no sea solo menores). Cubrir da acceso ilimitado: todas las clases de esa disciplina, todos los días; solo limita el aforo de cada sesión.
 - **"Todas" es dinámico**: cubre las disciplinas elegibles en cada momento; una disciplina nueva queda cubierta al darse de alta si es elegible.
 - **Baja de disciplina**: al desactivarse una disciplina deja de cubrirse, y quien la tenía elegida puede sustituirla gratis y al instante por otra elegible (no cuenta como cambio de disciplina).
-- **Cambio de disciplina**: sustituir una disciplina elegida por otra sin cambiar de plan. Permitido un número limitado de veces por periodo de facturación (hoy, una; puede ser cero); el límite es un parámetro de la academia. Es inmediato y sin coste, y cancela las reservas y esperas futuras de la disciplina abandonada con motivo «cambio de disciplina». Sustituir una disciplina que ya no se cubre (desactivada, o solo menores para un adulto) es gratis y no cuenta para el límite. Elegir disciplinas al subir o bajar de plan no cuenta como cambio de disciplina.
+- **Cambio de disciplina**: sustituir una disciplina elegida por otra sin cambiar de plan. Permitido un número limitado de veces por periodo de facturación (hoy, una; puede ser cero); el límite es un parámetro de la academia. Es inmediato y sin coste, y cancela las reservas y esperas futuras de la disciplina abandonada con motivo «cambio de disciplina». Sustituir una disciplina que ya no se cubre (desactivada, o cuya edad máxima ya superó el alumno) es gratis y no cuenta para el límite. Elegir disciplinas al subir o bajar de plan no cuenta como cambio de disciplina.
 - **Subir de plan** (*upgrade*): pasar a un plan más caro. Es inmediato y se cobra la parte proporcional; el cambio solo se aplica si ese cobro se paga. Cambiar de plan lo hacen el pagador actual o el admin, con la suscripción activa y sin baja programada. Al subir, el alumno puede conservar sus disciplinas y añadir otras o cambiarlas todas.
 - **Bajar de plan** (*downgrade*): pasar a un plan del mismo precio o más barato. Se aplica en la siguiente facturación, sin reembolso. Hasta entonces es una **bajada programada**: hay como mucho una, una nueva la sustituye, una subida la anula y el pagador o el admin pueden anularla. Al bajar, el alumno elige las nuevas disciplinas: puede quedarse con alguna de las que ya hacía o escoger otras nuevas.
-- **Al cumplir 18**: la suscripción no cambia hasta que el ahora adulto reclama su perfil. Al reclamar, sus disciplinas solo menores se sustituyen gratis y al instante (como una baja de disciplina) y, si su plan es solo menores, debe elegir un plan abierto antes de reservar. Ese cambio es inmediato y con prorrateo, suba o baje.
+- **Al cumplir 18**: la suscripción no cambia hasta que el ahora adulto reclama su perfil. Las disciplinas cuya edad máxima supera (las de máxima 17, el día que cumple 18) se pueden sustituir gratis (ver Superar la máxima) y, si su plan es solo menores, debe elegir un plan abierto antes de reservar. Ese cambio es inmediato y con prorrateo, suba o baje.
 
 ### Cobros
 
@@ -129,7 +131,7 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
   _Evitar_: reactivar, descancelar.
 - **Cancelación retroactiva**: el admin cancela una sesión que ya ha empezado (también en curso) y que no llegó a darse, indicando siempre un motivo. Deja de contar como celebrada, anula su lista y sus asistencias, no avisa a nadie y no se recupera. No tiene plazo.
 - **Deshacer un ajuste**: devolver un campo de una sesión a lo que dice su clase para esa sesión, con los cambios de clase que le aplican (el inicio, a la hora que le toca). Desde entonces el campo vuelve a seguir los cambios de su clase. Si cambia el inicio, la duración o el profesor, es un cambio que afecta a la sesión; si sube el aforo, promociona. No existe en una sesión suelta.
-- **Calendario**: las sesiones de la academia. Alumnos, tutores y admin ven el calendario completo, incluidas las disciplinas solo menores, aunque no tengan suscripción; el profesor solo ve sus sesiones. Junto a cada sesión se indica si su suscripción la cubre para el sujeto (para un tutor, por cada hijo); ver no da derecho a reservar.
+- **Calendario**: las sesiones de la academia. Alumnos, tutores y admin ven el calendario completo, incluidas las disciplinas con rango de edad, aunque no tengan suscripción; el profesor solo ve sus sesiones. Junto a cada sesión se indica si su suscripción la cubre para el sujeto (para un tutor, por cada hijo); ver no da derecho a reservar.
 - **Evento**: actividad extraordinaria fuera del horario regular (seminario, torneo, examen de grado, quedada). No depende de cubrir: es gratis o se paga aparte, y admite a alumnos aunque su suscripción no cubra nada. Puede no tener disciplina ni profesor de la academia. A un evento uno se **inscribe**, no lo reserva. Un evento no es una sesión (ver «Eventos»).
   _Evitar_: sesión especial.
 
@@ -143,7 +145,7 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 - **Aforo** (en reservas): inviolable para todos, admin incluido. Para hacer sitio el admin sube el aforo con un ajuste de sesión, lo que promociona la lista de espera.
 - **Solape de reservas**: un alumno no puede reservar (ni ser promocionado a) una sesión que se solape en el tiempo con otra que tiene reservada. Un cambio que afecta a la sesión sí puede dejarle dos reservas solapadas: no se impide ni se cancela ninguna; el aviso le deja elegir cuál cancelar.
 - **En espera** (lista de espera): si la sesión está llena, el alumno queda en espera. No ocupa aforo. Puede estar en espera de una sesión que se solapa con otra que tiene reservada.
-- **Promoción**: al liberarse una plaza (cancelación o subida de aforo), el primero en espera por orden de llegada pasa automáticamente a reserva y se le avisa. Ocurre hasta el inicio de la sesión. Antes se re-comprueban los requisitos: si su suscripción no cubre la sesión, sale de la lista con motivo «sin cobertura»; si tiene una reserva que se solapa, o le falta el perfil completo, se le salta y sigue en la lista. Quien es promocionado ya dentro del plazo de cancelación puede cancelar sin que sea tardía.
+- **Promoción**: al liberarse una plaza (cancelación o subida de aforo), el primero en espera por orden de llegada pasa automáticamente a reserva y se le avisa. Ocurre hasta el inicio de la sesión. Antes se re-comprueban los requisitos: si su suscripción no cubre la sesión, sale de la lista con motivo «sin cobertura»; si tiene una reserva que se solapa, le falta el perfil completo o no tiene la edad de la disciplina el día de la sesión, se le salta y sigue en la lista. Quien es promocionado ya dentro del plazo de cancelación puede cancelar sin que sea tardía.
 - **Plazo de cancelación**: hasta N antes del inicio (parámetro de la academia, por defecto 1 hora) se cancela sin consecuencias. Siempre se puede cancelar hasta el inicio.
 - **Cancelación tardía**: cancelación del alumno o tutor fuera de plazo. Solo queda registrada; no hay sanción automática, el admin decide a mano.
   _Evitar_: penalización.
@@ -156,7 +158,8 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
   - **cancelada por el admin** (nunca es tardía);
   - **sesión cancelada**;
   - **sin cobertura**;
-  - **cambio de disciplina**.
+  - **cambio de disciplina**;
+  - **fuera de edad** (ver Superar la máxima).
 
 ## Eventos
 

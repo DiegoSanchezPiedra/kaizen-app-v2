@@ -14,9 +14,9 @@ import { api } from '@/lib/api'
 import {
   changesLeft,
   disciplineLocked,
-  eligibleDisciplines,
-  freeChange,
+  inPlan,
   isLive,
+  planDisciplines,
   keepDisciplines,
   perMonth,
   planChange,
@@ -86,7 +86,8 @@ function PlanDialog({ s, minor, onClose, refresh }: { s: Sub; minor: boolean; on
   const current = all.find((p) => String(p.id) === String(s.plan.id))
   const list = visiblePlans(all, self).filter((p) => p !== current)
   const target = list.find((p) => String(p.id) === planId)
-  const eligible = target ? eligibleDisciplines(target, disciplines.data ?? [], self) : []
+  // Sin la edad: la API del admin no da la fecha de nacimiento (409 discipline_not_eligible si no entra).
+  const eligible = target ? planDisciplines(target, disciplines.data ?? []) : []
   const max = target?.max_disciplines ?? null
   const kind = target ? planChange(s.plan.price_cents, target, self && !!current?.minors_only) : null
   const period = s.current_period_end ? `el ${formatShortDate(s.current_period_end)}` : 'al renovar'
@@ -94,7 +95,7 @@ function PlanDialog({ s, minor, onClose, refresh }: { s: Sub; minor: boolean; on
   const pick = (id: string) => {
     setPlanId(id)
     const p = list.find((x) => String(x.id) === id)
-    if (p) setPicked(keepDisciplines(s.disciplines.map((d) => d.id), eligibleDisciplines(p, disciplines.data ?? [], self), p.max_disciplines))
+    if (p) setPicked(keepDisciplines(s.disciplines.map((d) => d.id), planDisciplines(p, disciplines.data ?? []), p.max_disciplines))
   }
   const change = useMutation({
     mutationFn: () =>
@@ -161,24 +162,21 @@ function PlanDialog({ s, minor, onClose, refresh }: { s: Sub; minor: boolean; on
 }
 
 // Cambiar de disciplina (ADR 0007): inmediato; gratis si la que deja ya no se cubría.
-function DisciplineDialog({ s, minor, onClose, refresh }: { s: Sub; minor: boolean; onClose: () => void; refresh: () => void }) {
+// La API del admin no da la fecha de nacimiento: la edad la decide el backend (409 discipline_not_eligible).
+function DisciplineDialog({ s, onClose, refresh }: { s: Sub; onClose: () => void; refresh: () => void }) {
   const plans = usePlans()
   const disciplines = useDisciplines()
-  const self = !minor
   const [from, setFrom] = useState(String(s.disciplines[0]?.id ?? ''))
   const [to, setTo] = useState('')
   const all = disciplines.data ?? []
   const plan = plans.data?.find((p) => String(p.id) === String(s.plan.id))
   const chosen = s.disciplines.map((d) => String(d.id))
-  // Un plan retirado no sale en /plans: entonces, todas las que el backend aceptaría.
-  const options = (plan ? eligibleDisciplines(plan, all, self) : all.filter((d) => d.is_active && !d.is_open && !(self && d.minors_only))).filter(
-    (d) => !chosen.includes(String(d.id)),
-  )
+  // Un plan retirado no sale en /plans: entonces, todas las activas.
+  const options = all.filter((d) => d.is_active && !d.is_open && (!plan || inPlan(plan, d)) && !chosen.includes(String(d.id)))
   const fromName = s.disciplines.find((d) => String(d.id) === from)?.name ?? ''
-  const free = freeChange(
-    all.find((d) => String(d.id) === from),
-    self,
-  )
+  // Gratis solo si la que deja está desactivada (sin edad, el backend responde `free`).
+  const fromD = all.find((d) => String(d.id) === from)
+  const free = !!fromD && !fromD.is_active
   const change = useMutation({
     mutationFn: () => api<{ changes_left: number; free: boolean }>(`/admin/subscriptions/${s.id}/disciplines`, { method: 'POST', body: { from_id: from, to_id: to } }),
     onSuccess: (r) => toastOk('Disciplina cambiada', r.free ? 'No ha gastado ningún cambio.' : `${changesLeft(r.changes_left)}.`),
@@ -376,7 +374,7 @@ function Subscription({ file, refresh }: { file: ProfileFile; refresh: () => voi
       <Kv rows={rows} />
       {confirm}
       {dialog === 'plan' && <PlanDialog s={s} minor={minor} onClose={() => setDialog(null)} refresh={refresh} />}
-      {dialog === 'discipline' && <DisciplineDialog s={s} minor={minor} onClose={() => setDialog(null)} refresh={refresh} />}
+      {dialog === 'discipline' && <DisciplineDialog s={s} onClose={() => setDialog(null)} refresh={refresh} />}
       {dialog === 'payer' && <PayerDialog file={file} onClose={() => setDialog(null)} refresh={refresh} />}
     </Section>
   )

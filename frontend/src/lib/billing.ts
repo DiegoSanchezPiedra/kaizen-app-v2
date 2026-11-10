@@ -1,3 +1,4 @@
+import { ageOn, madridDay } from '@/lib/dates'
 import { formatEuros } from '@/lib/format'
 import type { Discipline, Plan, Subscription } from '@/lib/types'
 
@@ -12,20 +13,25 @@ export const changesLeft = (n: number): string => (n <= 0 ? 'No quedan cambios' 
 
 const sameId = (a: number | string, b: number | string) => String(a) === String(b)
 
-// Para uno mismo se ocultan los planes y disciplinas «solo menores»; para un hijo se ven todos. Nunca se calcula la edad.
+// Para uno mismo se ocultan los planes «solo menores»; para un hijo se ven todos. La edad de las disciplinas va en eligibleDisciplines.
 // Un plan a 0 € no se contrata por la pasarela (plan_not_purchasable).
 export const visiblePlans = (plans: Plan[], self: boolean): Plan[] =>
   plans.filter((p) => p.is_active && p.price_cents > 0 && !(self && p.minors_only)).sort((a, b) => a.price_cents - b.price_cents)
 
-// Las que se pueden elegir con un plan: activas, no abiertas, del plan (lista vacía = todas) y, para uno mismo, sin «solo menores».
-export const eligibleDisciplines = (plan: Plan, disciplines: Discipline[], self: boolean): Discipline[] =>
-  disciplines.filter(
-    (d) =>
-      d.is_active &&
-      !d.is_open &&
-      (plan.eligible_discipline_ids.length === 0 || plan.eligible_discipline_ids.some((id) => sameId(id, d.id))) &&
-      !(self && d.minors_only),
-  )
+// Edad de hoy (Madrid) del sujeto, como el backend: sin fecha de nacimiento, adulto.
+const ADULT_AGE = 18
+export const ageToday = (birthDate: string | null): number => (birthDate ? ageOn(birthDate, madridDay()) : ADULT_AGE)
+// Cubre la disciplina hoy: sin máximo, o la edad de hoy no lo supera. La mínima no se mira al contratar.
+export const fitsAge = (d: Discipline, birthDate: string | null): boolean => d.max_age === null || ageToday(birthDate) <= d.max_age
+// Del plan (lista vacía = todas).
+export const inPlan = (plan: Plan, d: Discipline): boolean => plan.eligible_discipline_ids.length === 0 || plan.eligible_discipline_ids.some((id) => sameId(id, d.id))
+
+// Activas, no abiertas y del plan, sin mirar la edad (el admin no tiene la fecha: lo decide el backend).
+export const planDisciplines = (plan: Plan, disciplines: Discipline[]): Discipline[] => disciplines.filter((d) => d.is_active && !d.is_open && inPlan(plan, d))
+
+// Las que se pueden elegir con un plan: las de planDisciplines que cubren la edad de hoy del sujeto.
+export const eligibleDisciplines = (plan: Plan, disciplines: Discipline[], birthDate: string | null): Discipline[] =>
+  planDisciplines(plan, disciplines).filter((d) => fitsAge(d, birthDate))
 
 // Preselección al cambiar de plan: las actuales que siguen valiendo, y todas si no hay dónde elegir.
 export function keepDisciplines(current: (number | string)[], eligible: Discipline[], max: number | null): string[] {
@@ -58,8 +64,8 @@ export function planLock(s: Subscription): string | null {
 export const disciplineLocked = (s: Subscription): boolean =>
   !!s.payer_change || !['active', 'past_due'].includes(s.status)
 
-// Gratis si la que se deja ya no se cubre: desactivada, o solo menores para uno mismo (adulto).
-export const freeChange = (from: Discipline | undefined, self: boolean): boolean => !!from && (!from.is_active || (self && from.minors_only))
+// Gratis si la que se deja ya no se cubre: desactivada, o la edad de hoy supera su máximo.
+export const freeChange = (from: Discipline | undefined, birthDate: string | null): boolean => !!from && (!from.is_active || !fitsAge(from, birthDate))
 
 // Reintentos de /billing/success y del cambio de pagador: cada 2 s; a los 20 s, «puede tardar unos minutos»; a los 2 min, parar.
 export const POLL_EVERY_MS = 2000

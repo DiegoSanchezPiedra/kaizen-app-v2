@@ -10,6 +10,7 @@ import { Radio, RadioGroup } from '@/components/ui/radio-group'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { toastManager } from '@/components/ui/toast'
 import { api } from '@/lib/api'
+import { ageRangeLabel } from '@/lib/catalog'
 import { toastOk } from '@/lib/notify'
 import { plural } from '@/lib/professor'
 import { medalOf } from '@/lib/progress'
@@ -17,6 +18,9 @@ import { THEMES, themeOf } from '@/lib/themes'
 import type { Discipline } from '@/lib/types'
 import { CardList, CardRow, Head, refreshCatalog } from '@/pages/admin/catalog-bits'
 import { FormSheet, SwitchRow, TextField, useAdminDisciplines, useFieldError } from '@/pages/admin/schedule-bits'
+
+// Edad en el formulario: vacía = sin límite (null); 0–99 = número; otra cosa = undefined (no vale).
+const ageOf = (v: string): number | null | undefined => (v.trim() === '' ? null : /^\d{1,2}$/.test(v.trim()) ? Number(v) : undefined)
 
 // docs/pantallas-b22.md § Membresías y Disciplinas: una entrada propia del menú (antes, una pestaña de /admin/catalog).
 export function AdminDisciplinesPage() {
@@ -49,7 +53,7 @@ export function AdminDisciplinesPage() {
                 active={d.is_active}
                 activeLabel="Activa"
                 inactiveLabel="Desactivada"
-                lines={[`${d.minors_only ? 'Solo menores' : 'Todos'} · ${d.is_open ? 'abierta' : 'se elige en la cuota'}`, `Medallas: ${themeOf(d.medal_theme).series}`]}
+                lines={[`${ageRangeLabel(d.min_age, d.max_age) ?? 'Todos'} · ${d.is_open ? 'abierta' : 'se elige en la cuota'}`, `Medallas: ${themeOf(d.medal_theme).series}`]}
                 onOpen={() => setEditing(d)}
               />
             ))}
@@ -61,7 +65,7 @@ export function AdminDisciplinesPage() {
                 {list.data.map((d) => (
                   <TableRow key={d.id} className={d.is_active ? 'h-10' : 'h-10 text-muted-foreground'}>
                     <TableCell className="ps-4 font-medium">{d.name}</TableCell>
-                    <TableCell>{d.minors_only ? <Tag variant="info">Solo menores</Tag> : 'Todos'}</TableCell>
+                    <TableCell>{ageRangeLabel(d.min_age, d.max_age) ? <Tag variant="info">{ageRangeLabel(d.min_age, d.max_age)}</Tag> : 'Todos'}</TableCell>
                     <TableCell>{d.is_open ? <Tag variant="secondary">Abierta</Tag> : 'Se elige en la cuota'}</TableCell>
                     <TableCell>
                       <span className="flex items-center gap-2">
@@ -90,16 +94,26 @@ export function AdminDisciplinesPage() {
 type DisciplineResult = { discipline: Discipline & { retired_classes?: number; cancelled_sessions?: number } }
 
 function DisciplineSheet({ d, onClose }: { d: Discipline | null; onClose: () => void }) {
-  const [f, setF] = useState({ name: d?.name ?? '', minors_only: d?.minors_only ?? false, is_open: d?.is_open ?? false, is_active: d?.is_active ?? true, medal_theme: d?.medal_theme ?? null })
+  const [f, setF] = useState({
+    name: d?.name ?? '',
+    min_age: d?.min_age == null ? '' : String(d.min_age),
+    max_age: d?.max_age == null ? '' : String(d.max_age),
+    is_open: d?.is_open ?? false,
+    is_active: d?.is_active ?? true,
+    medal_theme: d?.medal_theme ?? null,
+  })
   const fe = useFieldError()
-  const body = { ...f, name: f.name.trim() }
+  const minAge = ageOf(f.min_age)
+  const maxAge = ageOf(f.max_age)
+  const crossed = minAge != null && maxAge != null && minAge > maxAge
+  const body = { name: f.name.trim(), min_age: minAge ?? null, max_age: maxAge ?? null, is_open: f.is_open, is_active: f.is_active, medal_theme: f.medal_theme }
   // PATCH: solo lo que cambia (sin nada, la API da empty_patch).
   const diff = d ? Object.fromEntries(Object.entries(body).filter(([k, v]) => v !== d[k as keyof Discipline])) : body
   const deactivating = !!d?.is_active && !f.is_active
   const save = useMutation({
     mutationFn: () => {
       fe.clear()
-      return d ? api<DisciplineResult>(`/admin/disciplines/${d.id}`, { method: 'PATCH', body: diff }) : api<DisciplineResult>('/admin/disciplines', { method: 'POST', body: { name: body.name, minors_only: f.minors_only, is_open: f.is_open, medal_theme: f.medal_theme } })
+      return d ? api<DisciplineResult>(`/admin/disciplines/${d.id}`, { method: 'PATCH', body: diff }) : api<DisciplineResult>('/admin/disciplines', { method: 'POST', body: { name: body.name, min_age: body.min_age, max_age: body.max_age, is_open: body.is_open, medal_theme: body.medal_theme } })
     },
     onSuccess: ({ discipline: r }) =>
       deactivating
@@ -121,7 +135,7 @@ function DisciplineSheet({ d, onClose }: { d: Discipline | null; onClose: () => 
       title={d ? `Editar ${d.name}` : 'Nueva disciplina'}
       description="Las disciplinas son las que se eligen en la cuota y se reservan en el calendario."
       submitLabel={deactivating ? 'Desactivar' : d ? 'Guardar' : 'Crear la disciplina'}
-      disabled={!body.name || body.name.length > 100 || (!!d && Object.keys(diff).length === 0)}
+      disabled={!body.name || body.name.length > 100 || minAge === undefined || maxAge === undefined || crossed || (!!d && Object.keys(diff).length === 0)}
       loading={save.isPending}
       confirm={
         deactivating
@@ -136,7 +150,11 @@ function DisciplineSheet({ d, onClose }: { d: Discipline | null; onClose: () => 
       onSubmit={() => save.mutateAsync()}
     >
       <TextField label="Nombre" value={f.name} onChange={set('name')} maxLength={100} error={fe.error('name')} />
-      <SwitchRow label="Solo menores" hint="Un adulto no la puede hacer." checked={f.minors_only} onChange={set('minors_only')} />
+      <div className="grid grid-cols-2 gap-3">
+        <TextField label="Edad mínima" inputMode="numeric" value={f.min_age} onChange={set('min_age')} error={minAge === undefined ? 'Escribe un entero de 0 a 99.' : fe.error('min_age')} />
+        <TextField label="Edad máxima" inputMode="numeric" value={f.max_age} onChange={set('max_age')} error={maxAge === undefined ? 'Escribe un entero de 0 a 99.' : crossed ? 'No puede ser menor que la mínima.' : fe.error('max_age')} />
+      </div>
+      <p className="-mt-1 text-xs text-muted-foreground">Vacío: sin límite.</p>
       <SwitchRow label="Abierta" hint="La cubre cualquier cuota, sin elegirla ni ocupar hueco del plan." checked={f.is_open} onChange={set('is_open')} />
       {d && <SwitchRow label="Activa" hint="Si la desactivas, se retiran sus clases y se cancelan sus sesiones futuras." checked={f.is_active} onChange={set('is_active')} />}
       <ThemePicker id={d?.id} value={f.medal_theme} onChange={set('medal_theme')} />

@@ -9,6 +9,14 @@ export function eurosToCents(text: string): number | null {
 }
 export const centsToEuros = (cents: number): string => (cents / 100).toFixed(2).replace('.', ',')
 
+// Rango de edad de una disciplina: «5–12 años», «Desde 5 años», «Hasta 17 años» o null (sin límite).
+export function ageRangeLabel(min: number | null, max: number | null): string | null {
+  if (min !== null && max !== null) return `${min}–${max} años`
+  if (min !== null) return `Desde ${min} años`
+  if (max !== null) return `Hasta ${max} años`
+  return null
+}
+
 // «1», «2»… o «Todas» (null) en el campo «cuántas disciplinas» de un plan.
 export const maxDisciplinesLabel = (max: number | null): string => (max === null ? 'Todas' : String(max))
 

@@ -18,6 +18,7 @@ import { MISSING_TEXT } from '@/lib/notices'
 import { errorCode, toastError } from '@/lib/notify'
 import { path, refreshBilling, useDisciplines, usePlans, useProfileStatus, useSubscription } from '@/lib/queries'
 import { useSession } from '@/lib/session'
+import { ageRangeLabel } from '@/lib/catalog'
 import type { Subject } from '@/lib/subject'
 import type { PayerChange, Subscription } from '@/lib/types'
 
@@ -116,7 +117,8 @@ function Contract({ subject, profileId }: Props) {
   const allDisciplines = disciplines.data ?? []
   const options = visiblePlans(plans.data ?? [], self)
   const plan = options.find((p) => String(p.id) === planId)
-  const eligible = plan ? eligibleDisciplines(plan, allDisciplines, self) : []
+  const birth = subject?.birth_date ?? null
+  const eligible = plan ? eligibleDisciplines(plan, allDisciplines, birth) : []
   const max = plan?.max_disciplines ?? null
   const discNames = allDisciplines.filter((d) => picked.includes(String(d.id))).map((d) => d.name)
 
@@ -124,7 +126,7 @@ function Contract({ subject, profileId }: Props) {
     setPlanId(id)
     setProblem(null)
     const p = options.find((x) => String(x.id) === id)
-    const e = p ? eligibleDisciplines(p, allDisciplines, self) : []
+    const e = p ? eligibleDisciplines(p, allDisciplines, birth) : []
     // Si no hay dónde elegir (Kids con una sola), van elegidas.
     setPicked(p && p.max_disciplines !== null && e.length === p.max_disciplines ? e.map((d) => String(d.id)) : [])
   }
@@ -193,6 +195,7 @@ function Contract({ subject, profileId }: Props) {
           </p>
           {eligible.map((d) => {
             const on = picked.includes(String(d.id))
+            const range = ageRangeLabel(d.min_age, d.max_age)
             return (
               <label key={d.id} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border bg-card px-4 has-data-checked:border-primary has-data-disabled:cursor-default">
                 <Checkbox
@@ -202,7 +205,7 @@ function Contract({ subject, profileId }: Props) {
                   onCheckedChange={(c) => setPicked((xs) => (c ? [...xs, String(d.id)] : xs.filter((x) => x !== String(d.id))))}
                 />
                 <span className="flex-1 font-medium">{d.name}</span>
-                {d.minors_only && <Tag variant="secondary">Solo menores</Tag>}
+                {range && <Tag variant="secondary">{range}</Tag>}
               </label>
             )
           })}

@@ -192,6 +192,17 @@ const SERVICE = {
     title: g.sessions.length === 1 ? 'Reserva cancelada' : 'Reservas canceladas',
     body: one(g, 'ha cambiado de disciplina', 'ha cambiado de disciplina'),
   }),
+  'notice.out_of_age': (g) => ({
+    title: g.sessions.length === 1 ? 'Reserva cancelada' : 'Reservas canceladas',
+    body: one(g, 'ya no tiene la edad de la disciplina', 'ya no tiene la edad de la disciplina'),
+  }),
+  // Sin edad ni fecha de nacimiento: solo que en menos de un mes sale del rango (B29).
+  'notice.out_of_age_soon': (g) => ({
+    title: 'Cambio de disciplina por edad',
+    body: `En menos de un mes, ${g.c.profile_name} deja de tener la edad de ${g.c.discipline}: no podrá reservar en ella y se `
+      + 'cancelarán sus reservas. Si la tiene elegida en su plan, puedes cambiarla por otra sin que cuente para el límite '
+      + 'de cambios',
+  }),
   'notice.session_cancelled': (g) => ({
     title: g.sessions.length === 1 ? 'Sesión cancelada' : 'Sesiones canceladas',
     body: one(g, 'la academia ha cancelado la sesión', 'la academia ha cancelado las sesiones'),
@@ -277,7 +288,9 @@ async function composeService(db, d) {
   if (isBooking && !g.sessions.length) throw Object.assign(new Error('stale'), { stale: true });
   const { title, body } = SERVICE[d.action](g);
   const isAvatar = d.action === 'notice.avatar_removed';
-  const url = isBooking ? BOOKINGS : isEvent ? `${APP_URL}/events/${d.changes.event_id}` : isAvatar ? `${APP_URL}/account` : AGREEMENTS_URL;
+  const isAgeSoon = d.action === 'notice.out_of_age_soon';
+  const url = isBooking ? BOOKINGS : isEvent ? `${APP_URL}/events/${d.changes.event_id}` : isAvatar ? `${APP_URL}/account`
+    : isAgeSoon ? BILLING : AGREEMENTS_URL;
   if (d.channel === 'push') return { title, body, url, tag: d.audit_id };
   const { rows: [r] } = await db.query(
     `SELECT pr.display_name AS payer, ac.email FROM profiles pr
@@ -290,6 +303,7 @@ async function composeService(db, d) {
     : isEvent ? mail(`${title}: ${g.title}`, r, [`${body}.`], ['Ver el evento', url],
       'Este es un email de servicio sobre tus eventos en Kaizen.')
     : isAvatar ? mail(title, r, [body], ['Ir a Cuenta', url], 'Este es un email de servicio sobre tu cuenta en Kaizen.')
+    : isAgeSoon ? mail(title, r, [`${body}.`], ['Ver la suscripción', url], 'Este es un email de servicio sobre tus reservas en Kaizen.')
     : mail(title, r, [body], ['Ver los acuerdos', url], 'Este es un email de servicio sobre tus acuerdos en Kaizen.');
   return { to: r.email, ...msg };
 }

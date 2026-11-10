@@ -25,13 +25,13 @@ const notFound = () => httpError(404, 'profile_not_found', 'Perfil no encontrado
 const conflict = (code, message) => httpError(409, code, message);
 
 // Alumno de la disciplina $1 (NULL = cualquiera) por su suscripción viva.
-// shortcut: copia la regla de covers() (migrations/019) pero sobre la suscripción viva (covers solo mira la en vigor y
+// shortcut: copia la regla de covers() (migrations/058) pero sobre la suscripción viva (covers solo mira la en vigor y
 // así un impagado no sería de ninguna disciplina); unificar en una función común la próxima vez que se migre covers.
 const IN_DISCIPLINE = `($1::bigint IS NULL OR EXISTS (
   SELECT 1 FROM subscriptions s JOIN plans pl ON pl.id = s.plan_id JOIN disciplines d ON d.id = $1 AND d.is_active
    WHERE s.student_id = p.id AND s.status IN ${LIVE}
-     AND (NOT (p.birth_date IS NULL OR p.birth_date <= CURRENT_DATE - interval '18 years')
-          OR NOT (d.minors_only OR pl.minors_only))
+     AND (NOT (p.birth_date IS NULL OR p.birth_date <= CURRENT_DATE - interval '18 years') OR NOT pl.minors_only)
+     AND in_age_range(p.birth_date, NULL, d.max_age, now())
      AND (d.is_open OR CASE WHEN pl.max_disciplines IS NULL
             THEN NOT EXISTS (SELECT 1 FROM plan_disciplines pd WHERE pd.plan_id = pl.id)
               OR EXISTS (SELECT 1 FROM plan_disciplines pd WHERE pd.plan_id = pl.id AND pd.discipline_id = d.id)

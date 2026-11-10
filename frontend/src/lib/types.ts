@@ -1,9 +1,10 @@
 // Tipos de la API tal como los da docs/api.md (a mano: el backend es JS).
 // medal_theme: código de su temática de medallas (036); null = Kaizen.
-export type Discipline = { id: number | string; name: string; minors_only: boolean; is_active: boolean; is_open: boolean; medal_theme?: string | null }
+// min_age/max_age: rango de edad inclusive en años cumplidos; null = sin límite.
+export type Discipline = { id: number | string; name: string; min_age: number | null; max_age: number | null; is_active: boolean; is_open: boolean; medal_theme?: string | null }
 
 export type BookingStatus = 'confirmed' | 'waitlisted' | 'cancelled'
-export type CancelReason = 'student' | 'late' | 'admin' | 'session_cancelled' | 'no_coverage' | 'discipline_change'
+export type CancelReason = 'student' | 'late' | 'admin' | 'session_cancelled' | 'no_coverage' | 'discipline_change' | 'out_of_age'
 
 export type CalendarSession = {
   id: string

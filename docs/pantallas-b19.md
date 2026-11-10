@@ -115,7 +115,7 @@ Un vistazo y lo que pide atención. Todo enlaza a su pantalla. Sin MFA, el aviso
   | Acción | Endpoint | Confirmación y errores |
   |---|---|---|
   | Baja a fin de periodo / inmediata | `POST /admin/subscriptions/:id/cancel-at-period-end` \| `cancel-now` | «se avisa al pagador»; la inmediata, además, «anula los recibos pendientes y cancela sus reservas futuras». Si había una bajada programada, «se descarta» |
-  | Cambiar de plan | `POST /admin/subscriptions/:id/plan` (con `GET /admin/plans`, `GET /admin/disciplines`) | plan y disciplinas (los solo menores solo para un menor). Subida: «se cobra ya la parte proporcional al pagador»; `requires_payer_action` → «el pagador recibirá un email para autorizar el pago». Bajada: «se aplica el …». `same_plan`, `upgrade_pending`, `period_ending_soon`, `payer_change_pending`, `discipline_not_eligible`, `plan_minors_only` |
+  | Cambiar de plan | `POST /admin/subscriptions/:id/plan` (con `GET /admin/plans`, `GET /admin/disciplines`) | plan y disciplinas (las que no cubren la edad de hoy del alumno no salen; el admin no ve la fecha de nacimiento, así que lo decide el backend con `409 discipline_not_eligible`). Subida: «se cobra ya la parte proporcional al pagador»; `requires_payer_action` → «el pagador recibirá un email para autorizar el pago». Bajada: «se aplica el …». `same_plan`, `upgrade_pending`, `period_ending_soon`, `payer_change_pending`, `discipline_not_eligible`, `plan_minors_only` |
   | Anular la bajada programada | `DELETE /admin/subscriptions/:id/plan/scheduled` | — |
   | Cambiar de disciplina | `POST /admin/subscriptions/:id/disciplines` | «es inmediato y cancela sus reservas de la disciplina que deja»; gratis si ya no se cubría. `discipline_change_limit`, `payer_change_pending` |
   | Cambiar de pagador | `POST /admin/subscriptions/:id/payer-change` (candidatos: sus tutores o él mismo si es adulto, de `guardians`) | «el nuevo pagador recibe un email y tiene hasta el … para pagar; si no, sigue pagando …». `same_payer`, `invalid_payer`, `period_ending_soon`, `upgrade_pending`, `cancel_scheduled`, `payer_change_paid` |
@@ -153,7 +153,7 @@ Un vistazo y lo que pide atención. Todo enlaza a su pantalla. Sin MFA, el aviso
 
 | Pestaña | Endpoints | Estados y errores |
 |---|---|---|
-| **Disciplinas** | `GET`/`POST /admin/disciplines`, `PATCH /admin/disciplines/:id` | nombre, solo menores, abierta, activa. **Desactivar** con confirmación fuerte: «retira todas sus clases, cancela sus sesiones futuras y avisa; quien la tenía elegida puede cambiarla gratis» y el resultado (`retired_classes`, `cancelled_sessions`) |
+| **Disciplinas** | `GET`/`POST /admin/disciplines`, `PATCH /admin/disciplines/:id` | nombre, edad mínima y máxima (vacías = sin límite), abierta, activa. **Desactivar** con confirmación fuerte: «retira todas sus clases, cancela sus sesiones futuras y avisa; quien la tenía elegida puede cambiarla gratis» y el resultado (`retired_classes`, `cancelled_sessions`) |
 | **Planes** | `GET`/`POST /admin/plans`, `PATCH /admin/plans/:id`, `GET`/`PUT /admin/plans/:id/disciplines` | nombre, precio («impuestos incluidos»), cuántas disciplinas (1, 2… o todas), solo menores, activo, disciplinas elegibles (vacío = todas las activas que permita la edad). Cambiar el precio: «se aplica a todos sus suscriptores desde su siguiente cobro». Retirar: «ya no se contrata; las suscripciones siguen igual». Un plan a 0 € con suscriptores no se puede (`409`) |
 
 ## Informes `/admin/reports` (`?tab=`)

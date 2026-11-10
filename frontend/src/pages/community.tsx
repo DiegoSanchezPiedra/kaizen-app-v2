@@ -216,7 +216,8 @@ export function RankingsPage() {
   const current = madridMonth()
   const [month, setMonth] = useState(current)
   const disciplines = useDisciplines()
-  const options = (disciplines.data ?? []).filter((d) => d.is_active && !d.minors_only)
+  // Sin rankings para las solo menores: las que tienen máximo por debajo de 18 años (sin máximo, o 18 y más, sí).
+  const options = (disciplines.data ?? []).filter((d) => d.is_active && (d.max_age === null || d.max_age >= 18))
   // /rankings/medals era el de medallas de toda la academia (035): ahora, el de la primera disciplina.
   const chosen = (id !== 'medals' && id) || (options[0] ? String(options[0].id) : '')
   const open = options.find((d) => String(d.id) === chosen)?.is_open ?? false

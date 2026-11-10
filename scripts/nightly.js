@@ -1,5 +1,6 @@
 // Tareas nocturnas (ADR 0012): extiende el horizonte de sesiones (ADR 0004), toma la foto diaria de ayer de Madrid y
-// pide los reembolsos de eventos que quedaron pedidos sin llegar a Stripe (B21.0).
+// pide los reembolsos de eventos que quedaron pedidos sin llegar a Stripe (B21.0) y aplica el rango de edad de las
+// disciplinas (B29: aviso a 30 días y cancelación desde el cumpleaños que supera la máxima).
 // Lo lanza el cron del sistema a las 03:00 de Madrid (scripts/README.md). Cada tarea en su try: si una falla, la otra
 // corre igual; código de salida 1 si alguna falló. --date=YYYY-MM-DD (solo ayer u hoy) repite la foto a mano.
 import 'dotenv/config';
@@ -27,6 +28,13 @@ try {
     console.log(`foto ${r.d}: ${r.created ? 'creada' : 'ya existía'}`);
   } catch (err) {
     console.error(`foto${date ? ` ${date}` : ''}: ${err.message}`);
+    failed = true;
+  }
+  try {
+    const { rows: [r] } = await servicePool.query(`SELECT * FROM age_out_sweep()`);
+    console.log(`fuera de edad: ${r.warned} avisos, ${r.cancelled} reservas canceladas`);
+  } catch (err) {
+    console.error(`fuera de edad: ${err.message}`);
     failed = true;
   }
   try {

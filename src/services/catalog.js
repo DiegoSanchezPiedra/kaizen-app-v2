@@ -6,6 +6,7 @@ import { callChange } from './sessions.js';
 const ID_RE = /^\d{1,18}$/;
 const BILLING_PERIODS = ['monthly'];
 const isBool = (v) => typeof v === 'boolean';
+const isAge = (v) => v === null || (Number.isInteger(v) && v >= 0 && v <= 99);
 const isName = (v) => typeof v === 'string' && v.trim().length > 0 && v.length <= 100;
 
 const PLAN_SELECT = `
@@ -40,7 +41,8 @@ export function validate(body, spec, partial) {
 
 const DISCIPLINE_SPEC = {
   name: [isName, 'name requerido (≤100)', true],
-  minors_only: [isBool, 'minors_only debe ser booleano'],
+  min_age: [isAge, 'min_age: entero 0–99 o null'],
+  max_age: [isAge, 'max_age: entero 0–99 o null'],
   is_active: [isBool, 'is_active debe ser booleano'],
   is_open: [isBool, 'is_open debe ser booleano'],
   medal_theme: [(v) => v === null || (typeof v === 'string' && /^[a-z0-9_]{1,32}$/.test(v)), 'medal_theme: código de temática o null'],
@@ -61,6 +63,7 @@ async function guardUnique(fn) {
   } catch (err) {
     if (err.constraint === 'disciplines_medal_theme_active') throw httpError(409, 'theme_taken', 'Esa temática ya la tiene otra disciplina activa');
     if (err.constraint === 'disciplines_medal_theme_fkey') throw invalid('medal_theme', 'medal_theme: temática desconocida');
+    if (err.constraint === 'disciplines_age_range') throw invalid('min_age', 'min_age no puede ser mayor que max_age');
     if (err.code === '23505') throw httpError(409, 'name_taken', 'Ya existe un registro con ese nombre');
     throw err;
   }
@@ -86,7 +89,7 @@ export function updateSql(table, id, data) {
 
 export async function listDisciplines(client) {
   const { rows } = await client.query(
-    `SELECT id, name, minors_only, is_active, is_open, medal_theme FROM disciplines ORDER BY name`
+    `SELECT id, name, min_age, max_age, is_active, is_open, medal_theme FROM disciplines ORDER BY name`
   );
   return rows;
 }
@@ -102,7 +105,7 @@ export async function listMedalThemes(client) {
 
 async function getDiscipline(client, id, { lock = false } = {}) {
   const { rows: [d] } = await client.query(
-    `SELECT id, name, minors_only, is_active, is_open, medal_theme FROM disciplines WHERE id = $1${lock ? ' FOR UPDATE' : ''}`, [id]
+    `SELECT id, name, min_age, max_age, is_active, is_open, medal_theme FROM disciplines WHERE id = $1${lock ? ' FOR UPDATE' : ''}`, [id]
   );
   if (!d) throw httpError(404, 'discipline_not_found', 'Disciplina no encontrada');
   return d;

@@ -37,12 +37,20 @@ try {
     let bjj, kids, open, kidsPlan;
     await run('admin crea disciplinas; id autogenerado (string)', async () => {
       bjj = await createDiscipline(c, { name: 'T-BJJ' });
-      kids = await createDiscipline(c, { name: 'T-Kids', minors_only: true });
+      kids = await createDiscipline(c, { name: 'T-Kids', min_age: 5, max_age: 12 });
       assert.match(bjj.id, /^\d+$/);
-      assert.equal(bjj.minors_only, false);
-      assert.equal(kids.minors_only, true);
+      assert.deepEqual([bjj.min_age, bjj.max_age, kids.min_age, kids.max_age], [null, null, 5, 12]);
       await sp(c, () => rejects(createDiscipline(c, { name: 'T-BJJ' }), 409, 'name_taken'));
       await rejects(createDiscipline(c, { name: '' }), 400, 'invalid_field');
+    });
+    await run('rango de edad: enteros 0–99 o null, mínima ≤ máxima (también al cambiar solo una)', async () => {
+      for (const bad of [{ min_age: -1 }, { max_age: 100 }, { min_age: 5.5 }, { max_age: '12' }, { min_age: 13, max_age: 12 }]) {
+        await sp(c, () => rejects(createDiscipline(c, { name: 'T-Bad', ...bad }), 400, 'invalid_field'));
+      }
+      await sp(c, () => rejects(updateDiscipline(c, { id: kids.id, body: { min_age: 13 }, actorId: admin }), 400, 'invalid_field'));
+      const d = await updateDiscipline(c, { id: kids.id, body: { min_age: null, max_age: 17 }, actorId: admin });
+      assert.deepEqual([d.min_age, d.max_age], [null, 17]);
+      await updateDiscipline(c, { id: kids.id, body: { min_age: 5, max_age: 12 }, actorId: admin });
     });
     await run('id explícito rechazado (GENERATED ALWAYS)', () => sp(c, () =>
       assert.rejects(c.query(`INSERT INTO disciplines (id, name) VALUES (999999, 'x')`), /non-DEFAULT/)));

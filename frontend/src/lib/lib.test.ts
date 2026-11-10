@@ -77,18 +77,22 @@ describe('selector de sujeto', () => {
     { id: 'h3', display_name: 'Eva', birth_date: '2017-01-01', pending_claim: false },
   ]
   it('un tutor elige entre sus hijos; un alumno con hijos, él y ellos; nunca un pending_claim', () => {
-    expect(subjectOptions('tutor', 't1', kids).map((o) => o.id)).toEqual(['h1', 'h3'])
-    expect(subjectOptions('alumno', 'a1', kids).map((o) => o.id)).toEqual(['a1', 'h1', 'h3'])
-    expect(subjectOptions('alumno', 'a1', [])).toEqual([])
-    expect(subjectOptions('alumno', 'a1', [kids[1]])).toEqual([])
-    expect(subjectOptions('profesor', 'p1', kids)).toEqual([])
+    expect(subjectOptions('tutor', 't1', null, kids).map((o) => o.id)).toEqual(['h1', 'h3'])
+    expect(subjectOptions('alumno', 'a1', '2001-05-01', kids).map((o) => o.id)).toEqual(['a1', 'h1', 'h3'])
+    expect(subjectOptions('alumno', 'a1', null, [])).toEqual([])
+    expect(subjectOptions('alumno', 'a1', null, [kids[1]])).toEqual([])
+    expect(subjectOptions('profesor', 'p1', null, kids)).toEqual([])
+  })
+  it('cada sujeto lleva su fecha de nacimiento (la de la disciplina la mira billing)', () => {
+    const o = subjectOptions('alumno', 'a1', '2001-05-01', kids)
+    expect(o.map((s) => s.birth_date)).toEqual(['2001-05-01', '2015-01-01', '2017-01-01'])
   })
   it('un ?para= que no está en la lista cae en el sujeto por defecto', () => {
-    const alumno = subjectOptions('alumno', 'a1', kids)
+    const alumno = subjectOptions('alumno', 'a1', null, kids)
     expect(activeSubject(alumno, 'h3')?.id).toBe('h3')
     expect(activeSubject(alumno, 'h2')?.id).toBe('a1')
     expect(activeSubject(alumno, 'ajeno')?.id).toBe('a1')
-    expect(activeSubject(subjectOptions('tutor', 't1', kids), null)?.id).toBe('h1')
+    expect(activeSubject(subjectOptions('tutor', 't1', null, kids), null)?.id).toBe('h1')
     expect(activeSubject([], 'h1')).toBeNull()
   })
   it('sale en las pantallas por sujeto, no en el check-in', () => {
