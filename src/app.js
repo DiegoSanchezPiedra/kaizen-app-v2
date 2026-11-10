@@ -3,6 +3,7 @@ import 'dotenv/config';
 import express from 'express';
 import { pingAll } from './config/database.js';
 import { notFound, errorHandler } from './middleware/errorHandler.js';
+import { slowLog } from './middleware/slowLog.js';
 import authRouter from './routes/auth.js';
 import meRouter from './routes/me.js';
 import agreementsRouter from './routes/agreements.js';
@@ -33,6 +34,7 @@ import pushRouter from './routes/push.js';
 
 const app = express();
 
+app.use(slowLog);
 app.use('/webhooks', webhooksRouter); // antes de express.json: necesita el cuerpo crudo
 app.use(express.json({ limit: '1mb' }));
 // Saltos de proxy de confianza para req.ip (el rate limiting depende de ella): 1 = Nginx en el VPS; 2 = Tailscale Funnel + Nginx (staging).
