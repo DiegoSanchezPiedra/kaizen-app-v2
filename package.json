@@ -22,6 +22,7 @@
     "test:checkin": "dotenv -e .env -- node scripts/test-checkin.js",
     "test:billing": "dotenv -e .env -- node scripts/test-billing.js",
     "test:webhook": "dotenv -e .env -- node scripts/test-webhook.js",
+    "test:dunning": "dotenv -e .env -- node scripts/test-dunning.js",
     "test:notices": "dotenv -e .env -- node scripts/test-notices.js",
     "test:profiles": "dotenv -e .env -- node scripts/test-profiles.js",
     "test:calendar": "dotenv -e .env -- node scripts/test-calendar.js",
