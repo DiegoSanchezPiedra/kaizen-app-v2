@@ -17,7 +17,11 @@ export default defineConfig({
       registerType: 'prompt',
       injectRegister: false,
       includeManifestIcons: false, // ya entran por globPatterns
-      injectManifest: { globPatterns: ['**/*.{js,css,html,woff2,png,svg,ico}'] },
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,woff2,png,svg,ico}'],
+        // Fuentes de alfabetos que la app no usa (se bajan si hicieran falta).
+        globIgnores: ['**/*-{vietnamese,cyrillic,cyrillic-ext,symbols2}-*.woff2'],
+      },
       manifest: {
         name: 'Kaizen',
         short_name: 'Kaizen',

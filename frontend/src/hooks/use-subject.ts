@@ -16,6 +16,7 @@ export function useSubject() {
     queryKey: ['me', 'children'],
     queryFn: () => api<{ children: Child[] }>('/me/children').then((r) => r.children),
     enabled,
+    staleTime: 30_000, // igual en pages/children.tsx: cada pantalla monta el selector y no debe volver a pedirla
   })
   const options = session && data ? subjectOptions(session.role, session.id, data) : []
   const subject = activeSubject(options, params.get('para'))
