@@ -4,6 +4,9 @@ services:
   db:
     image: postgres:16
     restart: unless-stopped
+    # Ajuste para VPS de 8 GB con NVMe, compartido con la API y nginx.
+    shm_size: 1g
+    command: postgres -c shared_buffers=2GB -c effective_cache_size=5GB -c work_mem=16MB -c maintenance_work_mem=256MB -c random_page_cost=1.1
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
