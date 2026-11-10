@@ -40,20 +40,24 @@ await servicePool.query(
 const disc = (await servicePool.query(
   `INSERT INTO disciplines (name) VALUES ('T-Att') RETURNING id`)).rows[0].id;
 
-// Sesión a `offset` de ahora, 60 min. «today» empieza hace 5 min: falla si se ejecuta entre 00:00 y 00:05 de Madrid.
-async function session(trainer, offset, status = 'scheduled') {
+// Sesión a `offset` de ahora, 60 min. Con `sameDay`, sin pasar de la medianoche de Madrid (entre las 00:00 y las
+// 00:05 «hace 5 min» caería en el día anterior).
+async function session(trainer, offset, status = 'scheduled', sameDay = false) {
   const { rows: [s] } = await servicePool.query(
-    `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status, cancelled_at)
-     VALUES ($1, $2, now() + $3::interval, now() + $3::interval + interval '60 min', 60, 10, $4::session_status,
-             CASE WHEN $4::session_status = 'cancelled' THEN now() END) RETURNING id`,
-    [disc, U[trainer], offset, status]);
+    `WITH t AS (SELECT CASE WHEN $5 THEN GREATEST(now() + $3::interval, date_trunc('day', now() AT TIME ZONE 'Europe/Madrid')
+                                                                         AT TIME ZONE 'Europe/Madrid')
+                            ELSE now() + $3::interval END AS at)
+     INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status, cancelled_at)
+     SELECT $1, $2, t.at, t.at + interval '60 min', 60, 10, $4::session_status,
+             CASE WHEN $4::session_status = 'cancelled' THEN now() END FROM t RETURNING id`,
+    [disc, U[trainer], offset, status, sameDay]);
   return s.id;
 }
 const S = {
-  today: await session('prof1', '-5 min'),
+  today: await session('prof1', '-5 min', 'scheduled', true),
   yesterday: await session('prof1', '-1 day'),
   tomorrow: await session('prof1', '1 day'),
-  cancelled: await session('prof1', '-10 min', 'cancelled'),
+  cancelled: await session('prof1', '-10 min', 'cancelled', true),
   retro: await session('prof2', '-3 hours'),
   closed: await session('prof1', '-50 hours'),
 };
