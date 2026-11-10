@@ -8,6 +8,7 @@ import { withRls } from '../db/rls.js';
 import { registerLocal, loginLocal, loginGoogle, requestPasswordReset, resetPassword } from '../services/auth.js';
 import { signToken } from '../services/jwt.js';
 import {
+  assertMfaReauth,
   prepareMfaSetup,
   setupMfa,
   verifyAndEnableMfa,
@@ -133,13 +134,19 @@ router.get(
 // MFA admin
 // ---------------------------------------------------------------------------
 
+// POST /auth/mfa/setup { password } → 201 { otpauth_uri, recovery_codes }. Sin contraseña (solo Google), un login de
+// hace ≤ 10 min. 400 invalid_field | wrong_password; 403 reauth_required; 409 mfa_already_enabled. Con el límite del login.
+// POST /auth/mfa/activate { code } → { enabled, token }: como cambiar la contraseña (ADR 0020), cierra las demás sesiones.
 router.post(
   '/mfa/setup',
   requireAuth,
   requireRole('admin'),
+  authLimit,
   // argon2 antes de abrir la transacción: no retener la conexión durante el hashing.
   // label: identificador legible para el QR; el frontend puede pedir el email aparte.
   asyncHandler(async (req, res, next) => {
+    await withRls({ uid: req.user.id, role: req.user.role }, (client) =>
+      assertMfaReauth(client, { password: req.body?.password, tokenIat: req.user.iat }));
     req.mfaSetup = await prepareMfaSetup(req.user.id, req.user.id);
     next();
   }),
@@ -153,9 +160,10 @@ router.post(
   '/mfa/activate',
   requireAuth,
   requireRole('admin'),
-  withRlsContext((req, client) =>
-    verifyAndEnableMfa(client, req.user.id, req.body?.code)
-  )
+  withRlsContext(async (req, client) => {
+    const { iat } = await verifyAndEnableMfa(client, req.user.id, req.body?.code);
+    return { enabled: true, token: signToken({ sub: req.user.id, role: req.user.role, iat, mfa: req.user.mfa }) };
+  })
 );
 
 router.post(

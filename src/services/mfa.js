@@ -9,6 +9,10 @@ import {
   MFA_RECOVERY_CODE_COUNT,
 } from '../config/mfa.js';
 import { encrypt, decrypt } from './crypto.js';
+import { verifyPassword } from './password.js';
+
+// Una cuenta solo con Google no tiene contraseña que pedir: empezar el MFA exige un login de hace como mucho esto (B20).
+const MFA_REAUTH_MAX_AGE_S = 10 * 60;
 
 // ---------------------------------------------------------------------------
 // Helpers internos
@@ -64,6 +68,21 @@ async function findMfaRow(client, profileId) {
 // ---------------------------------------------------------------------------
 // API pública
 // ---------------------------------------------------------------------------
+
+// B20: con un token robado no se empieza el MFA en la cuenta de otro. Pide la contraseña actual (own_password_hash(),
+// 052) o, sin contraseña, que el token (su iat) sea de un login reciente. 400 invalid_field | wrong_password;
+// 403 reauth_required.
+export async function assertMfaReauth(client, { password, tokenIat }) {
+  const { rows: [{ hash }] } = await client.query(`SELECT own_password_hash() AS hash`);
+  if (hash) {
+    if (typeof password !== 'string' || !password) {
+      throw httpError(400, 'invalid_field', 'password es obligatorio', { field: 'password' });
+    }
+    if (!(await verifyPassword(hash, password))) throw httpError(400, 'wrong_password', 'la contraseña actual no es correcta');
+  } else if (!(Date.now() / 1000 - tokenIat <= MFA_REAUTH_MAX_AGE_S)) { // sin iat, también
+    throw httpError(403, 'reauth_required', 'vuelve a iniciar sesión para empezar el doble factor');
+  }
+}
 
 // Cálculo pesado (argon2) sin BD: llamar ANTES de abrir la transacción RLS.
 export async function prepareMfaSetup(profileId, label) {
@@ -149,8 +168,13 @@ export async function verifyAndEnableMfa(client, profileId, code) {
       WHERE user_id = $1`,
     [profileId],
   );
+  // Como el cambio de contraseña (ADR 0020): los tokens de antes dejan de valer; iat, el del token nuevo de esta sesión.
+  const { rows: [r] } = await client.query(
+    `UPDATE auth_credentials SET credentials_changed_at = date_trunc('second', now())
+      WHERE profile_id = $1 RETURNING extract(epoch FROM credentials_changed_at)::bigint AS iat`,
+    [profileId]);
 
-  return { enabled: true };
+  return { enabled: true, iat: Number(r.iat) };
 }
 
 export async function verifyMfaCode(client, profileId, code) {

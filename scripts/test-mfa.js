@@ -377,6 +377,8 @@ async function main() {
 // Por HTTP con un express en memoria. Al empezar borra el MFA del admin de prueba y lo activa por la API.
 // ---------------------------------------------------------------------------
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 const ttlHours = (token) => {
   const { iat, exp } = jwt.decode(token);
   return (exp - iat) / 3600;
@@ -408,8 +410,46 @@ async function httpCases() {
       const list = await http('GET', '/admin/profiles?limit=1', { token });
       assert(list.status === 200 && typeof list.body.total === 'number', `GET /admin/profiles ${list.status}`);
     });
+    await run('B20: empezar el MFA pide la contraseña actual (400 invalid_field | wrong_password)', async () => {
+      const none = await http('POST', '/auth/mfa/setup', { token });
+      assert(none.status === 400 && none.body.code === 'invalid_field', `sin contraseña ${none.status} ${none.body?.code}`);
+      const bad = await http('POST', '/auth/mfa/setup', { token, body: { password: 'otra-cosa-1234' } });
+      assert(bad.status === 400 && bad.body.code === 'wrong_password', `otra contraseña ${bad.status} ${bad.body?.code}`);
+    });
+    await run('B20: cuenta solo con Google: sin login reciente → 403 reauth_required; con él, sin contraseña', async () => {
+      await servicePool.query(`UPDATE auth_credentials SET password_hash = NULL, google_sub = $2, credentials_changed_at = NULL
+          WHERE profile_id = $1`, // sin la hora: el token de hace 11 min no es session_revoked
+        [adminProfileId, `mfa-test-${adminProfileId}`]);
+      try {
+        const old = signToken({ sub: adminProfileId, role: 'admin', iat: Math.floor(Date.now() / 1000) - 11 * 60 });
+        const r = await http('POST', '/auth/mfa/setup', { token: old });
+        assert(r.status === 403 && r.body.code === 'reauth_required', `login de hace 11 min ${r.status} ${r.body?.code}`);
+        const fresh = await http('POST', '/auth/mfa/setup', { token: signToken({ sub: adminProfileId, role: 'admin' }) });
+        assert(fresh.status === 201, `login reciente ${fresh.status} ${fresh.body?.code}`);
+      } finally {
+        await servicePool.query(`UPDATE auth_credentials SET password_hash = $2, google_sub = NULL WHERE profile_id = $1`,
+          [adminProfileId, await hashPassword(ADMIN_PASSWORD)]);
+      }
+    });
+    await run('B20: activar el MFA cierra las demás sesiones (ADR 0020) y devuelve el token de esta', async () => {
+      const other = (await login()).body.token;
+      const s = await http('POST', '/auth/mfa/setup', { token, body: { password: ADMIN_PASSWORD } });
+      assert(s.status === 201, `setup ${s.status} ${s.body?.code}`);
+      await sleep(1100); // el iat va en segundos: un token del mismo segundo que el cambio seguiría valiendo (ADR 0020)
+      const act = await http('POST', '/auth/mfa/activate', { token, body: { code: await currentTotpFor(adminProfileId) } });
+      assert(act.status === 200 && act.body.enabled === true && act.body.token, `activate ${act.status} ${act.body?.code}`);
+      for (const t of [token, other]) {
+        const r = await http('GET', '/auth/me', { token: t });
+        assert(r.status === 401 && r.body.code === 'session_revoked', `token anterior ${r.status} ${r.body?.code}`);
+      }
+      const me = await http('GET', '/auth/me', { token: act.body.token });
+      assert(me.status === 200 && me.body.mfa_enabled === true, `token nuevo ${me.status}`);
+      await servicePool.query(`DELETE FROM user_mfa WHERE user_id = $1`, [adminProfileId]);
+      token = act.body.token;
+    });
     await run('B19.0: con MFA, el token de /auth/mfa/verify también es de 12 h', async () => {
-      assert((await http('POST', '/auth/mfa/setup', { token })).status === 201, 'setup');
+      const s = await http('POST', '/auth/mfa/setup', { token, body: { password: ADMIN_PASSWORD } });
+      assert(s.status === 201, `setup ${s.status}`);
       const code = await currentTotpFor(adminProfileId);
       const act = await http('POST', '/auth/mfa/activate', { token, body: { code } });
       assert(act.status === 200, `activate ${act.status}`);
