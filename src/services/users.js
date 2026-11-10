@@ -42,6 +42,9 @@ const IN_DISCIPLINE = `($1::bigint IS NULL OR EXISTS (
 // impago (sale en Cobros › Morosos: CONTEXT § Moroso) > inactivo (en vigor sin asistencia en 14 días) > activo > sin plan.
 const PEOPLE = `${affectedSql('true')},
   impago AS (SELECT DISTINCT a.student_id FROM affected a JOIN payers USING (payer_id)),
+  -- Una sola agregación: por perfil (LATERAL), la RLS hacía estimar 1 sesión y recorría todas por cada perfil.
+  la AS MATERIALIZED (SELECT a.student_id, max(cs.starts_at) AS at FROM attendance a JOIN class_sessions cs ON cs.id = a.session_id
+          WHERE a.status = 'present' AND cs.status <> 'cancelled' GROUP BY 1),
   people AS (
     SELECT p.id, p.display_name, p.avatar, c.email, ${ROLE} AS role, ${MINOR} AS is_minor, ${PENDING_CLAIM} AS pending_claim,
            p.created_at, ls.status AS subscription_status, ls.plan_id, ls.plan_name, la.at AS last_attendance_at,
@@ -54,9 +57,7 @@ const PEOPLE = `${affectedSql('true')},
       LEFT JOIN LATERAL (SELECT s.status, s.plan_id, pl.name AS plan_name
                            FROM subscriptions s JOIN plans pl ON pl.id = s.plan_id
                           WHERE s.student_id = p.id AND s.status IN ${LIVE} ORDER BY s.created_at DESC LIMIT 1) ls ON true
-      LEFT JOIN LATERAL (SELECT max(cs.starts_at) AS at
-                           FROM attendance a JOIN class_sessions cs ON cs.id = a.session_id
-                          WHERE a.student_id = p.id AND a.status = 'present' AND cs.status <> 'cancelled') la ON true
+      LEFT JOIN la ON la.student_id = p.id
      WHERE ${IN_DISCIPLINE})`;
 
 const idParam = (field, v) => {
@@ -88,10 +89,13 @@ export async function listProfiles(client, { q, role, discipline_id: disciplineI
   const { rows } = await client.query(
     `WITH ${PEOPLE}
      SELECT id, display_name, avatar, email, role, is_minor, pending_claim, created_at, subscription_status, plan_id, plan_name,
-            estado, last_attendance_at
+            estado, last_attendance_at, count(*) OVER ()::int AS total
        FROM people ${where}
       ORDER BY display_name, id LIMIT $6 OFFSET $7`, [...params, limit, offset]);
-  const { rows: [{ total }] } = await client.query(`WITH ${PEOPLE} SELECT count(*)::int AS total FROM people ${where}`, params);
+  // Página fuera de rango: sin filas no llega el total de la ventana, se cuenta aparte.
+  const total = rows[0]?.total ?? (offset === 0 ? 0
+    : (await client.query(`WITH ${PEOPLE} SELECT count(*)::int AS total FROM people ${where}`, params)).rows[0].total);
+  for (const r of rows) delete r.total;
   return { profiles: rows, total, limit, offset };
 }
 
