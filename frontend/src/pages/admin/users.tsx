@@ -629,7 +629,7 @@ function Bookings({ id }: { id: string }) {
 const TABS = [
   { value: 'summary', label: 'Resumen' },
   { value: 'family', label: 'Familia' },
-  { value: 'billing', label: 'Cuota y seguro', student: true },
+  { value: 'billing', label: 'Cuota', student: true },
   { value: 'bookings', label: 'Reservas', student: true },
 ]
 

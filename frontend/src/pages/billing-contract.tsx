@@ -24,7 +24,7 @@ import type { PayerChange, Subscription } from '@/lib/types'
 type Props = { subject: Subject | null; profileId?: string }
 const list = (items: string[]) => items.join(', ').replace(/, ([^,]*)$/, ' y $1')
 
-// ── Contratar (3 pasos: plan → disciplinas → cobertura y pago) ──────────
+// ── Contratar (3 pasos: plan → disciplinas → pago) ──────────
 
 const CHECKOUT_ERRORS: Record<string, [string, string]> = {
   plan_minors_only: ['Este plan es solo para menores', 'Elige otro plan.'],
@@ -134,7 +134,7 @@ function Contract({ subject, profileId }: Props) {
   }
   const prev = () => setStep(step === 3 && max !== null ? 2 : 1)
 
-  const stepText = ['Plan', 'Disciplinas', 'Cobertura y pago'][step - 1]
+  const stepText = ['Plan', 'Disciplinas', 'Pago'][step - 1]
   const canNext = step === 1 ? !!plan : picked.length === max
 
   return (
