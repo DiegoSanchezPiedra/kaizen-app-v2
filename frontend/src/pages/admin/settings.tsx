@@ -5,16 +5,15 @@ import { Page } from '@/components/page'
 import { ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
-import { centsToEuros, changed, checkinBody, insuranceBody, minutesOf, perPeriodBody, type Settings } from '@/lib/catalog'
+import { changed, checkinBody, minutesOf, perPeriodBody, type Settings } from '@/lib/catalog'
 import { queryClient } from '@/lib/logout'
 import { toastOk } from '@/lib/notify'
-import { SwitchRow, TextField, useFieldError } from '@/pages/admin/schedule-bits'
-import { useConfirm } from '@/pages/admin/user-billing'
+import { TextField, useFieldError } from '@/pages/admin/schedule-bits'
 
 const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin'] })
 const text = (n: number | null) => (n === null ? '' : String(n))
 
-// docs/pantallas-b19.md § Ajustes: tres grupos, cada uno con su «Guardar».
+// docs/pantallas-b19.md § Ajustes: dos grupos, cada uno con su «Guardar».
 export function AdminSettingsPage() {
   const q = useQuery({ queryKey: ['admin', 'settings'], queryFn: () => api<Settings>('/admin/settings') })
   return (
@@ -27,7 +26,6 @@ export function AdminSettingsPage() {
         <div className="grid gap-5 lg:grid-cols-2">
           <Checkin saved={q.data.checkin} />
           <DisciplineChanges saved={q.data.discipline_changes} />
-          <Insurance saved={q.data.insurance} />
         </div>
       )}
     </Page>
@@ -94,42 +92,5 @@ function DisciplineChanges({ saved }: { saved: Settings['discipline_changes'] })
     <Group title="Cambios de disciplina" description="Cuántas veces por periodo de cuota puede cambiar el alumno una disciplina de su plan." onSave={() => m.mutate()} disabled={disabled} loading={m.isPending}>
       <TextField label="Cambios por periodo" value={v} onChange={setV} inputMode="numeric" hint="0 o más. Con 0 no hay cambios, salvo los gratis (cuando ya no se cubría la disciplina)." error={fe.error('per_period') ?? (v && perPeriodBody(v) === null ? 'Escribe un número entero, 0 o más.' : undefined)} />
     </Group>
-  )
-}
-
-function Insurance({ saved }: { saved: Settings['insurance'] }) {
-  const [d, setD] = useState({ adult: saved.price_adult_cents === null ? '' : centsToEuros(saved.price_adult_cents), minor: saved.price_minor_cents === null ? '' : centsToEuros(saved.price_minor_cents), enabled: saved.enabled })
-  const fe = useFieldError()
-  const body = insuranceBody(saved, d)
-  const { ask, dialog } = useConfirm(() => void refresh())
-  const { m, disabled } = useSave('/admin/settings/insurance', body, saved, fe)
-  const disabling = saved.enabled && !d.enabled
-  const missing = d.enabled && (d.adult.trim() === '' || d.minor.trim() === '')
-  return (
-    <>
-      <Group
-        title="Seguro"
-        description="El seguro anual de riesgos. Un precio nuevo vale para los seguros que se contraten o renueven desde ahora."
-        onSave={() =>
-          disabling
-            ? ask({
-                title: '¿Dejar de ofrecer el seguro?',
-                description: 'Los seguros vivos no se renuevan y se avisa a sus pagadores. Nadie podrá contratarlo hasta que lo actives otra vez.',
-                label: 'Desactivar y avisar',
-                done: 'Seguro desactivado',
-                destructive: true,
-                run: () => api('/admin/settings/insurance', { method: 'PUT', body }),
-              })
-            : m.mutate()
-        }
-        disabled={disabled}
-        loading={m.isPending}
-      >
-        <TextField label="Precio adulto al año (€)" value={d.adult} onChange={(v) => setD((x) => ({ ...x, adult: v }))} inputMode="decimal" hint="Impuestos incluidos." error={fe.error('price_adult_cents') ?? (d.adult && !/^\d+([.,]\d{1,2})?$/.test(d.adult.trim()) ? 'Escribe un importe como 30 o 29,90.' : undefined)} />
-        <TextField label="Precio menor al año (€)" value={d.minor} onChange={(v) => setD((x) => ({ ...x, minor: v }))} inputMode="decimal" hint="Impuestos incluidos." error={fe.error('price_minor_cents') ?? (d.minor && !/^\d+([.,]\d{1,2})?$/.test(d.minor.trim()) ? 'Escribe un importe como 30 o 29,90.' : undefined)} />
-        <SwitchRow label="Ofrecer el seguro" hint={missing ? 'No se puede activar sin los dos precios.' : 'Los alumnos podrán contratarlo.'} checked={d.enabled} onChange={(v) => setD((x) => ({ ...x, enabled: v }))} />
-      </Group>
-      {dialog}
-    </>
   )
 }

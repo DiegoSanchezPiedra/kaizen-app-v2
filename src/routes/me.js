@@ -87,7 +87,7 @@ router.patch(
 // GET /me/profile-status?profile_id=
 // Devuelve el estado de completitud del perfil del alumno (o de su hijo).
 // Útil para que el frontend pinte el onboarding sin provocar 403.
-// Respuesta: { ok, missing?, risk_cover? } (risk_cover: cobertura de riesgo del alumno, B10.3)
+// Respuesta: { ok, missing? }
 // ------------------------------------------------------------
 router.get(
   '/profile-status',

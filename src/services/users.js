@@ -4,7 +4,7 @@ import { httpError } from '../lib/errors.js';
 import { invalid, audit } from './catalog.js';
 import { getProfileStatus } from './profile.js';
 import { getMfaStatus, verifyMfaCode } from './mfa.js';
-import { getSubscription, getInsurance, affectedSql } from './billing.js';
+import { getSubscription, affectedSql } from './billing.js';
 
 const LIVE = `('active', 'past_due', 'unpaid')`;
 const ROLES = ['alumno', 'tutor', 'profesor', 'admin'];
@@ -134,31 +134,27 @@ const orNull = (promise, code) => promise.catch((err) => {
   throw err;
 });
 
-async function payerOf(client, table, id) {
+async function payerOf(client, id) {
   const { rows: [payer] } = await client.query(
-    `SELECT p.id, p.display_name FROM ${table} t JOIN profiles p ON p.id = t.payer_id WHERE t.id = $1`, [id]);
+    `SELECT p.id, p.display_name FROM subscriptions t JOIN profiles p ON p.id = t.payer_id WHERE t.id = $1`, [id]);
   return payer;
 }
 
-/** Ficha: datos, estado del perfil (solo alumno), familia, cuota y seguro con su pagador. */
-export async function getProfile(client, { id, actorId }) {
+/** Ficha: datos, estado del perfil (solo alumno), familia y cuota con su pagador. */
+export async function getProfile(client, { id }) {
   const profile = await profileRow(client, id);
   const { rows: children } = await client.query(
     `SELECT p.id, p.display_name, ${PENDING_CLAIM} AS pending_claim
        FROM guardianships g JOIN profiles p ON p.id = g.minor_id LEFT JOIN auth_credentials c ON c.profile_id = p.id
       WHERE g.tutor_id = $1 ORDER BY p.display_name, p.id`, [id]);
   const subscription = await orNull(getSubscription(client, { studentId: id }), 'subscription_not_found');
-  if (subscription) subscription.payer = await payerOf(client, 'subscriptions', subscription.id);
-  // userId = el admin: nunca es el pagador, así que no pide a Stripe el client_secret del 3DS.
-  const insurance = await orNull(getInsurance(client, { userId: actorId, studentId: id }), 'insurance_not_found');
-  if (insurance) insurance.payer = await payerOf(client, 'insurances', insurance.id);
+  if (subscription) subscription.payer = await payerOf(client, subscription.id);
   return {
     profile,
     status: profile.role === 'alumno' ? await getProfileStatus(client, id, 'alumno') : null,
     guardians: await listGuardians(client, id),
     children,
     subscription,
-    insurance,
   };
 }
 
@@ -185,9 +181,8 @@ export async function changeRole(client, { id, role, actorId, mfaSession, mfaCod
   }
   if (p.role === 'alumno') {
     const { rows: [live] } = await client.query(
-      `SELECT EXISTS (SELECT 1 FROM subscriptions WHERE student_id = $1 AND status IN ${LIVE})
-           OR EXISTS (SELECT 1 FROM insurances WHERE student_id = $1 AND status IN ${LIVE}) AS live`, [id]);
-    if (live.live) throw conflict('student_has_subscription', 'Tiene una suscripción o un seguro vivos');
+      `SELECT EXISTS (SELECT 1 FROM subscriptions WHERE student_id = $1 AND status IN ${LIVE}) AS live`, [id]);
+    if (live.live) throw conflict('student_has_subscription', 'Tiene una suscripción viva');
   }
   // El código, lo último: si algo más falla, no se ha probado (un código de recuperación no se gasta sin dar el rol).
   if (role === 'admin') {
@@ -226,18 +221,17 @@ export async function addGuardian(client, { id, tutorId, actorId }) {
   return { status: 201, body: { guardians: await listGuardians(client, id) } };
 }
 
-/** Desvincular: nunca el último tutor ni quien paga la suscripción o el seguro vivos del hijo. */
+/** Desvincular: nunca el último tutor ni quien paga la suscripción viva del hijo. */
 export async function removeGuardian(client, { id, tutorId, actorId }) {
   await lockChild(client, id);
   const { rows: [g] } = await client.query(
     `SELECT EXISTS (SELECT 1 FROM guardianships WHERE minor_id = $1 AND tutor_id = $2) AS linked,
             (SELECT count(*)::int FROM guardianships WHERE minor_id = $1) AS n,
-            EXISTS (SELECT 1 FROM subscriptions WHERE student_id = $1 AND payer_id = $2 AND status IN ${LIVE})
-              OR EXISTS (SELECT 1 FROM insurances WHERE student_id = $1 AND payer_id = $2 AND status IN ${LIVE}) AS payer`,
+            EXISTS (SELECT 1 FROM subscriptions WHERE student_id = $1 AND payer_id = $2 AND status IN ${LIVE}) AS payer`,
     [id, tutorId]);
   if (!g.linked) throw httpError(404, 'profile_not_found', 'No es tutor de este hijo');
   if (g.n <= 1) throw conflict('last_guardian', 'El hijo se quedaría sin tutores');
-  if (g.payer) throw conflict('guardian_is_payer', 'Paga la suscripción o el seguro del hijo: cambia antes el pagador');
+  if (g.payer) throw conflict('guardian_is_payer', 'Paga la suscripción del hijo: cambia antes el pagador');
   await client.query(`DELETE FROM guardianships WHERE minor_id = $1 AND tutor_id = $2`, [id, tutorId]);
   await audit(client, actorId, 'guardian.remove', id, { tutor_id: tutorId });
   return { status: 204, body: undefined };

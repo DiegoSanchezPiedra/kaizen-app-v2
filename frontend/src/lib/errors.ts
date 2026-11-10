@@ -32,7 +32,6 @@ const TEXTS: Record<string, string> = {
 // B18.2. Los marcados «propuesto» salen del canvas (notas b182n7) y están pendientes de confirmar.
 Object.assign(TEXTS, {
   not_covered: 'Tu cuota no incluye esta disciplina.',
-  no_risk_cover: 'Necesitas el seguro o firmar la exención.',
   profile_incomplete: 'Completa el perfil para poder reservar.',
   session_not_bookable: 'Esta sesión ya no se puede reservar.', // propuesto
   outside_booking_window: 'Aún no se puede reservar esta sesión.',
@@ -64,7 +63,6 @@ Object.assign(TEXTS, {
   plan_not_purchasable: 'Este plan ya no se puede contratar.', // propuesto
   plan_not_found: 'Este plan ya no se puede contratar.', // propuesto
   discipline_not_eligible: 'Esa disciplina no entra en este plan.', // propuesto
-  risk_cover_required: 'Elige el seguro o firma la exención.', // propuesto
   payment_failed: 'El banco ha rechazado el pago. No ha cambiado nada.', // propuesto (el decline_message va en inglés)
   not_payer: 'Solo puede hacerlo quien paga la cuota.', // propuesto
   upgrade_pending: 'Hay otro cambio de plan a medias.', // propuesto
@@ -78,8 +76,6 @@ Object.assign(TEXTS, {
   discipline_not_chosen: 'Esa disciplina ya no está en la cuota.', // propuesto
   plan_all_disciplines: 'Este plan incluye todas las disciplinas.', // propuesto
   no_scheduled_change: 'Ya no hay ningún cambio programado.', // propuesto
-  insurance_disabled: 'Ahora la academia no ofrece el seguro.',
-  insurance_exists: 'Ya hay un seguro en vigor.', // propuesto
   subscription_required: 'Primero hace falta una cuota.', // propuesto
   not_a_student: 'Un tutor contrata la cuota de sus hijos, no la suya.', // propuesto
   not_new_payer: 'Este pago no es para ti.',
@@ -123,21 +119,18 @@ Object.assign(TEXTS, {
   mfa_login_required: 'Para dar el rol de administración, sal y vuelve a entrar con el código del doble factor.',
   child_role_locked: 'Un hijo siempre es alumno.',
   trainer_has_sessions: 'Antes, reasigna o retira sus clases y sesiones futuras.',
-  student_has_subscription: 'Tiene una cuota o un seguro vivos; dalos de baja antes.',
+  student_has_subscription: 'Tiene una cuota viva; dala de baja antes.',
   not_a_child: 'Solo se vincula un adulto con acceso propio a un menor.',
   invalid_guardian: 'Solo se vincula un adulto con acceso propio a un menor.',
   already_guardian: 'Ya es su tutor.',
   last_guardian: 'Un hijo siempre tiene al menos un tutor.',
-  guardian_is_payer: 'Paga su cuota o su seguro: cambia antes el pagador.',
+  guardian_is_payer: 'Paga su cuota: cambia antes el pagador.',
   requires_payer_action: 'El pagador recibirá un email para autorizar el pago.',
   // Los del admin sobre la cuota que la UI de B18 no tenía (propuestos: no están en el mapa de B19).
   same_payer: 'Ya paga esa persona.', // propuesto
   invalid_payer: 'Esa persona no puede pagar esta cuota.', // propuesto
   no_payer_change: 'Ya no hay ningún cambio de pagador.', // propuesto
   subscription_cancelled: 'La cuota ya está dada de baja.', // propuesto
-  insurance_cancelled: 'El seguro ya está dado de baja.', // propuesto
-  insurance_cancel_scheduled: 'El seguro ya no se renueva.', // propuesto
-  insurance_not_live: 'El seguro no está en vigor.', // propuesto
 })
 
 // B19.5 (docs/pantallas-b19.md § Horario). Los marcados «propuesto» no tienen texto en el documento.
@@ -172,7 +165,6 @@ Object.assign(TEXTS, {
   eligible_too_few: 'Hacen falta al menos tantas disciplinas elegibles como incluye el plan.', // propuesto
   unknown_discipline: 'Alguna de las disciplinas ya no existe.', // propuesto
   empty_patch: 'No hay nada que cambiar.', // propuesto
-  insurance_prices_missing: 'Pon los dos precios antes de activar el seguro.', // propuesto
 })
 
 // B20 (rate limiting): 429 en el login, el MFA, recuperar contraseña y vincular la tablet.

@@ -330,30 +330,27 @@ try {
                                  FROM audit_log a WHERE a.resource_id = $1::text`, [id])).rows;
       };
 
-      // waiver: adulto con suscripción viva (sí), sin suscripción (no), firmó otra versión (no),
-      // con seguro en vigor (no), con suscripción impagada (sí), menor firmado por su tutor (sus 2 tutores).
+      // rights_of_image: adulto con suscripción viva (sí), sin suscripción (no), firmó otra versión (no),
+      // con suscripción impagada (sí), menor firmado por su tutor (sus 2 tutores).
       const yes = await p('alumno');
       const noSub = await p('alumno');
       const older = await p('alumno');
-      const insured = await p('alumno');
       const unpaid = await p('alumno');
       const kid = await p('alumno', '2016-05-05');
       const kid2 = await p('alumno', '2015-01-01');
       const [t1, t2] = [await p('tutor'), await p('tutor')];
-      for (const [x, s] of [[yes, 'active'], [older, 'active'], [insured, 'past_due'], [unpaid, 'unpaid']]) await sub(x, x, s);
-      await c.query(`INSERT INTO insurances (student_id, payer_id, status, bracket, stripe_subscription_id)
-                     VALUES ($1, $1, 'active', 'adult', $2)`, [insured, `sub_ins_${insured}`]);
-      for (const x of [yes, noSub, insured, unpaid]) await sign(x, x, 'waiver', '77.2');
-      await sign(older, older, 'waiver', '77.1');
+      for (const [x, s] of [[yes, 'active'], [older, 'active'], [unpaid, 'unpaid']]) await sub(x, x, s);
+      for (const x of [yes, noSub, unpaid]) await sign(x, x, 'rights_of_image', '77.2');
+      await sign(older, older, 'rights_of_image', '77.1');
       for (const k of [kid, kid2]) {
         await guard(t1, k);
         await guard(t2, k);
         await sub(k, t1);
-        await sign(k, t1, 'waiver', '77.2');
+        await sign(k, t1, 'rights_of_image', '77.2');
       }
-      const [w] = await publish('waiver');
-      assert.deepEqual([w.changes.type, w.changes.version, w.changes.previous_version], ['waiver', '77.3', '77.2']);
-      assert.deepEqual(w.delivered, [yes, unpaid, t1, t2].sort(), 'waiver: una entrega por tutor aunque haya 2 hijos');
+      const [w] = await publish('rights_of_image');
+      assert.deepEqual([w.changes.type, w.changes.version, w.changes.previous_version], ['rights_of_image', '77.3', '77.2']);
+      assert.deepEqual(w.delivered, [yes, unpaid, t1, t2].sort(), 'rights_of_image: una entrega por tutor aunque haya 2 hijos');
 
       // data_protection: tutor por su propio (con hijo con suscripción viva); tutor sin hijo con suscripción no;
       // hijo con 18 sin reclamar (firmado por su tutor cuando era menor) no avisa a nadie.
@@ -446,7 +443,7 @@ try {
     const rows = [];
     for (const action of actions) rows.push(await bookingNotice(child, { action }));
     rows.push({ id: crypto.randomUUID(), action: 'notice.agreement_published', resource_type: 'agreement_document',
-      changes: { type: 'waiver', version: '2.0', previous_version: '1.0' }, created_at: new Date() });
+      changes: { type: 'rights_of_image', version: '2.0', previous_version: '1.0' }, created_at: new Date() });
     for (const a of rows) {
       const d = { ...a, audit_id: a.id, recipient_id: tutor };
       const p = await compose(servicePool, { ...d, channel: 'push' });
@@ -463,7 +460,7 @@ try {
         assert.ok(p.body.includes('(Nico <Hijo>)') && e.html.includes('Nico &#60;Hijo&#62;') && !e.html.includes('<Hijo>'), a.action);
         assert.equal(p.url, `${process.env.APP_URL}/bookings`);
       } else {
-        assert.equal(p.body, 'Hay una versión nueva de la exención de responsabilidad (waiver). Fírmala para seguir reservando.');
+        assert.equal(p.body, 'Hay una versión nueva de la autorización de derechos de imagen. Fírmala para seguir reservando.');
         assert.equal(p.url, `${process.env.APP_URL}/agreements`);
       }
     }

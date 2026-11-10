@@ -2,9 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { LoaderCircleIcon, WalletIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
-import { Agreement } from '@/components/agreements-panel'
 import { Back, Kv, Note, OptionCard, StickyFooter, Tag } from '@/components/billing-bits'
-import { bankConfirms } from '@/lib/stripe'
 import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { SubjectGate, subjectName } from '@/components/subject-gate'
@@ -17,8 +15,8 @@ import { ApiError, api } from '@/lib/api'
 import { eligibleDisciplines, isLive, perMonth, rememberCheckoutSubject, visiblePlans } from '@/lib/billing'
 import { formatDeadline, formatShortDate } from '@/lib/format'
 import { MISSING_TEXT } from '@/lib/notices'
-import { errorCode, toastError, toastOk } from '@/lib/notify'
-import { path, refreshBilling, useDisciplines, useInsurance, usePlans, useProfileStatus, useSubscription } from '@/lib/queries'
+import { errorCode, toastError } from '@/lib/notify'
+import { path, refreshBilling, useDisciplines, usePlans, useProfileStatus, useSubscription } from '@/lib/queries'
 import { useSession } from '@/lib/session'
 import type { Subject } from '@/lib/subject'
 import type { PayerChange, Subscription } from '@/lib/types'
@@ -26,16 +24,13 @@ import type { PayerChange, Subscription } from '@/lib/types'
 type Props = { subject: Subject | null; profileId?: string }
 const list = (items: string[]) => items.join(', ').replace(/, ([^,]*)$/, ' y $1')
 
-// ── Contratar (3 pasos: plan → disciplinas → cobertura y pago) ──────────
+// ── Contratar (3 pasos: plan → disciplinas → pago) ──────────
 
 const CHECKOUT_ERRORS: Record<string, [string, string]> = {
   plan_minors_only: ['Este plan es solo para menores', 'Elige otro plan.'],
   plan_not_purchasable: ['Este plan ya no se puede contratar', 'La academia lo ha retirado. Elige otro.'],
   plan_not_found: ['Este plan ya no se puede contratar', 'La academia lo ha retirado. Elige otro.'],
   discipline_not_eligible: ['Esa disciplina no entra en este plan', 'Elige otra o cambia de plan.'],
-  risk_cover_required: ['Elige el seguro o firma la exención', 'Sin una de las dos no se puede contratar.'],
-  insurance_disabled: ['Ahora la academia no ofrece el seguro', 'Firma la exención para seguir.'],
-  insurance_exists: ['Ya hay un seguro en vigor', 'No hace falta contratar otro.'],
   invalid_field: ['Revisa las disciplinas', 'Elige tantas como permite el plan.'],
 }
 
@@ -50,7 +45,6 @@ function Contract({ subject, profileId }: Props) {
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [planId, setPlanId] = useState('')
   const [picked, setPicked] = useState<string[]>([])
-  const [cover, setCover] = useState<'insurance' | 'waiver'>('insurance')
   const [problem, setProblem] = useState<string | null>(null)
   const title = useRef<HTMLHeadingElement>(null)
 
@@ -65,7 +59,7 @@ function Contract({ subject, profileId }: Props) {
     mutationFn: () =>
       api<{ url: string }>('/billing/checkout', {
         method: 'POST',
-        body: { plan_id: planId, discipline_ids: picked, profile_id: profileId, insurance: !status.data?.risk_cover && cover === 'insurance' },
+        body: { plan_id: planId, discipline_ids: picked, profile_id: profileId },
       }),
     onSuccess: ({ url }) => {
       rememberCheckoutSubject(profileId)
@@ -76,7 +70,6 @@ function Contract({ subject, profileId }: Props) {
       if (code === 'subscription_exists' || code === 'profile_incomplete') void Promise.all([subscription.refetch(), status.refetch()])
       if (CHECKOUT_ERRORS[code]) {
         setProblem(code)
-        if (code === 'insurance_disabled') setCover('waiver')
         if (['plan_minors_only', 'plan_not_purchasable', 'plan_not_found'].includes(code)) setStep(1)
         if (code === 'discipline_not_eligible') setStep(2)
       } else toastError(err)
@@ -125,7 +118,6 @@ function Contract({ subject, profileId }: Props) {
   const plan = options.find((p) => String(p.id) === planId)
   const eligible = plan ? eligibleDisciplines(plan, allDisciplines, self) : []
   const max = plan?.max_disciplines ?? null
-  const covered = status.data?.risk_cover === true
   const discNames = allDisciplines.filter((d) => picked.includes(String(d.id))).map((d) => d.name)
 
   const pickPlan = (id: string) => {
@@ -142,9 +134,8 @@ function Contract({ subject, profileId }: Props) {
   }
   const prev = () => setStep(step === 3 && max !== null ? 2 : 1)
 
-  const stepText = ['Plan', 'Disciplinas', 'Cobertura y pago'][step - 1]
+  const stepText = ['Plan', 'Disciplinas', 'Pago'][step - 1]
   const canNext = step === 1 ? !!plan : picked.length === max
-  const canPay = covered || cover === 'insurance'
 
   return (
     <>
@@ -222,32 +213,12 @@ function Contract({ subject, profileId }: Props) {
 
       {step === 3 && plan && (
         <>
-          {covered ? (
-            <Note kind="success" title={name ? `${name} ya tiene cobertura de riesgo` : 'Ya tienes cobertura de riesgo'}>
-              No hace falta elegir seguro ni exención.
-            </Note>
-          ) : (
-            <fieldset className="flex flex-col gap-2">
-              <legend className="mb-1 font-semibold">Cobertura de riesgo</legend>
-              <p className="text-sm text-muted-foreground">Para entrenar hace falta una de las dos.</p>
-              <RadioGroup value={cover} onValueChange={(v) => setCover(v as 'insurance' | 'waiver')} className="flex flex-col gap-2">
-                <OptionCard
-                  value="insurance"
-                  title="Seguro anual"
-                  description="Se cobra después de la cuota, con la misma tarjeta. El precio lo fija la academia y el recibo, con el importe, llega por email. Impuestos incluidos."
-                />
-                <OptionCard value="waiver" title="Firmar la exención" price="0 €" description="Exención de responsabilidad. Se firma aquí antes de pagar." />
-              </RadioGroup>
-              {cover === 'waiver' && <Agreement type="waiver" signed={false} profileId={profileId} />}
-            </fieldset>
-          )}
           <section aria-label="Resumen" className="rounded-2xl border bg-card px-4 py-1">
             <Kv
               rows={[
                 ['Para', name ?? 'Ti'],
                 ['Plan', plan.name],
                 ['Disciplinas', max === null ? 'Todas' : list(discNames)],
-                ['Cobertura', covered ? (cover === 'waiver' ? 'Exención firmada' : 'Ya la tiene') : cover === 'insurance' ? 'Seguro anual' : 'Exención (sin firmar)'],
                 [
                   'Al mes',
                   <>
@@ -267,12 +238,11 @@ function Contract({ subject, profileId }: Props) {
             Continuar
           </Button>
         ) : (
-          <Button size="xl" disabled={!canPay} loading={checkout.isPending || checkout.isSuccess} onClick={() => checkout.mutate()}>
+          <Button size="xl" loading={checkout.isPending || checkout.isSuccess} onClick={() => checkout.mutate()}>
             {checkout.isPending || checkout.isSuccess ? 'Abriendo Stripe…' : 'Ir al pago'}
           </Button>
         )}
         {step === 1 && !plan && <p className="text-center text-sm text-muted-foreground">Elige un plan para seguir.</p>}
-        {step === 3 && !canPay && <p className="text-center text-sm text-muted-foreground">Firma la exención para ir al pago.</p>}
         {step > 1 && (
           <Button variant="ghost" size="xl" onClick={prev}>
             Atrás
@@ -294,35 +264,6 @@ export function ContractPage() {
 }
 
 // ── Vuelta del Checkout ──────────────────────────────────────────────────
-
-function ConfirmInsurance({ profileId }: { profileId?: string }) {
-  const insurance = useInsurance(profileId)
-  const confirm = useMutation({
-    mutationFn: async (secret: string) => {
-      if (!(await bankConfirms(secret))) throw new ApiError(402, { code: 'payment_failed' })
-    },
-    onSuccess: () => {
-      toastOk('Seguro confirmado', 'En unos segundos aparece como activo.')
-      setTimeout(() => void refreshBilling(), 3000)
-    },
-    onError: (err) => toastError(err),
-  })
-  const i = insurance.data
-  if (!i || i.status !== 'incomplete' || !i.client_secret || confirm.isSuccess) return null
-  return (
-    <Note
-      kind="warning"
-      title="Falta confirmar el seguro con tu banco"
-      action={
-        <Button size="lg" variant="outline" loading={confirm.isPending} onClick={() => confirm.mutate(i.client_secret!)}>
-          Confirmar el seguro
-        </Button>
-      }
-    >
-      La cuota ya está activa. Hasta que confirmes el seguro no hay cobertura de riesgo y no se puede reservar.
-    </Note>
-  )
-}
 
 function Returning({ subject, profileId }: Props) {
   const { withSubject } = useSubject()
@@ -349,7 +290,6 @@ function Returning({ subject, profileId }: Props) {
           {s.plan.max_disciplines !== null && s.disciplines.length ? ` · ${list(s.disciplines.map((d) => d.name))}` : ''}
           {s.current_period_end ? ` · se renueva el ${formatShortDate(s.current_period_end)}` : ''}
         </Note>
-        <ConfirmInsurance profileId={profileId} />
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button size="xl" render={<Link to={withSubject('/calendar')} />}>
             Reservar una sesión
@@ -560,8 +500,7 @@ function PayerChangeView({ id }: { id: string }) {
         </Note>
       )}
       <p className="text-sm text-muted-foreground">
-        Stripe te pedirá la tarjeta. Hoy no se cobra nada; desde el {formatShortDate(pc.starts_at)}, {perMonth(pc.price_cents)}. El seguro, si lo hay, no cambia de pagador:
-        cuando termine, lo contratas tú.
+        Stripe te pedirá la tarjeta. Hoy no se cobra nada; desde el {formatShortDate(pc.starts_at)}, {perMonth(pc.price_cents)}.
       </p>
       <Button size="xl" disabled={!!missing} loading={pay.isPending || pay.isSuccess} onClick={() => pay.mutate()}>
         {pay.isPending || pay.isSuccess ? 'Abriendo Stripe…' : 'Pagar · 0 € hoy'}

@@ -49,7 +49,7 @@ async function person(role, { name, birth = null } = {}) {
 
 // Acuerdos vigentes: los existentes o unos de prueba (se borran al final).
 const testDocs = [];
-for (const type of ['waiver', 'data_protection', 'rights_of_image']) {
+for (const type of ['data_protection', 'rights_of_image']) {
   if ((await q(`SELECT 1 FROM agreement_documents WHERE type = $1 AND published_at IS NOT NULL AND retired_at IS NULL`,
     [type])).length) continue;
   testDocs.push((await q(
@@ -60,12 +60,12 @@ for (const type of ['waiver', 'data_protection', 'rights_of_image']) {
 const [disc] = await q(`INSERT INTO disciplines (name) VALUES ($1) RETURNING id, name`, [`${tag}-BJJ`]);
 const [plan] = await q(`INSERT INTO plans (name, price_cents) VALUES ($1, 1000) RETURNING id`, [`${tag}-all`]);
 
-// Alumno con perfil completo y cobertura de riesgo (la promoción lo re-comprueba); `cover`: suscripción en vigor.
+// Alumno con perfil completo (la promoción lo re-comprueba); `cover`: suscripción en vigor.
 async function student({ name, cover = true, birth = null, tutors = [] } = {}) {
   const id = await person('alumno', { name, birth });
   for (const t of tutors) await q(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [t, id]);
   const by = birth ? tutors[0] : id;
-  for (const type of ['waiver', 'data_protection', 'rights_of_image']) {
+  for (const type of ['data_protection', 'rights_of_image']) {
     await q(`INSERT INTO user_agreements (id, profile_id, signed_by, type, version)
              SELECT gen_random_uuid(), $1, $2, $3, version FROM agreement_documents
               WHERE type = $3 AND published_at IS NOT NULL AND retired_at IS NULL`, [id, by, type]);

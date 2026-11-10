@@ -5,7 +5,7 @@ import { invalid } from './catalog.js';
 import { dateParam } from './sessions.js';
 import { pagination, TRAINED_DAYS, TRAINED_IN } from './reports.js';
 import { getCheckinSettings } from './checkin.js';
-import { getInsuranceSettings, getDisciplineChangeSettings } from './billing.js';
+import { getDisciplineChangeSettings } from './billing.js';
 import { getProfileStats } from './users.js';
 
 const TZ = 'Europe/Madrid';
@@ -19,11 +19,10 @@ const text = (v, field, max = 100) => {
   return v ?? null;
 };
 
-/** Los tres grupos de ajustes, tal cual los devuelven sus PUT. */
+/** Los dos grupos de ajustes, tal cual los devuelven sus PUT. */
 export async function getSettings(client) {
   return {
     checkin: await getCheckinSettings(client),
-    insurance: await getInsuranceSettings(client),
     discipline_changes: await getDisciplineChangeSettings(client),
   };
 }

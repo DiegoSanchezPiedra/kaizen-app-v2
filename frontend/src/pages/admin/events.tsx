@@ -102,7 +102,7 @@ export function EventSheet({ event, open, onClose, defaultDay = '', onCreated }:
       title={event ? 'Editar el evento' : 'Nuevo evento'}
       description={
         event
-          ? 'Precio, público y cobertura de riesgo no cambian a quien ya está inscrito.'
+          ? 'Precio y público no cambian a quien ya está inscrito.'
           : 'Se publica al crearlo: lo ve cualquier perfil con sesión, sin avisar a nadie.'
       }
       submitLabel={event ? 'Guardar' : 'Crear el evento'}
@@ -156,7 +156,6 @@ export function EventSheet({ event, open, onClose, defaultDay = '', onCreated }:
       <SelectField label="Público">
         <Filter label="Público" value={d.audience} onChange={(v) => set('audience')(v as Audience)} items={(Object.keys(AUDIENCE_LABEL) as Audience[]).map((a) => ({ value: a, label: AUDIENCE_LABEL[a] }))} />
       </SelectField>
-      <SwitchRow label="Exige cobertura de riesgo" hint="Apágalo en los eventos sociales. Un no socio solo la tiene con la exención firmada." checked={d.risk} onChange={set('risk')} />
       <div className="grid grid-cols-2 gap-3">
         <TextField label="Precio (€)" inputMode="decimal" value={d.price} onChange={set('price')} onBlur={touch('price')} hint="Vacío = gratis. Mínimo 0,50 €." error={shown('price') ?? field.error('price_cents')} />
         <TextField label="Precio de socio (€)" inputMode="decimal" value={d.memberPrice} onChange={set('memberPrice')} onBlur={touch('memberPrice')} hint="Opcional; no más que el precio." error={shown('memberPrice') ?? field.error('member_price_cents')} />
@@ -207,7 +206,6 @@ function EventDetail({ event: e, registrations }: Detail) {
     ['Profesor', e.trainer ? name(e.trainer) : '—'],
     ['Aforo', eventSeats(e)],
     ['Público', AUDIENCE_LABEL[e.audience]],
-    ['Cobertura de riesgo', e.requires_risk_cover ? 'Exigida' : 'No exigida'],
     ['Precio', priceLabel(e.price_cents)],
     ...(member ? [['Precio de socio', member] as [string, React.ReactNode]] : []),
     ['Inscripciones hasta', e.registration_deadline ? formatDeadline(e.registration_deadline) : 'El inicio del evento'],
@@ -428,7 +426,7 @@ function GuestPicker({ event, taken, ask }: { event: AdminEvent; taken: string[]
           picked &&
           ask({
             title: `¿Inscribir a ${name(picked)} como invitado?`,
-            description: 'No paga nada y las inscripciones cerradas no cuentan, pero se piden el perfil completo, la cobertura de riesgo (si el evento la exige) y que haya plaza.',
+            description: 'No paga nada y las inscripciones cerradas no cuentan, pero se piden el perfil completo y que haya plaza.',
             label: 'Inscribir',
             done: 'Invitado inscrito',
             run: async () => {

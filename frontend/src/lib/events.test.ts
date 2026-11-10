@@ -11,7 +11,7 @@ const base: EventDraft = {
 }
 const saved: AdminEvent = {
   id: 'e1', title: 'Seminario', description: null, starts_at: '2026-12-12T09:00:00.000Z', ends_at: '2026-12-12T13:00:00.000Z', location: 'Dojo',
-  discipline: null, trainer: null, capacity: null, taken: 0, audience: 'all', requires_risk_cover: true, price_cents: 0, member_price_cents: null,
+  discipline: null, trainer: null, capacity: null, taken: 0, audience: 'all', price_cents: 0, member_price_cents: null,
   registration_deadline: null, status: 'scheduled', cancel_note: null,
 }
 const reg = (o: Partial<EventRegistration>): EventRegistration => ({
@@ -62,10 +62,10 @@ describe('qué campos cambian en el PATCH', () => {
     const body = eventBody(draftOf({ ...saved, starts_at: '2026-12-12T10:00:00+01:00' }), now, false)!
     expect(eventPatch({ ...saved, starts_at: '2026-12-12T10:00:00+01:00' }, body)).toEqual({})
   })
-  it('inicio, fin y lugar avisan; precio, público y cobertura no', () => {
+  it('inicio, fin y lugar avisan; precio y público no', () => {
     expect(notifiesOnPatch({ location: 'x' })).toBe(true)
     expect(notifiesOnPatch({ ends_at: 'x' })).toBe(true)
-    expect(notifiesOnPatch({ price_cents: 100, audience: 'adults', requires_risk_cover: false, capacity: 5 })).toBe(false)
+    expect(notifiesOnPatch({ price_cents: 100, audience: 'adults', capacity: 5 })).toBe(false)
   })
 })
 
@@ -120,7 +120,7 @@ const ev = (o: Partial<EventInfo> = {}): EventInfo => ({ ...rest, registration: 
 const mine = (status: 'pending' | 'confirmed' | 'cancelled', amount_cents = 0) => ({ id: 'r1', status, amount_cents })
 const before = Date.parse('2026-12-01T10:00:00Z') // antes del evento (12 dic)
 const during = Date.parse('2026-12-12T10:00:00Z')
-const ctx = { now: before, blocked: false, riskCover: true }
+const ctx = { now: before, blocked: false }
 
 describe('importe que verá el sujeto', () => {
   const paid = ev({ price_cents: 2000, member_price_cents: 1200 })
@@ -164,14 +164,10 @@ describe('estado del botón de inscripción', () => {
     expect(joinState(ev(), { ...ctx, now: during })).toBe('closed')
     expect(joinState(ev({ registration_deadline: '2026-12-11T00:00:00Z' }), ctx)).toBe('open')
   })
-  it('falta perfil o cobertura (solo si el evento la exige)', () => {
+  it('falta perfil', () => {
     expect(joinState(ev(), { ...ctx, blocked: true })).toBe('profile')
-    expect(joinState(ev(), { ...ctx, riskCover: false })).toBe('cover')
-    expect(joinState(ev({ requires_risk_cover: false }), { ...ctx, riskCover: false })).toBe('open')
-    expect(joinState(ev(), { ...ctx, riskCover: undefined })).toBe('open') // aún sin cargar: lo decide el servidor
   })
-  it('el perfil se mira antes que la cobertura; el público (tras audience_mismatch), antes que ambos', () => {
-    expect(joinState(ev(), { ...ctx, blocked: true, riskCover: false })).toBe('profile')
+  it('el público (tras audience_mismatch) va antes que el perfil', () => {
     expect(joinState(ev(), { ...ctx, blocked: true, audienceBlocked: true })).toBe('audience')
   })
   it('completo o cerrado gana a los requisitos (no se pide nada que no sirva)', () => {

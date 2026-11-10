@@ -4,8 +4,7 @@ import { requireAuth, requireRole, withRlsContext } from '../middleware/auth.js'
 import { requireCompleteProfile } from '../middleware/requireCompleteProfile.js';
 import { httpError } from '../lib/errors.js';
 import {
-  createCheckout, createPortalSession, contractInsurance, getInsurance,
-  getSubscription, changePlan, cancelScheduledChange, changeDiscipline,
+  createCheckout, createPortalSession, getSubscription, changePlan, cancelScheduledChange, changeDiscipline,
   getPayerChange, assertNewPayer, payerChangeCheckout,
 } from '../services/billing.js';
 
@@ -27,31 +26,23 @@ const checkSubject = (req, res, next) => {
   return next();
 };
 
-// POST /billing/checkout { plan_id, discipline_ids?, profile_id?, insurance? } → 201 { url } (página de pago de Stripe)
-// insurance: true = contratar el seguro tras el pago; sin él hace falta cobertura de riesgo (waiver firmado antes).
-router.post('/checkout', checkSubject, withRlsContext(async (req, client) => ({
+// POST /billing/checkout { plan_id, discipline_ids?, profile_id? } → 201 { url } (página de pago de Stripe).
+// Un campo desconocido → 400 (también uno retirado, B28): no se ignora en silencio.
+const CHECKOUT_FIELDS = ['plan_id', 'discipline_ids', 'profile_id'];
+const checkoutFields = (req, res, next) => {
+  const bad = Object.keys(req.body ?? {}).find((k) => !CHECKOUT_FIELDS.includes(k));
+  if (bad === undefined) return next();
+  return next(httpError(400, 'invalid_field', `Campo desconocido: ${bad}`, { field: bad }));
+};
+router.post('/checkout', checkoutFields, checkSubject, withRlsContext(async (req, client) => ({
   status: 201,
   body: await createCheckout(client, {
     payerId: req.user.id,
     studentId: req.body.profile_id ?? req.user.id,
     planId: req.body.plan_id,
     disciplineIds: req.body.discipline_ids,
-    insurance: req.body.insurance ?? false,
   }),
 }), { guards: [requireCompleteProfile] }));
-
-// POST /billing/insurance { profile_id? } → 201 { id, status, payment_status?, client_secret? }
-// Contratar el seguro después (solo el pagador de la suscripción). client_secret → stripe.handleNextAction (3DS).
-router.post('/insurance', checkSubject, withRlsContext(async (req, client) => ({
-  status: 201,
-  body: await contractInsurance(client, { payerId: req.user.id, studentId: req.body.profile_id ?? req.user.id }),
-}), { guards: [requireCompleteProfile] }));
-
-// GET /billing/insurance?profile_id= → { id, status, bracket, current_period_end, cancel_at_period_end, ... }
-// Tras el Checkout con seguro, el pagador consulta aquí si el primer cobro pide 3DS.
-router.get('/insurance', (req, res, next) => (req.query.profile_id === undefined || UUID_RE.test(req.query.profile_id)
-  ? next() : next(httpError(400, 'invalid_field', 'profile_id debe ser un uuid', { field: 'profile_id' }))),
-withRlsContext(async (req, client) => getInsurance(client, { userId: req.user.id, studentId: req.query.profile_id ?? req.user.id })));
 
 // --- Cambio de plan y de disciplina (B10.5). Quién puede, lo decide el servicio por la suscripción. ---
 

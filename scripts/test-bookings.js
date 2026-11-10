@@ -39,7 +39,7 @@ await servicePool.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES (
 
 // Acuerdos vigentes: los existentes o unos de prueba (se borran al final).
 const testDocs = [];
-for (const type of ['waiver', 'data_protection', 'rights_of_image']) {
+for (const type of ['data_protection', 'rights_of_image']) {
   const { rowCount } = await servicePool.query(
     `SELECT 1 FROM agreement_documents WHERE type = $1 AND published_at IS NOT NULL AND retired_at IS NULL`, [type]);
   if (rowCount) continue;
@@ -52,14 +52,12 @@ const sign = (student, type, by = student) => servicePool.query(
   `INSERT INTO user_agreements (id, profile_id, signed_by, type, version)
    SELECT gen_random_uuid(), $1, $2, $3, version FROM agreement_documents
     WHERE type = $3 AND published_at IS NOT NULL AND retired_at IS NULL`, [U[student], U[by], type]);
-// Cobertura de riesgo (waiver) para todos; perfil completo solo para alu1–3 (los de la promoción).
-for (const k of ['alu1', 'alu2', 'alu3', 'alu4', 'child']) await sign(k, 'waiver', k === 'child' ? 'tutor1' : k);
+// Perfil completo solo para alu1–3 (los de la promoción).
 for (const k of ['alu1', 'alu2', 'alu3']) {
   for (const type of ['data_protection', 'rights_of_image']) await sign(k, type);
   await servicePool.query(`INSERT INTO student_health_info (profile_id, emergency_contact_name, emergency_contact_phone)
                            VALUES ($1, 'x', '600000000')`, [U[k]]);
 }
-const dropWaiver = (k) => servicePool.query(`DELETE FROM user_agreements WHERE profile_id = $1 AND type = 'waiver'`, [U[k]]);
 
 const disc = {};
 for (const [k, minors] of [['A', false], ['B', false], ['K', true]]) {
@@ -159,38 +157,29 @@ try {
       assert.deepEqual(await statusOf(c, w2.id).then((r) => [r.status, r.cancel_reason]), ['cancelled', 'no_coverage']);
       await servicePool.query(`UPDATE subscriptions SET status = 'active' WHERE id = $1`, [sub.alu2]);
     });
-    await run('sin cobertura de riesgo no reserva (no_risk_cover); con seguro en vigor sí, impagado no', async () => {
-      await dropWaiver('alu4');
-      await as(c, U.alu4, 'alumno');
-      await rejects(c, () => book(c, 'discB', 'alu4'), 403, 'no_risk_cover');
-      const ins = (status) => servicePool.query(
-        `INSERT INTO insurances (student_id, payer_id, status, bracket, stripe_subscription_id)
-         VALUES ($1, $1, $2, 'adult', 'sub_test_ins_' || gen_random_uuid()) RETURNING id`, [U.alu4, status]);
-      const { rows: [i] } = await ins('unpaid');
-      await rejects(c, () => book(c, 'discB', 'alu4'), 403, 'no_risk_cover');
-      await servicePool.query(`UPDATE insurances SET status = 'past_due' WHERE id = $1`, [i.id]);
-      await sp(c, async () => assert.equal((await book(c, 'discB', 'alu4')).status, 'confirmed'));
-      await servicePool.query(`DELETE FROM insurances WHERE id = $1`, [i.id]);
-      await sign('alu4', 'waiver');
-    });
-    await run('promoción salta (sigue en la lista) a quien no tiene cobertura de riesgo o perfil completo', async () => {
-      // `full` (aforo 1) vacía: alu1 reserva, alu2 (sin waiver) y alu3 (sin ficha) esperan; alu1 cancela.
+    await run('promoción salta (sigue en la lista) a quien no tiene el perfil completo; recuperado, por orden de llegada', async () => {
+      // `full` (aforo 1) vacía: alu1 reserva, alu2 y alu3 (sin contacto de emergencia) esperan; alu1 cancela.
+      const phone = (v) => servicePool.query(
+        `UPDATE student_health_info SET emergency_contact_phone = $2 WHERE profile_id = ANY($1::uuid[])`, [[U.alu2, U.alu3], v]);
       await as(c, U.alu1, 'alumno');
       const r1 = await book(c, 'full', 'alu1');
       await as(c, U.alu2, 'alumno');
       const q2 = await book(c, 'full', 'alu2');
       await as(c, U.alu3, 'alumno');
       const q3 = await book(c, 'full', 'alu3');
-      await dropWaiver('alu2');
-      await servicePool.query(`UPDATE student_health_info SET emergency_contact_phone = NULL WHERE profile_id = $1`, [U.alu3]);
+      await phone(null);
       await as(c, U.alu1, 'alumno');
       await cancelBooking(c, r1.id);
       for (const q of [q2, q3]) assert.deepEqual(await statusOf(c, q.id).then((r) => [r.status, r.cancel_reason]), ['waitlisted', null]);
       // Recuperados, la siguiente plaza que se libere los promociona por orden de llegada.
-      await sign('alu2', 'waiver');
-      await servicePool.query(`UPDATE student_health_info SET emergency_contact_phone = '600000000' WHERE profile_id = $1`, [U.alu3]);
-      for (const q of [q2, q3]) {
-        await as(c, U[q === q2 ? 'alu2' : 'alu3'], 'alumno');
+      await phone('600000000');
+      const r2 = await book(c, 'full', 'alu1');
+      await cancelBooking(c, r2.id);
+      // En una transacción created_at es el mismo (now()): el orden de llegada lo desempata el id, como en promote_waitlist.
+      const [first, second] = [q2, q3].sort((x, y) => (x.id < y.id ? -1 : 1));
+      assert.deepEqual([(await statusOf(c, first.id)).status, (await statusOf(c, second.id)).status], ['confirmed', 'waitlisted']);
+      for (const [k, q] of [['alu3', q3], ['alu2', q2]]) {
+        await as(c, U[k], 'alumno');
         await cancelBooking(c, q.id);
       }
     });
@@ -265,6 +254,25 @@ try {
       await as(c, U.admin, 'admin');
       await rejects(c, () => requireCompleteProfile({ body: { profile_id: U.child }, user: { id: U.admin, role: 'admin' } }, c),
         403, 'profile_incomplete');
+    });
+    await run('B28: perfil completo y suscripción bastan para reservar, sin firmar nada más', async () => {
+      const req = { body: {}, user: { id: U.alu1, role: 'alumno' } };
+      await requireCompleteProfile(req, c);
+      await as(c, U.alu1, 'alumno');
+      const b = await book(c, 'discB', 'alu1');
+      assert.equal(b.status, 'confirmed');
+      await cancelBooking(c, b.id);
+    });
+    await run('B28: un hijo con perfil completo firmado por su tutor reserva sin firmar nada más', async () => {
+      for (const type of ['data_protection', 'rights_of_image']) await sign('child', type, 'tutor1');
+      await sign('tutor1', 'data_protection');
+      await servicePool.query(`INSERT INTO student_health_info (profile_id, emergency_contact_name, emergency_contact_phone)
+                               VALUES ($1, 'x', '600000000')`, [U.child]);
+      await as(c, U.tutor1, 'tutor');
+      await requireCompleteProfile({ body: { profile_id: U.child }, user: { id: U.tutor1, role: 'tutor' } }, c);
+      const b = await book(c, 'kids', 'child');
+      assert.equal(b.status, 'confirmed');
+      await cancelBooking(c, b.id);
     });
     await run('retirar una clase anula sus reservas con session_cancelled y avisa a los tutores', async () => {
       await as(c, U.admin, 'admin');

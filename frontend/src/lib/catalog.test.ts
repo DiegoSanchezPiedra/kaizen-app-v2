@@ -6,7 +6,6 @@ import {
   checkinBody,
   eurosToCents,
   groupDocuments,
-  insuranceBody,
   MAX_PDF,
   pdfProblem,
   perPeriodBody,
@@ -49,34 +48,22 @@ describe('ajustes: qué grupos han cambiado', () => {
     expect(changed({ per_period: 1 }, perPeriodBody('1'))).toBe(false)
     expect(changed({ per_period: 1 }, perPeriodBody('2'))).toBe(true)
   })
-  it('seguro: no se activa sin los dos precios ni se borra un precio', () => {
-    const off = { enabled: false, price_adult_cents: null, price_minor_cents: null }
-    const on = { enabled: true, price_adult_cents: 3000, price_minor_cents: 2000 }
-    expect(insuranceBody(off, { adult: '', minor: '', enabled: false })).toEqual({ enabled: false })
-    expect(insuranceBody(off, { adult: '30', minor: '', enabled: true })).toBeNull()
-    expect(insuranceBody(off, { adult: '30', minor: '20', enabled: true })).toEqual({ enabled: true, price_adult_cents: 3000, price_minor_cents: 2000 })
-    expect(insuranceBody(on, { adult: '', minor: '20', enabled: false })).toBeNull()
-    expect(insuranceBody(on, { adult: '0', minor: '20', enabled: true })).toBeNull()
-    expect(changed(on, insuranceBody(on, { adult: '30,00', minor: '20', enabled: true }))).toBe(false)
-    expect(changed(on, insuranceBody(on, { adult: '30', minor: '20', enabled: false }))).toBe(true)
-    expect(changed(off, insuranceBody(off, { adult: '', minor: '', enabled: false }))).toBe(false)
-  })
 })
 
 describe('PDF antes de enviar', () => {
   const pdf = { type: 'application/pdf', size: 1000 }
   it('deja pasar un PDF con tipo y versión X.Y', () => {
-    expect(pdfProblem('waiver', '1.0', pdf)).toBeNull()
+    expect(pdfProblem('data_protection', '1.0', pdf)).toBeNull()
     expect(pdfProblem('rights_of_image', ' 2.10 ', { ...pdf, size: MAX_PDF })).toBeNull()
   })
   it('para en lo primero que falla', () => {
     expect(pdfProblem('', '1.0', pdf)).toMatch(/tipo/)
     expect(pdfProblem('otro', '1.0', pdf)).toMatch(/tipo/)
-    for (const v of ['', '1', '1.0.1', 'v1.0', '1.x']) expect(pdfProblem('waiver', v, pdf)).toMatch(/versión/)
-    expect(pdfProblem('waiver', '1.0', null)).toMatch(/Elige el PDF/)
-    expect(pdfProblem('waiver', '1.0', { type: 'image/png', size: 10 })).toMatch(/PDF/)
-    expect(pdfProblem('waiver', '1.0', { ...pdf, size: 0 })).toMatch(/vacío/)
-    expect(pdfProblem('waiver', '1.0', { ...pdf, size: MAX_PDF + 1 })).toMatch(/10 MB/)
+    for (const v of ['', '1', '1.0.1', 'v1.0', '1.x']) expect(pdfProblem('data_protection', v, pdf)).toMatch(/versión/)
+    expect(pdfProblem('data_protection', '1.0', null)).toMatch(/Elige el PDF/)
+    expect(pdfProblem('data_protection', '1.0', { type: 'image/png', size: 10 })).toMatch(/PDF/)
+    expect(pdfProblem('data_protection', '1.0', { ...pdf, size: 0 })).toMatch(/vacío/)
+    expect(pdfProblem('data_protection', '1.0', { ...pdf, size: MAX_PDF + 1 })).toMatch(/10 MB/)
   })
 })
 
@@ -92,14 +79,13 @@ describe('documentos por tipo', () => {
     status,
   })
   it('separa vigente, borradores y retirados; un tipo sin vigente queda en null', () => {
-    const groups = groupDocuments([doc('a', 'waiver', 'created'), doc('b', 'waiver', 'published'), doc('c', 'waiver', 'retired'), doc('d', 'data_protection', 'created')])
+    const groups = groupDocuments([doc('a', 'data_protection', 'created'), doc('b', 'data_protection', 'published'), doc('c', 'data_protection', 'retired'), doc('d', 'rights_of_image', 'created')])
     const byType = Object.fromEntries(groups.map((g) => [g.type, g]))
-    expect(groups.map((g) => g.type)).toEqual(['data_protection', 'rights_of_image', 'waiver'])
-    expect(byType.waiver.current?.id).toBe('b')
-    expect(byType.waiver.drafts.map((d) => d.id)).toEqual(['a'])
-    expect(byType.waiver.retired.map((d) => d.id)).toEqual(['c'])
-    expect(byType.data_protection.current).toBeNull()
-    expect(byType.rights_of_image).toEqual({ type: 'rights_of_image', current: null, drafts: [], retired: [] })
+    expect(groups.map((g) => g.type)).toEqual(['data_protection', 'rights_of_image'])
+    expect(byType.data_protection.current?.id).toBe('b')
+    expect(byType.data_protection.drafts.map((d) => d.id)).toEqual(['a'])
+    expect(byType.data_protection.retired.map((d) => d.id)).toEqual(['c'])
+    expect(byType.rights_of_image).toEqual({ type: 'rights_of_image', current: null, drafts: [doc('d', 'rights_of_image', 'created')], retired: [] })
   })
 })
 

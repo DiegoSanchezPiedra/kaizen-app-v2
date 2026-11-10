@@ -1,7 +1,7 @@
-// B20: endpoints de B11 (baja del seguro y cambio de pagador) por HTTP, con la app en proceso y una BD efímera
+// B20: endpoints de B11 (cambio de pagador) por HTTP, con la app en proceso y una BD efímera
 // (npm run test:e2e-b11). Todo lo que se prueba falla antes de llamar a Stripe: el servicio relee a Stripe solo tras las
-// validaciones, y los ids de Stripe de las filas son falsos. Lo que sí toca Stripe (pagar, traspaso, tabla de estados
-// de la baja) está en test:billing y test:webhook.
+// validaciones, y los ids de Stripe de las filas son falsos. Lo que sí toca Stripe (pagar, traspaso) está en
+// test:billing y test:webhook.
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { servicePool, closePools } from '../src/config/database.js';
@@ -32,9 +32,6 @@ const newChange = async (status = 'requested', deadline = "now() + interval '1 d
   `INSERT INTO payer_changes (subscription_id, student_id, old_payer_id, new_payer_id, plan_id, starts_at, deadline, status, created_by)
    VALUES ($1, $2, $3, $4, $5, now() + interval '2 days', ${deadline}, $6, $7) RETURNING id`,
   [subId, U.child, U.tutorA, U.tutorB, planId, status, U.admin]))[0].id;
-const insId = (await q(
-  `INSERT INTO insurances (student_id, payer_id, status, bracket, stripe_subscription_id)
-   VALUES ($1, $2, 'cancelled', 'minor', 'sub_fake_ins') RETURNING id`, [U.child, U.tutorA]))[0].id;
 await q(`UPDATE profiles SET stripe_customer_id = 'cus_fake_b' WHERE id = $1`, [U.tutorB]);
 
 const { http, close } = await startApp();
@@ -47,16 +44,6 @@ try {
     tok[n] = (await http('POST', '/auth/login', { body: { email: `e2e-${n}@test.local`, password } })).body.token;
   }
   const admin = (m, url, body) => http(m, `/admin${url}`, { token: tok.admin, body });
-
-  // Baja del seguro: solo el admin; los 404/409 salen antes de Stripe (el seguro cancelado no se relee).
-  for (const path of ['cancel-now', 'cancel-at-period-end']) {
-    const url = `/insurances/${insId}/${path}`;
-    assert.equal((await http('POST', `/admin${url}`)).status, 401);
-    for (const who of ['tutorA', 'alumno']) assert.equal((await http('POST', `/admin${url}`, { token: tok[who], body: {} })).status, 403);
-    assert.deepEqual(status(await admin('POST', url, {})), [409, 'insurance_cancelled']);
-    assert.deepEqual(status(await admin('POST', `/insurances/${crypto.randomUUID()}/${path}`, {})), [404, 'insurance_not_found']);
-    assert.deepEqual(status(await admin('POST', `/insurances/no-es-uuid/${path}`, {})), [400, 'invalid_id']);
-  }
 
   // Cambio de pagador, pedirlo (admin): validaciones previas a Stripe.
   const request = (payer_id, sub = subId, token = tok.admin) => http('POST', `/admin/subscriptions/${sub}/payer-change`, { token, body: { payer_id } });
@@ -119,7 +106,7 @@ try {
   await q(`UPDATE plans SET stripe_price_id = NULL WHERE id = $1`, [planId]);
   assert.deepEqual(status(await checkout('tutorB')), [409, 'plan_not_purchasable']);
 
-  console.log('OK   E2E B11: baja del seguro solo admin (401/403/404/409); pedir, anular, leer y listar el cambio de pagador; Checkout 403 con perfil incompleto');
+  console.log('OK   E2E B11: pedir, anular, leer y listar el cambio de pagador; Checkout 403 con perfil incompleto');
 } catch (e) {
   realError('FAIL E2E B11\n', e);
   process.exitCode = 1;

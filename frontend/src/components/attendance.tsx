@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { CheckIcon, QrCodeIcon, ShieldAlertIcon, XIcon } from 'lucide-react'
+import { CheckIcon, QrCodeIcon, XIcon } from 'lucide-react'
 import { useState } from 'react'
 import { StatusAlert } from '@/components/status-alert'
 import { ProfileAvatar } from '@/components/profile-avatar'
@@ -98,12 +98,6 @@ export function EventStudentItem({ eventId, student, open }: { eventId: string; 
       <ProfileAvatar name={student.display_name} className="size-10" />
       <div className="min-w-0">
         <p className="truncate text-base font-semibold">{student.display_name}</p>
-        {!student.risk_cover && (
-          <Badge variant="warning" className="mt-1">
-            <ShieldAlertIcon aria-hidden="true" />
-            Sin cobertura de riesgo
-          </Badge>
-        )}
       </div>
       {open ? (
         <SwitchCell on={on} pending={mark.isPending} label={`Presente: ${student.display_name}`} onChange={(c) => mark.mutate(c)} />
@@ -125,12 +119,6 @@ export function AttendanceItem({ sessionId, row, mode, onCorrect }: { sessionId:
             <Badge variant="outline">
               <QrCodeIcon aria-hidden="true" />
               Llegó por check-in
-            </Badge>
-          )}
-          {!row.risk_cover && (
-            <Badge variant="warning">
-              <ShieldAlertIcon aria-hidden="true" />
-              Sin cobertura de riesgo
             </Badge>
           )}
         </div>

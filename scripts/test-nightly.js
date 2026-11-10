@@ -58,16 +58,13 @@ try {
   await c.query('BEGIN');
   await c.query(`DELETE FROM academy_stats_daily WHERE date IN ($1, $2)`, [yesterday, today]);
 
-  await run('foto: un alumno de cada estado; MRR solo de las activas y en gracia, con el precio del plan; el seguro no suma', () => sp(async () => {
+  await run('foto: un alumno de cada estado; MRR solo de las activas y en gracia, con el precio del plan', () => sp(async () => {
     const base = await statsOf(today);
     const [a, b] = [await plan(1000), await plan(2500)];
     await sub(a, 'active');
     await sub(b, 'past_due');
     await sub(b, 'unpaid');
     await sub(a, 'cancelled');
-    const s = await person();
-    await c.query(`INSERT INTO insurances (student_id, payer_id, status, bracket, stripe_subscription_id)
-                   VALUES ($1, $1, 'active', 'adult', $2)`, [s, `sub_${tag}_ins`]);
     assert.equal(await snapshot(today), true);
     assert.deepEqual(diff(base, await photo(today)),
       { active: 1, past_due: 1, unpaid: 1, new_subscriptions: 4, cancelled_subscriptions: 1, mrr_cents: 1000 + 2500 });

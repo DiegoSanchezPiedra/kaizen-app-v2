@@ -18,8 +18,7 @@ export const catalogRedirect = (tab: string | null): string => (tab === 'plans' 
 // ── Ajustes: tres grupos con su «Guardar» ────────────────────────────────────
 
 export type CheckinSettings = { opens_minutes: number | null; closes_minutes: number | null; qr_seconds: number | null }
-export type InsuranceSettings = { enabled: boolean; price_adult_cents: number | null; price_minor_cents: number | null }
-export type Settings = { checkin: CheckinSettings; insurance: InsuranceSettings; discipline_changes: { per_period: number } }
+export type Settings = { checkin: CheckinSettings; discipline_changes: { per_period: number } }
 
 const whole = (v: string): number | null => (/^\d{1,9}$/.test(v.trim()) ? Number(v) : null)
 export const minutesOf = (v: string): number | null => {
@@ -35,24 +34,6 @@ export function checkinBody(d: Record<keyof CheckinSettings, string>) {
 export const perPeriodBody = (v: string): { per_period: number } | null => {
   const n = whole(v)
   return n === null || n > 1000 ? null : { per_period: n }
-}
-
-// Un precio vacío solo vale si el seguro aún no lo tenía y sigue sin ofrecerse: la API no borra precios.
-export function insuranceBody(saved: InsuranceSettings, d: { adult: string; minor: string; enabled: boolean }) {
-  const body: { enabled: boolean; price_adult_cents?: number; price_minor_cents?: number } = { enabled: d.enabled }
-  for (const [field, text, before] of [
-    ['price_adult_cents', d.adult, saved.price_adult_cents],
-    ['price_minor_cents', d.minor, saved.price_minor_cents],
-  ] as const) {
-    if (text.trim() === '') {
-      if (before !== null || d.enabled) return null
-      continue
-    }
-    const cents = eurosToCents(text)
-    if (!cents) return null
-    body[field] = cents
-  }
-  return body
 }
 
 // ¿Cambia algo respecto a lo guardado? (un campo ausente del cuerpo no cambia).

@@ -41,31 +41,31 @@ try {
   await withRls({ uid: admin, role: 'admin' }, async (c) => {
     let d1, d2;
     await run('admin sube borrador; no es vigente hasta publicar', async () => {
-      d1 = await createDocument(c, { type: 'waiver', version: '9.1', buffer: pdf('a') });
+      d1 = await createDocument(c, { type: 'rights_of_image', version: '9.1', buffer: pdf('a') });
       files.push(`${d1.id}.pdf`);
-      assert.notEqual((await getCurrentVersions(c)).waiver, '9.1');
+      assert.notEqual((await getCurrentVersions(c)).rights_of_image, '9.1');
     });
     await run('validaciones de subida (400/409)', async () => {
       await rejects(createDocument(c, { type: 'x', version: '9.1', buffer: pdf('a') }), 400, 'invalid_type');
-      await rejects(createDocument(c, { type: 'waiver', version: 'v1', buffer: pdf('a') }), 400, 'invalid_version');
-      await rejects(createDocument(c, { type: 'waiver', version: '9.3', buffer: Buffer.from('nope') }), 400, 'invalid_file');
-      await rejects(createDocument(c, { type: 'waiver', version: '9.1', buffer: pdf('a') }), 409, 'duplicate_document');
-      await rejects(createDocument(c, { type: 'waiver', version: '9.1', buffer: pdf('b') }), 409, 'version_exists_different_content');
+      await rejects(createDocument(c, { type: 'rights_of_image', version: 'v1', buffer: pdf('a') }), 400, 'invalid_version');
+      await rejects(createDocument(c, { type: 'rights_of_image', version: '9.3', buffer: Buffer.from('nope') }), 400, 'invalid_file');
+      await rejects(createDocument(c, { type: 'rights_of_image', version: '9.1', buffer: pdf('a') }), 409, 'duplicate_document');
+      await rejects(createDocument(c, { type: 'rights_of_image', version: '9.1', buffer: pdf('b') }), 409, 'version_exists_different_content');
     });
     await run('publicar hace vigente; publicar otro retira el anterior', async () => {
       await publishDocument(c, { id: d1.id, actorId: admin });
-      assert.equal((await getCurrentVersions(c)).waiver, '9.1');
-      d2 = await createDocument(c, { type: 'waiver', version: '9.2', buffer: pdf('c') });
+      assert.equal((await getCurrentVersions(c)).rights_of_image, '9.1');
+      d2 = await createDocument(c, { type: 'rights_of_image', version: '9.2', buffer: pdf('c') });
       files.push(`${d2.id}.pdf`);
       await publishDocument(c, { id: d2.id, actorId: admin });
-      assert.equal((await getCurrentVersions(c)).waiver, '9.2');
+      assert.equal((await getCurrentVersions(c)).rights_of_image, '9.2');
       await rejects(publishDocument(c, { id: d1.id, actorId: admin }), 409, 'already_published');
       await rejects(publishDocument(c, { id: crypto.randomUUID(), actorId: admin }), 404, 'document_not_found');
     });
     await run('GET current: sirve el fichero íntegro; si no coincide el checksum, 500 agreement_corrupted', async () => {
-      assert.deepEqual((await getCurrentFile(c, 'waiver')).buffer, pdf('c'));
+      assert.deepEqual((await getCurrentFile(c, 'rights_of_image')).buffer, pdf('c'));
       await fs.writeFile(`${AGREEMENTS_STORAGE_PATH}/${d2.id}.pdf`, pdf('manipulado'));
-      await rejects(getCurrentFile(c, 'waiver'), 500, 'agreement_corrupted');
+      await rejects(getCurrentFile(c, 'rights_of_image'), 500, 'agreement_corrupted');
     });
     await run('admin no puede borrar documentos', async () => {
       await c.query('SAVEPOINT d');
@@ -78,25 +78,25 @@ try {
     await run('alumno no puede subir (RLS)', async () => {
       await c.query('SAVEPOINT s');
       await assert.rejects(
-        createDocument(c, { type: 'waiver', version: '9.4', buffer: pdf('d') }),
+        createDocument(c, { type: 'rights_of_image', version: '9.4', buffer: pdf('d') }),
         /row-level security/
       );
       await c.query('ROLLBACK TO s');
     });
     await run('alumno no ve borradores', async () => {
       await as(c, admin, 'admin');
-      const d3 = await createDocument(c, { type: 'waiver', version: '9.5', buffer: pdf('e') });
+      const d3 = await createDocument(c, { type: 'rights_of_image', version: '9.5', buffer: pdf('e') });
       files.push(`${d3.id}.pdf`);
       await as(c, alumno, 'alumno');
       const { rowCount } = await c.query(`SELECT 1 FROM agreement_documents WHERE id=$1`, [d3.id]);
       assert.equal(rowCount, 0);
     });
-    await run('firma: versión no vigente 400, vigente OK; perfil completo con los 3 tipos', async () => {
-      await rejects(signAgreement(c, { profileId: alumno, type: 'waiver', version: '9.1' }), 400, 'invalid_version');
-      await signAgreement(c, { profileId: alumno, type: 'waiver', version: '9.2' });
+    await run('firma: versión no vigente 400, vigente OK; perfil completo con los 2 tipos', async () => {
+      await rejects(signAgreement(c, { profileId: alumno, type: 'rights_of_image', version: '9.1' }), 400, 'invalid_version');
+      await signAgreement(c, { profileId: alumno, type: 'rights_of_image', version: '9.2' });
       const st = await getProfileStatus(c, alumno, 'alumno');
       assert.equal(st.ok, false);
-      assert.ok(st.missing.includes('data_protection') && !st.missing.includes('waiver'));
+      assert.ok(st.missing.includes('data_protection') && !st.missing.includes('rights_of_image'));
       // Con las otras vigentes (o sin vigente → falla cerrado) el perfil sigue incompleto salvo que se firmen.
       assert.deepEqual(
         st.missing.filter((m) => ['display_name', 'health_info', 'emergency_contact'].includes(m)), []

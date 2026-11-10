@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import type React from 'react'
-import { LockIcon, ShieldCheckIcon, ShieldIcon, UsersIcon, WalletIcon } from 'lucide-react'
+import { LockIcon, UsersIcon, WalletIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { Back, Kv, Note, OptionCard, StickyFooter, Tag } from '@/components/billing-bits'
@@ -31,10 +31,10 @@ import {
 import { errorText } from '@/lib/errors'
 import { formatDeadline, formatShortDate } from '@/lib/format'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
-import { path, refreshBilling, refreshBookings, useDisciplines, useInsurance, usePlans, useProfileStatus, useSubscription } from '@/lib/queries'
+import { path, refreshBilling, refreshBookings, useDisciplines, usePlans, useSubscription } from '@/lib/queries'
 import { useSession } from '@/lib/session'
 import type { Subject } from '@/lib/subject'
-import type { Insurance, Subscription } from '@/lib/types'
+import type { Subscription } from '@/lib/types'
 
 type Props = { subject: Subject | null; profileId?: string }
 
@@ -103,82 +103,6 @@ function PayerChangeNote({ s, me, price, name }: { s: Subscription; me?: string;
   )
 }
 
-function InsuranceCard({ insurance, live, riskCover }: { insurance: Insurance | null; live: boolean; riskCover?: boolean }) {
-  const { withSubject } = useSubject()
-  const confirm = useMutation({
-    mutationFn: async (secret: string) => {
-      if (!(await bankConfirms(secret))) throw new ApiError(402, { code: 'payment_failed' })
-    },
-    onSuccess: () => {
-      toastOk('Pago confirmado', 'El seguro se activa en unos segundos.')
-      setTimeout(() => void refreshBilling(), 3000)
-    },
-    onError: (err) => toastError(err),
-  })
-  const i = insurance && insurance.status !== 'cancelled' ? insurance : null
-  const on = i && isLive(i.status)
-  const state = !i
-    ? null
-    : i.status === 'incomplete'
-      ? (['Sin confirmar', 'secondary'] as const)
-      : i.cancel_at_period_end
-        ? (['No se renueva', 'warning'] as const)
-        : i.status === 'active'
-          ? (['Activo', 'success'] as const)
-          : i.status === 'past_due'
-            ? (['Cobro pendiente', 'warning'] as const)
-            : (['Impagado', 'error'] as const)
-  const sub = !i
-    ? riskCover
-      ? 'Sin seguro · con la exención firmada'
-      : 'Sin seguro'
-    : i.status === 'incomplete'
-      ? 'Pendiente del banco'
-      : i.current_period_end
-        ? i.cancel_at_period_end
-          ? `Termina el ${formatShortDate(i.current_period_end)}`
-          : `Hasta el ${formatShortDate(i.current_period_end)} · se renueva`
-        : ''
-  return (
-    <section aria-labelledby="ins" className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
-      <div className="flex items-center gap-3">
-        <span className={`grid size-10 shrink-0 place-items-center rounded-full ${on ? 'bg-success/14 text-success-foreground' : 'bg-muted text-muted-foreground'}`}>
-          {on ? <ShieldCheckIcon className="size-5" aria-hidden="true" /> : <ShieldIcon className="size-5" aria-hidden="true" />}
-        </span>
-        <div className="min-w-0 flex-1">
-          <h2 id="ins" className="font-semibold">
-            Seguro anual
-          </h2>
-          <p className="text-sm text-muted-foreground">{sub}</p>
-        </div>
-        {state && <Tag variant={state[1] === 'error' ? 'warning' : state[1]}>{state[0]}</Tag>}
-      </div>
-      {i?.status === 'incomplete' && (
-        <Note
-          kind="warning"
-          title="Falta confirmar el pago con tu banco"
-          action={
-            i.client_secret && (
-              <Button size="lg" variant="outline" loading={confirm.isPending} onClick={() => confirm.mutate(i.client_secret!)}>
-                Confirmar el pago
-              </Button>
-            )
-          }
-        >
-          Hasta entonces no hay seguro. Si no se confirma, para reservar hará falta firmar la exención.
-          {!i.client_secret && ' Lo confirma quien paga la cuota.'}
-        </Note>
-      )}
-      {i?.cancel_at_period_end && <p className="text-sm text-muted-foreground">Cuando termine, para reservar hará falta contratarlo de nuevo o firmar la exención.</p>}
-      {!i && live && (
-        <Button variant="outline" size="xl" render={<Link to={withSubject('/billing/insurance')} />}>
-          Contratar el seguro
-        </Button>
-      )}
-    </section>
-  )
-}
-
 function PayerSheet() {
   return (
     <Sheet>
@@ -202,7 +126,6 @@ function PayerSheet() {
             <li>Paga 0 € hoy en Stripe, antes de la fecha límite.</li>
             <li>Desde la renovación, la cuota se le cobra a ella. Hasta entonces, nada cambia.</li>
           </ol>
-          <p className="mt-3 text-sm text-muted-foreground">El seguro no cambia de pagador: no se renueva y la otra persona contrata el suyo cuando termine.</p>
         </SheetPanel>
         <SheetFooter>
           <SheetClose render={<Button size="xl" />}>Entendido</SheetClose>
@@ -289,8 +212,6 @@ function Billing({ subject, profileId }: Props) {
   const session = useSession()
   const { withSubject } = useSubject()
   const subscription = useSubscription(profileId)
-  const insurance = useInsurance(profileId)
-  const status = useProfileStatus(profileId)
   const portal = usePortal()
   const name = subjectName(subject)
   const contract = (
@@ -351,24 +272,6 @@ function Billing({ subject, profileId }: Props) {
               )}
               <ScheduledNote s={s} profileId={profileId} name={name} />
               <PayerChangeNote s={s} me={session?.id} price={perMonth(s.plan.price_cents)} name={name} />
-              {status.data?.risk_cover === false && (
-                <Note
-                  kind="warning"
-                  title="Necesitas el seguro o firmar la exención"
-                  action={
-                    <span className="flex flex-wrap gap-2">
-                      <Button size="lg" variant="outline" render={<Link to={withSubject('/agreements')} />}>
-                        Firmar la exención
-                      </Button>
-                      <Button size="lg" variant="outline" render={<Link to={withSubject('/billing/insurance')} />}>
-                        Contratar el seguro
-                      </Button>
-                    </span>
-                  }
-                >
-                  Sin cobertura de riesgo no se puede reservar.
-                </Note>
-              )}
               <section aria-labelledby="plan" className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
                 <div className="flex items-center justify-between gap-3">
                   <h2 id="plan" className="text-sm font-semibold text-muted-foreground">
@@ -421,16 +324,7 @@ function Billing({ subject, profileId }: Props) {
                 {lock && <Lock>{lock}</Lock>}
               </section>
             </div>
-            <div className="flex flex-col gap-4">
-              {insurance.isError ? (
-                <ErrorState error={insurance.error} onRetry={() => void insurance.refetch()} />
-              ) : insurance.isPending ? (
-                <ListSkeleton rows={1} />
-              ) : (
-                <InsuranceCard insurance={insurance.data} live={isLive(s.status)} riskCover={status.data?.risk_cover} />
-              )}
-              <Payments />
-            </div>
+            <Payments />
           </div>
         )
       }}
@@ -780,149 +674,6 @@ export function DisciplinePage() {
     <Page title="Cambiar de disciplina">
       <Back to={withSubject('/billing')}>Cuota</Back>
       <SubjectGate>{(p) => <WithSubscription profileId={p.profileId}>{(s) => <DisciplineChange key={s.id} s={s} {...p} />}</WithSubscription>}</SubjectGate>
-    </Page>
-  )
-}
-
-// ── Seguro ───────────────────────────────────────────────────────────────
-
-function InsuranceOffer({ subject, profileId }: Props) {
-  const { withSubject } = useSubject()
-  const insurance = useInsurance(profileId)
-  const name = subjectName(subject)
-  const [result, setResult] = useState<'ok' | 'failed' | null>(null)
-  const [problem, setProblem] = useState<string | null>(null)
-  const [ask, setAsk] = useState(false)
-  const buy = useMutation({
-    mutationFn: async () => {
-      const r = await api<{ status: string; client_secret?: string | null }>('/billing/insurance', { method: 'POST', body: { profile_id: profileId } })
-      if (r.status !== 'incomplete') return true
-      // Sin client_secret, el banco ha rechazado la tarjeta; con él, pide 3DS.
-      return r.client_secret ? bankConfirms(r.client_secret) : false
-    },
-    onSettled: () => setAsk(false),
-    onSuccess: (ok) => {
-      setResult(ok ? 'ok' : 'failed')
-      setProblem(null)
-      setTimeout(() => void refreshBilling(), ok ? 3000 : 0)
-    },
-    onError: (err) => {
-      const code = errorCode(err)
-      if (['insurance_disabled', 'insurance_exists', 'not_payer', 'subscription_required', 'profile_incomplete'].includes(code)) setProblem(code)
-      else toastError(err)
-      if (code === 'insurance_exists') void refreshBilling()
-    },
-  })
-  const waiver = (
-    <Button size="lg" variant="outline" render={<Link to={withSubject('/agreements')} />}>
-      Firmar la exención
-    </Button>
-  )
-  const back = (
-    <Button size="xl" variant="outline" render={<Link to={withSubject('/billing')} />}>
-      Volver a la cuota
-    </Button>
-  )
-  return (
-    <QueryView query={insurance}>
-      {(i) => {
-        if (result === 'ok') {
-          return (
-            <>
-              <Note kind="success" title="Seguro contratado">
-                En unos segundos aparece como activo. Ya no hace falta la exención para reservar. El recibo te llega por email.
-              </Note>
-              {back}
-            </>
-          )
-        }
-        if (i && isLive(i.status) && !problem) {
-          return (
-            <>
-              <Note kind="info" title={name ? `${name} ya tiene un seguro en vigor` : 'Ya tienes un seguro en vigor'}>
-                {i.current_period_end ? `Activo hasta el ${formatShortDate(i.current_period_end)}.` : ''}
-              </Note>
-              {back}
-            </>
-          )
-        }
-        return (
-          <>
-            {result === 'failed' && (
-              <Note kind="error" title="El banco no ha confirmado el pago">
-                No hay seguro todavía. Puedes volver a intentarlo; no se cobra dos veces.
-              </Note>
-            )}
-            {problem === 'insurance_disabled' && (
-              <Note kind="info" title="Ahora la academia no ofrece el seguro" action={waiver}>
-                Para reservar, firma la exención de responsabilidad.
-              </Note>
-            )}
-            {problem === 'insurance_exists' && <Note kind="info" title={name ? `${name} ya tiene un seguro en vigor` : 'Ya tienes un seguro en vigor'} />}
-            {problem === 'not_payer' && (
-              <Note kind="info" title="El seguro lo contrata quien paga la cuota" action={waiver}>
-                Si no es tu caso, la otra salida es firmar la exención.
-              </Note>
-            )}
-            {problem === 'subscription_required' && <Note kind="info" title="Primero hace falta una cuota" />}
-            {problem === 'profile_incomplete' && (
-              <Note
-                kind="warning"
-                title="Antes hay que completar el perfil"
-                action={
-                  <Button size="lg" variant="outline" render={<Link to={withSubject(profileId ? '/account/health' : '/onboarding')} />}>
-                    Completar perfil
-                  </Button>
-                }
-              />
-            )}
-            <section className="flex flex-col gap-4 rounded-2xl bg-brand-ink p-5 text-white">
-              <div className="flex items-center gap-3">
-                <ShieldCheckIcon className="size-7 text-ki" aria-hidden="true" />
-                <h2 className="font-heading text-2xl font-bold">Seguro anual de la academia</h2>
-              </div>
-              <p className="text-white/85">Con el seguro no hace falta firmar la exención de responsabilidad.</p>
-              <p className="text-sm text-white/85">El precio lo fija la academia; se cobra al contratarlo y el recibo, con el importe, te llega por email. Impuestos incluidos.</p>
-            </section>
-            <Kv
-              rows={[
-                ['Para', name ?? 'Ti'],
-                ['Se cobra', 'Hoy, con la tarjeta de la cuota'],
-                ['Dura', 'Un año y se renueva'],
-              ]}
-            />
-            <p className="text-sm text-muted-foreground">Antes de renovarlo te avisamos con el precio de ese año. Si tu banco lo pide, tendrás que confirmar el pago.</p>
-            <StickyFooter>
-              <Button size="xl" className="w-full" loading={buy.isPending} disabled={problem === 'insurance_disabled' || problem === 'not_payer'} onClick={() => setAsk(true)}>
-                {buy.isPending ? 'Contratando…' : result === 'failed' ? 'Volver a intentarlo' : 'Contratar el seguro'}
-              </Button>
-            </StickyFooter>
-            <ConfirmDialog
-              open={ask}
-              onOpenChange={setAsk}
-              variant="default"
-              title="¿Contratar el seguro?"
-              description="Se cobra hoy un año de seguro con la tarjeta de la cuota. El recibo, con el importe, te llega por email."
-              confirmLabel="Contratar"
-              cancelLabel="Cancelar"
-              loading={buy.isPending}
-              onConfirm={() => buy.mutate()}
-            >
-              <p>Si tu banco lo pide, tendrás que confirmar el pago.</p>
-            </ConfirmDialog>
-          </>
-        )
-      }}
-    </QueryView>
-  )
-}
-
-export function InsurancePage() {
-  const { withSubject } = useSubject()
-  return (
-    <Page title="Seguro">
-      <Back to={withSubject('/billing')}>Cuota</Back>
-      <SubjectGate>{(p) => <InsuranceOffer key={p.profileId ?? 'self'} {...p} />}</SubjectGate>
     </Page>
   )
 }

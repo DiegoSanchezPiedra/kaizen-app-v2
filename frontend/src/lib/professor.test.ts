@@ -27,8 +27,8 @@ describe('lista', () => {
   const a: Attendance = {
     closed_at: null,
     students: [
-      { booking_id: 'b1', student_id: 's1', display_name: 'Ana', status: null, method: null, corrected_at: null, correction_reason: null, risk_cover: true },
-      { booking_id: 'b2', student_id: 's2', display_name: 'Bea', status: 'present', method: 'qr', corrected_at: null, correction_reason: null, risk_cover: false },
+      { booking_id: 'b1', student_id: 's1', display_name: 'Ana', status: null, method: null, corrected_at: null, correction_reason: null },
+      { booking_id: 'b2', student_id: 's2', display_name: 'Bea', status: 'present', method: 'qr', corrected_at: null, correction_reason: null },
     ],
   }
   it('marca y desmarca solo a esa persona', () => {

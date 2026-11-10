@@ -23,7 +23,6 @@ export type AttendanceRow = {
   method: 'manual' | 'qr' | null
   corrected_at: string | null
   correction_reason: string | null
-  risk_cover: boolean
 }
 export type Attendance = { closed_at: string | null; students: AttendanceRow[] }
 

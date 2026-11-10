@@ -22,8 +22,8 @@ router.get('/profiles', withRlsContext((req, client) => listProfiles(client, req
 // GET /admin/profiles/stats?discipline_id → { activos, impago, inactivos } (antes de /:id)
 router.get('/profiles/stats', withRlsContext((req, client) => getProfileStats(client, req.query)));
 
-// GET /admin/profiles/:id → { profile, status, guardians, children, subscription, insurance } (sin birth_date ni salud)
-router.get('/profiles/:id', withRlsContext((req, client) => getProfile(client, { id: req.params.id, actorId: req.user.id })));
+// GET /admin/profiles/:id → { profile, status, guardians, children, subscription } (sin birth_date ni salud)
+router.get('/profiles/:id', withRlsContext((req, client) => getProfile(client, { id: req.params.id })));
 
 // PUT /admin/profiles/:id/role { role, mfa_code? } → { profile } (audit_log profile.role_change); admin exige mfa_code,
 // una sesión con doble factor y como mucho 10 intentos cada 15 min por IP.

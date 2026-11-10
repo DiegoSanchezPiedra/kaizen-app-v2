@@ -78,7 +78,7 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
   )
   const ready = !status.isPending && !(profileId && selfStatus.isPending)
   const now = useNow()
-  const state: JoinState = joinState(e, { now, blocked: blockers.length > 0, riskCover: status.data?.risk_cover, audienceBlocked: mismatch })
+  const state: JoinState = joinState(e, { now, blocked: blockers.length > 0, audienceBlocked: mismatch })
   const amount = amountFor(e, member === true)
 
   const join = useMutation({
@@ -93,7 +93,7 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
     onError: (err) => {
       const code = errorCode(err)
       if (code === 'audience_mismatch') setMismatch(true)
-      if (code === 'profile_incomplete' || code === 'no_risk_cover') void Promise.all([status.refetch(), selfStatus.refetch()])
+      if (code === 'profile_incomplete') void Promise.all([status.refetch(), selfStatus.refetch()])
       else if (code !== 'audience_mismatch') void refreshEvents()
       if (code === 'audience_mismatch') toastManager.add({ type: 'error', title: audienceText(name), timeout: 5000 })
       else toastError(err)
@@ -193,16 +193,6 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
               </Note>
             ))}
           </>
-        )
-      case 'cover':
-        return (
-          <Note
-            kind="warning"
-            title="Sin cobertura de riesgo"
-            action={<Button size="lg" variant="outline" render={<Link to={withSubject('/agreements')} />}>Ver opciones</Button>}
-          >
-            Este evento pide el seguro o la exención de responsabilidad firmada{name ? ` de ${name}` : ''}.
-          </Note>
         )
       case 'open':
         return (

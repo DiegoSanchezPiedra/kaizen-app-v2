@@ -66,7 +66,7 @@
 | B17 | Endpoints de informes | B16 | CERRADO |
 | B18 | Frontend PWA (alumno, tutor, profesor, tablet; sub-bloques B18.0–B18.6) | B13, B15, B17 | CERRADO (falta probar Google y el 3DS: sin `VITE_GOOGLE_CLIENT_ID` ni `VITE_STRIPE_PUBLISHABLE_KEY`) |
 | B19 | Panel admin (métricas, usuarios, auditoría, morosos; sub-bloques B19.0–B19.6) | B11, B17, B10.2, B18 | CERRADO |
-| B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos | Pendiente |
+| B20 | Hardening (rate limiting, RLS audit, backups, E2E) | Todos | CERRADO |
 | B21 | Eventos (inscripción, cobro aparte, panel; sub-bloques B21.0–B21.2) | B10, B18, B19 | CERRADO |
 | B22 | Rediseño (calendario semanal, Membresías y Disciplinas, Clases en móvil, KPIs de Usuarios) | B18, B19, B21 | CERRADO |
 | B23 | Inicio del admin en vivo (`GET /admin/home`, «Ahora», cifras de ahora, accesos directos) | B16, B19, B22 | CERRADO |
@@ -74,6 +74,13 @@
 | B25 | Medallas por disciplina con temática (escalera de 11 por disciplina, temáticas, ranking por disciplina) | B13, B14, B22 | CERRADO |
 | B26 | Racha: recuadro con la temática de la disciplina con más horas y aura por niveles | B25 | CERRADO |
 | B27 | Verificación de email al registrarse y confirmar el cambio de contraseña por email (ADR 0021) | B24 | Diseñado (antes de producción) |
+| B28 | Retirar el seguro y el `waiver`: solo se cobran membresías | B10.3, B11 | CERRADO |
+| B29 | Rango de edad por disciplina (kids 5–12) en contratar, reservar y al cumplir años | B28 | Diseñado (antes de producción) |
+| B30 | Pausa con cuota de mantenimiento (Stripe, Subscription Schedule) | B28, B29 | Diseñado (antes de producción) |
+| B31 | Registro de jornada (fichaje) de profesores empleados | B28 | Diseñado (antes de producción) |
+| B32 | Acceso propio del menor con permisos limitados (sustituye ADR 0002) | B29, B30, B31 | Diseñado (antes de producción) |
+| B33 | Auditoría de rendimiento de B28–B32 y de lo que tocan | B32 | Diseñado (antes de producción) |
+| B34 | Auditoría de seguridad de B28–B32 y de lo que tocan | B33 | Diseñado (antes de producción) |
 
 ---
 
@@ -670,6 +677,7 @@
   - [x] Tests (`npm run test:billing`).
 
 ### B10.3 — Seguro y cobertura de riesgo — CERRADO
+> Retirado por B28 (2026-11-10).
 - **Objetivo**: seguro anual de la academia como alternativa al `waiver` (ADR 0005, ADR 0006). Términos en `CONTEXT.md` («Seguro y cobertura de riesgo»).
 - **Reglas**:
   - Cobertura de riesgo = seguro en vigor (`active` / `past_due`) o `waiver` vigente. No hay seguro externo.
@@ -993,7 +1001,6 @@
 - **Entregable**:
   - Inventario de la cuenta real: número de suscripciones, Prices usados, trials/pausas, Stripe Tax, métodos de pago, configuración del portal, cómo se identifica a cada persona (email) y si maat es una plataforma Connect.
   - Script de importación idempotente: cliente → perfil pagador (`profiles.stripe_customer_id`), alumno y menores, Price de maat → plan de Kaizen (`subscriptions.update` al Price del plan con `proration_behavior: 'none'`), disciplinas (CSV o exportación de maat), fila en `subscriptions` + `subscription_disciplines`, recibos con `syncInvoice`.
-  - *Upcoming renewal events* (aviso del seguro, B10.3) es un ajuste de toda la cuenta: acordar con maat los 30 días.
   - Emails de cliente de Stripe que tenga activos maat (cobro fallido, 3DS, renovación, recibos): son de toda la cuenta y se solapan con los de Kaizen (B10.6); acordar con maat antes del corte.
   - Descriptor: `STRIPE_STATEMENT_DESCRIPTOR` en el `.env` de producción y `npm run sync-stripe-plans` tras importar los planes, para que los Products de Kaizen lo lleven. Confirmar que «KAI ZEN TRAINING CAMP» es el nombre comercial con el que se conoce la academia (lo exigen las redes de tarjetas).
   - *Revenue recovery → Retries* de la cuenta: Kaizen necesita «mark the subscription as unpaid» al agotar los reintentos (en el sandbox estaba en cancelar; ver E2E de B11). Es un ajuste de toda la cuenta: si maat cancela, acordarlo antes del corte.
@@ -1008,6 +1015,7 @@
   - [ ] Importación en producción y conteo cuadrado con Stripe.
 
 ### B11 — Baja del seguro y cambio de pagador — CERRADO
+> Retirado por B28 (2026-11-10).
 - **Objetivo**: baja del seguro por el admin (a fin de año o inmediata) y **cambio de pagador**. Además, arreglar que la baja inmediata de una suscripción deje su recibo pendiente cobrándose. Términos en `CONTEXT.md` («Suscripción», «Seguro y cobertura de riesgo»), decisión en ADR 0009.
 - **Ya hecho en B10** (2026-10-29): `POST /admin/subscriptions/:id/cancel-now` y `/cancel-at-period-end` (`cancelSubscription`). Se pide la baja a Stripe y el estado local llega por el webhook. `audit_log` `subscription.cancel_now` / `subscription.cancel_at_period_end`.
 - **Sondeo del sandbox** (2026-10-30, `kaizen-app-testing`, *test clock*):
@@ -2522,3 +2530,339 @@ puestos el 2026-11-09.
 - [ ] Backend con tests por rol.
 - [ ] Frontend (estado «sin verificar», reenviar enlace).
 - [ ] Probado con Resend y en staging.
+
+---
+
+### Bloques B28–B34 — reglas comunes
+
+Diseñados el 2026-11-10 (grill con el usuario y la investigación `docs/research/legal-fichaje-menores.md`). Orden fijo:
+**B28 → B29 → B30 → B31 → B32 → B33 → B34**, todos **antes de producción** (antes del despliegue en OVH y de B10.7).
+Lo marcado «Por decidir» se cierra en un grill corto al abrir el bloque; el resto está decidido y no se reabre.
+
+Cada chat de implementación de estos bloques:
+
+0. **Subagentes de búsqueda** (`Explore`): en **Haiku**, salvo que el bloque diga otra cosa.
+1. **Localiza con el grafo**: antes de cualquier grep o lectura, `graphify query "<pregunta>"` (y `graphify path` /
+   `graphify explain`); se leen solo las líneas que el grafo o una lectura anterior ya situaron. Esta regla se copia en el
+   prompt de cualquier subagente que explore código.
+2. **Test primero** con la skill `mattpocock-skills:tdd`: el test de cada regla nueva se escribe y se ve en rojo antes del
+   código. Backend en `scripts/test-*.js` (con su `npm run test:*`), frontend en Vitest.
+3. Pantallas **móvil primero**: se comprueban a 375 px antes que en `sm`/`lg`.
+4. Al cerrar: `npm run lint`, `npm run test`, Vitest, `tsc -b`; `graphify update .`; `CONTEXT.md`, `docs/api.md`,
+   `contexto-proyecto.md`, la tabla §3 y `docs/modelos-por-bloque.md` al día. El modelo de dominio de cada bloque vive aquí
+   hasta que se implementa; al cerrarlo pasa a `CONTEXT.md` (sin detalles de implementación) y se borra de aquí lo que
+   quede duplicado.
+5. Staging: los datos actuales son de prueba y se **recrean** (`npm run staging:*` y `deploy/staging/seed.mjs`), no se
+   migran. El seed se adapta en el bloque que cambia el modelo.
+
+### B28 — Retirar el seguro y el `waiver` — CERRADO
+
+Rama `b28-sin-seguro`, 2026-11-10. B28.0 (Opus, medio): `607b162`, `0f5ff56`, `089c0ad`, `4f4e29b`, `cd8e10c`, `cf576e8`,
+`7d52bd2`. B28.1 (Haiku, medio): `fcf072b`, `9fdfbff`; retoques de la revisión `1a28e47`, `ba6c116`. ADR 0023. En el
+sandbox: 3 seguros cancelados, 147 Products «Seguro» y 250 Prices archivados (cada `test:billing` antiguo creaba uno).
+Además de lo listado se fueron `visible_risk_cover`, `events.requires_risk_cover` (y su regla en `register_event`), la
+excepción del seguro en `agreement_notice` y el handler de `invoice.upcoming`. La 057 no borra los PDFs del `waiver`
+(iría antes del COMMIT); los huérfanos se fueron al recrear staging. El checkout rechaza cualquier campo desconocido
+(400 `invalid_field`).
+
+- **Objetivo**: la academia solo cobra **membresías** (suscripciones). Desaparecen el seguro de la academia, el acuerdo
+  `waiver` y la **cobertura de riesgo**. Para reservar basta con perfil completo y una suscripción que cubra la sesión.
+- **Decisiones** (2026-11-10):
+  - Todo se borra, sin copia: solo hay datos de staging y del sandbox de Stripe.
+  - Acuerdos que quedan: `data_protection` y `rights_of_image`. El `waiver` no se sustituye por otro documento.
+  - ADR **0023** «Sin seguro ni `waiver`: solo membresías», que sustituye a 0005 y 0006 (se marcan «Sustituido por 0023»).
+    ADR 0007 se mantiene: su referencia al 3DS del seguro pasa a ser histórica.
+  - B10.3 y B11 quedan como historia con una línea «Retirado por B28» en su cabecera; no se reescriben.
+- **Alcance**:
+  - **Stripe (sandbox)**: script de un solo uso que cancela los seguros vivos y archiva el Product «Seguro» y sus Prices.
+    Se ejecuta antes de la migración.
+  - **Migración** (siguiente número libre, hoy `057`): borra `insurances`, sus recibos en `invoices`, `invoices.insurance_id`
+    y su `CHECK num_nonnulls`, `has_risk_cover`, las claves `insurance_*` de `academy_settings`, los avisos
+    `notice.insurance_*`, las firmas y los `agreement_documents` de tipo `waiver` (y sus PDFs en `storage/`) y el valor
+    `waiver` del tipo de acuerdo. Reescribe `book_session` y `promote_waitlist` sin la regla de cobertura de riesgo.
+    `down()` recrea el esquema vacío, sin datos (sigue el patrón de las migraciones con datos del repo).
+  - **Backend**: retirar el seguro de `src/services/billing.js`, `stripeWebhook.js` (rama `metadata.kind = 'insurance'`,
+    `invoice.upcoming` del seguro, alta de seguro tras el Checkout), `bookings.js`, `profile.js` (`risk_cover` en
+    `/me/profile-status`), `attendance.js` («sin cobertura de riesgo» en la lista del profesor), `notices.js`, `users.js`
+    (cambio de rol y desvincular tutor ya no miran el seguro), `panel.js` (morosos), `events.js`, `src/config/agreements.js`,
+    `src/config/stripe.js` y las rutas `src/routes/billing.js`, `src/routes/admin/{billing,agreements,panel,profiles}.js`.
+    `POST /billing/checkout` deja de aceptar `insurance` (un campo desconocido → 400, no se ignora en silencio). Fuera los
+    errores `risk_cover_required`, `insurance_*`, `no_risk_cover`, `not_payer` del seguro.
+  - **Frontend**: `agreements-panel.tsx`, `lib/{admin,catalog,errors,notices,profile,queries,types}.ts`,
+    `pages/{account,billing,billing-contract,events}.tsx`, `pages/admin/{billing,settings,user-billing,users}.tsx`,
+    `router.tsx` y sus tests. El paso «seguro o `waiver`» del contrato desaparece.
+  - **Scripts y tests**: quitar los casos del seguro y del `waiver` de `test-{billing,webhook,bookings,minors,agreements,
+    admin,events,notices,nightly,push,progress,rls,mfa,session-cancel,session-changes,user-stats}.js`,
+    `e2e-agreements.js`, `e2e-b11.js` y `sync-stripe-plans.js`.
+  - **Docs**: `CONTEXT.md` (secciones «Seguro y cobertura de riesgo», `waiver`, menciones en Rol, Tutor y Pagador),
+    `docs/api.md`, `docs/pantallas-b18.md`, `docs/pantallas-b19.md`, `db-architecture.md`, `PLAN_FAMILIA.md`, `MEJORAS.md`
+    (6.4 deja de aplicar), `deploy/staging/README.md` y B10.7 (el ajuste *Upcoming renewal events* ya no hace falta).
+- **Fuera de alcance**: la cuota de mantenimiento (B30); cualquier documento nuevo que sustituya al `waiver`.
+- **Dependencias**: ninguna abierta (B10.3 y B11 cerrados).
+- **Modelo y effort**: **B28.0** (script de Stripe, migración, backend y sus tests): **Opus, medio** (Stripe, webhook,
+  funciones `SECURITY DEFINER` y una migración destructiva). **B28.1** (frontend, Vitest, docs y seed, de la lista de
+  arriba): **Haiku, medio**, en otro chat tras B28.0; si aparece algo que no es borrar, para y sube a Sonnet. Skills: `mattpocock-skills:tdd`, `graphify`, `stripe-docs` si hay dudas de la API.
+- **Criterios de aceptación**:
+  - [x] `grep -rniE "insurance|seguro|waiver|risk_cover" src frontend/src scripts` sin resultados; en `migrations/` solo
+        las históricas y la nueva.
+  - [x] Un alumno con perfil completo (`data_protection`, `rights_of_image`, ficha) y suscripción reserva sin firmar nada
+        más; un hijo igual, con las firmas de su tutor.
+  - [x] El contrato de una membresía en el sandbox va del catálogo al Checkout sin paso de seguro (por API en
+        `test:e2e-agreements`; en pantalla, a 375 px, sin restos de seguro, pero sin recorrerlo hasta el Checkout).
+  - [ ] Prueba en un iPhone real (la hace el usuario al final).
+  - [x] La lista del profesor y la ficha del admin no muestran cobertura de riesgo ni seguro.
+  - [x] Morosos solo con suscripciones.
+- **Verificación**: la batería completa (`npm run test` y los `test:*` de la lista), `test:e2e-agreements` y
+  `test:e2e-b11` adaptados, Vitest y `tsc -b`; staging recreado con el seed; revisión manual a 375 px de contratar,
+  reservar, ficha del admin y Ajustes.
+- **A validar fuera de la app**: la academia necesita su propia póliza de responsabilidad civil (varias leyes autonómicas
+  del deporte la exigen) — ver `docs/research/legal-fichaje-menores.md` §3.
+
+### B29 — Rango de edad por disciplina (kids 5–12) — Diseñado (antes de producción)
+
+- **Objetivo**: una disciplina puede limitar la edad de quien la entrena. Muay Thai Kids queda en **5–12 años**.
+- **Modelo de dominio**:
+  - **Rango de edad de una disciplina**: edad mínima y máxima, opcionales, **inclusive**, en años cumplidos. Lo fija el
+    admin. Sustituye a «Disciplina solo menores», que pasa a ser «máxima 17». Una disciplina abierta también respeta su
+    rango.
+  - **Cuándo se mide**: al contratar, elegir o cambiar disciplina, la edad de **hoy** (solo se mira la máxima: un niño de 4
+    puede apuntarse y reserva desde el día que cumple 5). Al reservar, entrar en espera o ser promovido, la edad **el día
+    de la sesión** (mínima y máxima).
+  - **Al superar la máxima**: aviso al tutor 30 días antes; el día del cumpleaños se cancelan sus reservas y esperas
+    futuras de esa disciplina con motivo «fuera de edad» (con aviso), y la disciplina se puede sustituir gratis sin contar
+    para el límite de cambios, igual que hoy una disciplina que ya no se cubre.
+  - Sin fecha de nacimiento (alta con Google sin completar), el perfil se trata como adulto, como hoy.
+  - «Plan solo menores» no cambia.
+- **Alcance**:
+  - **Migración**: `disciplines.min_age` y `max_age` (`smallint NULL`, `CHECK` 0–99 y `min_age <= max_age`); datos:
+    `minors_only = true` → `max_age = 17`; se borra `minors_only` de `disciplines`. Una función SQL única para «el perfil
+    cumple el rango de la disciplina el día D», usada por `covers`, `book_session` y `promote_waitlist` (la promoción
+    **salta** a quien no cumple, que sigue en la lista). Las funciones vigentes están en `009`, `012`, `013`, `014` y `019`.
+    Si el check-in (B9) o la asistencia manual (B8) dejan entrar sin reserva, misma regla.
+  - **Tarea nocturna** (B16): aviso a 30 días y cancelación el día del cumpleaños, idempotente.
+  - **Backend**: `src/services/catalog.js`, `billing.js` (elegibles al contratar y en el cambio de disciplina), `users.js`.
+    Error nuevo `age_out_of_range` (403) con el rango en el cuerpo.
+  - **Frontend**: en `pages/admin/disciplines.tsx`, dos campos numéricos «Edad mínima» y «Edad máxima» en lugar del
+    interruptor; el catálogo y el calendario enseñan «5–12 años»; `lib/billing.ts` (elegibles) y `lib/errors.ts`.
+  - **Seed**: Muay Thai Kids 5–12; el niño de la demo dentro del rango y otro que cumple 13 en el próximo mes.
+- **Fuera de alcance**: rango de edad en planes (sigue «Plan solo menores») y en eventos (tienen su «Público»).
+- **Dependencias**: B28 (reescribe `book_session` y `promote_waitlist` antes).
+- **Modelo y effort**: **B29.0** (BD, servicios, nocturna): **Opus, medio** (funciones `SECURITY DEFINER`, menores y
+  tarea nocturna). **B29.1** (campos del admin, catálogo y seed): **Haiku, medio**. Skills:
+  `mattpocock-skills:tdd`, `graphify`.
+- **Criterios de aceptación**:
+  - [ ] Reserva en una sesión de 5–12: OK el día que cumple 5 y el día antes de cumplir 13; 403 `age_out_of_range` en una
+        sesión del día que cumple 13 o posterior, y para un adulto.
+  - [ ] Un niño de 4 contrata la disciplina; no reserva sesiones anteriores a su quinto cumpleaños.
+  - [ ] La espera salta a quien estará fuera de rango el día de la sesión.
+  - [ ] Nocturna: aviso a 30 días, cancelación con motivo y aviso el día del cumpleaños, sustitución gratis.
+  - [ ] Las disciplinas que eran solo menores siguen excluyendo a los adultos.
+- **Verificación**: `test:catalog`, `test:bookings`, `test:billing`, `test:nightly`, `test:progress`, `test:calendar` y
+  Vitest (`lib/billing.test.ts`) con fechas fijas que cubran cumpleaños, cambio de hora y medianoche de Madrid; revisión
+  manual a 375 px del formulario de disciplina y del catálogo del tutor.
+
+### B30 — Pausa con cuota de mantenimiento — Diseñado (antes de producción)
+
+- **Objetivo**: un alumno que deja de entrenar una temporada **pausa** su membresía y paga una cuota de mantenimiento
+  reducida en lugar del precio del plan; al acabar vuelve solo a su plan y sus disciplinas.
+- **Modelo de dominio**:
+  - **Pausa**: periodo de **1 a N meses enteros** en que la suscripción no cubre ninguna sesión y cobra la cuota de
+    mantenimiento. Empieza en la **siguiente fecha de cobro**, nunca a mitad de periodo. Se elige el número de meses al
+    pedirla.
+  - **Cuota de mantenimiento**: precio mensual único de la academia (> 0 €), editable por el admin. En la UI se escribe
+    siempre «cuota de mantenimiento», nunca «cuota» a secas (en `CONTEXT.md` «Cuota» es la etiqueta de la suscripción).
+  - **Ajustes de la academia**: precio, máximo de meses por pausa (por defecto 3) y máximo de pausas por año natural de
+    Madrid (por defecto 1).
+  - La pide el **pagador** desde la app o el admin por él. Antes de empezar se puede **anular** gratis. Ya empezada, se
+    puede **volver antes**: la vuelta se programa para la siguiente fecha de cobro (sin prorrateo).
+  - Al pedirla se cancelan las reservas y esperas de sesiones desde el inicio de la pausa, con motivo «pausa» y aviso;
+    durante la pausa no se reserva ni se entra en espera.
+  - **Racha**: las semanas enteras en pausa ni rompen la racha ni suman.
+  - **Exención**: el admin exime una pausa concreta con un motivo (queda en `audit_log`); esa pausa cobra 0 €.
+  - **Impago**: como cualquier recibo de la suscripción: `past_due`/`unpaid`, aparece en morosos y al volver no reserva
+    hasta pagar.
+  - Durante una pausa programada o en curso no se cambia de plan, de disciplina ni de pagador (409 `paused`). La baja sí.
+    Los cambios de precio del plan se aplican desde la vuelta, como cualquier cambio de precio.
+- **Diseño técnico** (ADR **0024** «La pausa es una fase del Subscription Schedule»):
+  - Igual que la bajada de ADR 0007: un **Subscription Schedule** con fases actual → mantenimiento (N periodos, Price de
+    mantenimiento o el de 0 € si está eximida) → plan y disciplinas originales, `end_behavior: release`; la `metadata`
+    lleva `kind: 'pause'` y las fechas. Sigue habiendo **como mucho un cambio programado** a la vez (409 `change_scheduled`).
+  - Se descarta `pause_collection` porque deja de cobrar, no cobra un importe reducido.
+  - El estado de cobro lo escribe solo el webhook (regla de B10); la tabla de pausas (suscripción, inicio, fin, eximida,
+    estado, quién la pidió) la escribe el endpoint y el webhook confirma. `covers` devuelve falso en fechas de pausa.
+  - Con la skill `stripe-docs`, comprobar en la API vigente (`2026-09-30.endive`) la duración de fases (`duration` /
+    `iterations`), el Price de 0 € en una fase y cómo anular o acortar una fase ya en curso.
+- **Alcance**: migración (tabla de pausas y ajustes), `billing.js`, `stripeWebhook.js`, `bookings.js`, el cálculo de la
+  racha, avisos (programada, empieza, acaba en 7 días, vuelta, impago), endpoints `POST /billing/pause`
+  `{ profile_id?, months }`, `DELETE /billing/pause` (anular o volver antes), `PUT /admin/settings/pause`,
+  `POST /admin/pauses/:id/exempt`; pantallas: «Pausar membresía» en la cuota del pagador (meses, importe, fecha de inicio y
+  qué se cancela), estado y exención en la ficha del admin, ajustes en `pages/admin/settings.tsx`.
+- **Fuera de alcance**: pausas a mitad de periodo, prorrateos y pausas por días.
+- **Dependencias**: B28 (deja el webhook sin el seguro) y B29 (`covers` ya con el rango de edad).
+- **Modelo y effort**: diseño cerrado salvo la comprobación de la API; implementación **Opus, alto** (Stripe y dinero); pantallas en **Sonnet, alto**.
+  Skills: `stripe-best-practices`, `stripe-docs`, `mattpocock-skills:tdd`, `graphify`.
+- **Criterios de aceptación**:
+  - [ ] Pausa de 2 meses: el siguiente cobro es la cuota de mantenimiento dos veces y luego el precio del plan, con las
+        mismas disciplinas (con *test clock*).
+  - [ ] Pedirla cancela las reservas desde el inicio y no las anteriores; durante la pausa, reservar → 403.
+  - [ ] Anular antes de empezar deja la suscripción como estaba; volver antes adelanta la fase del plan a la siguiente
+        fecha de cobro.
+  - [ ] Límites de meses y de pausas por año; 409 con un cambio ya programado.
+  - [ ] Exención: fase a 0 €, `audit_log` con motivo; impago → morosos.
+  - [ ] Racha intacta tras una pausa.
+- **Verificación**: `test:billing`, `test:webhook` contra el sandbox, `test:bookings`, `test:progress`, `test:dunning`,
+  `test:notices`, Vitest; E2E con `stripe listen` y *test clock* (pausa, anulación, vuelta antes, impago); revisión manual
+  a 375 px.
+
+### B31 — Registro de jornada (fichaje) de profesores — Diseñado (antes de producción)
+
+- **Objetivo**: cumplir el art. 34.9 ET con un registro de jornada de los profesores **empleados**, consultable por el
+  trabajador y el admin, exportable y con trazabilidad de cada corrección.
+- **Modelo de dominio**:
+  - **Tipo de relación** del profesor: **empleado** o **autónomo**, lo marca el admin. Solo el empleado ficha y aparece en
+    el registro. El autónomo nunca ficha (controlarle el horario es indicio de falso autónomo). De momento solo el rol
+    profesor; un admin no ficha.
+  - **Fichaje**: hecho de que un profesor empleado **entra**, **sale**, **empieza una pausa** o **vuelve**, con la hora
+    **del servidor**. Se hace con un botón en la PWA o leyendo el QR de la tablet de la academia (B9). Sin geolocalización
+    ni biometría.
+  - **Jornada**: lo fichado en un día de Madrid; el total del mes es la suma de jornadas sin las pausas.
+  - **Corrección**: un fichaje nunca se edita ni se borra. Una corrección es un registro nuevo que apunta al original, con
+    motivo, autor y fecha. El profesor **solicita** y el admin aplica; si corrige el admin, el profesor recibe un aviso y la
+    ve. Lo original sigue visible junto a la corrección.
+  - **Jornada abierta**: una entrada sin salida a las 16 h genera un aviso al profesor y al admin para corregirla.
+  - **Conservación**: 4 años; la tarea nocturna purga lo más antiguo y deja en `audit_log` cuántos registros borró.
+- **Diseño técnico** (ADR **0025** «Registro de jornada de solo añadir»): tablas de fichajes y correcciones sin `UPDATE`
+  ni `DELETE` para `app_user` (`REVOKE` y un trigger que los rechaza; solo la purga, con `service_role`, borra). RLS: el
+  profesor lee lo suyo, el admin todo. `timestamptz`; los días y meses se cortan en la medianoche de Madrid, con tests de
+  cambio de hora.
+- **Alcance**: migración (tipo de relación en el perfil del profesor, fichajes, correcciones, RLS), servicio y rutas
+  (`POST /me/clock { kind }`, `GET /me/clock?month=`, `POST /me/clock/corrections`, `GET /admin/clock?profile_id&month`,
+  `POST /admin/clock/corrections`, aplicar una solicitud, `GET /admin/clock/export?profile_id&month&format=csv`), QR de
+  fichaje en la tablet, tarea nocturna (jornada abierta y purga), pantallas: botón «Fichar» con el estado actual en el
+  Inicio del profesor, «Mi registro» por mes, «Jornada» en el panel del admin y el tipo de relación en la ficha del
+  profesor.
+- **Exportación**: por trabajador y mes; **CSV** (UTF-8 con BOM, una fila por fichaje y corrección, total de horas del mes,
+  que exige el art. 12.4.c ET para tiempo parcial) con las celdas que empiezan por `= + - @` escapadas; **PDF** como página
+  imprimible con estilos de impresión (sin dependencia nueva), con casillas de firma.
+- **Fuera de alcance**: acceso remoto de la Inspección (el real decreto de registro digital no está aprobado; si se
+  aprueba, otro bloque), nóminas y horas extra, fichaje de admins.
+- **Dependencias**: B28 (solo por orden; no comparte código).
+- **Modelo y effort**: implementación **Opus, medio** (RLS, datos laborales con obligación legal y migración de solo
+  añadir); las pantallas en **Sonnet, alto** en un segundo chat; la página imprimible y los docs en **Haiku, medio**. Skills: `mattpocock-skills:tdd`, `graphify`.
+- **Criterios de aceptación**:
+  - [ ] Un autónomo no ve el fichaje y `POST /me/clock` → 403; un empleado ficha con la hora del servidor.
+  - [ ] Secuencia válida (no hay dos entradas seguidas ni salida sin entrada) → 409 con el estado actual.
+  - [ ] `UPDATE` y `DELETE` sobre los fichajes fallan en la BD también para el admin.
+  - [ ] Solicitar y aplicar una corrección deja el original, la corrección, el autor y el motivo; el profesor la ve.
+  - [ ] El total del mes es correcto en los meses con cambio de hora y en jornadas que cruzan la medianoche.
+  - [ ] Un profesor no lee el registro de otro (RLS y API).
+  - [ ] La purga borra solo lo de más de 4 años.
+- **Verificación**: script nuevo `test:clock` (RLS por rol, secuencia, solo añadir, correcciones, purga, totales,
+  CSV), `test:nightly`, `test:rls`, Vitest; revisión manual a 375 px del botón y del registro, e imprimir el PDF de un mes.
+- **A validar fuera de la app**: convenio colectivo aplicable, información a los trabajadores sobre el tratamiento de sus
+  datos y qué profesores son de verdad empleados (laboralista). Ver `docs/research/legal-fichaje-menores.md` §1.
+
+### B32 — Acceso propio del menor — Diseñado (antes de producción)
+
+- **Objetivo**: un tutor puede dar a su hijo, de **cualquier edad**, acceso propio a la app con funciones limitadas.
+  Sustituye la decisión del ADR 0002 («el hijo no tiene acceso propio») por el ADR **0026**.
+- **Modelo de dominio**:
+  - **Acceso del menor**: credenciales que un tutor vinculado activa para un hijo y puede revocar en cualquier momento. La
+    activación es el consentimiento del tutor y queda registrada (quién, cuándo, IP y versión del texto informativo).
+  - **Credenciales**: **usuario** (elegido por el tutor, único, no puede ser un email) y contraseña. Desde los 14 años,
+    email propio opcional. Sin Google. La contraseña la restablece el tutor. La sesión dura 7 días.
+  - **Lo que el menor no puede hacer**: pagos y pausas, firmar acuerdos, la ficha de salud. Todo lo demás sí: calendario,
+    reservar y cancelar (salvo que el tutor le quite el **permiso de reservar**), progreso, medallas, racha, check-in por
+    QR, su perfil y su foto, perfil público, rankings, comunidad, eventos gratuitos y avisos (push incluido, solo
+    operativos). Los avisos siguen llegando también al tutor.
+  - **Sujeto y actor**: con su acceso, el menor es actor y sujeto de sus acciones; el tutor sigue pudiendo actuar por él.
+  - **Al cumplir 18**: reclamar el perfil ya no necesita invitación si tiene acceso: añade su email, firma los acuerdos y
+    confirma su ficha.
+- **Por decidir** (grill al abrir el bloque, con `docs/research/legal-fichaje-menores.md` §2):
+  - Perfil público y rankings de un menor de 14: propuesta, que solo los active el tutor (privacidad por defecto, art. 25
+    RGPD) y que la foto nunca sea pública, como hoy.
+  - Si el menor puede cambiar su nombre visible y su foto o solo el tutor.
+- **Diseño técnico**:
+  - El rol sigue siendo alumno; `requireAuth` ya lee el rol de la BD en cada petición y añade si el perfil es un menor con
+    acceso. Los bloqueos se aplican en la ruta **y** en las funciones `SECURITY DEFINER` (el actor de un cobro, una firma o
+    la ficha de salud debe ser un adulto). Error `minor_restricted` (403).
+  - Revisión de **todas** las políticas RLS que distinguen sujeto y actor o usan `is_guardian_of`: el menor lee lo suyo y
+    nada de sus hermanos ni de sus tutores.
+  - Credenciales: columna de usuario en `auth_credentials` (única, sin forma de email); el login acepta email o usuario,
+    con el mismo rate limit; revocar o cambiar la contraseña invalida los tokens anteriores (ADR 0020).
+  - Sin canal privado entre profesor y menor (LOPIVI): la app no tiene mensajería y sigue sin tenerla.
+- **Alcance**: migración (usuario, registro del acceso y permiso de reservar), auth, RLS, rutas bloqueadas, endpoints del
+  tutor (`POST/DELETE /children/:id/access`, contraseña, permiso de reservar), reclamar a los 18 sin invitación;
+  pantallas: «Acceso propio» en la cuenta familiar del tutor y la app del alumno sin Cuota, Acuerdos ni Salud para el menor
+  (con un texto informativo claro para el menor).
+- **Sub-bloques**: **B32.0** backend, RLS y auth (**Opus, alto**); **B32.1** pantallas (**Sonnet, alto**).
+- **Dependencias**: B29, B30 y B31 (las pausas y el fichaje también deben quedar bloqueados o ajenos al menor).
+- **Modelo y effort**: grill de los «Por decidir» con **Opus, alto**; implementación según los sub-bloques. Skills:
+  `mattpocock-skills:grilling` (solo al abrir), `mattpocock-skills:tdd`, `graphify`.
+- **Criterios de aceptación**:
+  - [ ] Matriz por endpoint: con el token de un menor, todo lo bloqueado → 403 `minor_restricted` (incluido pasar el
+        `profile_id` de un hermano), y lo permitido funciona.
+  - [ ] El tutor quita el permiso de reservar → el menor no reserva ni cancela; el tutor sí.
+  - [ ] Revocar el acceso invalida la sesión abierta del menor al momento.
+  - [ ] Login por usuario y por email (14+), con rate limit; un usuario con forma de email se rechaza al crearlo.
+  - [ ] RLS: el menor no lee datos de salud, cobros, firmas, hermanos ni tutores.
+  - [ ] A los 18 reclama sin invitación y conserva su historial.
+- **Verificación**: `test:minors` ampliado con la matriz, `test:rls` con el rol menor, `test:account`, `test:password`,
+  `test:ratelimit`, `test:bookings`, Vitest; revisión manual a 375 px con tres cuentas (tutor, menor de 10, menor de 15).
+- **A validar fuera de la app**: evaluación de impacto (EIPD), texto informativo para menores, Delegado de protección
+  (LOPIVI art. 48), si el proyecto de ley de menores en entornos digitales sube la edad de consentimiento a 16. Ver
+  `docs/research/legal-fichaje-menores.md` §2.
+
+### B33 — Auditoría de rendimiento — Diseñado (antes de producción)
+
+- **Objetivo**: medir que B28–B32 no empeoran lo conseguido el 2026-11-10 y que lo nuevo responde rápido con volumen real.
+- **Alcance**:
+  - Áreas nuevas: `covers` y `book_session` con el rango de edad, la tabla de pausas en la cobertura, la exportación y el
+    listado del fichaje, las nocturnas nuevas (cumpleaños, jornada abierta, purga), el login por usuario y las lecturas del
+    menor con su RLS.
+  - Áreas existentes que tocan: Inicio y Progreso (racha con pausas), Calendario (cobertura por sesión), Inicio del admin y
+    Usuarios, webhook de Stripe.
+  - Fuera: la RLS de `attendance` y `public_profiles` como cambio de permisos (va en B34); avatares, JS por página y
+    réplicas, que esperan a datos de producción.
+- **Método**: el clon con un año de volumen y el registro `[slow]` usados el 2026-11-10; `EXPLAIN (ANALYZE, BUFFERS)` de
+  cada consulta nueva; carga en 3G simulado; tamaño del JS inicial.
+- **Criterios de aceptación**:
+  - [ ] Ningún endpoint ya medido empeora más de un 10 % (referencia: `/admin/home` 0,45 s; primera carga en 3G 2,7 s).
+  - [ ] Endpoints nuevos por debajo de 300 ms en el clon; exportar un mes de fichajes por debajo de 1 s.
+  - [ ] Cada nocturna nueva por debajo de 60 s con el volumen del clon.
+  - [ ] El JS inicial no crece más de 10 KB comprimido.
+- **Entregable**: `docs/auditoria-rendimiento-b33.md` con hallazgos ordenados y su medida antes y después; los arreglos
+  pequeños con su test en el mismo bloque, el resto como bloques nuevos.
+- **Dependencias**: B32.
+- **Modelo y effort**: medidas e informe en **Haiku, medio**; interpretar y arreglar en **Opus, medio**. Skills: `graphify`, `mattpocock-skills:diagnosing-bugs` para cada regresión,
+  `mattpocock-skills:tdd` para los arreglos.
+- **Verificación**: las medidas del informe repetibles con los comandos que cita; la batería completa en verde tras los
+  arreglos.
+
+### B34 — Auditoría de seguridad — Diseñado (antes de producción)
+
+- **Objetivo**: revisar con la máxima profundidad lo que cambió en B28–B32 y lo existente que toca, antes de abrir en
+  producción. Mismo formato que `docs/auditoria-rls-b20.md`.
+- **Alcance** (cada punto, comprobado con un test o con el motivo de por qué no aplica):
+  - **B28**: no quedan rutas, parámetros ni ramas del webhook del seguro; un `metadata.kind` desconocido se ignora sin
+    escribir; los PDFs del `waiver` ya no están en `storage/` ni en las copias.
+  - **B29**: la edad se calcula solo en la BD; quién puede cambiar una fecha de nacimiento (`birthDateGuard`, migraciones
+    `038` y `045`) y si un tutor puede saltarse el rango cambiándola.
+  - **B30**: solo el pagador o el admin pausan, anulan o vuelven; la exención es solo del admin y queda auditada; webhook
+    idempotente y sin confiar en `metadata` que no venga de Stripe; carreras entre pausa, cambio de plan y baja.
+  - **B31**: solo añadir comprobado en la BD; hora del servidor; RLS entre profesores; autorización de las correcciones;
+    inyección de fórmulas en el CSV; la purga no borra nada de menos de 4 años.
+  - **B32**: la matriz completa del menor contra la API y la RLS (IDOR por `profile_id`, funciones `SECURITY DEFINER`
+    llamadas directamente), enumeración de usuarios en el login, rate limit, revocación inmediata, el menor no cambia su
+    fecha de nacimiento ni desvincula tutores, contenido de los push sin datos sensibles.
+  - **Existente que tocan**: `requireAuth` y el login, rate limit en memoria, `audit_log`, la RLS de `attendance` y
+    `public_profiles` (pendiente desde el 2026-11-10), CSP, `npm audit`.
+- **Método**: la skill `security-review` sobre el diff desde el commit anterior a B28; revisión manual de cada política
+  RLS y de cada función `SECURITY DEFINER` nueva o cambiada; `test:rls` y `test:minors` ampliados con cada hallazgo.
+- **Entregable**: `docs/auditoria-seguridad-b34.md` (modelo de amenaza, hallazgos con severidad, arreglo y test). Lo
+  crítico y lo alto se arregla en el bloque y **bloquea producción**; lo medio y lo bajo, con decisión anotada.
+- **Dependencias**: B33.
+- **Modelo y effort**: auditoría **Opus, xhigh**; arreglos **Opus, alto**; `npm audit` e inventarios con subagentes en
+  **Haiku, bajo**. Skills: `security-review`, `graphify`,
+  `mattpocock-skills:tdd` para los arreglos.
+- **Verificación**: cada hallazgo con un test que falla antes del arreglo y pasa después; batería completa en verde.

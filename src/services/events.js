@@ -25,7 +25,6 @@ const SQL_ERRORS = {
   not_allowed: [403, 'No puedes hacer esto en este evento'],
   not_guardian: [403, 'No eres tutor de este perfil'],
   profile_incomplete: [403, 'profile incomplete'],
-  no_risk_cover: [403, 'Sin cobertura de riesgo: firma el waiver o contrata el seguro'],
   event_not_found: [404, 'Evento no encontrado'],
   registration_not_found: [404, 'Inscripción no encontrada'],
   event_cancelled: [409, 'El evento está cancelado'],
@@ -58,7 +57,7 @@ const EVENT_SELECT = `
   SELECT e.id, e.title, e.description, e.starts_at, e.ends_at, e.location,
          CASE WHEN d.id IS NOT NULL THEN jsonb_build_object('id', d.id, 'name', d.name) END AS discipline,
          CASE WHEN tn.id IS NOT NULL THEN jsonb_build_object('id', tn.id, 'display_name', tn.display_name) END AS trainer,
-         e.capacity, event_taken(e.id) AS taken, e.audience, e.requires_risk_cover, e.price_cents, e.member_price_cents,
+         e.capacity, event_taken(e.id) AS taken, e.audience, e.price_cents, e.member_price_cents,
          e.registration_deadline, e.status, reg.registration
     FROM events e
     LEFT JOIN disciplines d ON d.id = e.discipline_id
@@ -231,13 +230,12 @@ const EVENT_SPEC = {
   trainer_id: [orNull(isUuid), 'trainer_id inválido'],
   capacity: [orNull((v) => Number.isInteger(v) && v >= 1 && v <= 100_000), 'capacity entero ≥ 1 o null (sin límite)'],
   audience: [(v) => ['all', 'minors', 'adults'].includes(v), 'audience debe ser all, minors o adults'],
-  requires_risk_cover: [(v) => typeof v === 'boolean', 'requires_risk_cover debe ser booleano'],
   price_cents: [isPrice, 'price_cents: 0 (gratis) o ≥ 50'],
   member_price_cents: [orNull(isPrice), 'member_price_cents: null, 0 o ≥ 50'],
   registration_deadline: [orNull(isIso), 'registration_deadline debe ser una fecha ISO o null'],
 };
 const DEFAULTS = {
-  description: null, discipline_id: null, trainer_id: null, capacity: null, audience: 'all', requires_risk_cover: true,
+  description: null, discipline_id: null, trainer_id: null, capacity: null, audience: 'all',
   price_cents: 0, member_price_cents: null, registration_deadline: null,
 };
 const ms = (v) => (v == null ? null : new Date(v).getTime());
@@ -409,14 +407,13 @@ export async function listTrainerEvents(client, user, { from, to } = {}) {
   return rows;
 }
 
-/** GET /professor/events/:id → { event, students } con los inscritos confirmados (nombre, presente, cobertura). */
+/** GET /professor/events/:id → { event, students } con los inscritos confirmados (nombre y presente). */
 export async function getTrainerEvent(client, user, id) {
   const { rows: [event] } = await client.query(`${EVENT_SELECT} WHERE e.id = $3 AND e.trainer_id = $2`,
     [null, user.id, id]);
   if (!event) throw httpError(404, 'event_not_found', SQL_ERRORS.event_not_found[1]);
   const { rows: students } = await client.query(
-    `SELECT r.profile_id, p.display_name, r.attended,
-            visible_risk_cover(r.profile_id) AS risk_cover -- solo el sí/no (CONTEXT § Quién ve el seguro)
+    `SELECT r.profile_id, p.display_name, r.attended
        FROM event_registrations r JOIN student_names p ON p.id = r.profile_id -- solo nombre y foto (044)
       WHERE r.event_id = $1 AND r.status = 'confirmed' ORDER BY p.display_name, r.profile_id`, [id]);
   return { event, students };

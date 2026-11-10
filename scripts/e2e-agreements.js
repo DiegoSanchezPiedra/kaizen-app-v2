@@ -1,5 +1,5 @@
 // B20: E2E de los documentos legales de B4.5/B4.5.1 por HTTP, con la app entera en proceso (scripts/lib/app-server.js) y
-// una BD efímera (npm run test:e2e-agreements): el admin sube y publica los tres documentos; un alumno sin firmar
+// una BD efímera (npm run test:e2e-agreements): el admin sube y publica los dos documentos; un alumno sin firmar
 // topa con requireCompleteProfile (403 profile_incomplete); firma y ya pasa. Igual para un menor y su tutor.
 // Detrás de la guarda se llama a POST /billing/checkout con un plan gratis: 409 plan_not_purchasable, antes de Stripe.
 import assert from 'node:assert/strict';
@@ -43,11 +43,12 @@ const signAll = async (token, versions, profile_id) => {
 
 try {
   const [admin, alumno, tutor] = await Promise.all(['admin', 'alumno', 'tutor'].map(login));
+  let r0;
 
   // 1. El admin sube y publica (raw application/pdf); un alumno no sube.
   const upload = (token, type, version) => http('POST', `/admin/agreements/documents?type=${type}&version=${version}`, {
     token, type: 'application/pdf', body: Buffer.from(`%PDF-1.4 e2e ${type} ${version}`) });
-  assert.equal((await upload(alumno, 'waiver', '9.1')).status, 403);
+  assert.equal((await upload(alumno, 'data_protection', '9.1')).status, 403);
   const versions = {};
   for (const type of AGREEMENT_TYPES) {
     let r = await upload(admin, type, '9.1');
@@ -60,6 +61,10 @@ try {
     versions[type] = r.body.document.version;
     assert.equal((await http('GET', `/agreements/${type}/current`, { token: alumno })).status, 200);
   }
+
+  // B28: un campo retirado o desconocido en el checkout → 400, no se ignora.
+  r0 = await http('POST', '/billing/checkout', { token: alumno, body: { plan_id: planId, extra: true } });
+  assert.deepEqual([...status(r0), r0.body.field], [400, 'invalid_field', 'extra']);
 
   // 2. Sin firmar: la guarda bloquea con lo que falta. Con el contacto de emergencia sigue faltando lo legal.
   let r = await checkout(alumno);
@@ -74,7 +79,7 @@ try {
     token: alumno, body: { type: 'data_protection', version: '1.0' } })).status, 400);
   await signAll(alumno, versions);
   assert.equal((await http('POST', '/me/agreements', {
-    token: alumno, body: { type: 'waiver', version: versions.waiver } })).status, 409);
+    token: alumno, body: { type: 'rights_of_image', version: versions.rights_of_image } })).status, 409);
   assert.deepEqual(await missing(alumno), []);
   assert.deepEqual(status(await checkout(alumno)), [409, 'plan_not_purchasable']);
 

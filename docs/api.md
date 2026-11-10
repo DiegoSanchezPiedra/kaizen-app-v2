@@ -21,7 +21,7 @@
   numérico mal formado), `404 not_found` (ruta inexistente).
 - **Perfil completo** (`requireCompleteProfile`): reservar, contratar y el Checkout del cambio de pagador fallan con
   `403 profile_incomplete { missing: [...] }` si al sujeto (y al tutor que actúa por un hijo) le falta algo.
-  `missing` usa `display_name`, `health_info`, `emergency_contact`, `data_protection` y `rights_of_image` (el `waiver` no: cuenta en `risk_cover`). La UI lo evita mirando antes
+  `missing` usa `display_name`, `health_info`, `emergency_contact`, `data_protection` y `rights_of_image`. La UI lo evita mirando antes
   `GET /me/profile-status`.
 - **`profile_id`**: en las rutas de alumno y tutor, el hijo por el que actúa el tutor. Sin él, el sujeto es quien llama.
   El hijo **no tiene credenciales** (ADR 0002): nunca inicia sesión.
@@ -78,10 +78,10 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 | `PUT /me/avatar?profile_id` | cualquiera (tutor con `profile_id` de un hijo menor) | cuerpo crudo `image/jpeg`, `image/png` o `image/webp`, ≤ 1 MB | `{ avatar }` (B24, ADR 0019). El frontend la recorta a 512×512 JPEG. `400 invalid_image` (tipo no admitido o la firma no cuadra), `413 too_large`, `403 not_guardian`. 20 por hora. `audit_log` `profile.avatar_set` |
 | `DELETE /me/avatar?profile_id` | igual | — | `204` (también sin foto). Borra el fichero. `audit_log` `profile.avatar_remove` |
 | `GET /avatars/:name` | **sin token** | — | la imagen, con su tipo, `nosniff`, CSP `default-src 'none'` y caché de un año (el nombre cambia con la foto). `404 avatar_not_found`. La URL solo llega en respuestas que quien mira puede ver: `GET /me`, `/me/children`, `/admin/profiles` (lista y ficha), asistentes de `/sessions/:id/attendance`, alumnos de `GET /admin/sessions/:id` y el perfil público con `visible_fields.photo` |
-| `GET /me/profile-status?profile_id=` | cualquiera | — | `{ ok, missing?, risk_cover? }` (`risk_cover`: tiene seguro o waiver) |
+| `GET /me/profile-status?profile_id=` | cualquiera | — | `{ ok, missing? }` |
 | `GET /me/health?profile_id=` | cualquiera (propia o de un hijo) | — | `{ health }` (los campos de `POST /me/health` y `updated_at`) o `{ health: null }`. `403 not_guardian` |
 | `POST /me/health` | alumno, tutor | `{ profile_id?, injuries?, conditions?, previous_experience?, previous_discipline?, medication?, allergies?, emergency_contact_name?, emergency_contact_phone? }` (strings o null) | `{ health }`. `no_fields`, `invalid_field_type`, `403 not_guardian` |
-| `GET /agreements/:type/current` | cualquiera | `type`: `waiver`, `data_protection`, `rights_of_image` | el PDF (`X-Agreement-Version`). `404 no_current_document` |
+| `GET /agreements/:type/current` | cualquiera | `type`: `data_protection`, `rights_of_image` | el PDF (`X-Agreement-Version`). `404 no_current_document` |
 | `POST /me/agreements` | alumno, tutor | `{ type, version, profile_id? }` (`version` = la vigente) | `{ agreement }`. `409 agreement_already_signed`, `invalid_version`, `403 not_allowed_to_sign` |
 | `GET /me/children` | cualquiera (un alumno también puede tener hijos) | — | `{ children: [{ id, display_name, birth_date, pending_claim }] }` (`pending_claim`: cumplió 18, solo lectura) |
 | `POST /me/children` | cualquier adulto | `{ display_name, birth_date }` | `201 { child }`. `child_must_be_minor`, `invalid_birth_date` |
@@ -107,7 +107,7 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 | `POST /bookings` | alumno, tutor, admin (perfil completo) | `{ session_id, profile_id? }` | `201 { booking }` con `status` `confirmed` o `waitlisted` |
 | `POST /bookings/:id/cancel` | alumno, tutor, admin | — | `{ booking }` (también sale de la espera; `cancel_reason` `late` si es tardía) |
 
-Errores de reservas: `403 not_covered`, `403 no_risk_cover`, `409 session_not_bookable`, `409 outside_booking_window`,
+Errores de reservas: `403 not_covered`, `409 session_not_bookable`, `409 outside_booking_window`,
 `409 already_booked`, `409 booking_overlap`, `409 booking_not_active`, `409 session_started`,
 `409 booking_conflict_retry` (reintentar), `404 session_not_found|booking_not_found`, `403 not_allowed`.
 
@@ -117,7 +117,7 @@ Un evento no es una sesión: uno se **inscribe** (CONTEXT § Eventos). Lo ve cua
 terminado, aquellos en los que el sujeto estuvo inscrito y, el profesor, los que imparte (el admin, todos). Forma de un
 evento (`event`): `{ id, title, description, starts_at, ends_at, location, discipline: { id, name } | null, trainer: { id,
 display_name } | null, capacity (null = sin límite), taken (pendientes + confirmadas), audience ('all'|'minors'|'adults'),
-requires_risk_cover, price_cents (0 = gratis), member_price_cents | null, registration_deadline | null, status
+price_cents (0 = gratis), member_price_cents | null, registration_deadline | null, status
 ('scheduled'|'cancelled'), registration: { id, status ('pending'|'confirmed'|'cancelled'), amount_cents } | null }`.
 `registration` es la del sujeto (la viva o, si no, la última). La edad no sale nunca: el público se comprueba al inscribirse.
 
@@ -130,8 +130,8 @@ requires_risk_cover, price_cents (0 = gratis), member_price_cents | null, regist
 
 Importe: el precio de socio si el sujeto tiene suscripción en vigor al inscribirse y el evento lo tiene; si no, el precio.
 Lo pagado queda en la inscripción. Perfil completo del sujeto y del actor (`403 profile_incomplete { missing }`, como
-`requireCompleteProfile`) y cobertura de riesgo solo si `requires_risk_cover`.
-Errores: `403 not_guardian` (también el hijo con 18 sin reclamar), `403 profile_incomplete`, `403 no_risk_cover`,
+`requireCompleteProfile`).
+Errores: `403 not_guardian` (también el hijo con 18 sin reclamar), `403 profile_incomplete`,
 `404 event_not_found|registration_not_found`, `409 event_cancelled`, `409 registration_closed` (fecha límite o inicio),
 `409 event_full`, `409 already_registered`, `409 audience_mismatch`, `409 not_a_student` (un tutor no se inscribe a sí
 mismo), `409 paid_registration` (pagada: «pídelo a la academia»), `409 event_started`, `409 already_cancelled`.
@@ -149,19 +149,17 @@ Errores: `400 invalid_qr`, `404 no_candidates`, `409 attendance_closed`.
 | Método y ruta | Cuerpo / query | Respuesta |
 |---|---|---|
 | `GET /billing/subscription?profile_id=` | — | `{ id, status, plan: { id, name, price_cents, max_disciplines }, disciplines: [{ id, name }], current_period_end, cancel_at_period_end, scheduled_change, discipline_changes_left, payer_change }` |
-| `POST /billing/checkout` (perfil completo) | `{ plan_id, discipline_ids?, profile_id?, insurance? }` | `201 { url }` → redirigir a Stripe Checkout |
+| `POST /billing/checkout` (perfil completo) | `{ plan_id, discipline_ids?, profile_id? }` (otro campo → `400 invalid_field`) | `201 { url }` → redirigir a Stripe Checkout |
 | `POST /billing/portal` | — | `{ url }` → Portal de Stripe (método de pago, facturas, baja) |
-| `GET /billing/insurance?profile_id=` | — | `{ id, status, bracket, current_period_end, cancel_at_period_end }` |
-| `POST /billing/insurance` (perfil completo) | `{ profile_id? }` | `201 { id, status, payment_status?, client_secret? }` → `stripe.handleNextAction` si hay 3DS |
 | `POST /billing/subscriptions/:id/plan` | `{ plan_id, discipline_ids }` | subida `{ change: 'upgrade', status: 'applied'\|'requires_action', client_secret? }`; bajada `202 { change: 'downgrade', scheduled_at }` |
 | `DELETE /billing/subscriptions/:id/plan/scheduled` | — | `204` (anula la bajada programada) |
 | `POST /billing/subscriptions/:id/disciplines` | `{ from_id, to_id }` | `{ disciplines, changes_left, free }` |
 | `GET /billing/payer-changes/:id` | — | `{ id, status, student: { id, name }, plan: { id, name }, price_cents, disciplines, starts_at, deadline }` |
 | `POST /billing/payer-changes/:id/checkout` (nuevo pagador, perfil completo) | — | `{ url }` (Checkout de 0 € hoy) |
 
-Errores frecuentes: `409 subscription_exists`, `409 risk_cover_required` (sin seguro hace falta el waiver firmado),
+Errores frecuentes: `409 subscription_exists`,
 `409 plan_not_purchasable`, `409 plan_minors_only`, `409 discipline_not_eligible`, `409 discipline_change_limit`,
-`409 same_plan`, `409 upgrade_pending`, `409 period_ending_soon`, `409 insurance_disabled|insurance_exists`,
+`409 same_plan`, `409 upgrade_pending`, `409 period_ending_soon`,
 `402 payment_failed`, `403 not_payer`, `403 not_new_payer`, `404 payer_change_not_found` (también si el RLS no te deja
 verlo: no se revela que existe), `409 payer_change_expired|payer_change_paid`,
 `503 portal_not_configured`.
@@ -184,7 +182,7 @@ verlo: no se revela que existe), `409 payer_change_expired|payer_change_paid`,
 | `GET /professor/sessions/:id/health` | — | `{ students: [...] }` lesiones, condiciones, alergias, medicación y contacto de emergencia; **solo hoy** y auditado |
 | `GET /professor/reports/sessions` | como `/admin/reports/sessions` | solo sus sesiones, sin dinero ni alumnos |
 | `GET /professor/events?from&to` | días, ≤ 92 (por defecto hoy + 30) | `{ events: [event] }` los que imparte (`registration` siempre `null`) |
-| `GET /professor/events/:id` | — | `{ event, students: [{ profile_id, display_name, attended (null = sin marcar), risk_cover }] }` (inscritos confirmados). `404 event_not_found` |
+| `GET /professor/events/:id` | — | `{ event, students: [{ profile_id, display_name, attended (null = sin marcar) }] }` (inscritos confirmados). `404 event_not_found` |
 | `GET /professor/events/:id/health` | — | `{ students: [...] }` como el de sesiones, de los inscritos confirmados; **solo los días del evento** (Madrid) y auditado (`health.view`, `resource_type: 'event'`). `404 event_not_found` |
 
 **Lista de un evento (profesor del evento y admin)**: `PUT /events/:id/attendance/:profileId { present: boolean }` →
@@ -196,7 +194,7 @@ badges, ranking ni informes. `404 registration_not_found` (sin inscripción conf
 
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
-| `GET /sessions/:id/attendance` | — | `{ closed_at, students: [{ booking_id, student_id, display_name, status, method, corrected_at, correction_reason, risk_cover }] }` |
+| `GET /sessions/:id/attendance` | — | `{ closed_at, students: [{ booking_id, student_id, display_name, status, method, corrected_at, correction_reason }] }` |
 | `PUT /sessions/:id/attendance/:studentId` | `{ present: boolean }` | `{ student_id, present }` (antes del cierre) |
 | `POST /sessions/:id/attendance/close` | — | `{ present, absent }` |
 | `POST /sessions/:id/attendance/:studentId/correct` | `{ status: 'present'\|'absent', reason (≤500) }` | `{ attendance }` |
@@ -221,10 +219,10 @@ Todas exigen `role = admin` (y el admin entra con MFA si lo tiene activado). El 
 |---|---|---|
 | `GET /admin/profiles?q&role&discipline_id&plan_id&estado&limit&offset` | `q` en nombre y email, sin distinguir mayúsculas; `role` `alumno\|tutor\|profesor\|admin`; `discipline_id` (alumnos cuya suscripción viva, también la impagada, cubre la disciplina: la regla de cubrir); `plan_id` (el de la viva); `estado` `activo\|impago\|inactivo\|sin_plan` (`activo` incluye los inactivos, como el KPI) | `{ profiles: [{ id, display_name, email, role, is_minor, pending_claim, created_at, subscription_status, plan_id, plan_name, estado, last_attendance_at }], total, limit, offset }` por nombre; `email` `null` en un hijo; `subscription_status`, `plan_id` y `plan_name` los de la viva o `null`; `estado` solo de un alumno (`null` en el resto), el más fuerte: `impago` (sale en Morosos) > `inactivo` (en vigor sin asistencia en 14 días) > `activo` > `sin_plan`; `last_attendance_at` inicio de la última sesión no cancelada con presente, o `null`. `400 invalid_field` (rol, ids, estado), `invalid_pagination` |
 | `GET /admin/profiles/stats?discipline_id` | `discipline_id` como en la lista | `{ activos, impago, inactivos }`: solo alumnos (menores incluidos). `activos` con suscripción en vigor y sin impago; `impago` los alumnos distintos con algo en gracia o impagado de un pagador moroso (los de `GET /admin/billing/delinquents`; cuenta alumnos, no pagadores); `inactivos` los activos sin asistencia en 14 días. `400 invalid_field` |
-| `GET /admin/profiles/:id` | — | `{ profile: { id, display_name, email, role, created_at, is_minor, pending_claim, is_public, has_password, has_google }, status: { ok, missing?, risk_cover } \| null (solo de un alumno), guardians: [{ id, display_name, email }], children: [{ id, display_name, pending_claim }], subscription: { …como GET /billing/subscription, payer: { id, display_name } } \| null, insurance: { …como GET /billing/insurance, payer } \| null }`. `404 profile_not_found` |
-| `PUT /admin/profiles/:id/role` | `{ role, mfa_code? }` (`alumno`, `tutor`, `profesor` o `admin`; para `admin`, el código del doble factor de quien lo da) | `{ profile }` (como en la ficha). Vale en la siguiente petición del afectado. `audit_log` `profile.role_change` `{ from, to }`. `400 invalid_field`; `403 mfa_required` (dar `admin` sin el doble factor activado), `mfa_login_required` (la sesión no entró con el doble factor), `invalid_mfa_code`; `429 rate_limited` (10 intentos de dar `admin` cada 15 min por IP); `404 profile_not_found`; `409 same_role`, `admin_role_locked` (el perfil es admin: no se quita desde la app), `child_role_locked` (sin acceso propio), `trainer_has_sessions` (profesor habitual de una clase no retirada o de una sesión futura no cancelada), `student_has_subscription` (alumno con suscripción o seguro vivos que pasaría a tutor o profesor) |
+| `GET /admin/profiles/:id` | — | `{ profile: { id, display_name, email, role, created_at, is_minor, pending_claim, is_public, has_password, has_google }, status: { ok, missing? } \| null (solo de un alumno), guardians: [{ id, display_name, email }], children: [{ id, display_name, pending_claim }], subscription: { …como GET /billing/subscription, payer: { id, display_name } } \| null }`. `404 profile_not_found` |
+| `PUT /admin/profiles/:id/role` | `{ role, mfa_code? }` (`alumno`, `tutor`, `profesor` o `admin`; para `admin`, el código del doble factor de quien lo da) | `{ profile }` (como en la ficha). Vale en la siguiente petición del afectado. `audit_log` `profile.role_change` `{ from, to }`. `400 invalid_field`; `403 mfa_required` (dar `admin` sin el doble factor activado), `mfa_login_required` (la sesión no entró con el doble factor), `invalid_mfa_code`; `429 rate_limited` (10 intentos de dar `admin` cada 15 min por IP); `404 profile_not_found`; `409 same_role`, `admin_role_locked` (el perfil es admin: no se quita desde la app), `child_role_locked` (sin acceso propio), `trainer_has_sessions` (profesor habitual de una clase no retirada o de una sesión futura no cancelada), `student_has_subscription` (alumno con suscripción viva que pasaría a tutor o profesor) |
 | `POST /admin/profiles/:id/guardians` | `{ tutor_id }` | `201 { guardians }`. `audit_log` `guardian.add`. `400 invalid_field`; `404 profile_not_found`; `409 not_a_child` (`:id` tiene acceso propio), `invalid_guardian` (el tutor no existe, no tiene acceso propio o es menor), `already_guardian` |
-| `DELETE /admin/profiles/:id/guardians/:tutorId` | — | `204`. `audit_log` `guardian.remove`. `404 profile_not_found` (también si no es su tutor); `409 not_a_child`, `last_guardian`, `guardian_is_payer` (paga su suscripción o su seguro vivos: antes, cambio de pagador) |
+| `DELETE /admin/profiles/:id/guardians/:tutorId` | — | `204`. `audit_log` `guardian.remove`. `404 profile_not_found` (también si no es su tutor); `409 not_a_child`, `last_guardian`, `guardian_is_payer` (paga su suscripción viva: antes, cambio de pagador) |
 
 **Catálogo**
 
@@ -266,9 +264,9 @@ piden a Stripe tras confirmar la base (siempre del importe entero) y el email al
 | Método y ruta | Cuerpo / query | Respuesta |
 |---|---|---|
 | `GET /admin/events?from&to&status&limit&offset` | días de Madrid sobre `starts_at`; `status` `scheduled\|cancelled` | `{ events: [event + cancel_note, created_at, updated_at], total, limit, offset }` por inicio, cancelados incluidos |
-| `POST /admin/events` | `{ title (1–120), starts_at (futuro), ends_at, location (1–200), description? (≤2000), discipline_id?, trainer_id? (profesor), capacity? (≥1 o null), audience?, requires_risk_cover? (true), price_cents? (0 o ≥50), member_price_cents? (null, 0 o ≥50, ≤ precio), registration_deadline? (≤ inicio) }` | `201 { event }` (se publica al crearlo; sin aviso) |
+| `POST /admin/events` | `{ title (1–120), starts_at (futuro), ends_at, location (1–200), description? (≤2000), discipline_id?, trainer_id? (profesor), capacity? (≥1 o null), audience?, price_cents? (0 o ≥50), member_price_cents? (null, 0 o ≥50, ≤ precio), registration_deadline? (≤ inicio) }` | `201 { event }` (se publica al crearlo; sin aviso) |
 | `GET /admin/events/:id` | — | `{ event, registrations: [{ id, student: { id, display_name }, status, amount_cents, guest, payer: { id, display_name } \| null, refund_status (null\|requested\|refunded\|failed), refunded_cents, attended, cancel_reason (student\|admin\|event_cancelled\|checkout_expired), created_at }] }` por orden de llegada |
-| `PATCH /admin/events/:id` | los campos de `POST`, solo lo que cambia | `{ event, notified }`. Cambiar inicio, fin o lugar avisa a los inscritos vivos (`notice.event_changed`); precio, público y cobertura no tocan a quien ya está dentro. `409 capacity_below_registrations { taken }`, `409 event_cancelled` |
+| `PATCH /admin/events/:id` | los campos de `POST`, solo lo que cambia | `{ event, notified }`. Cambiar inicio, fin o lugar avisa a los inscritos vivos (`notice.event_changed`); precio y público no tocan a quien ya está dentro. `409 capacity_below_registrations { taken }`, `409 event_cancelled` |
 | `POST /admin/events/:id/cancel` | `{ note? }` (≤500, solo la ve el admin) | `{ refunded, refund_failed, notified }`: cancela todas las inscripciones, devuelve todo lo pagado, caduca los Checkouts abiertos y avisa a los inscritos. `409 event_cancelled` |
 | `POST /admin/events/:id/registrations` | `{ profile_id }` | `201 { registration }` invitado (`guest`, importe 0): sin cierre de inscripciones, con requisitos y aforo |
 | `POST /admin/event-registrations/:id/cancel` | `{ refund: boolean }` | `{ registration: { …, cancel_reason, refund_status, refunded_cents } }`. Con `refund`, devuelve el importe entero (si estaba pagada) y avisa (`notice.event_registration_cancelled`). Sobre una ya cancelada y pagada, `refund: true` con `refund_status` `null` o `failed` reintenta el reembolso; si no, `409 already_cancelled` |
@@ -285,7 +283,6 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 | `GET /admin/billing/delinquents?limit&offset` | — | `{ payers: [{ payer_id, display_name, items, invoices }], total, limit, offset }` (con algo `unpaid`) |
 | `GET /admin/billing/grace?limit&offset` | — | igual, solo `past_due` |
 | `POST /admin/subscriptions/:id/cancel-now` \| `cancel-at-period-end` | — | `{ subscription }` |
-| `POST /admin/insurances/:id/cancel-now` \| `cancel-at-period-end` | — | `{ id, stripe_status, ends_at, risk_cover }` |
 | `POST /admin/subscriptions/:id/plan` | `{ plan_id, discipline_ids }` | como el del alumno; `409 requires_payer_action` si pide 3DS |
 | `DELETE /admin/subscriptions/:id/plan/scheduled` | — | `204` |
 | `POST /admin/subscriptions/:id/disciplines` | `{ from_id, to_id }` | `{ disciplines, changes_left, free }` |
@@ -298,9 +295,8 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 
 | Método y ruta | Cuerpo |
 |---|---|
-| `GET /admin/settings` | — → `{ checkin: { opens_minutes, closes_minutes, qr_seconds }, insurance: { enabled, price_adult_cents, price_minor_cents }, discipline_changes: { per_period } }`: lo mismo que devuelve cada `PUT` en `settings` |
+| `GET /admin/settings` | — → `{ checkin: { opens_minutes, closes_minutes, qr_seconds }, discipline_changes: { per_period } }`: lo mismo que devuelve cada `PUT` en `settings` |
 | `PUT /admin/settings/checkin` | `{ opens_minutes?, closes_minutes?, qr_seconds? }` |
-| `PUT /admin/settings/insurance` | `{ price_adult_cents?, price_minor_cents?, enabled? }` |
 | `PUT /admin/settings/discipline-changes` | `{ per_period }` |
 
 **Auditoría, avisos de la academia y entregas fallidas** (B19.1). Todas paginadas (`limit` 1–100, 25 por defecto; `offset`) y del más nuevo al más viejo; `from` y `to` son días de Madrid, ambos incluidos. `400 invalid_pagination`, `invalid_field`.

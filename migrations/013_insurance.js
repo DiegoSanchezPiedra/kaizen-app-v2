@@ -16,7 +16,7 @@ const LIVE = `('active', 'past_due', 'unpaid')`;
 const PUBLIC_FNS = ['profile_missing(uuid)', 'has_risk_cover(uuid)'];
 
 // Reservar (009) + cobertura de riesgo. risk = false recrea la versión de 009 en el down.
-const bookSessionSql = (risk) => `
+export const bookSessionSql = (risk) => `
   CREATE OR REPLACE FUNCTION book_session(p_session uuid, p_student uuid) RETURNS bookings
     LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
     DECLARE

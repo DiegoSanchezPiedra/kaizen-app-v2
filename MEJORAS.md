@@ -134,7 +134,7 @@ Una sola sesión inicial (antes de cerrar B4.5) debería fijar el vocabulario tr
 - **Por resolver antes de activarla**: el primer cobro es asíncrono (días), así que haría falta un estado "pendiente de confirmación" (¿se puede reservar mientras tanto?); y las devoluciones de adeudo hasta 8 semanas después convierten un recibo pagado en impagado (otro camino a moroso).
 
 ### 3.2 Revisión legal con la gestoría — **Impacto: Alto (decisión, no código)**
-- **`waiver` como alternativa al seguro** (ADR 0005): un `waiver` no exime de la negligencia propia ni sustituye a un seguro que exijan la póliza de RC o la federación.
+- ~~**`waiver` como alternativa al seguro** (ADR 0005)~~ — retirados los dos en B28 (ADR 0023); queda la póliza de RC propia de la academia (`docs/research/legal-fichaje-menores.md` §3). Nota original: un `waiver` no exime de la negligencia propia ni sustituye a un seguro que exijan la póliza de RC o la federación.
 - **Baja solo por el admin**: la normativa de consumo tiende a exigir que darse de baja sea tan fácil como darse de alta (online). Si aplica, hay que abrir la baja a final de periodo al pagador (portal de Stripe o desde la app). B11 la dejó solo para el admin (decidido 2026-10-30). Otro motivo para abrirla: quien no encuentra cómo darse de baja acaba disputando el cargo, y cada disputa cuesta 20 € en Stripe aunque se gane.
 - **Factura legal (VeriFactu)**: los recibos de Stripe no son facturas. Elegir un servicio externo homologado; requisito: la factura se descarga desde la app.
 
@@ -173,8 +173,8 @@ Una sola sesión inicial (antes de cerrar B4.5) debería fijar el vocabulario tr
 ### 6.3 Plan que pasa de 0 € a precio — **Impacto: Bajo**
 - Pendiente de B10. La sincronización crea otro Product en Stripe en vez de reutilizar el del plan.
 
-### 6.4 Reactivar el seguro — **Impacto: Bajo (bug conocido)**
-- Pendiente de B10.3. Reactivar el seguro no deshace los `cancel_at_period_end` que puso la desactivación: los seguros vivos siguen sin renovarse.
+### 6.4 ~~Reactivar el seguro~~ — **[ELIMINADO]**
+- Retirado por B28 (2026-11-10): ya no hay seguro que reactivar.
 
 ### 6.5 `checkEligible` y las disciplinas abiertas — **Impacto: Bajo (bug conocido)**
 - Pendiente de B14. Una disciplina abierta en `plan_disciplines` se ignora para cubrir, pero `checkEligible` (B5) la sigue contando entre las elegibles de un plan.

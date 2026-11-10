@@ -35,7 +35,6 @@ const D = {};
 const P = {};
 const subs = [];
 const sessions = [];
-let insurance;
 const realError = console.error;
 
 const app = express().use(express.json()).use('/admin', adminProfilesRouter, adminBillingRouter, adminPanelRouter).use(errorHandler);
@@ -82,16 +81,13 @@ await sub('act', 'act', P.one, 'active', D.X);
 await sub('idle', 'idle', P.one, 'active', D.X);
 await sub('all', 'all', P.all, 'active');
 await sub('grace', 'grace', P.one, 'past_due', D.X); // en gracia: no es moroso
-await sub('ins', 'ins', P.one, 'active', D.X); // moroso por su seguro impagado
+await sub('ins', 'ins', P.one, 'unpaid', D.X); // moroso por su propia suscripción impagada
 await sub('other', 'other', P.one, 'active', D.Y);
 await sub('gone', 'gone', P.one, 'cancelled', D.X);
 await sub('kid', 'tutor', P.one, 'past_due', D.X); // el tutor es moroso por kid2: kid también sale en Morosos
 await sub('kid2', 'tutor', P.one, 'unpaid', D.X);
 await sub('tutor', 'tutor', P.one, 'active', D.X); // tutores y profesores no cuentan
 await sub('prof', 'prof', P.one, 'active', D.X);
-insurance = crypto.randomUUID();
-await q(`INSERT INTO insurances (id, student_id, payer_id, status, bracket, stripe_subscription_id)
-         VALUES ($1, $2, $2, 'unpaid', 'adult', $3)`, [insurance, U.ins, `sub_test_${insurance}`]);
 
 const attend = async (student, ago, status = 'scheduled', att = 'present') => {
   const { rows: [s] } = await q(
@@ -213,7 +209,6 @@ const names = (r) => r.body.profiles.map((p) => p.display_name.slice(tag.length 
   await q(`DELETE FROM attendance WHERE session_id = ANY($1::uuid[])`, [sessions]);
   await q(`DELETE FROM bookings WHERE session_id = ANY($1::uuid[])`, [sessions]);
   await q(`DELETE FROM class_sessions WHERE id = ANY($1::uuid[])`, [sessions]);
-  await q(`DELETE FROM insurances WHERE id = $1`, [insurance]);
   await q(`DELETE FROM subscription_disciplines WHERE subscription_id = ANY($1::uuid[])`, [subs]);
   await q(`DELETE FROM subscriptions WHERE id = ANY($1::uuid[])`, [subs]);
   await q(`DELETE FROM plans WHERE id = ANY($1::bigint[])`, [Object.values(P)]);

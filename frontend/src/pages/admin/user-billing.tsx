@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { ShieldIcon, WalletIcon } from 'lucide-react'
+import { WalletIcon } from 'lucide-react'
 import type React from 'react'
 import { useState } from 'react'
 import { Link } from 'react-router'
@@ -30,7 +30,6 @@ import { refreshBookings, useDisciplines, usePlans } from '@/lib/queries'
 import { Filter } from '@/pages/community'
 
 type Sub = NonNullable<ProfileFile['subscription']>
-type Ins = NonNullable<ProfileFile['insurance']>
 
 const SUB_BADGE: Record<string, [string, 'success' | 'warning' | 'error']> = {
   active: ['Activa', 'success'],
@@ -383,77 +382,9 @@ function Subscription({ file, refresh }: { file: ProfileFile; refresh: () => voi
   )
 }
 
-const BRACKET: Record<string, string> = { adult: 'Adulto', minor: 'Menor' }
-const NO_COVER = 'Si no ha firmado la exención, no podrá reservar hasta firmarla o contratar otro seguro.'
-
-export async function cancelInsurance(id: string, now: boolean) {
-  const r = await api<{ risk_cover: boolean }>(`/admin/insurances/${id}/${now ? 'cancel-now' : 'cancel-at-period-end'}`, { method: 'POST' })
-  if (!r.risk_cover) toastManager.add({ type: 'warning', title: 'Se queda sin cobertura de riesgo', description: NO_COVER, timeout: 8000 })
-}
-
-function InsuranceSection({ i, refresh }: { i: Ins; refresh: () => void }) {
-  const { ask, dialog } = useConfirm(refresh)
-  const end = i.current_period_end ? formatShortDate(i.current_period_end) : null
-  // Sin cobertura de riesgo tras la baja: no puede reservar (lo dice la respuesta).
-  const cancel = (now: boolean) => () => cancelInsurance(i.id, now)
-  return (
-    <Section
-      title="Seguro"
-      actions={
-        <>
-          {!i.cancel_at_period_end && (
-            <Button
-              variant="outline"
-              onClick={() =>
-                ask({
-                  title: 'Baja del seguro a fin de año',
-                  description: `Sigue en vigor hasta ${end ? `el ${end}` : 'fin de año'} y no se renueva. Sin reembolso; se avisa a quien lo paga. ${NO_COVER}`,
-                  label: 'Dar de baja',
-                  done: 'Baja del seguro programada',
-                  destructive: true,
-                  run: cancel(false),
-                })
-              }
-            >
-              Baja a fin de año
-            </Button>
-          )}
-          <Button
-            variant="destructive-outline"
-            onClick={() =>
-              ask({
-                title: 'Baja inmediata del seguro',
-                description: `Termina ya y anula sus recibos pendientes. Sin reembolso; se avisa a quien lo paga. ${NO_COVER}`,
-                label: 'Dar de baja ya',
-                done: 'Seguro dado de baja',
-                destructive: true,
-                run: cancel(true),
-              })
-            }
-          >
-            Baja inmediata
-          </Button>
-        </>
-      }
-    >
-      <Kv
-        rows={[
-          ['Tramo', BRACKET[i.bracket ?? ''] ?? '—'],
-          ['Estado', <SubBadge status={i.status} />],
-          ['Fin del año', end ?? '—'],
-          ['Renovación', i.cancel_at_period_end ? 'No se renueva' : 'Se renueva'],
-          ['Pagador', <PersonLink p={i.payer} />],
-        ]}
-      />
-      {dialog}
-    </Section>
-  )
-}
-
-// docs/pantallas-b19.md § Usuarios › Cuota y seguro. El admin no contrata por el alumno: lo hace el pagador.
+// docs/pantallas-b19.md § Usuarios › Cuota. El admin no contrata por el alumno: lo hace el pagador.
 export function BillingTab({ file, refresh }: { file: ProfileFile; refresh: () => void }) {
   const s = file.subscription && isLive(file.subscription.status) ? file.subscription : null
-  const i = file.insurance && isLive(file.insurance.status) ? file.insurance : null
   return (
     <div className="flex flex-col gap-4">
       {s ? (
@@ -461,7 +392,6 @@ export function BillingTab({ file, refresh }: { file: ProfileFile; refresh: () =
       ) : (
         <EmptyState icon={<WalletIcon />} title="No tiene cuota" text="La contrata quien la paga, desde su cuenta." />
       )}
-      {i ? <InsuranceSection i={i} refresh={refresh} /> : <EmptyState icon={<ShieldIcon />} title="No tiene seguro" />}
     </div>
   )
 }

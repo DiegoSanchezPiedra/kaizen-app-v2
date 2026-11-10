@@ -66,7 +66,6 @@ for (const [name, , medal_theme] of CATALOG.filter(([name]) => !byName[name].med
 for (const [name, cents, max, minors] of [['Una disciplina', 3500, 1, false], ['Dos disciplinas', 5000, 2, false], ['Ilimitado', 7000, null, false], ['Infantil', 3000, 1, true]]) {
   must(await call('/admin/plans', { method: 'POST', token: admin, body: { name, price_cents: cents, max_disciplines: max, minors_only: minors } }), `plan ${name}`, ['name_taken']);
 }
-must(await call('/admin/settings/insurance', { method: 'PUT', token: admin, body: { price_adult_cents: 3000, price_minor_cents: 2000, enabled: true } }), 'seguro');
 
 // Clases (por disciplina: si ya tiene, no se repiten). Dos a la semana; ningún profesor se solapa.
 const trainers = (await call('/admin/profiles?role=profesor&limit=100', { token: admin })).data.profiles;
@@ -88,7 +87,7 @@ for (const [disc, trainer, weekday, time, cap] of [
 
 // Documentos legales: PDFs mínimos de prueba, versión 1.0 de cada tipo, publicados.
 const pdf = (text) => Buffer.from(`%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 150]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n% ${text}\n`);
-for (const type of ['waiver', 'data_protection', 'rights_of_image']) {
+for (const type of ['data_protection', 'rights_of_image']) {
   must(await call(`/admin/agreements/documents?type=${type}&version=1.0`, { method: 'POST', token: admin, raw: pdf(`${type} 1.0 · documento de prueba de staging`) }), `subir ${type}`, ['duplicate_document', 'version_exists_different_content']);
 }
 for (const d of (await call('/admin/agreements/documents', { token: admin })).data.documents.filter((d) => d.status === 'created')) {
