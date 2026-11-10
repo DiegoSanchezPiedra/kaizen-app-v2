@@ -61,7 +61,8 @@
     "staging:nightly": "DOTENV_CONFIG_PATH=.env.staging dotenv -e .env.staging -- node scripts/nightly.js",
     "test:ratelimit": "node scripts/test-ratelimit.js",
     "test:e2e-mfa": "dotenv -e .env -- node scripts/with-temp-db.js scripts/e2e-mfa.js",
-    "test:e2e-agreements": "dotenv -e .env -- node scripts/with-temp-db.js scripts/e2e-agreements.js"
+    "test:e2e-agreements": "dotenv -e .env -- node scripts/with-temp-db.js scripts/e2e-agreements.js",
+    "test:e2e-b11": "dotenv -e .env -- node scripts/with-temp-db.js scripts/e2e-b11.js"
   },
   "keywords": [],
   "author": "",
