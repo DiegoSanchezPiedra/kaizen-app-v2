@@ -3,6 +3,20 @@
 Scripts de operación (backups, cron nocturno, mantenimiento).
 No van aquí las migraciones: esas viven en `migrations/`.
 
+## Tests con BD efímera y app en proceso (B20)
+
+Modelo: `scripts/e2e-mfa.js` (`npm run test:e2e-mfa`).
+
+- **BD efímera**: en `package.json`, `"test:x": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-x.js"`. Crea
+  `kaizen_test_<pid>` con todas las migraciones, pone las tres `DATABASE_URL*` apuntando a ella y la borra al acabar
+  (también si falla). Necesita `POSTGRES_USER`/`POSTGRES_PASSWORD` (superusuario) en `.env`. La base está vacía: el
+  test crea sus datos con `servicePool` y no hace falta limpiar.
+- **App en proceso**: `const { http, close } = await startApp()` (`scripts/lib/app-server.js`) monta `src/app.js` en un
+  puerto libre; `http(method, url, { token, body })` devuelve `{ status, body }`. Al final, `await close()` y
+  `await closePools()`. Nunca `pkill`: el servidor es del propio proceso.
+- Salida: `OK   …` / `FAIL …` y `process.exitCode = 1` si algo falla; el errorHandler escribe cada 4xx en `console.error`.
+- `npm run test` lo recoge solo si el script se llama `test:*`.
+
 ## Tareas nocturnas (`npm run nightly`, B16, ADR 0012)
 
 `scripts/nightly.js` lanza, cada una aunque otra falle:
