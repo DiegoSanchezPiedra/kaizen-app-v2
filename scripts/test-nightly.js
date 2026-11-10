@@ -152,7 +152,7 @@ try {
     assert.deepEqual([await soon(k31), await soon(k0)], [[], []]);
     const msg = await compose(c, { audit_id: w.id, recipient_id: k30.tutor, channel: 'push', action: 'notice.out_of_age_soon',
       resource_type: 'profile', resource_id: k30.id, changes: w.changes });
-    assert.match(msg.body, new RegExp(`${tag}.*${tag}-kids`));
+    assert.match(msg.body, new RegExp(`^En menos de un mes, ${tag}.*${tag}-kids`));
     assert.match(msg.url, /\/billing$/);
     const done = [['cancelled', 'out_of_age', 1], ['cancelled', 'out_of_age', 1], ['confirmed', null, 0]];
     assert.deepEqual(await states(), done); // la pasada no se toca
@@ -163,6 +163,20 @@ try {
     await sweep(); // idempotente
     assert.equal((await soon(k30)).length, 1);
     assert.deepEqual(await states(), done);
+
+    // El admin baja la máxima por debajo de la edad de k31 (12): sus reservas futuras caen en la siguiente pasada.
+    const [{ id: x }] = (await c.query(
+      `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status)
+       VALUES ($1, $2, now() + interval '4 days', now() + interval '4 days 1 hour', 60, 5, 'scheduled') RETURNING id`,
+      [R, trainer])).rows;
+    const [{ id: b31 }] = (await c.query(`INSERT INTO bookings (session_id, student_id, booked_by, status)
+                                          VALUES ($1, $2, $3, 'confirmed') RETURNING id`, [x, k31.id, k31.tutor])).rows;
+    await sweep();
+    assert.equal((await c.query(`SELECT status FROM bookings WHERE id = $1`, [b31])).rows[0].status, 'confirmed');
+    await c.query(`UPDATE disciplines SET max_age = 11 WHERE id = $1`, [R]);
+    await sweep();
+    const { rows: [k31b] } = await c.query(`SELECT status, cancel_reason FROM bookings WHERE id = $1`, [b31]);
+    assert.deepEqual([k31b.status, k31b.cancel_reason], ['cancelled', 'out_of_age']);
   }));
 
   await run('p_date distinta de ayer u hoy → invalid_date', async () => {

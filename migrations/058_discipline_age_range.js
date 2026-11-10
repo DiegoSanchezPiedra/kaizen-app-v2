@@ -61,6 +61,10 @@ const PATCHES = [
   ['change_discipline(uuid, bigint, bigint, uuid)', 'OR (adult AND d.minors_only)',
     `OR NOT in_age_range(${BIRTH}, NULL, d.max_age, now())`],
   ['change_discipline(uuid, bigint, bigint, uuid)', 'o solo menores para un adulto', 'o fuera de su edad máxima'],
+  // adult queda sin uso: fuera su declaración y su SELECT.
+  ['change_discipline(uuid, bigint, bigint, uuid)',
+    `SELECT ${ADULT} INTO adult FROM profiles p WHERE p.id = s.student_id;\n        -- Destino:`, '-- Destino:'],
+  ['change_discipline(uuid, bigint, bigint, uuid)', 'adult boolean;\n        free boolean;', 'free boolean;'],
 ];
 const patch = ([fn, from, to]) => `
   DO $do$
@@ -87,7 +91,10 @@ export const up = (pgm) => {
       ADD COLUMN min_age smallint, ADD COLUMN max_age smallint,
       ADD CONSTRAINT disciplines_age_range
         CHECK (min_age BETWEEN 0 AND 99 AND max_age BETWEEN 0 AND 99 AND min_age <= max_age);
+    -- migrator es el dueño pero la RLS es FORCE: sin quitarla, el UPDATE no ve ninguna fila.
+    ALTER TABLE disciplines NO FORCE ROW LEVEL SECURITY;
     UPDATE disciplines SET max_age = 17 WHERE minors_only;
+    ALTER TABLE disciplines FORCE ROW LEVEL SECURITY;
     ALTER TABLE disciplines DROP COLUMN minors_only;
 
     -- Si quien nació p_birth cumple el rango (inclusive, años cumplidos) el día de Madrid de p_at. Sin fecha: 18.
@@ -134,6 +141,7 @@ export const up = (pgm) => {
         END LOOP;
         -- Desde el cumpleaños que supera la máxima: sus reservas y esperas futuras de esa disciplina, con aviso.
         -- shortcut: no promociona la espera de las plazas liberadas (como revoke_coverage y change_discipline).
+        -- Aceptado: si antes las cancela revoke_coverage, el motivo es no_coverage; una suscripción unpaid no recibe aviso.
         FOR id_ IN UPDATE bookings b SET status = 'cancelled', cancel_reason = 'out_of_age', cancelled_at = now()
                      FROM class_sessions x, disciplines d, profiles p
                     WHERE x.id = b.session_id AND d.id = x.discipline_id AND p.id = b.student_id
@@ -159,7 +167,9 @@ export const down = (pgm) => {
   pgm.sql(`
     DROP FUNCTION ${SWEEP};
     ALTER TABLE disciplines ADD COLUMN minors_only boolean NOT NULL DEFAULT false;
+    ALTER TABLE disciplines NO FORCE ROW LEVEL SECURITY;
     UPDATE disciplines SET minors_only = true WHERE max_age <= 17;
+    ALTER TABLE disciplines FORCE ROW LEVEL SECURITY;
   `);
   [...PATCHES].reverse().forEach(([fn, from, to]) => pgm.sql(patch([fn, to, from])));
   pgm.sql(coversSql(true));

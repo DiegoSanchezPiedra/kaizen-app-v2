@@ -83,6 +83,27 @@ await servicePool.query( // una cancelada no cuenta como reserva
   `INSERT INTO bookings (session_id, student_id, booked_by, status, cancel_reason, cancelled_at)
    VALUES ($1, $2, $2, 'cancelled', 'student', now())`, [S.a, U.aluNone]);
 
+// B29: kids 5–12; kid4 cumple 5 y kid12 cumple 13 dentro de 3 días. Sesiones a las 12:00 de Madrid de day(2) y day(4).
+const K = (await servicePool.query(`INSERT INTO disciplines (name, min_age, max_age) VALUES ($1, 5, 12) RETURNING id`,
+  [`${tag}-K`])).rows[0].id;
+const kids = {};
+for (const [k, years] of [['kid4', 5], ['kid12', 13]]) {
+  kids[k] = crypto.randomUUID();
+  ids.push(kids[k]);
+  await servicePool.query(`INSERT INTO profiles (id, display_name, birth_date) VALUES ($1, $2, ($3::date - $4 * interval '1 year')::date)`,
+    [kids[k], `${tag}-${k}`, day(3), years]);
+  sub[k] = crypto.randomUUID();
+  await servicePool.query(`INSERT INTO subscriptions (id, student_id, payer_id, plan_id, status, stripe_subscription_id)
+                           VALUES ($1, $2, $2, $3, 'active', $4)`, [sub[k], kids[k], planAll, `sub_test_${sub[k]}`]);
+}
+const SK = {};
+for (const n of [2, 4]) {
+  SK[n] = (await servicePool.query(
+    `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status)
+     VALUES ($1, $2, $3::timestamp AT TIME ZONE 'Europe/Madrid', $3::timestamp AT TIME ZONE 'Europe/Madrid' + interval '1 hour',
+             60, 10, 'scheduled') RETURNING id`, [K, U.prof1, `${day(n)} 12:00`])).rows[0].id;
+}
+
 const RANGE = { from: day(-5), to: day(10) };
 const mine = (rows) => Object.fromEntries(rows.filter((r) => Object.values(S).includes(r.id))
   .map((r) => [Object.keys(S).find((k) => S[k] === r.id), r]));
@@ -158,6 +179,15 @@ try {
     assert.equal(p.b.covered, false);
     assert.deepEqual(p.a.booking, { id: bA, status: 'confirmed' });
   });
+  await run('rango de edad: covered mira la edad el día de cada sesión (mínima y máxima)', async () => {
+    const covered = async (k) => {
+      const rows = await withRls({ uid: U.admin, role: 'admin' }, (c) =>
+        listCalendar(c, { id: U.admin, role: 'admin' }, { ...RANGE, profile_id: kids[k] }), { commit: false });
+      return [2, 4].map((n) => rows.find((r) => r.id === SK[n]).covered);
+    };
+    assert.deepEqual(await covered('kid4'), [false, true]); // aún 4; ya 5
+    assert.deepEqual(await covered('kid12'), [true, false]); // aún 12; ya 13
+  });
   await run('disciplina retirada: el alumno no ve su sesión pasada; el admin sí (aceptado)', async () => {
     assert.ok(!('retired' in await cal('aluNone')));
     assert.ok('retired' in await cal('admin'));
@@ -232,12 +262,12 @@ try {
   console.error = realError;
   server.close();
   await servicePool.query(`DELETE FROM bookings WHERE session_id = ANY($1::uuid[])`, [Object.values(S)]);
-  await servicePool.query(`DELETE FROM class_sessions WHERE id = ANY($1::uuid[])`, [Object.values(S)]);
+  await servicePool.query(`DELETE FROM class_sessions WHERE id = ANY($1::uuid[])`, [[...Object.values(S), ...Object.values(SK)]]);
   await servicePool.query(`DELETE FROM classes WHERE id = $1`, [classB]);
   await servicePool.query(`DELETE FROM subscription_disciplines WHERE subscription_id = ANY($1::uuid[])`, [Object.values(sub)]);
   await servicePool.query(`DELETE FROM subscriptions WHERE id = ANY($1::uuid[])`, [Object.values(sub)]);
   await servicePool.query(`DELETE FROM plans WHERE id = ANY($1::bigint[])`, [[planN, planAll]]);
-  await servicePool.query(`DELETE FROM disciplines WHERE id = ANY($1::bigint[])`, [Object.values(D)]);
+  await servicePool.query(`DELETE FROM disciplines WHERE id = ANY($1::bigint[])`, [[...Object.values(D), K]]);
   await servicePool.query(`DELETE FROM profiles WHERE id = ANY($1::uuid[])`, [ids]);
   await closePools();
 }
