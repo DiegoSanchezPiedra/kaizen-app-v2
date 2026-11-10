@@ -44,7 +44,7 @@ const fixtures = (c) => {
       return id;
     },
     async discipline(name, { open = false, minors = false, active = true } = {}) {
-      return (await c.query(`INSERT INTO disciplines (name, is_open, minors_only, is_active) VALUES ($1, $2, $3, $4) RETURNING id`,
+      return (await c.query(`INSERT INTO disciplines (name, is_open, max_age, is_active) VALUES ($1, $2, CASE WHEN $3::boolean THEN 17 END, $4) RETURNING id`,
         [`${tag}-${name}`, open, minors, active])).rows[0].id;
     },
     async session(disc, at, min = 60) {

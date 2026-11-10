@@ -35,10 +35,10 @@ for (const [k, [role, birth]] of Object.entries(people)) {
 await servicePool.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2), ($1, $3), ($1, $4)`,
   [U.tutor, U.child1, U.child2, U.child18]);
 
-// A y B normales, M solo menores, R retirada.
+// A y B normales, M solo menores (máxima 17), R retirada.
 const D = {};
 for (const [k, minors, active] of [['A', false, true], ['B', false, true], ['M', true, true], ['R', false, true]]) {
-  D[k] = (await servicePool.query(`INSERT INTO disciplines (name, minors_only, is_active) VALUES ($1, $2, $3) RETURNING id`,
+  D[k] = (await servicePool.query(`INSERT INTO disciplines (name, max_age, is_active) VALUES ($1, CASE WHEN $2::boolean THEN 17 END, $3) RETURNING id`,
     [`${tag}-${k}`, minors, active])).rows[0].id;
 }
 const planN = (await servicePool.query(

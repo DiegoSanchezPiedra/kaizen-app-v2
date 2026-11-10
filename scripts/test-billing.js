@@ -27,6 +27,7 @@ const people = {
   admin: 'admin', prof: 'profesor', alu: 'alumno', other: 'alumno', tutor: 'tutor', child: 'alumno', child2: 'alumno',
   pc: 'alumno', child3: 'alumno', tutor2: 'tutor', // B10.5
   child4: 'alumno', tutor3: 'tutor', tutor4: 'tutor', // B11: child4 lo paga tutor3; tutor4, también vinculado, lo pedirá
+  kid4: 'alumno', kid13: 'alumno', // B29: hijos de tutor con 4 y 13 años cumplidos hoy
 };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 for (const [k, role] of Object.entries(people)) {
@@ -36,6 +37,11 @@ for (const [k, role] of Object.entries(people)) {
 }
 await servicePool.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2), ($1, $3), ($1, $4), ($5, $4), ($6, $7), ($8, $7)`,
   [U.tutor, U.child, U.child2, U.child3, U.tutor2, U.tutor3, U.child4, U.tutor4]);
+const yearsAgo = `((now() AT TIME ZONE 'Europe/Madrid')::date - $2 * interval '1 year')::date`;
+for (const [k, years] of [['kid4', 4], ['kid13', 13]]) {
+  await servicePool.query(`UPDATE profiles SET birth_date = ${yearsAgo} WHERE id = $1`, [U[k], years]);
+  await servicePool.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [U.tutor, U[k]]);
+}
 
 const disc = (await servicePool.query(
   `INSERT INTO disciplines (name) VALUES ('T-Bill-A') RETURNING id`)).rows[0].id;
@@ -64,11 +70,12 @@ let synced, stripeSub, syncedSub;
 const pcSessions = [];
 let discD;
 
-// Checkout: K solo menores; B no elegible en el plan de 1.
-const mkDisc = async (name, minors) => (await servicePool.query(
-  `INSERT INTO disciplines (name, minors_only) VALUES ($1, $2) RETURNING id`, [name, minors])).rows[0].id;
-const discK = await mkDisc('T-Bill-K', true);
-const discB = await mkDisc('T-Bill-B', false);
+// Checkout: K la que era solo menores (máxima 17); R kids 5–12; B no elegible en el plan de 1.
+const mkDisc = async (name, min, max) => (await servicePool.query(
+  `INSERT INTO disciplines (name, min_age, max_age) VALUES ($1, $2, $3) RETURNING id`, [name, min, max])).rows[0].id;
+const discK = await mkDisc('T-Bill-K', null, 17);
+const discB = await mkDisc('T-Bill-B', null, null);
+const discR = await mkDisc('T-Bill-R', 5, 12);
 const mkPlan = (body) => withRls({ uid: U.admin, role: 'admin' }, (c) =>
   createPlan(c, { name: `T-Bill-${body.tag}-${Date.now()}`, max_disciplines: null, price_cents: 1500, ...body, tag: undefined }));
 const co = [
@@ -76,8 +83,8 @@ const co = [
   await mkPlan({ tag: 'free', price_cents: 0 }), await mkPlan({ tag: 'retired', is_active: false }),
 ];
 const [coOne, coKids, coFree, coRetired] = co;
-await servicePool.query(`INSERT INTO plan_disciplines (plan_id, discipline_id) VALUES ($1, $2), ($1, $3)`,
-  [coOne.id, disc, discK]);
+await servicePool.query(`INSERT INTO plan_disciplines (plan_id, discipline_id) VALUES ($1, $2), ($1, $3), ($1, $4)`,
+  [coOne.id, disc, discK, discR]);
 const customerOf = async (id) =>
   (await servicePool.query(`SELECT stripe_customer_id FROM profiles WHERE id = $1`, [id])).rows[0].stripe_customer_id;
 const covers = async () => (await servicePool.query(`SELECT covers($1, $2) c`, [U.alu, disc])).rows[0].c;
@@ -170,6 +177,13 @@ try {
     const { data: [s] } = await stripe.checkout.sessions.list({ customer: cus, limit: 1 });
     assert.deepEqual([s.mode, s.client_reference_id, s.metadata],
       ['subscription', U.other, { student_id: U.other, payer_id: U.other, plan_id: coOne.id, discipline_ids: String(disc) }]);
+  });
+  await run('checkout: rango de edad con la edad de hoy y solo la máxima (un niño de 4 contrata kids 5–12; uno de 13 no)', async () => {
+    await withRls({ uid: U.tutor, role: 'tutor' }, async (c) => {
+      const order = (k) => createCheckout(c, { payerId: U.tutor, studentId: U[k], planId: coOne.id, disciplineIds: [discR] });
+      await sp(c, () => assert.rejects(order('kid13'), (e) => e.status === 409 && e.code === 'discipline_not_eligible'));
+      assert.match((await order('kid4')).url, /^https:\/\/checkout\.stripe\.com\//);
+    }, { commit: false });
   });
   await run('checkout: tutor paga el plan solo menores del hijo; el cliente es del tutor', async () => {
     await withRls({ uid: U.tutor, role: 'tutor' }, (c) =>
@@ -294,7 +308,7 @@ try {
 
   // B10.5: validaciones del cambio de plan (fallan antes de Stripe) y cambio de disciplina.
   // Los flujos con Stripe (subida, bajada, Schedule) están en test:webhook.
-  discD = await mkDisc('T-Bill-D', false);
+  discD = await mkDisc('T-Bill-D', null, null);
   const pc = {
     one: await mkPlan({ tag: 'pc-one', max_disciplines: 1, price_cents: 2000 }),
     two: await mkPlan({ tag: 'pc-two', max_disciplines: 2, price_cents: 3000 }),
@@ -370,6 +384,17 @@ try {
       assert.deepEqual(await disc$('admin', 'pc', discB, discD), { disciplines: [discD], changes_left: 0, free: true });
     } finally {
       await servicePool.query(`UPDATE disciplines SET is_active = true WHERE id = $1`, [discB]);
+    }
+  });
+
+  await run('cambio de disciplina gratis: la abandonada ya no es de su edad (superó la máxima); el destino, solo por la máxima', async () => {
+    await servicePool.query(`UPDATE subscription_disciplines SET discipline_id = $2 WHERE subscription_id = $1`, [sub.pc, discR]);
+    await servicePool.query(`UPDATE profiles SET birth_date = ${yearsAgo} WHERE id = $1`, [U.pc, 13]);
+    try {
+      assert.deepEqual(await disc$('admin', 'pc', discR, discD), { disciplines: [discD], changes_left: 0, free: true });
+      await fails(disc$('admin', 'pc', discD, discR), 409, 'discipline_not_eligible'); // 13 > 12
+    } finally {
+      await servicePool.query(`UPDATE profiles SET birth_date = NULL WHERE id = $1`, [U.pc]);
     }
   });
 
@@ -554,7 +579,7 @@ try {
   await servicePool.query(`DELETE FROM plans WHERE id = $1`, [plan]);
   for (const p of co) await servicePool.query(`DELETE FROM plan_disciplines WHERE plan_id = $1`, [p.id]);
   await servicePool.query(`DELETE FROM plans WHERE id = ANY($1::bigint[])`, [co.map((p) => p.id)]);
-  await servicePool.query(`DELETE FROM disciplines WHERE id = ANY($1::bigint[])`, [[disc, discK, discB, discD].filter(Boolean)]);
+  await servicePool.query(`DELETE FROM disciplines WHERE id = ANY($1::bigint[])`, [[disc, discK, discB, discR, discD].filter(Boolean)]);
   await servicePool.query(`DELETE FROM guardianships WHERE tutor_id = ANY($1::uuid[])`, [[U.tutor, U.tutor2, U.tutor3, U.tutor4]]);
   await servicePool.query(`DELETE FROM profiles WHERE id = ANY($1::uuid[])`, [Object.values(U)]);
   await closePools();

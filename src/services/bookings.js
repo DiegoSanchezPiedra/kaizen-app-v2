@@ -11,6 +11,7 @@ const SQL_ERRORS = {
   session_not_bookable: [409, 'La sesión está cancelada o ya ha empezado'],
   outside_booking_window: [409, 'La sesión aún no está dentro de la ventana de reserva'],
   not_covered: [403, 'La suscripción no cubre esta sesión'],
+  age_out_of_range: [403, 'No tiene la edad de esta disciplina el día de la sesión'],
   already_booked: [409, 'Ya tiene reserva o está en espera en esta sesión'],
   booking_overlap: [409, 'Tiene otra reserva que se solapa con esta sesión'],
   booking_not_found: [404, 'Reserva no encontrada'],
@@ -24,7 +25,7 @@ async function callFn(client, sql, params) {
     return row;
   } catch (err) {
     const known = (err.code === 'P0001' || err.code === '42501') && SQL_ERRORS[err.message];
-    if (known) throw httpError(known[0], err.message, known[1]);
+    if (known) throw httpError(known[0], err.message, known[1], err.detail ? JSON.parse(err.detail) : undefined);
     // Promociones cruzadas entre sesiones pueden bloquearse mutuamente; Postgres aborta una: que reintente.
     if (err.code === '40P01') throw httpError(409, 'booking_conflict_retry', 'Operación concurrente, vuelve a intentarlo');
     throw err;

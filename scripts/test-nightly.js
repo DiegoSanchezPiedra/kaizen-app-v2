@@ -11,6 +11,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { servicePool, closePools } from '../src/config/database.js';
 import { withRls } from '../src/db/rls.js';
+import { compose } from '../src/services/notices.js';
 
 let failed = 0;
 async function run(name, fn) {
@@ -110,6 +111,60 @@ try {
     assert.deepEqual(await photo(yesterday), first);
   }));
 
+  // B29: kids 5–12. k30 cumple 13 dentro de 30 días, k31 dentro de 31 y k0 hoy (todos de Madrid).
+  await run('fuera de edad: aviso al tutor a 30 días, una vez; el día del cumpleaños cancela reservas y esperas futuras con aviso', () => sp(async () => {
+    const [{ id: R }] = (await c.query(`INSERT INTO disciplines (name, min_age, max_age) VALUES ($1, 5, 12) RETURNING id`,
+      [`${tag}-kids`])).rows;
+    const p = await plan(1000);
+    const kid = async (birthdayIn) => {
+      const [id, tutor] = [await person(), await person()];
+      await c.query(`UPDATE profiles SET birth_date = ($2::date - interval '13 years')::date WHERE id = $1`, [id, day(birthdayIn)]);
+      await c.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [tutor, id]);
+      await c.query(`INSERT INTO subscriptions (student_id, payer_id, plan_id, status, stripe_subscription_id)
+                     VALUES ($1, $2, $3, 'active', $4)`, [id, tutor, p, `sub_${tag}_${crypto.randomUUID()}`]);
+      return { id, tutor };
+    };
+    const [k30, k31, k0] = [await kid(30), await kid(31), await kid(0)];
+    const trainer = await person();
+    const bookings = [];
+    for (const [offset, status] of [['2 days', 'confirmed'], ['3 days', 'waitlisted'], ['-2 days', 'confirmed']]) {
+      const { rows: [x] } = await c.query(
+        `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status)
+         VALUES ($1, $2, now() + $3::interval, now() + $3::interval + interval '1 hour', 60, 5, 'scheduled') RETURNING id`,
+        [R, trainer, offset]);
+      bookings.push((await c.query(`INSERT INTO bookings (session_id, student_id, booked_by, status)
+                                    VALUES ($1, $2, $3, $4) RETURNING id`, [x.id, k0.id, k0.tutor, status])).rows[0].id);
+    }
+    const sweep = async () => (await c.query(`SELECT * FROM age_out_sweep()`)).rows[0];
+    const soon = (k) => c.query(`SELECT id, changes FROM audit_log WHERE action = 'notice.out_of_age_soon' AND resource_id = $1`,
+      [k.id]).then((r) => r.rows);
+    const states = () => c.query(`SELECT b.status, b.cancel_reason, (SELECT count(*)::int FROM audit_log a
+                                     WHERE a.action = 'notice.out_of_age' AND a.resource_id = b.id::text) AS notices
+                                    FROM bookings b WHERE b.id = ANY($1::uuid[]) ORDER BY array_position($1::uuid[], b.id)`,
+    [bookings]).then((r) => r.rows.map((b) => [b.status, b.cancel_reason, b.notices]));
+
+    const first = await sweep();
+    assert.ok(first.warned >= 1 && first.cancelled >= 2, JSON.stringify(first));
+    const [w] = await soon(k30);
+    assert.deepEqual([w.changes.discipline_id, w.changes.max_age, w.changes.recipients], [Number(R), 12, [k30.tutor]]);
+    const { rows: d } = await c.query(`SELECT recipient_id FROM notice_deliveries WHERE audit_id = $1`, [w.id]);
+    assert.deepEqual(d.map((x) => x.recipient_id), [k30.tutor]);
+    assert.deepEqual([await soon(k31), await soon(k0)], [[], []]);
+    const msg = await compose(c, { audit_id: w.id, recipient_id: k30.tutor, channel: 'push', action: 'notice.out_of_age_soon',
+      resource_type: 'profile', resource_id: k30.id, changes: w.changes });
+    assert.match(msg.body, new RegExp(`${tag}.*${tag}-kids`));
+    assert.match(msg.url, /\/billing$/);
+    const done = [['cancelled', 'out_of_age', 1], ['cancelled', 'out_of_age', 1], ['confirmed', null, 0]];
+    assert.deepEqual(await states(), done); // la pasada no se toca
+    const { rows: [n] } = await c.query(`SELECT changes FROM audit_log WHERE action = 'notice.out_of_age' AND resource_id = $1`,
+      [bookings[0]]);
+    assert.deepEqual(n.changes.recipients, [k0.tutor]);
+
+    await sweep(); // idempotente
+    assert.equal((await soon(k30)).length, 1);
+    assert.deepEqual(await states(), done);
+  }));
+
   await run('p_date distinta de ayer u hoy → invalid_date', async () => {
     for (const d of [day(-2), day(1), null]) {
       await sp(() => assert.rejects(snapshot(d), /invalid_date/, String(d)));
@@ -148,6 +203,7 @@ try {
     const r1 = await nightly(D);
     assert.equal(r1.code, 1, r1.stderr);
     assert.match(r1.stdout, new RegExp(`foto ${D}: creada`));
+    assert.match(r1.stdout, /fuera de edad: \d+ avisos, \d+ reservas canceladas/);
     assert.match(r1.stderr, new RegExp(k.id));
     assert.equal((await q(`SELECT 1 FROM academy_stats_daily WHERE date = $1`, [D])).length, 1);
     const r2 = await nightly(D);

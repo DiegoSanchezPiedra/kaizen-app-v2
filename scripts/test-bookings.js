@@ -26,6 +26,7 @@ const people = {
   admin: 'admin', prof1: 'profesor', prof2: 'profesor', prof3: 'profesor',
   alu1: 'alumno', alu2: 'alumno', alu3: 'alumno', alu4: 'alumno',
   tutor1: 'tutor', tutor2: 'tutor', tutorX: 'tutor', child: 'alumno',
+  kid5: 'alumno', kid13: 'alumno', // B29: cumplen 5 y 13 dentro de 3 días (de Madrid)
 };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 const ids = Object.values(U);
@@ -34,8 +35,14 @@ for (const [k, role] of Object.entries(people)) {
     [U[k], `${k}-bk`, k === 'child' ? '2016-05-05' : null]);
   await servicePool.query(`INSERT INTO user_roles (user_id, role) VALUES ($1, $2)`, [U[k], role]);
 }
-await servicePool.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1,$3),($2,$3)`,
-  [U.tutor1, U.tutor2, U.child]);
+await servicePool.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1,$3),($2,$3),($1,$4),($1,$5)`,
+  [U.tutor1, U.tutor2, U.child, U.kid5, U.kid13]);
+const TZ = 'Europe/Madrid';
+const day = (n) => new Date(Date.now() + n * 864e5).toLocaleDateString('sv-SE', { timeZone: TZ });
+for (const [k, years] of [['kid5', 5], ['kid13', 13]]) {
+  await servicePool.query(`UPDATE profiles SET birth_date = ($2::date - $3 * interval '1 year')::date WHERE id = $1`,
+    [U[k], day(3), years]);
+}
 
 // Acuerdos vigentes: los existentes o unos de prueba (se borran al final).
 const testDocs = [];
@@ -52,29 +59,30 @@ const sign = (student, type, by = student) => servicePool.query(
   `INSERT INTO user_agreements (id, profile_id, signed_by, type, version)
    SELECT gen_random_uuid(), $1, $2, $3, version FROM agreement_documents
     WHERE type = $3 AND published_at IS NOT NULL AND retired_at IS NULL`, [U[student], U[by], type]);
-// Perfil completo solo para alu1–3 (los de la promoción).
-for (const k of ['alu1', 'alu2', 'alu3']) {
-  for (const type of ['data_protection', 'rights_of_image']) await sign(k, type);
+// Perfil completo solo para alu1–3 y kid5 (los de la promoción).
+for (const k of ['alu1', 'alu2', 'alu3', 'kid5']) { // kid5: firma su tutor (lo promociona la espera de R)
+  for (const type of ['data_protection', 'rights_of_image']) await sign(k, type, k === 'kid5' ? 'tutor1' : k);
   await servicePool.query(`INSERT INTO student_health_info (profile_id, emergency_contact_name, emergency_contact_phone)
                            VALUES ($1, 'x', '600000000')`, [U[k]]);
 }
 
 const disc = {};
-for (const [k, minors] of [['A', false], ['B', false], ['K', true]]) {
-  disc[k] = (await servicePool.query(
-    `INSERT INTO disciplines (name, minors_only) VALUES ($1, $2) RETURNING id`, [`T-Book-${k}`, minors])).rows[0].id;
+// K: la que era solo menores (máxima 17); R: kids 5–12 (B29).
+for (const [k, min, max] of [['A', null, null], ['B', null, null], ['K', null, 17], ['R', 5, 12]]) {
+  disc[k] = (await servicePool.query(`INSERT INTO disciplines (name, min_age, max_age) VALUES ($1, $2, $3) RETURNING id`,
+    [`T-Book-${k}`, min, max])).rows[0].id;
 }
 const planAll = (await servicePool.query(
   `INSERT INTO plans (name, price_cents) VALUES ('T-Book-all', 1000) RETURNING id`)).rows[0].id;
 const planOne = (await servicePool.query(
   `INSERT INTO plans (name, price_cents, max_disciplines) VALUES ('T-Book-one', 500, 1) RETURNING id`)).rows[0].id;
 const sub = {};
-for (const k of ['alu1', 'alu2', 'alu3', 'child', 'alu4']) {
+for (const k of ['alu1', 'alu2', 'alu3', 'child', 'alu4', 'kid5', 'kid13']) {
   sub[k] = crypto.randomUUID();
   await servicePool.query(
     `INSERT INTO subscriptions (id, student_id, payer_id, plan_id, status, stripe_subscription_id)
      VALUES ($1, $2, $3, $4, 'active', $5)`,
-    [sub[k], U[k], k === 'child' ? U.tutor1 : U[k], k === 'alu4' ? planOne : planAll, `sub_test_${sub[k]}`]);
+    [sub[k], U[k], ['child', 'kid5', 'kid13'].includes(k) ? U.tutor1 : U[k], k === 'alu4' ? planOne : planAll, `sub_test_${sub[k]}`]);
 }
 await servicePool.query(`INSERT INTO subscription_disciplines VALUES ($1, $2)`, [sub.alu4, disc.B]);
 
@@ -100,6 +108,18 @@ const S = {
   raceA: await session('raceA', 'prof1', '7 days'),
   raceB: await session('raceB', 'prof2', '7 days 15 min'),
 };
+
+// Sesiones de R a una hora de Madrid: la víspera del cumpleaños a las 23:30 y el día a las 00:30 y a las 10:00.
+const at = (key, ts, capacity = 5) => servicePool.query(
+  `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status)
+   VALUES ($1, $2, $3::timestamp AT TIME ZONE '${TZ}', $3::timestamp AT TIME ZONE '${TZ}' + interval '60 min', 60, $4,
+           'scheduled') RETURNING id`, [disc.R, U.prof3, ts, capacity]).then((r) => { S[key] = r.rows[0].id; });
+await at('rEve', `${day(2)} 23:30`);
+await at('rDay', `${day(3)} 00:30`);
+await at('rWait', `${day(3)} 10:00`, 1);
+// kid13 entró en espera antes de que la sesión quedara fuera de su rango (p. ej., el admin bajó la máxima).
+await servicePool.query(`INSERT INTO bookings (session_id, student_id, booked_by, status, created_at)
+                         VALUES ($1, $2, $3, 'waitlisted', now() - interval '1 hour')`, [S.rWait, U.kid13, U.tutor1]);
 
 const book = (c, session, student) => bookSession(c, { sessionId: S[session], studentId: U[student] });
 // Lee con contexto admin (la RLS oculta al alumno las reservas ajenas) y restaura el contexto anterior.
@@ -221,7 +241,7 @@ try {
       await rejects(c, () => book(c, 'overlap', 'alu4'), 403, 'not_covered'); // disciplina A no elegida
       assert.equal((await book(c, 'discB', 'alu4')).status, 'confirmed');
       await as(c, U.alu1, 'alumno');
-      await rejects(c, () => book(c, 'kids', 'alu1'), 403, 'not_covered'); // adulto, disciplina solo menores
+      await rejects(c, () => book(c, 'kids', 'alu1'), 403, 'age_out_of_range'); // adulto, la que era solo menores
     });
     await run('tutor reserva por su hijo; otro tutor cancela; ajenos y profesor no', async () => {
       await as(c, U.tutor1, 'tutor');
@@ -291,6 +311,48 @@ try {
       const { rows: [n] } = await c.query(
         `SELECT changes FROM audit_log WHERE action = 'notice.session_cancelled' AND resource_id = $1`, [b.id]);
       assert.deepEqual(n.changes.recipients.sort(), [U.tutor1, U.tutor2].sort());
+    });
+    await run('rango de edad en hora de Madrid: 5–12 desde el día que cumple 5 hasta la víspera de cumplir 13', async () => {
+      const out = (session, student) => sp(c, () => assert.rejects(book(c, session, student),
+        (e) => e.status === 403 && e.code === 'age_out_of_range' && e.details.min_age === 5 && e.details.max_age === 12));
+      await as(c, U.tutor1, 'tutor');
+      await out('rEve', 'kid5'); // aún tiene 4: contrató, pero no reserva antes de su 5.º cumpleaños
+      assert.equal((await book(c, 'rDay', 'kid5')).status, 'confirmed');
+      assert.equal((await book(c, 'rEve', 'kid13')).status, 'confirmed');
+      await out('rDay', 'kid13'); // el día que cumple 13
+      await as(c, U.alu1, 'alumno');
+      await out('rDay', 'alu1'); // adulto (sin fecha de nacimiento)
+    });
+    await run('espera: la promoción salta a quien estará fuera de rango el día de la sesión', async () => {
+      await as(c, U.tutor1, 'tutor');
+      const b = await book(c, 'rWait', 'child');
+      assert.equal(b.status, 'confirmed');
+      const w = await book(c, 'rWait', 'kid5'); // llena: en espera detrás de kid13
+      assert.equal(w.status, 'waitlisted');
+      await cancelBooking(c, b.id);
+      assert.equal((await statusOf(c, w.id)).status, 'confirmed');
+      const { rows: [k13] } = await servicePool.query(
+        `SELECT status FROM bookings WHERE session_id = $1 AND student_id = $2`, [S.rWait, U.kid13]);
+      assert.equal(k13.status, 'waitlisted'); // sigue en la lista
+    });
+    await run('in_age_range: años cumplidos el día de Madrid (cumpleaños, medianoche, cambios de hora, 29-F, sin fecha)', async () => {
+      const fits = async (birth, min, max, ts) => (await c.query(
+        `SELECT in_age_range($1::date, $2::smallint, $3::smallint, $4::timestamptz) AS r`, [birth, min, max, ts])).rows[0].r;
+      // Cumple 13 el 29-03-2026 (adelanto de hora): a las 23:30 de la víspera tiene 12; a las 00:30 (aún 28 en UTC), 13.
+      assert.equal(await fits('2013-03-29', 5, 12, '2026-03-28 23:30+01'), true);
+      assert.equal(await fits('2013-03-29', 5, 12, '2026-03-28 23:30Z'), false);
+      assert.equal(await fits('2013-03-29', 5, 12, '2026-03-29 01:30Z'), false);
+      // Cumple 5 el 25-10-2026 (retraso de hora): a las 00:30 de Madrid (22:30 UTC del 24) ya tiene 5.
+      assert.equal(await fits('2021-10-25', 5, 12, '2026-10-24 21:30Z'), false);
+      assert.equal(await fits('2021-10-25', 5, 12, '2026-10-24 22:30Z'), true);
+      // 29-F: cumple el 1-3 en año no bisiesto.
+      assert.equal(await fits('2012-02-29', null, 12, '2025-02-28 12:00Z'), true);
+      assert.equal(await fits('2012-02-29', null, 12, '2025-03-01 12:00Z'), false);
+      // Sin fecha de nacimiento: adulto.
+      assert.equal(await fits(null, 5, 12, '2026-01-01Z'), false);
+      assert.equal(await fits(null, null, 17, '2026-01-01Z'), false);
+      assert.equal(await fits(null, 16, null, '2026-01-01Z'), true);
+      assert.equal(await fits(null, null, null, '2026-01-01Z'), true);
     });
   }, { commit: false });
 
