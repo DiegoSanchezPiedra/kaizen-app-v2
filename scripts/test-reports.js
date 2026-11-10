@@ -148,6 +148,27 @@ try {
     assert.equal(month.trained, 4);
     assert.ok(month.rows.every((r) => !('mrr_cents' in r)));
   }));
+  await run('alumnos que entrenaron: medianoche de Madrid (no UTC), cambios de hora y un alumno en dos meses', () => sp(async () => {
+    const X = await F.discipline('X');
+    const [a, b, d, e, g, h] = await F.students(6);
+    const at = async (ts, student, att = 'present') => F.book(await F.session(X, local(ts)), student, 'confirmed', att);
+    await at('2020-03-28 23:59', a); // 22:59 UTC
+    await at('2020-03-29 00:00', b); // 23:00 UTC del 28; 29: cambio de hora de marzo
+    await at('2020-03-29 23:30', d); // 21:30 UTC (ya en verano)
+    await at('2020-03-29 12:00', h, 'absent');
+    await at('2020-03-31 23:30', a);
+    await at('2020-04-01 00:00', a); // 22:00 UTC del 31 de marzo: abril en Madrid
+    await at('2020-04-01 10:00', d);
+    await at('2020-10-24 23:59', e); // 21:59 UTC; 25: cambio de hora de octubre
+    await at('2020-10-25 00:30', g); // 22:30 UTC del 24
+    // Por día, solo el total del rango: las filas por día cortan hoy en la medianoche UTC (generate_series da timestamptz).
+    const total = async (from, to = from) => (await getSubscriptionStats(c, { group: 'day', from, to })).trained;
+    assert.deepEqual([await total('2020-03-28'), await total('2020-03-29'), await total('2020-03-28', '2020-04-01')], [1, 2, 3]);
+    assert.deepEqual([await total('2020-10-24'), await total('2020-10-25'), await total('2020-10-24', '2020-10-25')], [1, 1, 2]);
+    const month = await getSubscriptionStats(c, { group: 'month', from: '2020-03', to: '2020-04' });
+    assert.deepEqual(month.rows.map((r) => [r.month, r.trained]), [['2020-03', 3], ['2020-04', 2]]); // h, ausente: no
+    assert.equal(month.trained, 3); // a y d, en los dos meses: una vez
+  }));
 
   // ---------- Sesiones ----------
   await run('sesiones: cuenta la celebrada; no la cancelada, la retroactiva, la en curso ni la futura; la suelta sí, en class_id null', () => sp(async () => {
