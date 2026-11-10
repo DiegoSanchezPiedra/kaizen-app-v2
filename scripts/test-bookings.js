@@ -157,19 +157,31 @@ try {
       assert.deepEqual(await statusOf(c, w2.id).then((r) => [r.status, r.cancel_reason]), ['cancelled', 'no_coverage']);
       await servicePool.query(`UPDATE subscriptions SET status = 'active' WHERE id = $1`, [sub.alu2]);
     });
-    await run('promoción salta (sigue en la lista) a quien no tiene el perfil completo', async () => {
-      // `full` (aforo 1) vacía: alu1 reserva, alu3 (sin ficha) espera; alu1 cancela.
+    await run('promoción salta (sigue en la lista) a quien no tiene el perfil completo; recuperado, por orden de llegada', async () => {
+      // `full` (aforo 1) vacía: alu1 reserva, alu2 y alu3 (sin contacto de emergencia) esperan; alu1 cancela.
+      const phone = (v) => servicePool.query(
+        `UPDATE student_health_info SET emergency_contact_phone = $2 WHERE profile_id = ANY($1::uuid[])`, [[U.alu2, U.alu3], v]);
       await as(c, U.alu1, 'alumno');
       const r1 = await book(c, 'full', 'alu1');
+      await as(c, U.alu2, 'alumno');
+      const q2 = await book(c, 'full', 'alu2');
       await as(c, U.alu3, 'alumno');
       const q3 = await book(c, 'full', 'alu3');
-      await servicePool.query(`UPDATE student_health_info SET emergency_contact_phone = NULL WHERE profile_id = $1`, [U.alu3]);
+      await phone(null);
       await as(c, U.alu1, 'alumno');
       await cancelBooking(c, r1.id);
-      assert.deepEqual(await statusOf(c, q3.id).then((r) => [r.status, r.cancel_reason]), ['waitlisted', null]);
-      await servicePool.query(`UPDATE student_health_info SET emergency_contact_phone = '600000000' WHERE profile_id = $1`, [U.alu3]);
-      await as(c, U.alu3, 'alumno');
-      await cancelBooking(c, q3.id);
+      for (const q of [q2, q3]) assert.deepEqual(await statusOf(c, q.id).then((r) => [r.status, r.cancel_reason]), ['waitlisted', null]);
+      // Recuperados, la siguiente plaza que se libere los promociona por orden de llegada.
+      await phone('600000000');
+      const r2 = await book(c, 'full', 'alu1');
+      await cancelBooking(c, r2.id);
+      // En una transacción created_at es el mismo (now()): el orden de llegada lo desempata el id, como en promote_waitlist.
+      const [first, second] = [q2, q3].sort((x, y) => (x.id < y.id ? -1 : 1));
+      assert.deepEqual([(await statusOf(c, first.id)).status, (await statusOf(c, second.id)).status], ['confirmed', 'waitlisted']);
+      for (const [k, q] of [['alu3', q3], ['alu2', q2]]) {
+        await as(c, U[k], 'alumno');
+        await cancelBooking(c, q.id);
+      }
     });
     await run('se puede volver a reservar tras cancelar', async () => {
       await as(c, U.alu1, 'alumno');
@@ -247,7 +259,9 @@ try {
       const req = { body: {}, user: { id: U.alu1, role: 'alumno' } };
       await requireCompleteProfile(req, c);
       await as(c, U.alu1, 'alumno');
-      assert.equal((await book(c, 'discB', 'alu1')).status, 'confirmed');
+      const b = await book(c, 'discB', 'alu1');
+      assert.equal(b.status, 'confirmed');
+      await cancelBooking(c, b.id);
     });
     await run('B28: un hijo con perfil completo firmado por su tutor reserva sin firmar nada más', async () => {
       for (const type of ['data_protection', 'rights_of_image']) await sign('child', type, 'tutor1');

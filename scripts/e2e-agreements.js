@@ -63,8 +63,8 @@ try {
   }
 
   // B28: un campo retirado o desconocido en el checkout → 400, no se ignora.
-  r0 = await http('POST', '/billing/checkout', { token: alumno, body: { plan_id: planId, insurance: true } });
-  assert.deepEqual([...status(r0), r0.body.field], [400, 'invalid_field', 'insurance']);
+  r0 = await http('POST', '/billing/checkout', { token: alumno, body: { plan_id: planId, extra: true } });
+  assert.deepEqual([...status(r0), r0.body.field], [400, 'invalid_field', 'extra']);
 
   // 2. Sin firmar: la guarda bloquea con lo que falta. Con el contacto de emergencia sigue faltando lo legal.
   let r = await checkout(alumno);
