@@ -324,9 +324,7 @@ function Billing({ subject, profileId }: Props) {
                 {lock && <Lock>{lock}</Lock>}
               </section>
             </div>
-            <div className="flex flex-col gap-4">
-              <Payments />
-            </div>
+            <Payments />
           </div>
         )
       }}

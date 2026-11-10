@@ -68,7 +68,7 @@ async function discipline(name, active = true) {
 const disc = await discipline('BJJ');
 const [plan] = await q(`INSERT INTO plans (name, price_cents) VALUES ($1, 1000) RETURNING id`, [`${tag}-all`]);
 
-// Alumno con perfil completo, cobertura de riesgo y suscripción en vigor (book_session y la promoción lo comprueban).
+// Alumno con perfil completo y suscripción en vigor (book_session y la promoción lo comprueban).
 async function student({ name, birth = null, tutors = [], pub = false } = {}) {
   const id = await person('alumno', { name, birth, pub });
   for (const t of tutors) await q(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [t, id]);

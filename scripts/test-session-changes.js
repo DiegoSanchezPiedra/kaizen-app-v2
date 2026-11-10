@@ -60,7 +60,7 @@ for (const type of ['data_protection', 'rights_of_image']) {
 const [disc] = await q(`INSERT INTO disciplines (name) VALUES ($1) RETURNING id, name`, [`${tag}-BJJ`]);
 const [plan] = await q(`INSERT INTO plans (name, price_cents) VALUES ($1, 1000) RETURNING id`, [`${tag}-all`]);
 
-// Alumno con perfil completo y cobertura de riesgo (la promoción lo re-comprueba); `cover`: suscripción en vigor.
+// Alumno con perfil completo (la promoción lo re-comprueba); `cover`: suscripción en vigor.
 async function student({ name, cover = true, birth = null, tutors = [] } = {}) {
   const id = await person('alumno', { name, birth });
   for (const t of tutors) await q(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [t, id]);

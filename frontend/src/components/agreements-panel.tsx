@@ -15,7 +15,7 @@ import { toastError, toastOk, errorCode } from '@/lib/notify'
 import { AGREEMENT_TITLE, type AgreementType } from '@/lib/profile'
 import type { ProfileStatus } from '@/lib/types'
 
-export function Agreement({ type, signed, profileId }: { type: AgreementType; signed: boolean; profileId?: string }) {
+function Agreement({ type, signed, profileId }: { type: AgreementType; signed: boolean; profileId?: string }) {
   const [read, setRead] = useState(false)
   const doc = useQuery({
     queryKey: ['agreement-doc', type],
