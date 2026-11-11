@@ -73,6 +73,8 @@ export const router = createBrowserRouter([
     element: <RequireSession />,
     errorElement: <AppCrash />,
     children: [
+      // La hoja de jornada del admin: fuera del panel (sin menú), como la del profesor.
+      { path: '/admin/clock/print', lazy: async () => ({ Component: (await import('@/pages/clock-print')).AdminClockPrintPage }) },
       // El panel va en trozos aparte que el alumno no baja (el Service Worker los precachea con el esqueleto).
       {
         path: '/admin',
@@ -112,6 +114,8 @@ export const router = createBrowserRouter([
       { path: '/checkin', lazy: async () => ({ Component: (await import('@/pages/checkin')).CheckinPage }) },
       // Mi registro (B31): lleva el formulario de correcciones, así que se baja solo aquí.
       { path: '/clock', lazy: async () => ({ Component: (await import('@/pages/clock')).ClockPage }) },
+      // La hoja imprimible va dentro de la sesión (la del profesor, con el menú de la app: el menú se oculta al imprimir).
+      { path: '/clock/print', lazy: async () => ({ Component: (await import('@/pages/clock-print')).ClockPrintPage }) },
       { path: '/professor', element: <ProfessorSessionsPage /> },
       { path: '/professor/sessions/:id', element: <ProfessorSessionPage /> },
       { path: '/professor/events/:id', element: <ProfessorEventPage /> },

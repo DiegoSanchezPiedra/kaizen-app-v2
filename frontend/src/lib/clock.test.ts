@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { actionsFor, formatDuration, madridToIso, originalOf, stateLine, sinceOf, type ClockMonth } from '@/lib/clock'
+import { actionsFor, formatDuration, madridToIso, originalOf, pausesOf, stateLine, sinceOf, type ClockEvent, type ClockMonth } from '@/lib/clock'
 
 describe('registro de jornada (B31.1)', () => {
   it('los botones que permite la secuencia', () => {
@@ -40,5 +40,18 @@ describe('registro de jornada (B31.1)', () => {
     expect(originalOf(m, { id: '1', kind: 'in', at: 'new', origin: 'app', corrected: true })?.at).toBe('orig')
     expect(originalOf(m, { id: '1', kind: 'in', at: 'x', origin: 'app', corrected: false })).toBeUndefined()
     expect(originalOf(m, { id: '2', kind: 'in', at: 'x', origin: 'correction', corrected: true })).toBeUndefined()
+  })
+})
+
+describe('pausas del día (impresión)', () => {
+  const ev = (id: string, kind: ClockEvent['kind']): ClockEvent => ({ id, kind, at: '2026-11-03T10:00:00Z', origin: 'app' })
+
+  it('empareja inicio y fin; la pausa abierta no tiene fin', () => {
+    const p = pausesOf([ev('a', 'in'), ev('b', 'pause_start'), ev('c', 'pause_end'), ev('d', 'pause_start'), ev('e', 'out')])
+    expect(p.map(([s, f]) => [s.id, f?.id])).toEqual([
+      ['b', 'c'],
+      ['d', undefined],
+    ])
+    expect(pausesOf([ev('a', 'in'), ev('b', 'out')])).toEqual([])
   })
 })

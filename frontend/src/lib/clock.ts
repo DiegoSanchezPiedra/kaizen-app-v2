@@ -77,3 +77,14 @@ export function madridToIso(day: string, time: string): string {
   const first = guess - (wall(guess) - guess)
   return new Date(guess - (wall(first) - first)).toISOString()
 }
+
+// Las pausas del día como [inicio, fin]; la que sigue abierta, con fin undefined. Los fichajes vienen en orden.
+export function pausesOf(events: ClockEvent[]): [ClockEvent, ClockEvent | undefined][] {
+  const out: [ClockEvent, ClockEvent | undefined][] = []
+  for (const e of events) {
+    const last = out.at(-1)
+    if (e.kind === 'pause_start') out.push([e, undefined])
+    else if (e.kind === 'pause_end' && last && last[1] === undefined) last[1] = e
+  }
+  return out
+}
