@@ -16,7 +16,7 @@ const CHANNELS = Object.fromEntries([
   'plan_downgraded', 'upgrade_requires_action', 'subscription_unpaid', 'subscription_cancelled',
   'payer_change_requested', 'payer_change_paid', 'payer_change_expired', 'payer_change_cancelled',
   'event_refunded', 'avatar_removed', 'clock_corrected', 'clock_open', 'clock_correction_applied',
-  'clock_correction_rejected',
+  'clock_correction_rejected', 'pause_scheduled', 'pause_started', 'pause_ending_soon', 'pause_ended',
 ].map((a) => [`notice.${a}`, ['email']]));
 // notice.clock_correction_requested no está: solo va a admins (el panel), que nunca reciben entregas.
 
@@ -75,11 +75,14 @@ const CANCELLED = {
   expired: 'el plazo para pagarlo ya había terminado',
 };
 
+// Pausa (B30). En la UI y en los avisos, siempre «cuota de mantenimiento», nunca «cuota» a secas.
+const monthsOf = (n) => `${n} ${n === 1 ? 'mes' : 'meses'}`;
+
 // d = { to, c: changes, payer, student, plans: { id: nombre }, invoice, change }
 const TEMPLATES = {
   'notice.payment_failed': (d) => mail(`No hemos podido cobrar el recibo de ${d.student}`, d, [
-    `El cobro de ${eur(d.invoice.amount_due_cents)}${d.invoice.plan ? ` del plan ${d.invoice.plan}` : ''} `
-      + `de ${d.student} no se ha podido realizar.`,
+    `El cobro de ${eur(d.invoice.amount_due_cents)}${d.c.maintenance ? ' de la cuota de mantenimiento'
+      : d.invoice.plan ? ` del plan ${d.invoice.plan}` : ''} de ${d.student} no se ha podido realizar.`,
     d.c.next_payment_attempt
       ? `Lo volveremos a intentar el ${day(d.c.next_payment_attempt)}. Si hace falta, cambia la tarjeta antes desde la app.`
       : 'No habrá más intentos automáticos. Cambia la tarjeta o paga el recibo desde la app.',
@@ -111,6 +114,7 @@ const TEMPLATES = {
     `La academia ha dado de baja la suscripción de ${d.student} (plan ${plan(d, 'plan_id')}). `
       + (future(d.c.ends_at) ? `Seguirá activa hasta el ${day(d.c.ends_at)}.` : 'La baja es efectiva desde hoy.'),
     ...(d.c.discarded_plan_id ? [`El cambio al plan ${plan(d, 'discarded_plan_id')} que estaba programado queda anulado.`] : []),
+    ...(d.c.discarded_pause ? ['La pausa de la membresía queda anulada.'] : []),
     ...(d.c.voided ? [VOIDED] : []),
   ]),
   'notice.payer_change_requested': (d) => mail(`Pago de la suscripción de ${d.student}`, d, [
@@ -137,6 +141,27 @@ const TEMPLATES = {
     : [`El cambio para que pagues la suscripción de ${d.student} se ha anulado porque `
         + `${CANCELLED[d.c.reason] ?? 'ya no está vigente'}. El enlace que recibiste ya no vale.`,
     ...(d.c.refunded ? refund(d) : ['No se te cobrará nada.'])]),
+  'notice.pause_scheduled': (d) => mail(`Pausa de la membresía de ${d.student}`, d, [
+    `La membresía de ${d.student} queda en pausa del ${day(d.c.starts_at)} al ${day(d.c.ends_at)} (${monthsOf(d.c.months)}). `
+      + `Durante la pausa se cobra la cuota de mantenimiento, ${eur(d.c.price_cents)} al mes, en lugar del plan ${plan(d, 'plan_id')}, `
+      + 'y no se puede reservar.',
+    ...(d.c.cancelled ? [`Se han cancelado ${d.c.cancelled === 1 ? 'una reserva' : `${d.c.cancelled} reservas`} de esos días.`] : []),
+    'Puedes anularla sin coste hasta que empiece; las reservas canceladas no se recuperan. Al acabar, vuelve sola al plan '
+      + `${plan(d, 'plan_id')} con sus disciplinas.`,
+  ]),
+  'notice.pause_started': (d) => mail(`Empieza la pausa de ${d.student}`, d, [
+    `La pausa de ${d.student} ha empezado y dura hasta el ${day(d.c.ends_at)}. Mientras tanto no puede reservar clases`
+      + (d.c.exempt ? ' y la academia la ha eximido de la cuota de mantenimiento.'
+        : ` y se cobra la cuota de mantenimiento en lugar del plan ${plan(d, 'plan_id')}.`),
+    'Si quieres volver antes, puedes hacerlo desde la app: la vuelta será en la siguiente fecha de cobro.',
+  ]),
+  'notice.pause_ending_soon': (d) => mail(`La pausa de ${d.student} acaba pronto`, d, [
+    `La pausa de ${d.student} acaba el ${day(d.c.ends_at)}. Desde ese día vuelve al plan ${plan(d, 'plan_id')} con sus `
+      + 'disciplinas, se cobra su precio y puede volver a reservar.',
+  ]),
+  'notice.pause_ended': (d) => mail(`${d.student} vuelve de la pausa`, d, [
+    `La pausa de ${d.student} ha terminado: vuelve al plan ${plan(d, 'plan_id')} con sus disciplinas y ya puede reservar clases.`,
+  ]),
   // Reembolso de una inscripción (B21.0): cualquiera que pida Kaizen, siempre entero.
   'notice.event_refunded': (d) => mail(`Te hemos devuelto el pago de ${d.c.title}`, d, [
     `Te hemos devuelto ${eur(d.c.amount_cents)} de la inscripción de ${d.student} en ${d.c.title}.`,
@@ -194,6 +219,10 @@ const SERVICE = {
   'notice.discipline_change': (g) => ({
     title: g.sessions.length === 1 ? 'Reserva cancelada' : 'Reservas canceladas',
     body: one(g, 'ha cambiado de disciplina', 'ha cambiado de disciplina'),
+  }),
+  'notice.pause': (g) => ({
+    title: g.sessions.length === 1 ? 'Reserva cancelada' : 'Reservas canceladas',
+    body: one(g, 'la membresía estará en pausa ese día', 'la membresía estará en pausa esos días'),
   }),
   'notice.out_of_age': (g) => ({
     title: g.sessions.length === 1 ? 'Reserva cancelada' : 'Reservas canceladas',

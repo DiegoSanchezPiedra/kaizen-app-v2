@@ -243,6 +243,19 @@ try {
       await as(c, U.alu1, 'alumno');
       await rejects(c, () => book(c, 'kids', 'alu1'), 403, 'age_out_of_range'); // adulto, la que era solo menores
     });
+    await run('pausa (B30): en días de pausa no reserva ni entra en espera (403 paused); fuera de ella y anulada, sí', async () => {
+      const { rows: [p] } = await servicePool.query(
+        `INSERT INTO pauses (subscription_id, starts_at, ends_at, months, price_cents, requested_by)
+         VALUES ($1, now() + interval '1 day', now() + interval '3 days', 1, 500, $2) RETURNING id`, [sub.alu3, U.alu3]);
+      await as(c, U.alu3, 'alumno');
+      await rejects(c, () => book(c, 'overlap', 'alu3'), 403, 'paused'); // con plaza
+      await rejects(c, () => book(c, 'full', 'alu3'), 403, 'paused'); // llena: tampoco entra en espera
+      await sp(c, async () => assert.equal((await book(c, 'discB', 'alu3')).status, 'confirmed')); // a 4 días: fuera
+      await servicePool.query(`UPDATE pauses SET status = 'cancelled' WHERE id = $1`, [p.id]);
+      await sp(c, async () => { // anulada: ya no es «paused» (puede ser otra regla, p. ej. el solape)
+        await book(c, 'overlap', 'alu3').catch((e) => assert.notEqual(e.code, 'paused'));
+      });
+    });
     await run('tutor reserva por su hijo; otro tutor cancela; ajenos y profesor no', async () => {
       await as(c, U.tutor1, 'tutor');
       const b = await book(c, 'kids', 'child');
@@ -382,6 +395,7 @@ try {
   await servicePool.query(`DELETE FROM bookings WHERE session_id = ANY($1::uuid[])`, [sessions]);
   await servicePool.query(`DELETE FROM class_sessions WHERE id = ANY($1::uuid[])`, [sessions]);
   await servicePool.query(`DELETE FROM subscription_disciplines WHERE subscription_id = ANY($1::uuid[])`, [Object.values(sub)]);
+  await servicePool.query(`DELETE FROM pauses WHERE subscription_id = ANY($1::uuid[])`, [Object.values(sub)]);
   await servicePool.query(`DELETE FROM subscriptions WHERE id = ANY($1::uuid[])`, [Object.values(sub)]);
   await servicePool.query(`DELETE FROM plans WHERE id = ANY($1::bigint[])`, [[planAll, planOne]]);
   await servicePool.query(`DELETE FROM disciplines WHERE id = ANY($1::bigint[])`, [Object.values(disc)]);

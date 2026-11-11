@@ -5,7 +5,7 @@ import { invalid } from './catalog.js';
 import { dateParam } from './sessions.js';
 import { pagination, TRAINED_DAYS, TRAINED_IN } from './reports.js';
 import { getCheckinSettings } from './checkin.js';
-import { getDisciplineChangeSettings } from './billing.js';
+import { getDisciplineChangeSettings, getPauseSettings } from './billing.js';
 import { getProfileStats } from './users.js';
 
 const TZ = 'Europe/Madrid';
@@ -24,6 +24,7 @@ export async function getSettings(client) {
   return {
     checkin: await getCheckinSettings(client),
     discipline_changes: await getDisciplineChangeSettings(client),
+    pause: await getPauseSettings(client),
   };
 }
 

@@ -664,7 +664,7 @@ export function UserPage() {
         <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
           <Tag>{ROLE_LABEL[p.role]}</Tag>
           <Marks p={p} />
-          {p.email && <span className="text-sm">{p.email}</span>}
+          {p.email && <span className="min-w-0 text-sm break-all">{p.email}</span>}
         </div>
       </div>
       <Tabs value={tab} onValueChange={(v) => setParams({ tab: String(v) }, { replace: true })} className="gap-5">

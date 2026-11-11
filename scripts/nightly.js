@@ -1,7 +1,7 @@
 // Tareas nocturnas (ADR 0012): extiende el horizonte de sesiones (ADR 0004), toma la foto diaria de ayer de Madrid y
 // pide los reembolsos de eventos que quedaron pedidos sin llegar a Stripe (B21.0) y aplica el rango de edad de las
 // disciplinas (B29: aviso a 30 días y cancelación desde el cumpleaños que supera la máxima) y el registro de jornada
-// (B31: aviso de jornada abierta a las 16 h y purga de lo de más de 4 años).
+// (B31: aviso de jornada abierta a las 16 h y purga de lo de más de 4 años) y avisa de las pausas que acaban en 7 días (B30).
 // Lo lanza el cron del sistema a las 03:00 de Madrid (scripts/README.md). Cada tarea en su try: si una falla, la otra
 // corre igual; código de salida 1 si alguna falló. --date=YYYY-MM-DD (solo ayer u hoy) repite la foto a mano.
 import 'dotenv/config';
@@ -9,6 +9,7 @@ import { servicePool, closePools } from '../src/config/database.js';
 import { extendHorizon } from '../src/services/sessions.js';
 import { settleRequestedRefunds } from '../src/services/events.js';
 import { warnOpenDays, purgeClock } from '../src/services/clock.js';
+import { warnPausesEnding } from '../src/services/billing.js';
 
 const date = process.argv.find((a) => a.startsWith('--date='))?.slice('--date='.length) ?? null;
 let failed = false;
@@ -44,6 +45,12 @@ try {
     console.log(`registro de jornada: ${await purgeClock()} registros de más de 4 años borrados`);
   } catch (err) {
     console.error(`registro de jornada: ${err.message}`);
+    failed = true;
+  }
+  try {
+    console.log(`pausas que acaban en 7 días: ${await warnPausesEnding()} avisos`);
+  } catch (err) {
+    console.error(`pausas: ${err.message}`);
     failed = true;
   }
   try {

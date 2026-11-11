@@ -13,5 +13,5 @@ export async function startApp() {
     const text = await res.text();
     return { status: res.status, body: text && res.headers.get('content-type')?.includes('json') ? JSON.parse(text) : text || null };
   };
-  return { http, close: () => new Promise((resolve) => server.close(resolve)) };
+  return { http, base, close: () => new Promise((resolve) => server.close(resolve)) };
 }

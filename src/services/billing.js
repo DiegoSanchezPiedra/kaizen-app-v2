@@ -1,7 +1,8 @@
 // src/services/billing.js — contratar (CONTEXT § Suscripción) y portal del pagador (B10).
 // La suscripción local no nace aquí: nace en el webhook cuando Stripe confirma el pago.
 import { servicePool } from '../config/database.js';
-import { stripe, STRIPE_PORTAL_CONFIGURATION_ID, APP_URL } from '../config/stripe.js';
+import crypto from 'node:crypto';
+import { stripe, STRIPE_PORTAL_CONFIGURATION_ID, APP_URL, STRIPE_STATEMENT_DESCRIPTOR } from '../config/stripe.js';
 import { httpError } from '../lib/errors.js';
 import { parseId, invalid, audit } from './catalog.js';
 import { notice } from './notices.js';
@@ -155,8 +156,9 @@ export async function cancelSubscription(client, { id, atPeriodEnd, actorId }) {
     const pc = await pendingPayerChange(db, id, 'FOR UPDATE');
     if (pc) await closePayerChange(db, pc, 'subscription_cancelled', actorId);
   });
-  // Con un Schedule adjunto Stripe no deja tocar la cancelación (B10.5): se libera y la bajada programada se descarta.
+  // Con un Schedule adjunto Stripe no deja tocar la cancelación (B10.5): se libera y la bajada (o la pausa) se descarta.
   const pending = pendingPhase(current.schedule);
+  const pause = isPause(current.schedule) && Boolean(pending);
   if (current.schedule) await stripe.subscriptionSchedules.release(current.schedule.id);
   const sub = atPeriodEnd
     ? await stripe.subscriptions.update(s.stripe_subscription_id, { cancel_at_period_end: true })
@@ -166,7 +168,8 @@ export async function cancelSubscription(client, { id, atPeriodEnd, actorId }) {
   await notice(servicePool, {
     action: 'notice.subscription_cancelled', actorId, type: 'subscription', resourceId: id,
     recipients: [s.payer_id], student_id: s.student_id, plan_id: s.plan_id,
-    ends_at: ts(sub.cancel_at ?? sub.ended_at), discarded_plan_id: pending?.metadata.plan_id ?? null, voided,
+    ends_at: ts(sub.cancel_at ?? sub.ended_at), discarded_plan_id: pause ? null : pending?.metadata.plan_id ?? null,
+    discarded_pause: pause, voided,
   });
   return { id, stripe_status: sub.status, cancel_at_period_end: sub.cancel_at_period_end };
 }
@@ -175,12 +178,18 @@ export async function cancelSubscription(client, { id, atPeriodEnd, actorId }) {
 // Subida = pending update (solo se aplica si se paga); bajada = Subscription Schedule de 2 fases.
 // plan_id y disciplinas nuevos viajan en la metadata y los aplica el webhook, como todo el estado de cobro.
 
-/** Fase pendiente de un Schedule (la bajada programada), o null. Un Schedule puede seguir adjunto ya aplicado. */
+/** Fase pendiente de un Schedule (la bajada o la pausa programada), o null. Un Schedule puede seguir adjunto ya aplicado. */
 export function pendingPhase(schedule) {
   if (!schedule || !['active', 'not_started'].includes(schedule.status)) return null;
   const current = schedule.current_phase?.start_date ?? 0;
   return schedule.phases.find((p) => p.start_date > current) ?? null;
 }
+
+/** El Schedule es el de una pausa (B30; ADR 0024), no una bajada. */
+export const isPause = (schedule) => schedule?.metadata?.kind === 'pause';
+const currentPhase = (schedule) =>
+  schedule.phases.find((p) => p.start_date === schedule.current_phase?.start_date) ?? schedule.phases[0];
+const phaseItems = (phase) => phase.items.map((i) => ({ price: idOf(i.price), quantity: i.quantity }));
 
 async function subscriptionFor(client, id) {
   const { rows: [s] } = await client.query(
@@ -205,25 +214,30 @@ const onlyPayer = (s, actorId, isAdmin) => {
 export async function changePlan(client, { id, actorId, isAdmin, planId, disciplineIds }) {
   const s = await subscriptionFor(client, id);
   onlyPayer(s, actorId, isAdmin);
-  await assertNotFrozen(servicePool, id);
   if (s.status !== 'active') throw httpError(409, 'subscription_not_active', 'La suscripción no está activa');
   if (s.cancel_at_period_end) throw httpError(409, 'cancel_scheduled', 'La suscripción tiene la baja programada');
   if (parseId(planId) === s.plan_id) throw httpError(409, 'same_plan', 'Ya está en ese plan');
   const { plan, ids, adult } = await validateOrder(client, { studentId: s.student_id, planId, disciplineIds });
   if (!plan.stripe_price_id) throw httpError(409, 'plan_not_purchasable', 'Este plan no se contrata por la pasarela');
 
-  // Stripe manda: la fila local puede ir por detrás de una baja recién pedida.
-  const current = await stripe.subscriptions.retrieve(s.stripe_subscription_id, { expand: ['schedule'] });
-  if (current.status !== 'active') throw httpError(409, 'subscription_not_active', 'La suscripción no está activa');
-  if (current.cancel_at_period_end) throw httpError(409, 'cancel_scheduled', 'La suscripción tiene la baja programada');
+  return serviceTx(async (db) => {
+    // Bajo el bloqueo de la suscripción, como requestPause y el cambio de pagador: lo pedido a la vez se ve aquí.
+    await db.query(`SELECT 1 FROM subscriptions WHERE id = $1 FOR UPDATE`, [id]);
+    await assertNotFrozen(db, id);
+    await assertNotPaused(db, id);
+    // Stripe manda: la fila local puede ir por detrás de una baja recién pedida.
+    const current = await stripe.subscriptions.retrieve(s.stripe_subscription_id, { expand: ['schedule'] });
+    if (current.status !== 'active') throw httpError(409, 'subscription_not_active', 'La suscripción no está activa');
+    if (current.cancel_at_period_end) throw httpError(409, 'cancel_scheduled', 'La suscripción tiene la baja programada');
 
-  const metadata = { plan_id: plan.id, discipline_ids: ids.join(',') };
-  const now = plan.price_cents > s.price_cents || (adult && s.minors_only);
-  await audit(client, actorId, now ? 'subscription.upgrade' : 'subscription.downgrade', id,
-    { from: s.plan_id, to: plan.id, discipline_ids: ids });
-  return now
-    ? applyPlanNow(s, current, plan, metadata, isAdmin)
-    : scheduleDowngrade(current, plan, metadata);
+    const metadata = { plan_id: plan.id, discipline_ids: ids.join(',') };
+    const now = plan.price_cents > s.price_cents || (adult && s.minors_only);
+    await audit(client, actorId, now ? 'subscription.upgrade' : 'subscription.downgrade', id,
+      { from: s.plan_id, to: plan.id, discipline_ids: ids });
+    return now
+      ? applyPlanNow(s, current, plan, metadata, isAdmin)
+      : scheduleDowngrade(current, plan, metadata);
+  });
 }
 
 // Pending update: Stripe cobra el prorrateo y solo aplica price y metadata si se paga.
@@ -264,13 +278,14 @@ async function scheduleDowngrade(current, plan, metadata) {
   // Una subida pendiente de pago (3DS a medias) bloquea el Schedule: la bajada la sustituye.
   if (current.pending_update) await stripe.invoices.voidInvoice(idOf(current.latest_invoice));
   const schedule = current.schedule ?? await stripe.subscriptionSchedules.create({ from_subscription: current.id });
-  const phase = schedule.phases.find((p) => p.start_date === schedule.current_phase?.start_date) ?? schedule.phases[0];
+  const phase = currentPhase(schedule);
   await stripe.subscriptionSchedules.update(schedule.id, {
     end_behavior: 'release',
     proration_behavior: 'none',
+    metadata: '', // el Schedule de una pausa ya acabada sigue adjunto: deja de ser una pausa (B30)
     phases: [
       {
-        items: phase.items.map((i) => ({ price: idOf(i.price), quantity: i.quantity })),
+        items: phaseItems(phase),
         start_date: phase.start_date, end_date: phase.end_date, metadata: current.metadata, proration_behavior: 'none',
       },
       {
@@ -288,7 +303,9 @@ export async function cancelScheduledChange(client, { id, actorId, isAdmin }) {
   onlyPayer(s, actorId, isAdmin);
   await assertNotFrozen(servicePool, id);
   const current = await stripe.subscriptions.retrieve(s.stripe_subscription_id, { expand: ['schedule'] });
-  if (!pendingPhase(current.schedule)) throw httpError(404, 'no_scheduled_change', 'No hay ninguna bajada programada');
+  if (!pendingPhase(current.schedule) || isPause(current.schedule)) {
+    throw httpError(404, 'no_scheduled_change', 'No hay ninguna bajada programada');
+  }
   await audit(client, actorId, 'subscription.downgrade_cancel', id, {});
   await stripe.subscriptionSchedules.release(current.schedule.id);
 }
@@ -331,6 +348,7 @@ export async function changeDiscipline(client, { id, actorId, isAdmin, fromId, t
     // Tras el bloqueo de la fila, como requestPayerChange: un cambio de pagador pedido a la vez se ve aquí.
     await db.query(`SELECT 1 FROM subscriptions WHERE id = $1 FOR UPDATE`, [id]);
     await assertNotFrozen(db, id);
+    await assertNotPaused(db, id);
     const { rows: [{ r }] } = await db.query(`SELECT change_discipline($1, $2, $3, $4) AS r`, [id, from, to, actorId]);
     const { rows } = await db.query(
       `SELECT discipline_id FROM subscription_disciplines WHERE subscription_id = $1 ORDER BY discipline_id`, [id]);
@@ -353,7 +371,8 @@ export async function changeDiscipline(client, { id, actorId, isAdmin, fromId, t
 
 /**
  * Suscripción del alumno (la viva o, si no hay, la última), con la bajada programada, los cambios de
- * disciplina que le quedan en el periodo y el cambio de pagador pendiente. La RLS decide quién ve qué.
+ * disciplina que le quedan en el periodo, el cambio de pagador pendiente, la pausa programada o en curso y los ajustes
+ * de la pausa. La RLS decide quién ve qué.
  */
 export async function getSubscription(client, { studentId }) {
   const { rows: [s] } = await client.query(
@@ -372,11 +391,14 @@ export async function getSubscription(client, { studentId }) {
                  THEN GREATEST(discipline_change_limit() - visible_discipline_changes_used(s.id), 0) END AS discipline_changes_left,
             (SELECT jsonb_build_object('id', pc.id, 'status', ${EFFECTIVE_STATUS}, 'new_payer_id', pc.new_payer_id,
                                        'starts_at', pc.starts_at, 'deadline', pc.deadline)
-               FROM payer_changes pc WHERE pc.subscription_id = s.id AND pc.status IN ${PENDING}) AS payer_change
+               FROM payer_changes pc WHERE pc.subscription_id = s.id AND pc.status IN ${PENDING}) AS payer_change,
+            (SELECT jsonb_build_object('id', pa.id, 'status', pa.status, 'months', pa.months, 'starts_at', pa.starts_at,
+                                       'ends_at', pa.ends_at, 'price_cents', pa.price_cents, 'exempt', pa.exempt)
+               FROM pauses pa WHERE pa.subscription_id = s.id AND pa.status IN ${LIVE_PAUSE}) AS pause
        FROM subscriptions s JOIN plans pl ON pl.id = s.plan_id LEFT JOIN plans sp ON sp.id = s.scheduled_plan_id
       WHERE s.student_id = $1 ORDER BY s.status IN ${LIVE} DESC, s.created_at DESC LIMIT 1`, [studentId]);
   if (!s) throw httpError(404, 'subscription_not_found', 'El alumno no tiene suscripción');
-  return s;
+  return { ...s, pause_settings: await getPauseSettings(client) };
 }
 
 const setSetting = (client, key, value) => client.query(
@@ -432,6 +454,17 @@ const pendingPayerChange = async (db, subscriptionId, lock = '') => (await db.qu
 async function assertNotFrozen(db, subscriptionId) {
   if (await pendingPayerChange(db, subscriptionId)) {
     throw httpError(409, 'payer_change_pending', 'Hay un cambio de pagador pendiente: anúlalo antes de cambiar nada');
+  }
+}
+
+// Pausa programada o en curso (B30). Con servicePool, como el cambio de pagador.
+const LIVE_PAUSE = `('scheduled', 'active')`;
+const livePause = async (db, subscriptionId, lock = '') => (await db.query(
+  `SELECT * FROM pauses WHERE subscription_id = $1 AND status IN ${LIVE_PAUSE} ${lock}`, [subscriptionId])).rows[0];
+
+async function assertNotPaused(db, subscriptionId) {
+  if (await livePause(db, subscriptionId)) {
+    throw httpError(409, 'paused', 'La membresía tiene una pausa programada o en curso');
   }
 }
 
@@ -506,6 +539,7 @@ export async function requestPayerChange(client, { id, payerId, actorId }) {
     await db.query(`SELECT 1 FROM subscriptions WHERE id = $1 FOR UPDATE`, [id]);
     const prev = await pendingPayerChange(db, id, 'FOR UPDATE');
     if (prev?.status === 'paid') throw httpError(409, 'payer_change_paid', 'Ya hay un cambio de pagador pagado');
+    await assertNotPaused(db, id);
     if (s.status !== 'active') throw httpError(409, 'subscription_not_active', 'La suscripción no está activa');
     if (s.cancel_at_period_end) throw httpError(409, 'cancel_scheduled', 'La suscripción tiene la baja programada');
     // Stripe manda.
@@ -708,4 +742,293 @@ export async function listOverduePayers(client, { list, limit = 25, offset = 0 }
   const { rows: [{ total }] } = await client.query(
     `WITH ${affectedSql('$1')} SELECT count(*)::int AS total FROM payers`, [delinquent]);
   return { payers: rows, total, limit, offset };
+}
+
+// --- Pausa con cuota de mantenimiento (B30; CONTEXT § Pausa; ADR 0024) ---
+// Un Subscription Schedule de 3 fases, como la bajada (ADR 0007): la actual, la de mantenimiento (N meses, Price de la
+// cuota de mantenimiento o el de 0 € si está eximida) y la vuelta al plan y las disciplinas de siempre. La metadata de las
+// fases es la de la suscripción: el webhook no ve un cambio de plan. La fila de pauses la escribe el servicio; su estado,
+// el webhook (stripeWebhook.js, syncPause). Dinero: claves idempotentes por pausa y, si la BD falla después de escribir en
+// Stripe, el Schedule vuelve a como estaba.
+
+const TZ = 'Europe/Madrid';
+const iso = (s) => new Date(s * 1000).toISOString();
+const PAUSE_COLS = 'id, status, months, starts_at, ends_at, price_cents, exempt';
+const PAUSE_META = ['kind', 'pause_id', 'starts_at', 'ends_at'];
+// Ajustes editables: [mínimo, máximo]. Sin precio no hay pausas.
+const PAUSE_LIMITS = { price_cents: [1, 10_000_000], max_months: [1, 12], per_year: [0, 12] };
+const key = (k) => ({ idempotencyKey: k });
+
+/**
+ * Una fase de Schedule (pausa, vuelta, exención y restaurar): `price` (un Price) o `items`; `at` = { start_date,
+ * end_date } o { duration } en meses; sin prorrateo.
+ */
+const phaseOf = ({ price, items, metadata }, at) => ({
+  items: items ?? [{ price, quantity: 1 }], metadata, proration_behavior: 'none',
+  ...(typeof at === 'number' ? { duration: { interval: 'month', interval_count: at } } : at),
+});
+const keepPhase = (p, at = { start_date: p.start_date, end_date: p.end_date }) =>
+  phaseOf({ items: phaseItems(p), metadata: p.metadata }, at);
+
+/** Ajustes de la pausa tal cual (academy_settings pause_*), con los valores por defecto. */
+async function pauseSettings(db) {
+  const { rows } = await db.query(`SELECT key, value FROM academy_settings WHERE key LIKE 'pause\\_%'`);
+  return { price_cents: null, max_months: 3, per_year: 1, ...Object.fromEntries(rows.map((r) => [r.key.slice(6), r.value])) };
+}
+
+export async function getPauseSettings(client) {
+  const { price_cents: priceCents, max_months: maxMonths, per_year: perYear } = await pauseSettings(client);
+  return { price_cents: priceCents, max_months: maxMonths, per_year: perYear };
+}
+
+const monthlyPrice = (product, cents, idempotencyKey) => stripe.prices.create({
+  product, currency: 'eur', unit_amount: cents, recurring: { interval: 'month' }, tax_behavior: 'inclusive',
+}, idempotencyKey ? key(idempotencyKey) : undefined);
+
+// El Product de la cuota de mantenimiento: el de los ajustes, el que ya hay en la cuenta (metadata.kind = 'pause';
+// otra BD del mismo sandbox o un reintento) o uno nuevo. Su Price de 0 € igual.
+async function pauseProduct(s) {
+  const product = s.stripe_product
+    ?? (await stripe.products.search({ query: "active:'true' AND metadata['kind']:'pause'", limit: 1 })).data[0]?.id
+    ?? (await stripe.products.create({
+      name: 'Cuota de mantenimiento', metadata: { kind: 'pause' }, statement_descriptor: STRIPE_STATEMENT_DESCRIPTOR,
+    }, key(`pause-settings-product-${STRIPE_STATEMENT_DESCRIPTOR ?? ''}`))).id;
+  const free = s.stripe_free_price
+    ?? (await stripe.prices.list({ product, active: true, limit: 100 })).data.find((p) => p.unit_amount === 0)?.id
+    ?? (await monthlyPrice(product, 0, `pause-settings-free-${product}`)).id;
+  return { product, free };
+}
+
+/**
+ * Ajustes de la pausa (solo admin). Un precio nuevo es un Price nuevo y el anterior se archiva, como hacía el seguro
+ * (B10.3): las pausas ya pedidas siguen con el suyo. Reintentar el mismo cambio da los mismos Product y Prices.
+ */
+export async function updatePauseSettings(client, body, actorId) {
+  for (const [f, [min, max]] of Object.entries(PAUSE_LIMITS)) {
+    const v = body[f];
+    if (v !== undefined && !(Number.isInteger(v) && v >= min && v <= max)) {
+      throw invalid(f, `${f} debe ser un entero entre ${min} y ${max}`);
+    }
+  }
+  const s = await pauseSettings(client);
+  if (body.price_cents !== undefined && body.price_cents !== s.price_cents) {
+    const { product, free } = await pauseProduct(s);
+    if (product !== s.stripe_product) await setSetting(client, 'pause_stripe_product', product);
+    if (free !== s.stripe_free_price) await setSetting(client, 'pause_stripe_free_price', free);
+    // Clave solo con un Price anterior (único): el primero, sin ella; reintentarlo dejaría un Price de más, no un Product.
+    const price = await monthlyPrice(product, body.price_cents,
+      s.stripe_price && `pause-settings-price-${s.stripe_price}-${body.price_cents}`);
+    if (s.stripe_price) await stripe.prices.update(s.stripe_price, { active: false }, key(`pause-settings-archive-${s.stripe_price}`));
+    await setSetting(client, 'pause_stripe_price', price.id);
+  }
+  const changes = {};
+  for (const f of Object.keys(PAUSE_LIMITS)) {
+    if (body[f] === undefined || body[f] === s[f]) continue;
+    await setSetting(client, `pause_${f}`, body[f]);
+    changes[f] = { from: s[f], to: body[f] };
+  }
+  if (Object.keys(changes).length) await audit(client, actorId, 'settings.pause', 'pause', changes);
+  return getPauseSettings(client);
+}
+
+/** Suscripción viva del alumno (las rutas del pagador piden la pausa por profile_id). La RLS decide. */
+export async function liveSubscriptionId(client, studentId) {
+  const { rows: [s] } = await client.query(`SELECT id FROM subscriptions WHERE student_id = $1 AND status IN ${LIVE}`, [studentId]);
+  if (!s) throw httpError(404, 'subscription_not_found', 'El alumno no tiene suscripción');
+  return s.id;
+}
+
+const planPriceOf = async (db, planId) =>
+  (await db.query(`SELECT stripe_price_id FROM plans WHERE id = $1`, [planId])).rows[0].stripe_price_id;
+
+/**
+ * Escribe en el Schedule con `write(scheduleId)` y luego `then()` (la BD). Si algo falla, el Schedule vuelve a como
+ * estaba (`before`: el Schedule previo, o null si no había y hay que liberar el creado) y se relanza el error.
+ */
+async function withScheduleUndo(before, scheduleId, write, then) {
+  try {
+    await write(scheduleId);
+    return await then();
+  } catch (err) {
+    if (!before) {
+      await stripe.subscriptionSchedules.release(scheduleId);
+    } else {
+      const now = before.current_phase?.start_date ?? 0;
+      await stripe.subscriptionSchedules.update(scheduleId, {
+        end_behavior: before.end_behavior, proration_behavior: 'none',
+        metadata: Object.fromEntries(PAUSE_META.map((k) => [k, before.metadata?.[k] ?? ''])),
+        phases: before.phases.filter((p) => p.end_date > now).map((p) => keepPhase(p)),
+      });
+    }
+    throw err;
+  }
+}
+
+/**
+ * Pedir una pausa de `months` meses (el pagador o el admin por él). Empieza en la siguiente fecha de cobro; cancela
+ * las reservas y esperas de esos días (motivo pause) y avisa al pagador. Como mucho un cambio programado a la vez.
+ * @returns {{ status: 201, body: { id, status, months, starts_at, ends_at, price_cents, exempt, cancelled_bookings } }}
+ */
+export async function requestPause(client, { id, actorId, isAdmin, months }) {
+  const s = await subscriptionFor(client, id);
+  onlyPayer(s, actorId, isAdmin);
+  const cfg = await pauseSettings(client);
+  if (!(Number.isInteger(months) && months >= 1 && months <= cfg.max_months)) {
+    throw httpError(400, 'invalid_field', `Elige de 1 a ${cfg.max_months} meses`, { field: 'months', max: cfg.max_months });
+  }
+  if (!cfg.stripe_price) throw httpError(409, 'pause_not_configured', 'La academia aún no ha puesto la cuota de mantenimiento');
+  if (s.status !== 'active') throw httpError(409, 'subscription_not_active', 'La suscripción no está activa');
+  if (s.cancel_at_period_end) throw httpError(409, 'cancel_scheduled', 'La suscripción tiene la baja programada');
+
+  return serviceTx(async (db) => {
+    await db.query(`SELECT 1 FROM subscriptions WHERE id = $1 FOR UPDATE`, [id]);
+    await assertNotFrozen(db, id);
+    if (await livePause(db, id)) throw httpError(409, 'change_scheduled', 'Ya hay un cambio programado');
+    // Stripe manda.
+    const current = await stripe.subscriptions.retrieve(s.stripe_subscription_id, { expand: ['schedule'] });
+    if (current.status !== 'active') throw httpError(409, 'subscription_not_active', 'La suscripción no está activa');
+    if (current.cancel_at_period_end) throw httpError(409, 'cancel_scheduled', 'La suscripción tiene la baja programada');
+    if (current.pending_update) throw httpError(409, 'upgrade_pending', 'Hay una subida de plan pendiente de pago');
+    if (pendingPhase(current.schedule)) throw httpError(409, 'change_scheduled', 'Ya hay un cambio programado');
+    const start = current.items.data[0].current_period_end;
+    const { rows: [{ n }] } = await db.query(
+      `SELECT count(*)::int AS n FROM pauses pa JOIN subscriptions su ON su.id = pa.subscription_id
+        WHERE su.student_id = $1 AND pa.status <> 'cancelled'
+          AND extract(year FROM pa.starts_at AT TIME ZONE '${TZ}') = extract(year FROM to_timestamp($2) AT TIME ZONE '${TZ}')`,
+      [s.student_id, start]);
+    if (n >= cfg.per_year) throw httpError(409, 'pause_year_limit', 'Ya no quedan pausas este año', { per_year: cfg.per_year });
+
+    const pauseId = crypto.randomUUID(); // antes de Stripe: sus claves idempotentes
+    const planPrice = await planPriceOf(db, s.plan_id);
+    const schedule = current.schedule
+      ?? await stripe.subscriptionSchedules.create({ from_subscription: current.id }, key(`pause-${pauseId}-schedule-create`));
+    const phase = currentPhase(schedule);
+    let end;
+    // Fases: la actual hasta la siguiente fecha de cobro, mantenimiento N meses y la vuelta (1 mes; luego se libera).
+    const write = async (scheduleId) => {
+      const { metadata } = current;
+      ({ phases: [, { end_date: end }] } = await stripe.subscriptionSchedules.update(scheduleId, {
+        end_behavior: 'release', proration_behavior: 'none',
+        metadata: { kind: 'pause', pause_id: pauseId, starts_at: iso(phase.end_date) },
+        phases: [keepPhase(phase), phaseOf({ price: cfg.stripe_price, metadata }, months), phaseOf({ price: planPrice, metadata }, 1)],
+      }, key(`pause-${pauseId}-schedule`)));
+    };
+    return withScheduleUndo(current.schedule, schedule.id, write, async () => {
+      // El fin lo calcula Stripe (N meses desde el inicio): a la metadata, en una segunda llamada.
+      await stripe.subscriptionSchedules.update(schedule.id, { metadata: { ends_at: iso(end) } }, key(`pause-${pauseId}-ends`));
+      // Actor de los avisos de reserva (booking_notice lee app.current_user_id).
+      await db.query(`SELECT set_config('app.current_user_id', $1, true)`, [actorId]);
+      const { rows: [pause] } = await db.query(
+        `INSERT INTO pauses (id, subscription_id, starts_at, ends_at, months, price_cents, requested_by)
+         VALUES ($1, $2, to_timestamp($3), to_timestamp($4), $5, $6, $7) RETURNING ${PAUSE_COLS}`,
+        [pauseId, id, start, end, months, cfg.price_cents, actorId]);
+      const { rows: [{ cancelled }] } = await db.query(
+        `SELECT cancel_paused_bookings($1, $2, $3) AS cancelled`, [s.student_id, pause.starts_at, pause.ends_at]);
+      await audit(db, actorId, 'subscription.pause', id, { pause_id: pauseId, months, starts_at: pause.starts_at, ends_at: pause.ends_at });
+      await notice(db, {
+        action: 'notice.pause_scheduled', actorId, type: 'pause', resourceId: pauseId, recipients: [s.payer_id],
+        student_id: s.student_id, plan_id: s.plan_id, starts_at: pause.starts_at, ends_at: pause.ends_at, months,
+        price_cents: cfg.price_cents, cancelled,
+      });
+      return { status: 201, body: { ...pause, cancelled_bookings: cancelled } };
+    });
+  });
+}
+
+/**
+ * Anular la pausa antes de que empiece (se libera el Schedule; la suscripción sigue igual y las reservas canceladas
+ * no vuelven) o, ya empezada, volver antes: la fase de mantenimiento acaba en la siguiente fecha de cobro, sin prorrateo.
+ * @returns {{ status: 200, body: { id, status: 'cancelled' | 'active', ends_at } }}
+ */
+export async function endPause(client, { id, actorId, isAdmin }) {
+  const s = await subscriptionFor(client, id);
+  onlyPayer(s, actorId, isAdmin);
+  return serviceTx(async (db) => {
+    const p = await livePause(db, id, 'FOR UPDATE');
+    const current = p && await stripe.subscriptions.retrieve(s.stripe_subscription_id, { expand: ['schedule'] });
+    const schedule = p && current.schedule?.metadata?.pause_id === p.id ? current.schedule : null;
+    // Sin su Schedule (liberado por la baja), el webhook la cerrará: no hay nada que anular.
+    if (!schedule) throw httpError(404, 'no_pause', 'No hay ninguna pausa programada ni en curso');
+    if ((schedule.current_phase?.start_date ?? 0) < p.starts_at.getTime() / 1000) {
+      // Liberar no se deshace; si la BD falla después, el webhook la anula (liberada antes del inicio).
+      await stripe.subscriptionSchedules.release(schedule.id, {}, key(`pause-${p.id}-release`));
+      await db.query(`UPDATE pauses SET status = 'cancelled', updated_at = now() WHERE id = $1`, [p.id]);
+      await audit(db, actorId, 'subscription.pause_cancel', id, { pause_id: p.id });
+      return { status: 200, body: { id: p.id, status: 'cancelled', ends_at: p.ends_at } };
+    }
+    const phase = currentPhase(schedule);
+    const back = current.items.data[0].current_period_end;
+    if (back >= phase.end_date) throw httpError(409, 'pause_ending', 'La pausa ya acaba en la siguiente fecha de cobro');
+    const planPrice = await planPriceOf(db, s.plan_id);
+    // Sin clave fija: si la BD falla se deshace, y un reintento con la misma clave devolvería lo ya deshecho.
+    const write = (scheduleId) => stripe.subscriptionSchedules.update(scheduleId, {
+      proration_behavior: 'none',
+      metadata: { ends_at: iso(back) },
+      phases: [keepPhase(phase, { start_date: phase.start_date, end_date: back }), phaseOf({ price: planPrice, metadata: phase.metadata }, 1)],
+    });
+    return withScheduleUndo(schedule, schedule.id, write, async () => {
+      const { rows: [pause] } = await db.query(
+        `UPDATE pauses SET ends_at = to_timestamp($2), updated_at = now() WHERE id = $1 RETURNING id, status, ends_at`, [p.id, back]);
+      await audit(db, actorId, 'subscription.pause_end_early', id, { pause_id: p.id, ends_at: pause.ends_at });
+      return { status: 200, body: pause };
+    });
+  });
+}
+
+/**
+ * Eximir una pausa (solo admin) con motivo: su fase de mantenimiento pasa al Price de 0 €, sin prorrateo, desde el
+ * siguiente cobro que le quede (`exempt_from`: su inicio o, ya empezada, la siguiente fecha de cobro).
+ */
+export async function exemptPause(client, { pauseId, actorId, reason }) {
+  if (typeof reason !== 'string' || !reason.trim() || reason.length > 500) {
+    throw invalid('reason', 'Escribe el motivo de la exención (hasta 500 caracteres)');
+  }
+  if (!(await client.query(`SELECT 1 FROM pauses WHERE id = $1`, [pauseId])).rowCount) {
+    throw httpError(404, 'pause_not_found', 'Pausa no encontrada');
+  }
+  const { stripe_free_price: free } = await pauseSettings(client);
+  return serviceTx(async (db) => {
+    const { rows: [p] } = await db.query(
+      `SELECT pa.*, s.stripe_subscription_id FROM pauses pa JOIN subscriptions s ON s.id = pa.subscription_id
+        WHERE pa.id = $1 FOR UPDATE OF pa`, [pauseId]);
+    if (!['scheduled', 'active'].includes(p.status)) throw httpError(409, 'pause_not_live', 'La pausa ya no está programada ni en curso');
+    if (p.exempt) throw httpError(409, 'pause_exempt', 'La pausa ya está eximida');
+    const sub = await stripe.subscriptions.retrieve(p.stripe_subscription_id, { expand: ['schedule'] });
+    const { schedule } = sub;
+    if (schedule?.metadata?.pause_id !== p.id) throw httpError(409, 'pause_not_live', 'La pausa ya no está programada ni en curso');
+    const start = p.starts_at.getTime() / 1000;
+    const maintenance = schedule.phases.find((x) => x.start_date === start);
+    const now = schedule.current_phase?.start_date ?? 0; // hora de Stripe (con test clock, la del reloj)
+    // El siguiente cobro de mantenimiento: su inicio o, ya empezada, la siguiente fecha de cobro (si aún es de la pausa).
+    const from = now >= start ? sub.items.data[0].current_period_end : start;
+    if (from >= maintenance.end_date) {
+      throw httpError(409, 'pause_nothing_to_exempt', 'A la pausa ya no le queda ningún cobro de la cuota de mantenimiento');
+    }
+    await stripe.subscriptionSchedules.update(schedule.id, {
+      proration_behavior: 'none',
+      phases: schedule.phases.filter((x) => x.end_date > now)
+        .map((x) => (x === maintenance ? phaseOf({ price: free, metadata: x.metadata }, { start_date: x.start_date, end_date: x.end_date })
+          : keepPhase(x))),
+    }, key(`pause-${p.id}-exempt`));
+    const { rows: [pause] } = await db.query(
+      `UPDATE pauses SET exempt = true, updated_at = now() WHERE id = $1 RETURNING ${PAUSE_COLS}`, [p.id]);
+    await audit(db, actorId, 'pause.exempt', p.id, { reason: reason.trim(), subscription_id: p.subscription_id, exempt_from: iso(from) });
+    return { ...pause, exempt_from: new Date(from * 1000) };
+  });
+}
+
+/** Tarea nocturna: aviso al pagador de las pausas que acaban en los próximos 7 días (uno por pausa). */
+export async function warnPausesEnding() {
+  const { rows } = await servicePool.query(
+    `SELECT pa.id, pa.ends_at, s.payer_id, s.student_id, s.plan_id
+       FROM pauses pa JOIN subscriptions s ON s.id = pa.subscription_id
+      WHERE pa.status IN ${LIVE_PAUSE} AND pa.ends_at > now() AND pa.ends_at <= now() + interval '7 days'
+        AND NOT EXISTS (SELECT 1 FROM audit_log a WHERE a.action = 'notice.pause_ending_soon' AND a.resource_id = pa.id::text)`);
+  for (const p of rows) {
+    await notice(servicePool, {
+      action: 'notice.pause_ending_soon', actorId: p.payer_id, type: 'pause', resourceId: p.id, recipients: [p.payer_id],
+      student_id: p.student_id, plan_id: p.plan_id, ends_at: p.ends_at,
+    });
+  }
+  return rows.length;
 }

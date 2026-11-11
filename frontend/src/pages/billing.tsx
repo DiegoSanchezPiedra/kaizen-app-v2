@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import type React from 'react'
-import { LockIcon, UsersIcon, WalletIcon } from 'lucide-react'
+import { LockIcon, PauseIcon, UsersIcon, WalletIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { Back, Kv, Note, OptionCard, StickyFooter, Tag } from '@/components/billing-bits'
@@ -8,6 +8,7 @@ import { usePortal } from '@/hooks/use-portal'
 import { bankConfirms } from '@/lib/stripe'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Page } from '@/components/page'
+import { PauseSheet } from '@/components/pause-sheet'
 import { EmptyState, ErrorState, ListSkeleton, QueryView } from '@/components/screen-state'
 import { SubjectGate, subjectName } from '@/components/subject-gate'
 import { Button } from '@/components/ui/button'
@@ -17,6 +18,7 @@ import { Sheet, SheetDescription, SheetFooter, SheetHeader, SheetPanel, SheetPop
 import { useSubject } from '@/hooks/use-subject'
 import { ApiError, api } from '@/lib/api'
 import {
+  canEndEarly,
   changesLeft,
   disciplineLocked,
   eligibleDisciplines,
@@ -24,6 +26,9 @@ import {
   freeChange,
   isLive,
   keepDisciplines,
+  pauseFee,
+  pauseLock,
+  pauseTitle,
   perMonth,
   planChange,
   planLock,
@@ -210,12 +215,69 @@ function ScheduledNote({ s, profileId, name }: { s: Subscription; profileId?: st
   )
 }
 
+// Pausa programada o en curso (B30): anularla (gratis, antes de empezar) o volver antes (en la siguiente fecha de cobro).
+function PauseNote({ s, profileId, name }: { s: Subscription; profileId?: string; name?: string }) {
+  const [open, setOpen] = useState(false)
+  const p = s.pause
+  const end = useMutation({
+    mutationFn: () => api<{ status: 'cancelled' | 'active'; ends_at: string }>(path('/billing/pause', { profile_id: profileId }), { method: 'DELETE' }),
+    onSuccess: (r) => toastOk(r.status === 'cancelled' ? 'Pausa anulada' : `Vuelta programada para el ${formatShortDate(r.ends_at)}`),
+    onError: (err) => {
+      toastError(err)
+      if (['no_pause', 'pause_ending'].includes(errorCode(err))) void refreshBilling()
+    },
+    onSettled: () => {
+      setOpen(false)
+      void refreshBilling()
+      void refreshBookings()
+    },
+  })
+  if (!p) return null
+  const scheduled = p.status === 'scheduled'
+  const early = canEndEarly(s)
+  return (
+    <>
+      <Note
+        kind="info"
+        title={pauseTitle(p)}
+        action={
+          (scheduled || early) && (
+            <Button size="lg" variant="outline" onClick={() => setOpen(true)}>
+              {scheduled ? 'Anular la pausa' : 'Volver antes'}
+            </Button>
+          )
+        }
+      >
+        {scheduled
+          ? `Hasta el ${formatShortDate(p.starts_at)} todo sigue igual; luego no se puede reservar y se cobra la cuota de mantenimiento en vez del plan. Al acabar vuelve sola a ${s.plan.name}.`
+          : `${pauseFee(p)}. No se puede reservar durante la pausa; el ${formatShortDate(p.ends_at)} vuelve sola a ${s.plan.name} con sus disciplinas.`}
+      </Note>
+      <ConfirmDialog
+        open={open}
+        onOpenChange={setOpen}
+        variant="default"
+        title={scheduled ? '¿Anular la pausa?' : '¿Volver antes?'}
+        description={
+          scheduled
+            ? `Es gratis: ${name ? `${name} sigue` : 'sigues'} con ${s.plan.name} como hasta ahora. Las reservas que se cancelaron al pedirla no vuelven.`
+            : `${name ? `${name} vuelve` : 'Vuelves'} a ${s.plan.name} en la siguiente fecha de cobro${s.current_period_end ? `, el ${formatShortDate(s.current_period_end)}` : ''}, sin devolución ni prorrateo. Hasta entonces sigue la pausa.`
+        }
+        confirmLabel={scheduled ? 'Anular la pausa' : 'Volver antes'}
+        cancelLabel="Mantenerla"
+        loading={end.isPending}
+        onConfirm={() => end.mutate()}
+      />
+    </>
+  )
+}
+
 function Billing({ subject, profileId }: Props) {
   const session = useSession()
   const { withSubject } = useSubject()
   const subscription = useSubscription(profileId)
   const portal = usePortal()
   const name = subjectName(subject)
+  const [pausing, setPausing] = useState(false)
   const contract = (
     <Button size="xl" render={<Link to={withSubject('/billing/contract')} />}>
       Contratar una cuota
@@ -246,6 +308,7 @@ function Billing({ subject, profileId }: Props) {
         }
         const lock = planLock(s)
         const discLocked = disciplineLocked(s)
+        const pLock = pauseLock(s)
         const withChanges = s.plan.max_disciplines !== null
         const [label, variant] = s.cancel_at_period_end && isLive(s.status) && s.status === 'active' ? ['Termina pronto', 'warning' as const] : (BADGE[s.status] ?? ['', 'secondary' as const])
         const portalAction = (
@@ -273,6 +336,7 @@ function Billing({ subject, profileId }: Props) {
                 </Note>
               )}
               <ScheduledNote s={s} profileId={profileId} name={name} />
+              <PauseNote s={s} profileId={profileId} name={name} />
               <PayerChangeNote s={s} me={session?.id} price={perMonth(s.plan.price_cents)} name={name} />
               <section aria-labelledby="plan" className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
                 <div className="flex items-center justify-between gap-3">
@@ -323,7 +387,32 @@ function Billing({ subject, profileId }: Props) {
                       </Button>
                     ))}
                 </div>
+                {s.pause_settings?.price_cents != null && !s.pause &&
+                  (pLock ? (
+                    <Button variant="outline" size="xl" disabled>
+                      <LockIcon />
+                      Pausar membresía
+                    </Button>
+                  ) : (
+                    <Button variant="outline" size="xl" onClick={() => setPausing(true)}>
+                      <PauseIcon />
+                      Pausar membresía
+                    </Button>
+                  ))}
                 {lock && <Lock>{lock}</Lock>}
+                {pLock && s.pause_settings?.price_cents != null && !s.pause && <Lock>{pLock}</Lock>}
+                {pausing && (
+                  <PauseSheet
+                    s={s}
+                    name={name}
+                    request={(months) => api(`/billing/pause`, { method: 'POST', body: { profile_id: profileId, months } })}
+                    onClose={() => setPausing(false)}
+                    onDone={() => {
+                      void refreshBilling()
+                      void refreshBookings()
+                    }}
+                  />
+                )}
               </section>
             </div>
             <Payments />

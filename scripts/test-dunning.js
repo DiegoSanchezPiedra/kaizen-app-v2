@@ -1,5 +1,6 @@
 // B20: past_due → unpaid con un Stripe test clock. Una renovación que falla (pm_card_chargeCustomerFail) y el reloj
 // avanzando hasta agotar los reintentos de la cuenta: en past_due las reservas siguen, en unpaid se cancelan sin cobertura.
+// B30: la renovación que falla es la de la cuota de mantenimiento de una pausa: impago como cualquier recibo (morosos).
 // Los eventos son los reales del reloj (events.list) pasados a handleEvent, sin `stripe listen`. Solo sandbox.
 // Requiere en el Dashboard (Ajustes > Facturación > Pagos de suscripciones fallidos): reintentos acabados → «marcar la suscripción como impagada».
 import 'dotenv/config';
@@ -10,6 +11,7 @@ import { withRls } from '../src/db/rls.js';
 import { stripe } from '../src/config/stripe.js';
 import { createPlan } from '../src/services/catalog.js';
 import { handleEvent } from '../src/services/stripeWebhook.js';
+import { requestPause, updatePauseSettings, listOverduePayers } from '../src/services/billing.js';
 
 if (!process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') && !process.env.STRIPE_SECRET_KEY?.startsWith('rk_test_')) {
   throw new Error('test:dunning solo corre contra el sandbox de Stripe (sk_test_ / rk_test_)');
@@ -27,6 +29,8 @@ const [{ id: disc }] = await q(`INSERT INTO disciplines (name) VALUES ('T-Dun-A'
 const plan = await withRls({ uid: U.admin, role: 'admin' }, (c) =>
   createPlan(c, { name: `T-Dun-${Date.now()}`, price_cents: 2000, max_disciplines: 1 }));
 const [{ stripe_price_id: price }] = await q(`SELECT stripe_price_id FROM plans WHERE id = $1`, [plan.id]);
+const savedPause = await q(`SELECT key, value FROM academy_settings WHERE key LIKE 'pause\\_%'`);
+await withRls({ uid: U.admin, role: 'admin' }, (c) => updatePauseSettings(c, { price_cents: 600 }, U.admin));
 
 let clock, failed = false;
 const eventIds = [];
@@ -58,6 +62,11 @@ try {
                                      VALUES (gen_random_uuid(), $1, $2, $2, 'confirmed') RETURNING id`, [session.id, U.alu]);
   const bookingOf = async () => (await q(`SELECT status, cancel_reason FROM bookings WHERE id = $1`, [booking]))[0];
 
+  // Pausa de 2 meses desde la renovación: lo que se cobra (y falla) es la cuota de mantenimiento.
+  const [{ id: localId }] = await q(`SELECT id FROM subscriptions WHERE stripe_subscription_id = $1`, [sub.id]);
+  const pause = (await withRls({ uid: U.alu, role: 'alumno' }, (c) =>
+    requestPause(c, { id: localId, actorId: U.alu, isAdmin: false, months: 2 }))).body;
+
   // La renovación ya no se puede cobrar.
   const bad = await stripe.paymentMethods.attach('pm_card_chargeCustomerFail', { customer: cus.id });
   await stripe.customers.update(cus.id, { invoice_settings: { default_payment_method: bad.id } });
@@ -84,6 +93,9 @@ try {
   steps.push(['+33d', await local()]);
   assert.equal(await local(), 'past_due', 'la renovación fallida deja la suscripción en past_due');
   assert.equal((await bookingOf()).status, 'confirmed', 'en gracia (past_due) la reserva se conserva');
+  const [failedInv] = await q(`SELECT amount_due_cents, status FROM invoices WHERE student_id = $1 AND status = 'open'`, [U.alu]);
+  assert.deepEqual(failedInv, { amount_due_cents: 600, status: 'open' }, 'el recibo que falla es la cuota de mantenimiento');
+  assert.equal((await q(`SELECT status FROM pauses WHERE id = $1`, [pause.id]))[0].status, 'active');
 
   // Reintentos de la cuenta, de 3 en 3 días hasta unpaid (tope: 6 semanas).
   let day = 33;
@@ -101,6 +113,8 @@ try {
   const [{ n }] = await q(`SELECT count(*)::int AS n FROM audit_log a JOIN subscriptions s ON s.id::text = a.resource_id::text
                             WHERE a.action = 'notice.subscription_unpaid' AND s.student_id = $1`, [U.alu]);
   assert.equal(n, 1, 'un solo aviso de impago');
+  const overdue = await withRls({ uid: U.admin, role: 'admin' }, (c) => listOverduePayers(c, { list: 'delinquent', limit: 100 }));
+  assert.ok(overdue.payers.some((p) => p.payer_id === U.alu && p.invoices.some((i) => i.amount_due_cents === 600)), 'en morosos');
   console.log(`OK   past_due conserva la reserva; unpaid la cancela (${steps.map((s) => s.join(':')).join(' ')}; ${((Date.now() - t) / 1000).toFixed(0)} s)`);
 } catch (e) {
   failed = true;
@@ -113,6 +127,10 @@ try {
   await q(`DELETE FROM bookings WHERE student_id = $1`, [U.alu]);
   await q(`DELETE FROM class_sessions WHERE discipline_id = $1`, [disc]);
   await q(`DELETE FROM invoices WHERE student_id = $1`, [U.alu]);
+  await q(`DELETE FROM audit_log WHERE resource_id IN (SELECT id::text FROM pauses WHERE subscription_id = ANY($1::uuid[]))`, [subs]);
+  await q(`DELETE FROM pauses WHERE subscription_id = ANY($1::uuid[])`, [subs]);
+  await q(`DELETE FROM academy_settings WHERE key LIKE 'pause\\_%'`);
+  for (const r of savedPause) await q(`INSERT INTO academy_settings (key, value) VALUES ($1, $2::jsonb)`, [r.key, JSON.stringify(r.value)]);
   await q(`DELETE FROM subscription_disciplines WHERE subscription_id = ANY($1::uuid[])`, [subs]);
   await q(`DELETE FROM subscriptions WHERE id = ANY($1::uuid[])`, [subs]);
   await q(`DELETE FROM webhook_events WHERE id = ANY($1::text[])`, [eventIds]);

@@ -78,6 +78,11 @@ const DELIVERY_LABEL: Record<string, string> = {
   'notice.discipline_change': 'Cambio de disciplina',
   'notice.agreement_published': 'Documento nuevo para firmar',
   'notice.event_changed': 'Evento cambiado',
+  'notice.pause_scheduled': 'Pausa programada',
+  'notice.pause_started': 'Pausa empezada',
+  'notice.pause_ending_soon': 'La pausa termina pronto',
+  'notice.pause_ended': 'Pausa terminada',
+  'notice.pause': 'Reserva cancelada por una pausa',
   'notice.event_cancelled': 'Evento cancelado',
   'notice.event_registration_cancelled': 'Inscripción cancelada',
   'notice.event_refunded': 'Reembolso de un evento',
@@ -98,7 +103,7 @@ export const AUDIT_CATEGORIES = [
   { value: 'health', label: 'Salud', prefixes: ['health.'] },
   { value: 'sessions', label: 'Sesiones y clases', prefixes: ['session.', 'class.'] },
   { value: 'catalog', label: 'Catálogo', prefixes: ['plan.', 'discipline.'] },
-  { value: 'billing', label: 'Cobros', prefixes: ['subscription.', 'subscription_schedule.'] },
+  { value: 'billing', label: 'Cobros', prefixes: ['subscription.', 'subscription_schedule.', 'pause.'] },
   { value: 'users', label: 'Usuarios', prefixes: ['profile.', 'guardian.'] },
   { value: 'documents', label: 'Documentos', prefixes: ['agreement_document.'] },
   { value: 'settings', label: 'Ajustes', prefixes: ['settings.'] },
@@ -134,12 +139,17 @@ const AUDIT_LABEL: Record<string, string> = {
   'subscription.discipline_change': 'Cambió una disciplina de la cuota',
   'subscription.payer_change_request': 'Pidió un cambio de pagador',
   'subscription.payer_change_cancel': 'Anuló un cambio de pagador',
+  'subscription.pause': 'Programó una pausa',
+  'subscription.pause_cancel': 'Anuló una pausa',
+  'subscription.pause_end_early': 'Volvió antes de una pausa',
+  'pause.exempt': 'Eximió una pausa de la cuota de mantenimiento',
   'profile.role_change': 'Cambió el rol',
   'profile.unpublish': 'Despublicó un perfil',
   'guardian.add': 'Vinculó un tutor',
   'guardian.remove': 'Desvinculó un tutor',
   'agreement_document.publish': 'Publicó un documento',
   'settings.discipline_changes': 'Cambió los cambios de disciplina por periodo',
+  'settings.pause': 'Cambió los ajustes de la pausa',
   'booking.create': 'Hizo una reserva',
   'booking.cancel': 'Canceló una reserva',
   'event.create': 'Creó un evento',
@@ -174,6 +184,7 @@ export function auditDetail(a: Pick<AuditRow, 'action' | 'changes'>, roleLabel: 
   }
   if (a.action === 'profile.role_change' && from && to) return `${roleLabel[from] ?? from} → ${roleLabel[to] ?? to}`
   if (/price_change$/.test(a.action) && typeof c.from === 'number' && typeof c.to === 'number') return `${c.from / 100} € → ${c.to / 100} €`
+  if (a.action === 'pause.exempt') return str(c.reason) ?? ''
   if (a.action === 'session.cancel') return str(c.note) ?? ''
   if (a.action === 'event.create') return str(c.title) ?? ''
   if (a.action === 'event.cancel') return [str(c.note), typeof c.registrations === 'number' && plural(c.registrations, 'inscripción', 'inscripciones')].filter(Boolean).join(' · ')
@@ -201,7 +212,7 @@ export function auditTarget(a: Pick<AuditRow, 'resource_type' | 'resource_id'> &
   if (a.resource_type === 'subscription' && student) return { to: `/admin/users/${student}`, label: 'Ficha' }
   if (a.resource_type === 'session') return { to: `/admin/sessions/${a.resource_id}`, label: 'Sesión' }
   if (a.resource_type === 'event') return { to: `/admin/events/${a.resource_id}`, label: 'Evento' }
-  const label: Record<string, string> = { class: 'Clase', plan: 'Plan', discipline: 'Disciplina', subscription: 'Suscripción', booking: 'Reserva', event_registration: 'Inscripción', agreement_document: 'Documento', settings: 'Ajustes' }
+  const label: Record<string, string> = { class: 'Clase', plan: 'Plan', discipline: 'Disciplina', subscription: 'Suscripción', pause: 'Pausa', booking: 'Reserva', event_registration: 'Inscripción', agreement_document: 'Documento', settings: 'Ajustes' }
   return { to: null, label: label[a.resource_type] ?? a.resource_type }
 }
 

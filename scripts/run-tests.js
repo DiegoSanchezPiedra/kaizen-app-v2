@@ -4,7 +4,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
-const STRIPE = ['test:catalog', 'test:billing', 'test:webhook', 'test:events', 'test:dunning'];
+const STRIPE = ['test:catalog', 'test:billing', 'test:webhook', 'test:events', 'test:dunning', 'test:e2e-b30'];
 const withStripe = process.argv.includes('--stripe');
 const all = Object.keys(JSON.parse(readFileSync('package.json', 'utf8')).scripts).filter((n) => n.startsWith('test:'));
 const skipped = withStripe ? [] : all.filter((n) => STRIPE.includes(n));

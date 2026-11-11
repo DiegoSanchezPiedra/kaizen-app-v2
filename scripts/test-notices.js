@@ -204,12 +204,16 @@ try {
     assert.equal(outbox.length, 1);
   });
 
-  await run('las 16 plantillas: asunto, alumno, enlace, texto y HTML; sin fecha de nacimiento ni edad', async () => {
+  await run('las plantillas: asunto, alumno, enlace, texto y HTML; sin fecha de nacimiento ni edad', async () => {
     outbox.length = 0;
+    const pz = { type: 'pause', student_id: U.child, plan_id: planA.id };
     const hosted = 'https://invoice.stripe.com/i/acct_test/test_123';
     const billing = `${APP_URL}/billing`;
     const cases = [
       ['notice.payment_failed', { type: 'invoice', resourceId: inv.id, next_payment_attempt: '2026-11-05T10:00:00Z' }, billing, /5 de noviembre/],
+      // B30: el recibo fallido de una pausa es la cuota de mantenimiento, no el plan.
+      ['notice.payment_failed', { type: 'invoice', resourceId: inv.id, maintenance: true }, billing,
+        /El cobro de 40,00\s€ de la cuota de mantenimiento de Nico <Hijo> no se ha podido realizar/],
       ['notice.checkout_payment_failed', { student_id: U.child }, billing],
       ['notice.checkout_race_refunded', { student_id: U.child }, billing],
       ['notice.plan_downgraded', { student_id: U.child, from_plan_id: planA.id, to_plan_id: planB.id }, billing, /T-Not Oro.*T-Not Plata/],
@@ -221,6 +225,15 @@ try {
       ['notice.payer_change_paid', { ...pcNotice, from_plan_id: planA.id, plan_id: planB.id }, billing, /Ana Pagadora[^]*1 de diciembre de 2026[^]*T-Not Plata que estaba programado/],
       ['notice.payer_change_expired', { ...pcNotice, refunded: 0 }, billing, /sigues pagando tú/],
       ['notice.payer_change_cancelled', { ...pcNotice, reason: 'subscription_cancelled', refunded: 0 }, billing, /se ha dado de baja/],
+      // B30: pausa (programada, empieza, acaba en 7 días, vuelta). Siempre «cuota de mantenimiento», nunca «cuota» a secas.
+      ['notice.pause_scheduled', { ...pz, starts_at: '2026-12-01T10:00:00Z', ends_at: '2027-02-01T10:00:00Z', months: 2, price_cents: 900, cancelled: 3 },
+        billing, /1 de diciembre de 2026 al 1 de febrero de 2027 \(2 meses\)[^]*cuota de mantenimiento, 9,00\s€ al mes[^]*T-Not Oro[^]*3 reservas[^]*no se recuperan/],
+      ['notice.pause_scheduled', { ...pz, starts_at: '2026-12-01T10:00:00Z', ends_at: '2027-01-01T10:00:00Z', months: 1, price_cents: 900, cancelled: 0 },
+        billing, /\(1 mes\)/],
+      ['notice.pause_started', { ...pz, ends_at: '2027-02-01T10:00:00Z', exempt: false }, billing, /1 de febrero de 2027[^]*cuota de mantenimiento/],
+      ['notice.pause_started', { ...pz, ends_at: '2027-02-01T10:00:00Z', exempt: true }, billing, /eximido[^]*cuota de mantenimiento/],
+      ['notice.pause_ending_soon', { ...pz, ends_at: '2027-02-01T10:00:00Z' }, billing, /1 de febrero de 2027[^]*T-Not Oro/],
+      ['notice.pause_ended', pz, billing, /T-Not Oro/],
     ];
     for (const [action, extra] of cases) await emit(action, extra);
     await send();
@@ -238,6 +251,7 @@ try {
       assert.doesNotMatch(all, /\b(de|a) el\b/, `${action}: «del» / «al»`);
       assert.doesNotMatch(all, /2016|5 de mayo|\d+ años|menor/i, `${action}: sin fecha de nacimiento ni edad`);
       if (extra) assert.match(e.text, extra, action);
+      if (action.startsWith('notice.pause')) assert.doesNotMatch(all, /cuota(?! de mantenimiento)/i, `${action}: «cuota» a secas`);
     }
   });
 } finally {

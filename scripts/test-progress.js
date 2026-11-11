@@ -131,6 +131,36 @@ try {
     await F.attend(other, X, wk(0));
     assert.deepEqual(await streak(s), { current: 2, best: 2 });
   }));
+  // B30: las semanas enteras en pausa ni rompen ni suman; en una semana a medias solo rompen las sesiones fuera de la pausa.
+  const pauseOf = async (s, from, to, status = 'completed') => {
+    const { rows: [pl] } = await c.query(`INSERT INTO plans (name, price_cents) VALUES ($1, 1000) RETURNING id`, [`${tag}-pz-${s.slice(0, 6)}`]);
+    const sub = await F.subscribe(s, pl.id);
+    await c.query(`INSERT INTO pauses (subscription_id, starts_at, ends_at, months, price_cents, requested_by, status)
+                   VALUES ($1, ${from}, ${to}, 1, 500, $2, $3)`, [sub, s, status]);
+  };
+  await run('racha (B30): las semanas enteras en pausa ni rompen ni suman, también en la de cada disciplina', () => sp(async () => {
+    const s = await F.person('alumno');
+    const other = await F.person('alumno');
+    for (const k of [6, 5, 1, 0]) await F.attend(s, X, wk(k));
+    for (const k of [4, 3, 2]) await F.attend(other, X, wk(k)); // la academia dio clase en la pausa
+    await F.attend(s, X, `${wk(3)} + interval '1 hour'`); // un presente dentro de la pausa no suma
+    await pauseOf(s, monday(4), monday(1));
+    assert.deepEqual(await streak(s), { current: 4, best: 4 });
+    assert.deepEqual((await medalsIn(s, X)).streak, { current: 4, best: 4 });
+    // Anulada: no cuenta; las semanas 4 y 2 rompen y la 3 (con su presente) suma.
+    await c.query(`UPDATE pauses SET status = 'cancelled' WHERE subscription_id IN (SELECT id FROM subscriptions WHERE student_id = $1)`, [s]);
+    assert.deepEqual(await streak(s), { current: 2, best: 2 });
+  }));
+  await run('racha (B30): semana a medias en pausa: solo rompen las sesiones fuera de ella', () => sp(async () => {
+    const s = await F.person('alumno');
+    const other = await F.person('alumno');
+    for (const k of [3, 1]) await F.attend(s, X, wk(k));
+    await F.attend(other, X, `${monday(2)} + interval '3 days 18 hours'`); // jueves de la semana 2, en la pausa
+    await pauseOf(s, `${monday(2)} + interval '2 days'`, monday(1)); // del miércoles de la semana 2 al lunes siguiente
+    assert.deepEqual(await streak(s), { current: 2, best: 2 });
+    await F.attend(other, X, `${monday(2)} + interval '18 hours'`); // lunes de la semana 2, fuera de la pausa
+    assert.deepEqual(await streak(s), { current: 1, best: 1 });
+  }));
   await run('racha: el corte es el lunes 00:00 de Madrid (también en los cambios de hora)', () => sp(async () => {
     // Domingo 23:30 y lunes 00:30 de Madrid caen el mismo domingo en UTC: en Madrid son dos semanas.
     for (const [sun, mon] of [['2025-10-26 23:30', '2025-10-27 00:30'], ['2026-03-29 23:30', '2026-03-30 00:30']]) {

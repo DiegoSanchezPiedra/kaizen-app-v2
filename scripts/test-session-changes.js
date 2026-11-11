@@ -282,6 +282,20 @@ try {
       [['starts_at'], +last.starts_at, Date.parse(moved)]);
   });
 
+  await run('pausa (B30): mover una sesión a un día de pausa del alumno cancela su reserva (motivo pause); al resto, aviso de cambio', async () => {
+    const [paused, other] = [await student(), await student()];
+    const s = await looseSession(new Date(Date.now() + 2 * 864e5).toISOString());
+    const [b1, b2] = [await bk(s.id, paused), await bk(s.id, other)];
+    await q(`INSERT INTO pauses (subscription_id, starts_at, ends_at, months, price_cents, requested_by)
+             SELECT id, now() + interval '4 days', now() + interval '6 days', 1, 500, student_id FROM subscriptions WHERE student_id = $1`,
+    [paused]);
+    await adjust(s.id, { starts_at: new Date(Date.now() + 5 * 864e5).toISOString() });
+    assert.deepEqual([(await bookingOf(b1)).status, (await bookingOf(b1)).cancel_reason], ['cancelled', 'pause']);
+    assert.equal((await bookingOf(b2)).status, 'confirmed');
+    const actions = async (b) => (await q(`SELECT action FROM audit_log WHERE resource_id = $1 AND action LIKE 'notice.%'`, [b])).map((r) => r.action);
+    assert.deepEqual([await actions(b1), await actions(b2)], [['notice.pause'], ['notice.session_changed']]);
+  });
+
   await run('cambio de hora desde una fecha futura: la generación no duplica los días anteriores a from', async () => {
     const k = await mkClass({ weeks: 3 });
     await change(k.id, { from: madridDay(k.s[1].slot), start_time: '20:00' });
@@ -676,6 +690,7 @@ try {
   await q(`DELETE FROM bookings WHERE session_id = ANY($1::uuid[])`, [sessions]);
   await q(`DELETE FROM class_sessions WHERE id = ANY($1::uuid[])`, [sessions]);
   await q(`DELETE FROM classes WHERE id = ANY($1::uuid[])`, [classes]);
+  await q(`DELETE FROM pauses WHERE subscription_id IN (SELECT id FROM subscriptions WHERE student_id = ANY($1::uuid[]))`, [ids]);
   await q(`DELETE FROM subscriptions WHERE student_id = ANY($1::uuid[])`, [ids]);
   await q(`DELETE FROM plans WHERE id = $1`, [plan.id]);
   await q(`DELETE FROM disciplines WHERE id = $1`, [disc.id]);

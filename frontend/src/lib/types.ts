@@ -4,7 +4,7 @@
 export type Discipline = { id: number | string; name: string; min_age: number | null; max_age: number | null; is_active: boolean; is_open: boolean; medal_theme?: string | null }
 
 export type BookingStatus = 'confirmed' | 'waitlisted' | 'cancelled'
-export type CancelReason = 'student' | 'late' | 'admin' | 'session_cancelled' | 'no_coverage' | 'discipline_change' | 'out_of_age'
+export type CancelReason = 'student' | 'late' | 'admin' | 'session_cancelled' | 'no_coverage' | 'discipline_change' | 'out_of_age' | 'pause'
 
 export type CalendarSession = {
   id: string
@@ -38,6 +38,11 @@ export type Booking = {
 
 export type ProfileStatus = { ok: boolean; missing?: string[] }
 
+// Pausa con cuota de mantenimiento (B30): empieza en current_period_end; exempt = sin cuota de mantenimiento.
+export type Pause = { id: string; status: 'scheduled' | 'active'; months: number; starts_at: string; ends_at: string; price_cents: number; exempt: boolean }
+// price_cents null = la academia no ofrece pausas.
+export type PauseSettings = { price_cents: number | null; max_months: number; per_year: number }
+
 export type Subscription = {
   id: string
   status: string
@@ -48,6 +53,8 @@ export type Subscription = {
   scheduled_change?: { plan_id: string; plan_name: string; discipline_ids: string[]; scheduled_at: string } | null
   discipline_changes_left?: number | null
   payer_change?: { id: string; status: string; new_payer_id: string; starts_at: string; deadline: string } | null
+  pause?: Pause | null
+  pause_settings?: PauseSettings
 }
 
 export type Plan = {

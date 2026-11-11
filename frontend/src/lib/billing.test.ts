@@ -1,10 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  canEndEarly,
+  canPause,
+  cancelledText,
   changesLeft,
   disciplineLocked,
   eligibleDisciplines,
   freeChange,
   keepDisciplines,
+  pauseEnd,
+  pauseFee,
+  pauseLock,
+  pauseTitle,
+  perMonth,
   planChange,
   planLock,
   pollPhase,
@@ -13,7 +21,7 @@ import {
   visiblePlans,
 } from '@/lib/billing'
 import { formatDeadline, formatShortDate } from '@/lib/format'
-import type { Discipline, Plan, Subscription } from '@/lib/types'
+import type { Discipline, Pause, Plan, Subscription } from '@/lib/types'
 
 // Fija el «hoy» (Madrid) de las pruebas de edad.
 const today = (iso: string) => vi.useFakeTimers().setSystemTime(new Date(iso))
@@ -146,5 +154,60 @@ describe('fechas cortas de Madrid', () => {
     expect(formatShortDate('2026-12-01T09:24:00Z')).toBe('1 dic 2026')
     expect(formatShortDate('2026-10-31T23:30:00Z')).toBe('1 nov 2026')
     expect(formatDeadline('2026-12-01T08:24:00Z')).toBe('1 dic a las 9:24')
+  })
+})
+
+// ── Pausa con cuota de mantenimiento (B30.1) ──
+const pause = (o: Partial<Pause> = {}): Pause => ({ id: 'p', status: 'scheduled', months: 2, starts_at: '2026-12-01T09:24:00Z', ends_at: '2027-02-01T09:24:00Z', price_cents: 1500, exempt: false, ...o })
+const offered = { price_cents: 1500, max_months: 3, per_year: 1 }
+
+describe('pausa', () => {
+  it('se ofrece con precio, cuota active y sin pausa, bajada, baja ni cambio de pagador', () => {
+    expect(pauseLock(sub({ pause_settings: offered }))).toBeNull()
+    expect(canPause(sub({ pause_settings: offered }))).toBe(true)
+    expect(canPause(sub({}))).toBe(false) // la API aún no manda ajustes
+    expect(canPause(sub({ pause_settings: offered, current_period_end: null }))).toBe(false)
+  })
+  it('pauseLock da el motivo concreto', () => {
+    expect(pauseLock(sub({}))).toMatch(/no ofrece pausas/)
+    expect(pauseLock(sub({ pause_settings: { ...offered, price_cents: null } }))).toMatch(/no ofrece pausas/)
+    expect(pauseLock(sub({ pause_settings: offered, pause: pause() }))).toMatch(/ya hay una pausa/i)
+    expect(pauseLock(sub({ pause_settings: offered, cancel_at_period_end: true }))).toMatch(/termina/)
+    expect(pauseLock(sub({ pause_settings: offered, scheduled_change: { plan_id: '2', plan_name: 'B', discipline_ids: [], scheduled_at: '' } }))).toMatch(/bajada/)
+    expect(pauseLock(sub({ pause_settings: offered, payer_change: { id: 'x', status: 'requested', new_payer_id: 'p', starts_at: '', deadline: '' } }))).toMatch(/pagador/)
+    expect(pauseLock(sub({ pause_settings: offered, status: 'past_due' }))).toMatch(/al día/)
+    expect(pauseLock(sub({ pause_settings: offered, status: 'unpaid' }))).toMatch(/impagada/)
+    expect(pauseLock(sub({ pause_settings: offered, status: 'incomplete' }))).toMatch(/Ahora no/)
+  })
+  it('el fin son N meses enteros desde el inicio, en día de Madrid y sin pasarse de mes', () => {
+    expect(pauseEnd('2026-12-01T09:24:00Z', 2)).toBe('2027-02-01')
+    expect(pauseEnd('2026-11-30T23:30:00Z', 3)).toBe('2027-03-01') // 1 dic en Madrid
+    expect(pauseEnd('2026-12-31T09:00:00Z', 2)).toBe('2027-02-28')
+    expect(pauseEnd('2027-12-15T09:00:00Z', 12)).toBe('2028-12-15')
+  })
+  it('con pausa no se cambia ni el plan ni la disciplina', () => {
+    expect(planLock(sub({ pause: pause() }))).toMatch(/pausa.*pagador/)
+    expect(planLock(sub({ pause: pause({ status: 'active' }) }))).toMatch(/pausa/)
+    expect(disciplineLocked(sub({ pause: pause() }))).toBe(true)
+    expect(disciplineLocked(sub({ pause: null }))).toBe(false)
+  })
+  it('textos de estado: programada, en curso y exenta', () => {
+    expect(pauseTitle(pause())).toBe(`Pausa programada del 1 dic 2026 al 1 feb 2027 · ${perMonth(1500)}`)
+    expect(pauseTitle(pause({ status: 'active' }))).toBe('En pausa hasta el 1 feb 2027')
+    expect(pauseTitle(pause({ exempt: true }))).toBe('Pausa programada del 1 dic 2026 al 1 feb 2027 · sin cuota de mantenimiento')
+    expect(pauseFee(pause())).toBe(`${perMonth(1500)} de cuota de mantenimiento`)
+    expect(pauseFee(pause({ exempt: true }))).toBe('Sin cuota de mantenimiento')
+  })
+  it('volver antes solo con la pausa en curso y más allá de la siguiente fecha de cobro', () => {
+    const live = pause({ status: 'active', ends_at: '2027-02-01T09:24:00Z' })
+    expect(canEndEarly(sub({ pause: live, current_period_end: '2027-01-01T09:24:00Z' }))).toBe(true)
+    expect(canEndEarly(sub({ pause: live, current_period_end: '2027-02-01T09:24:00Z' }))).toBe(false) // ya acaba en ese cobro
+    expect(canEndEarly(sub({ pause: pause(), current_period_end: '2026-12-01T09:24:00Z' }))).toBe(false) // programada: se anula
+    expect(canEndEarly(sub({ pause: null }))).toBe(false)
+  })
+  it('reservas canceladas al pedirla', () => {
+    expect(cancelledText(0)).toBe('No había reservas en esos días.')
+    expect(cancelledText(1)).toBe('Se canceló 1 reserva de esos días.')
+    expect(cancelledText(3)).toBe('Se cancelaron 3 reservas de esos días.')
   })
 })

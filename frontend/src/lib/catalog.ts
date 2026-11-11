@@ -1,4 +1,5 @@
 import { AGREEMENT_TITLE, type AgreementType } from '@/lib/profile'
+import type { PauseSettings } from '@/lib/types'
 
 // ── Precios: la API da céntimos, la pantalla euros ───────────────────────────
 
@@ -26,7 +27,7 @@ export const catalogRedirect = (tab: string | null): string => (tab === 'plans' 
 // ── Ajustes: tres grupos con su «Guardar» ────────────────────────────────────
 
 export type CheckinSettings = { opens_minutes: number | null; closes_minutes: number | null; qr_seconds: number | null }
-export type Settings = { checkin: CheckinSettings; discipline_changes: { per_period: number } }
+export type Settings = { checkin: CheckinSettings; discipline_changes: { per_period: number }; pause: PauseSettings }
 
 const whole = (v: string): number | null => (/^\d{1,9}$/.test(v.trim()) ? Number(v) : null)
 export const minutesOf = (v: string): number | null => {
@@ -42,6 +43,16 @@ export function checkinBody(d: Record<keyof CheckinSettings, string>) {
 export const perPeriodBody = (v: string): { per_period: number } | null => {
   const n = whole(v)
   return n === null || n > 1000 ? null : { per_period: n }
+}
+
+// Pausa: precio de la cuota de mantenimiento en euros (vacío = no se manda: sin precio no hay pausas, y la API no lo quita),
+// meses máximos por pausa (1–12) y pausas al año (0–12).
+export function pauseBody(d: { price: string; max_months: string; per_year: string }): { price_cents?: number; max_months: number; per_year: number } | null {
+  const months = whole(d.max_months)
+  const perYear = whole(d.per_year)
+  const price = d.price.trim() ? eurosToCents(d.price) : undefined
+  if (price === null || price === 0 || months === null || months < 1 || months > 12 || perYear === null || perYear > 12) return null
+  return { ...(price !== undefined && { price_cents: price }), max_months: months, per_year: perYear }
 }
 
 // ¿Cambia algo respecto a lo guardado? (un campo ausente del cuerpo no cambia).

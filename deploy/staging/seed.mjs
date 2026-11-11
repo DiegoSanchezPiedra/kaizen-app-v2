@@ -99,4 +99,9 @@ for (const d of (await call('/admin/agreements/documents', { token: admin })).da
   must(await call(`/admin/agreements/documents/${d.id}/publish`, { method: 'POST', token: admin }), `publicar ${d.type}`, ['already_published']);
 }
 
+// Pausa (B30): cuota de mantenimiento de 15 €, hasta 3 meses, 1 pausa al año. Crea Product y Price en Stripe de prueba.
+// Solo si aún no hay precio: si el admin ya lo puso o lo cambió a mano, se deja.
+const pauseCfg = must(await call('/admin/settings', { token: admin }), 'ajustes').data.pause;
+if (pauseCfg.price_cents === null) must(await call('/admin/settings/pause', { method: 'PUT', token: admin, body: { price_cents: 1500, max_months: 3, per_year: 1 } }), 'ajustes de la pausa');
+
 console.log(`\nListo. Cuentas (contraseña: la de SEED_PASSWORD):\n${USERS.map(([n, name, role]) => `  ${email(n).padEnd(28)} ${role ?? 'alumno'}  (${name})`).join('\n')}\n  + Hugo Hijo, menor de ${email('tutor')}\n`);
