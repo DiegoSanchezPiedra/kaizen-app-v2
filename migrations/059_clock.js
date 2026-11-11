@@ -3,12 +3,14 @@
 // - teacher_employment: tipo de relación del profesor (sin fila, autónomo). Lo escribe solo el admin.
 // - clock_events: fichajes (entra, sale, empieza y acaba una pausa). app_user solo inserta profile_id, kind y origin: la
 //   hora es la del servidor (default now()). Solo el profesor empleado y para sí mismo.
-// - clock_corrections: corrección = registro nuevo que apunta al fichaje (nueva hora, o anularlo con at NULL) o añade uno
-//   que falta (kind + at). La pide el profesor (pendiente) o la hace el admin.
+// - clock_corrections: corrección = registro nuevo que apunta a un fichaje (event_id) o a uno añadido por una corrección
+//   aplicada (correction_id), con nueva hora o anulándolo (at NULL), o añade uno que falta (kind + at). La pide el
+//   profesor empleado (pendiente) o la hace el admin.
 // - clock_correction_resolutions: el admin aplica o rechaza (con motivo) una corrección; una fila aparte, nunca un UPDATE.
 // Las tres, solo añadir: sin UPDATE ni DELETE para app_user y un trigger que los rechaza a todos salvo el DELETE de
-// service_role (la purga de la tarea nocturna, 4 años). RLS: el profesor lo suyo, el admin todo.
-// clock_effective: los fichajes como cuentan (con las correcciones aplicadas), con la RLS de quien consulta.
+// service_role de filas de más de 4 años (la purga de la tarea nocturna). RLS: el profesor lo suyo, el admin todo.
+// clock_effective: los fichajes como cuentan (cada uno con su última corrección aplicada, por orden de resolución), con la
+// RLS de quien consulta.
 /* eslint-disable camelcase */
 
 export const shorthands = undefined;
@@ -42,17 +44,20 @@ export const up = (pgm) => {
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       profile_id uuid NOT NULL REFERENCES profiles(id),
       event_id uuid REFERENCES clock_events(id),
+      correction_id uuid REFERENCES clock_corrections(id),
       kind clock_kind,
       at timestamptz,
       reason text NOT NULL CHECK (length(btrim(reason)) BETWEEN 1 AND 500),
       requested_by uuid NOT NULL REFERENCES profiles(id),
       created_at timestamptz NOT NULL DEFAULT now(),
-      -- Con event_id: nueva hora (o anularlo, at NULL). Sin él: añade el fichaje que falta.
-      CHECK (CASE WHEN event_id IS NOT NULL THEN kind IS NULL ELSE kind IS NOT NULL AND at IS NOT NULL END),
+      -- Con event_id o correction_id (uno): nueva hora (o anularlo, at NULL). Sin ninguno: añade el fichaje que falta.
+      CHECK (CASE WHEN event_id IS NOT NULL OR correction_id IS NOT NULL THEN kind IS NULL AND num_nulls(event_id, correction_id) = 1
+                  ELSE kind IS NOT NULL AND at IS NOT NULL END),
       CHECK (at IS NULL OR at <= created_at)
     );
     CREATE INDEX clock_corrections_profile ON clock_corrections (profile_id, created_at);
     CREATE INDEX clock_corrections_event ON clock_corrections (event_id);
+    CREATE INDEX clock_corrections_correction ON clock_corrections (correction_id);
 
     CREATE TABLE clock_correction_resolutions (
       correction_id uuid PRIMARY KEY REFERENCES clock_corrections(id),
@@ -62,15 +67,24 @@ export const up = (pgm) => {
       resolved_at timestamptz NOT NULL DEFAULT now()
     );
 
+    -- Sin SECURITY DEFINER: decide por current_user (quien borra), que en una DEFINER sería siempre su dueño.
     CREATE FUNCTION clock_append_only() RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
       BEGIN
-        IF TG_OP = 'DELETE' AND current_user = 'service_role' THEN RETURN OLD; END IF; -- la purga (4 años)
+        -- La purga: solo service_role y solo filas de más de 4 años (resolved_at, created_at o at, la que tenga la tabla).
+        IF TG_OP = 'DELETE' AND current_user = 'service_role' THEN
+          IF COALESCE(to_jsonb(OLD) ->> 'resolved_at', to_jsonb(OLD) ->> 'created_at', to_jsonb(OLD) ->> 'at')::timestamptz
+             < now() - interval '4 years' THEN
+            RETURN OLD;
+          END IF;
+        END IF;
         RAISE EXCEPTION 'append_only' USING ERRCODE = '42501';
       END
       $$;
     ${TABLES.map((t) => `
     CREATE TRIGGER ${t}_append_only BEFORE UPDATE OR DELETE ON ${t} FOR EACH ROW EXECUTE FUNCTION clock_append_only();
     CREATE TRIGGER ${t}_no_truncate BEFORE TRUNCATE ON ${t} FOR EACH STATEMENT EXECUTE FUNCTION clock_append_only();`).join('')}
+    ALTER FUNCTION clock_append_only() OWNER TO service_role;
+    REVOKE ALL ON FUNCTION clock_append_only() FROM PUBLIC;
 
     ${['teacher_employment', ...TABLES].map((t) => `ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY;
     ALTER TABLE ${t} FORCE ROW LEVEL SECURITY;
@@ -92,35 +106,43 @@ export const up = (pgm) => {
                                WHERE te.profile_id = ${UID} AND te.employment = 'employee'));
 
     GRANT SELECT ON clock_corrections TO app_user;
-    GRANT INSERT (profile_id, event_id, kind, at, reason, requested_by) ON clock_corrections TO app_user;
+    GRANT INSERT (profile_id, event_id, correction_id, kind, at, reason, requested_by) ON clock_corrections TO app_user;
     CREATE POLICY clock_corrections_select ON clock_corrections FOR SELECT TO app_user
       USING (profile_id = ${UID} OR ${IS_ADMIN});
     CREATE POLICY clock_corrections_insert ON clock_corrections FOR INSERT TO app_user
       WITH CHECK (requested_by = ${UID} AND ((profile_id = ${UID} AND ${ROLE} = 'profesor') OR ${IS_ADMIN})
+                  AND EXISTS (SELECT 1 FROM teacher_employment te
+                               WHERE te.profile_id = clock_corrections.profile_id AND te.employment = 'employee')
                   AND (event_id IS NULL OR EXISTS (SELECT 1 FROM clock_events e
-                                                    WHERE e.id = event_id AND e.profile_id = clock_corrections.profile_id)));
+                                                    WHERE e.id = clock_corrections.event_id AND e.profile_id = clock_corrections.profile_id))
+                  AND (correction_id IS NULL OR EXISTS (SELECT 1 FROM clock_corrections t
+                                                    WHERE t.id = clock_corrections.correction_id AND t.profile_id = clock_corrections.profile_id)));
 
     GRANT SELECT ON clock_correction_resolutions TO app_user;
     GRANT INSERT (correction_id, status, reason, resolved_by) ON clock_correction_resolutions TO app_user;
     CREATE POLICY clock_correction_resolutions_select ON clock_correction_resolutions FOR SELECT TO app_user
-      USING (EXISTS (SELECT 1 FROM clock_corrections c WHERE c.id = correction_id));
+      USING (EXISTS (SELECT 1 FROM clock_corrections c WHERE c.id = clock_correction_resolutions.correction_id));
     CREATE POLICY clock_correction_resolutions_insert ON clock_correction_resolutions FOR INSERT TO app_user
       WITH CHECK (${IS_ADMIN} AND resolved_by = ${UID});
 
-    -- Fichajes como cuentan: el original con la hora de su última corrección aplicada (fuera si la anula) y los
-    -- añadidos por corrección. corrected: la hora o el fichaje vienen de una corrección.
+    -- Fichajes como cuentan: los originales y los añadidos por corrección, cada uno con la hora de su última corrección
+    -- aplicada (por orden de resolución; fuera si la anula). corrected: la hora o el fichaje vienen de una corrección.
     CREATE VIEW clock_effective WITH (security_invoker = true) AS
       WITH applied AS (
-        SELECT c.* FROM clock_corrections c
+        SELECT c.*, COALESCE(c.event_id, c.correction_id) AS target, r.resolved_at
+          FROM clock_corrections c
           JOIN clock_correction_resolutions r ON r.correction_id = c.id AND r.status = 'applied'),
       last AS (
-        SELECT DISTINCT ON (event_id) event_id, at FROM applied WHERE event_id IS NOT NULL
-         ORDER BY event_id, created_at DESC, id DESC)
-      SELECT e.id, e.profile_id, e.kind, COALESCE(l.at, e.at) AS at, e.origin, l.event_id IS NOT NULL AS corrected
-        FROM clock_events e LEFT JOIN last l ON l.event_id = e.id
-       WHERE l.event_id IS NULL OR l.at IS NOT NULL
-      UNION ALL
-      SELECT a.id, a.profile_id, a.kind, a.at, 'correction', true FROM applied a WHERE a.event_id IS NULL;
+        SELECT DISTINCT ON (target) target, at FROM applied WHERE target IS NOT NULL
+         ORDER BY target, resolved_at DESC, id DESC),
+      base AS (
+        SELECT id, profile_id, kind, at, origin FROM clock_events
+        UNION ALL
+        SELECT id, profile_id, kind, at, 'correction' FROM applied WHERE target IS NULL)
+      SELECT b.id, b.profile_id, b.kind, COALESCE(l.at, b.at) AS at, b.origin,
+             l.target IS NOT NULL OR b.origin = 'correction' AS corrected
+        FROM base b LEFT JOIN last l ON l.target = b.id
+       WHERE l.target IS NULL OR l.at IS NOT NULL;
     REVOKE ALL ON clock_effective FROM app_user;
     GRANT SELECT ON clock_effective TO app_user;
   `);

@@ -40,7 +40,7 @@
     "test:home": "dotenv -e .env -- node scripts/test-home.js",
     "test:password": "dotenv -e .env -- node scripts/test-password.js",
     "test:avatar": "dotenv -e .env -- node scripts/test-avatar.js",
-    "test:clock": "dotenv -e .env -- node scripts/test-clock.js",
+    "test:clock": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-clock.js",
     "extend-horizon": "dotenv -e .env -- node scripts/extend-horizon.js",
     "nightly": "dotenv -e .env -- node scripts/nightly.js",
     "sync-stripe-plans": "dotenv -e .env -- node scripts/sync-stripe-plans.js",

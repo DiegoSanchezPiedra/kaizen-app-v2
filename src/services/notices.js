@@ -15,8 +15,10 @@ const CHANNELS = Object.fromEntries([
   'payment_failed', 'checkout_payment_failed', 'checkout_race_refunded',
   'plan_downgraded', 'upgrade_requires_action', 'subscription_unpaid', 'subscription_cancelled',
   'payer_change_requested', 'payer_change_paid', 'payer_change_expired', 'payer_change_cancelled',
-  'event_refunded', 'avatar_removed', 'clock_corrected', 'clock_open',
+  'event_refunded', 'avatar_removed', 'clock_corrected', 'clock_open', 'clock_correction_applied',
+  'clock_correction_rejected',
 ].map((a) => [`notice.${a}`, ['email']]));
+// notice.clock_correction_requested no está: solo va a admins (el panel), que nunca reciben entregas.
 
 /** Aviso + una entrega por destinatario no admin y canal, en una sentencia (también en autocommit). */
 export async function notice(db, { action, actorId, type, resourceId, recipients, ...extra }) {
@@ -255,6 +257,14 @@ const SERVICE = {
     title: 'Corrección en tu registro de jornada',
     body: `La academia ha corregido un fichaje de tu registro de jornada. Motivo: ${g.c.reason}. `
       + 'El fichaje original sigue a la vista junto a la corrección.',
+  }),
+  'notice.clock_correction_applied': () => ({
+    title: 'Corrección aplicada',
+    body: 'La academia ha aplicado la corrección que pediste en tu registro de jornada.',
+  }),
+  'notice.clock_correction_rejected': (g) => ({
+    title: 'Corrección rechazada',
+    body: `La academia ha rechazado la corrección que pediste en tu registro de jornada. Motivo: ${g.c.resolution_reason}.`,
   }),
   'notice.clock_open': (g) => ({
     title: 'Jornada sin salida',

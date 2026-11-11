@@ -4,7 +4,7 @@ import { requireAuth, requireRole, withRlsContext } from '../../middleware/auth.
 import { withRls } from '../../db/rls.js';
 import { invalid } from '../../services/catalog.js';
 import {
-  setEmployment, getMonth, adminCorrection, noticeCorrected, resolveCorrection, exportCsv,
+  setEmployment, getMonth, adminCorrection, noticeCorrected, resolveCorrection, noticeResolved, exportCsv,
 } from '../../services/clock.js';
 
 const router = Router();
@@ -43,10 +43,19 @@ router.post('/clock/corrections', async (req, res, next) => {
   }
 });
 
-// POST /admin/clock/corrections/:id/apply → corrección; …/reject { reason } → corrección
+// POST /admin/clock/corrections/:id/apply → corrección; …/reject { reason } → corrección.
+// Aviso al profesor que la pidió tras el COMMIT (notice.clock_correction_applied / _rejected, con el motivo).
 for (const [path, status] of [['apply', 'applied'], ['reject', 'rejected']]) {
-  router.post(`/clock/corrections/:id/${path}`, withRlsContext((req, client) => resolveCorrection(client, {
-    id: req.params.id, status, body: req.body, actorId: req.user.id })));
+  router.post(`/clock/corrections/:id/${path}`, async (req, res, next) => {
+    try {
+      const c = await withRls({ uid: req.user.id, role: req.user.role }, (client) => resolveCorrection(client, {
+        id: req.params.id, status, body: req.body, actorId: req.user.id }));
+      await noticeResolved(c, req.user.id);
+      res.json(c);
+    } catch (err) {
+      next(err);
+    }
+  });
 }
 
 export default router;
