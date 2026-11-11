@@ -120,6 +120,8 @@ Un vistazo y lo que pide atención. Todo enlaza a su pantalla. Sin MFA, el aviso
   | Cambiar de disciplina | `POST /admin/subscriptions/:id/disciplines` | «es inmediato y cancela sus reservas de la disciplina que deja»; gratis si ya no se cubría. `discipline_change_limit`, `payer_change_pending` |
   | Cambiar de pagador | `POST /admin/subscriptions/:id/payer-change` (candidatos: sus tutores o él mismo si es adulto, de `guardians`) | «el nuevo pagador recibe un email y tiene hasta el … para pagar; si no, sigue pagando …». `same_payer`, `invalid_payer`, `period_ending_soon`, `upgrade_pending`, `cancel_scheduled`, `payer_change_paid` |
   | Anular el cambio de pagador | `DELETE /admin/subscriptions/:id/payer-change` | solo si no está pagado (`payer_change_paid`) |
+  | Pausa (B30): ver, pausar, anular, volver antes | filas «Pausa» y «Cuota de mantenimiento» en la cuota; `POST`/`DELETE /admin/subscriptions/:id/pause` | **Pausar la membresía**: hoja con los meses, igual que la del pagador, y «se avisa al pagador». **Anular la pausa** (programada) y **Volver antes** (en curso, en la siguiente fecha de cobro). Con una baja, un cambio programado o sin precio en Ajustes, «Pausar» sale deshabilitado con el motivo. Con pausa no se pide cambio de pagador. La baja la descarta (se dice en su confirmación). `pause_not_configured`, `change_scheduled`, `pause_year_limit`, `pause_ending`, `no_pause` |
+  | Eximir de la cuota de mantenimiento | `POST /admin/pauses/:id/exempt` `{ reason }` | hoja con el **motivo** obligatorio (hasta 500) y confirmación; el resultado dice desde cuándo (`exempt_from`) y que lo ya cobrado no se devuelve. `pause_exempt`, `pause_nothing_to_exempt`, `pause_not_live`, `pause_not_found` |
 
 - **Reservas** (solo alumnos): `GET /bookings?profile_id&from&to` por tramos de ≤ 92 días (próximas y pasadas), con
   estado y motivo de cancelación; **Cancelar** (`POST /bookings/:id/cancel`, motivo «cancelada por la academia», nunca
@@ -187,7 +189,7 @@ Errores: `invalid_range` («revisa las fechas: como mucho 92 días o 24 meses»)
 | Pantalla | Endpoints | Estados y errores |
 |---|---|---|
 | **Tablets** | `GET /admin/tablets`, `POST /admin/tablets`, `POST /admin/tablets/:id/revoke` | nombre, estado (esperando vinculación, vinculada, revocada), vinculada el, vista por última vez. **Nueva tablet**: nombre → el **código** en grande (Geist Mono) con «caduca a las …; solo se ve ahora» y cómo usarlo (`/tablet` en la tablet). **Revocar** con confirmación («la tablet deja de mostrar el QR al momento») |
-| **Ajustes** | `GET /admin/settings` (**B19.1**), `PUT /admin/settings/checkin`, `PUT /admin/settings/discipline-changes` | dos grupos, cada uno con su «Guardar»: **check-in** (abre N min antes, cierra N min después, el QR cambia cada N s; 1–1440), **cambios de disciplina por periodo** (0 o más). `invalid_field` en su campo |
+| **Ajustes** | `GET /admin/settings` (**B19.1**), `PUT /admin/settings/checkin`, `PUT /admin/settings/discipline-changes`, `PUT /admin/settings/pause` (B30) | tres grupos, cada uno con su «Guardar»: **check-in** (abre N min antes, cierra N min después, el QR cambia cada N s; 1–1440), **cambios de disciplina por periodo** (0 o más), **pausa** (cuota de mantenimiento al mes en €, más de 0; máximo de meses por pausa, 1–12; máximo de pausas al año, 0–12). Sin precio la academia no ofrece pausas, y una vez puesto solo se cambia: la API no lo quita (con 0 pausas al año, nadie pausa). `invalid_field` en su campo |
 
 ## Jornada `/admin/clock` (B31)
 
