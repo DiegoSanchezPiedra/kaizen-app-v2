@@ -67,7 +67,8 @@
     "test:slowlog": "node scripts/test-slowlog.js",
     "test:e2e-mfa": "dotenv -e .env -- node scripts/with-temp-db.js scripts/e2e-mfa.js",
     "test:e2e-agreements": "dotenv -e .env -- node scripts/with-temp-db.js scripts/e2e-agreements.js",
-    "test:e2e-b11": "dotenv -e .env -- node scripts/with-temp-db.js scripts/e2e-b11.js"
+    "test:e2e-b11": "dotenv -e .env -- node scripts/with-temp-db.js scripts/e2e-b11.js",
+    "test:e2e-b30": "dotenv -e .env -- node scripts/with-temp-db.js scripts/e2e-b30.js"
   },
   "keywords": [],
   "author": "",
