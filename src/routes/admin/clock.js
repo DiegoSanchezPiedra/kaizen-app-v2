@@ -4,7 +4,7 @@ import { requireAuth, requireRole, withRlsContext } from '../../middleware/auth.
 import { withRls } from '../../db/rls.js';
 import { invalid } from '../../services/catalog.js';
 import {
-  setEmployment, getMonth, adminCorrection, noticeCorrected, resolveCorrection, noticeResolved, exportCsv,
+  setEmployment, listEmployees, getMonth, adminCorrection, noticeCorrected, resolveCorrection, noticeResolved, exportCsv,
 } from '../../services/clock.js';
 
 const router = Router();
@@ -13,6 +13,9 @@ router.use(requireAuth, requireRole('admin'));
 // PUT /admin/profiles/:id/employment { employment: 'employee' | 'self_employed' } → { profile_id, employment }
 router.put('/profiles/:id/employment', withRlsContext((req, client) => setEmployment(client, {
   profileId: req.params.id, employment: req.body?.employment, actorId: req.user.id })));
+
+// GET /admin/clock/employees → { employees: [{ id, display_name }] } (profesores empleados, por nombre)
+router.get('/clock/employees', withRlsContext((req, client) => listEmployees(client)));
 
 // GET /admin/clock?profile_id&month → como GET /me/clock
 router.get('/clock', withRlsContext((req, client) =>

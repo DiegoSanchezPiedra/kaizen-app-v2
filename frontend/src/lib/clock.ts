@@ -1,3 +1,4 @@
+import { madridMonth } from '@/lib/dates'
 import { formatTime } from '@/lib/format'
 
 // Registro de jornada (B31, docs/api.md § Registro de jornada). La hora de un fichaje la pone el servidor.
@@ -60,23 +61,25 @@ export function stateLine(state: ClockState, since?: string): string {
 // La última entrada del mes. shortcut: si la jornada abierta empezó el mes anterior, no se ve y sale «Trabajando» a secas.
 export const sinceOf = (m: ClockMonth): string | undefined => m.days.flatMap((d) => d.events).findLast((e) => e.kind === 'in')?.at
 
-// El fichaje tal cual se fichó, si el de ese día es una corrección suya (los añadidos no tienen original).
-export const originalOf = (m: ClockMonth, e: ClockEvent): ClockEvent | undefined => (e.corrected ? m.events.find((o) => o.id === e.id) : undefined)
+// El fichaje tal cual se fichó (los de `events`, que son los del mes). Un fichaje añadido por una corrección no tiene original.
+export const originalOf = (m: ClockMonth, id: string | null): ClockEvent | undefined => (id ? m.events.find((o) => o.id === id) : undefined)
 
-const wallFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-function wall(ms: number): number {
-  const p = Object.fromEntries(wallFmt.formatToParts(ms).map((x) => [x.type, Number(x.value)]))
-  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute)
+// Un fichaje con una corrección pendiente no admite otra hasta que se resuelva.
+export const hasPending = (m: ClockMonth, eventId: string): boolean => m.corrections.some((c) => c.status === 'pending' && c.event_id === eventId)
+
+// Qué hace una corrección, con la hora original a la vista; si el original no es de este mes, lo dice.
+export function whatOf(c: Correction, m: ClockMonth): string {
+  const kind = KIND_LABEL[c.kind].toLowerCase()
+  if (c.event_id === null) return `Añadir ${kind} a las ${formatTime(c.at!)}`
+  const orig = originalOf(m, c.event_id)
+  const from = orig ? ` de las ${formatTime(orig.at)}` : ''
+  const where = orig ? '' : m.corrections.some((x) => x.id === c.event_id) ? ' (fichaje añadido por una corrección)' : ' (fichaje de otro mes)'
+  return c.at ? `Cambiar ${kind}${from} a las ${formatTime(c.at)}${where}` : `Anular ${kind}${from}${where}`
 }
 
-// «2026-07-01» + «09:30» (hora de Madrid) → ISO en UTC, que es lo que pide la API.
-export function madridToIso(day: string, time: string): string {
-  const [y, m, d] = day.split('-').map(Number)
-  const [h, mi] = time.split(':').map(Number)
-  const guess = Date.UTC(y, m - 1, d, h, mi)
-  const first = guess - (wall(guess) - guess)
-  return new Date(guess - (wall(first) - first)).toISOString()
-}
+// ?month=YYYY-MM de la URL, o el mes en curso si falta o no vale.
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
+export const monthParam = (params: URLSearchParams): string => (MONTH.test(params.get('month') ?? '') ? params.get('month')! : madridMonth())
 
 // Las pausas del día como [inicio, fin]; la que sigue abierta, con fin undefined. Los fichajes vienen en orden.
 export function pausesOf(events: ClockEvent[]): [ClockEvent, ClockEvent | undefined][] {

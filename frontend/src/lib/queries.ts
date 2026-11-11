@@ -82,3 +82,4 @@ export const refreshEvents = () => queryClient.invalidateQueries({ queryKey: ['e
 export const useClock = (month: string) => useQuery({ queryKey: ['clock', month], queryFn: () => api<ClockMonth>(path('/me/clock', { month })) })
 export const useAdminClock = (profileId: string, month: string) =>
   useQuery({ queryKey: ['admin', 'clock', profileId, month], queryFn: () => api<ClockMonth>(path('/admin/clock', { profile_id: profileId, month })) })
+export const useEmployees = () => useQuery({ queryKey: ['admin', 'clock', 'employees'], queryFn: () => api<{ employees: { id: string; display_name: string | null }[] }>('/admin/clock/employees') })

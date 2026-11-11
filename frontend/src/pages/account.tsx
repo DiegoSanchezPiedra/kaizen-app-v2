@@ -21,7 +21,8 @@ import { api } from '@/lib/api'
 import { errorText } from '@/lib/errors'
 import { logout } from '@/lib/logout'
 import { agreementsFor } from '@/lib/profile'
-import { useProfileStatus } from '@/lib/queries'
+import { madridMonth } from '@/lib/dates'
+import { useClock, useProfileStatus } from '@/lib/queries'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
 import { setToken, useSession } from '@/lib/session'
 import type { Me } from '@/lib/types'
@@ -49,6 +50,17 @@ const Group = ({ title, children }: { title: string; children: React.ReactNode }
   </section>
 )
 
+// «Mi registro» solo para el profesor empleado; comparte la consulta de la tarjeta de Inicio.
+function ClockGroup() {
+  const clock = useClock(madridMonth())
+  if (clock.data?.profile.employment !== 'employee') return null
+  return (
+    <Group title="Trabajo">
+      <Row to="/clock" icon={ClockIcon} label="Mi registro" hint="Tus fichajes y correcciones" />
+    </Group>
+  )
+}
+
 export function AccountPage() {
   const role = useSession()?.role
   const { withSubject } = useSubject()
@@ -70,11 +82,7 @@ export function AccountPage() {
         {role !== 'tutor' && <Row to="/account/profile" icon={GlobeIcon} label="Perfil público" hint="Qué ven los demás de ti" />}
         {family && <Row to="/account/children" icon={UsersIcon} label="Mis hijos" />}
       </Group>
-      {role === 'profesor' && (
-        <Group title="Trabajo">
-          <Row to="/clock" icon={ClockIcon} label="Mi registro" hint="Tus fichajes y correcciones" />
-        </Group>
-      )}
+      {role === 'profesor' && <ClockGroup />}
       {family && (
         <Group title="Salud y documentos">
           <Row to={withSubject('/account/health')} icon={HeartPulseIcon} label="Ficha de salud" />

@@ -11,17 +11,18 @@ import { api } from '@/lib/api'
 import {
   authorName,
   formatDuration,
+  hasPending,
   KIND_LABEL,
   KINDS,
-  madridToIso,
   originalOf,
   STATUS_LABEL,
+  whatOf,
   type ClockEvent,
   type ClockKind,
   type ClockMonth,
   type Correction,
 } from '@/lib/clock'
-import { addMonths, formatDay, formatMonth, madridDay, madridMonth } from '@/lib/dates'
+import { addMonths, formatDay, formatMonth, madridDay, madridMonth, madridToIso } from '@/lib/dates'
 import { formatDeadline, formatTime } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import { FormSheet, SelectField } from '@/pages/admin/schedule-bits'
@@ -129,16 +130,11 @@ function ClockSheet({ target, admin, profileId, onClose, onDone }: { target: Tar
 
 const CORRECTION_TAG = { pending: 'warning', applied: 'success', rejected: 'error' } as const
 
-function what(c: Correction): string {
-  if (c.event_id === null) return `Añadir ${KIND_LABEL[c.kind].toLowerCase()} a las ${formatTime(c.at!)}`
-  return c.at ? `Cambiar ${KIND_LABEL[c.kind].toLowerCase()} a las ${formatTime(c.at)}` : `Anular ${KIND_LABEL[c.kind].toLowerCase()}`
-}
-
-function CorrectionRow({ c, admin, onReject, apply }: { c: Correction; admin: boolean; onReject: () => void; apply: () => void }) {
+function CorrectionRow({ c, text, admin, onReject, apply }: { c: Correction; text: string; admin: boolean; onReject: () => void; apply: () => void }) {
   return (
     <li className="flex flex-col gap-1.5 border-b px-4 py-3 last:border-b-0">
       <div className="flex items-start justify-between gap-2">
-        <span className="font-semibold">{what(c)}</span>
+        <span className="font-semibold">{text}</span>
         <Tag variant={CORRECTION_TAG[c.status]}>{STATUS_LABEL[c.status]}</Tag>
       </div>
       <p className="text-sm">{c.reason}</p>
@@ -188,12 +184,13 @@ export function ClockLog({ data, admin = false, printTo, onChanged }: { data: Cl
           <CorrectionRow
             key={c.id}
             c={c}
+            text={whatOf(c, data)}
             admin={admin}
             onReject={() => setTarget({ mode: 'reject', correction: c })}
             apply={() =>
               ask({
                 title: '¿Aplicar la corrección?',
-                description: `${what(c)}. Se avisa al profesor por email.`,
+                description: `${whatOf(c, data)}. Se avisa al profesor por email.`,
                 label: 'Aplicar',
                 done: 'Corrección aplicada',
                 run: post(`/admin/clock/corrections/${c.id}/apply`),
@@ -242,7 +239,7 @@ export function ClockLog({ data, admin = false, printTo, onChanged }: { data: Cl
             </div>
             <ul>
               {d.events.map((e) => {
-                const original = originalOf(data, e)
+                const original = e.corrected ? originalOf(data, e.id) : undefined
                 return (
                   <li key={`${e.id}-${e.at}`} className="flex flex-col gap-1.5 border-b px-4 py-2.5 last:border-b-0">
                     <div className="flex items-center justify-between gap-2">
@@ -255,7 +252,8 @@ export function ClockLog({ data, admin = false, printTo, onChanged }: { data: Cl
                       </span>
                     </div>
                     {original && <p className="text-[13px] text-muted-foreground">Fichado a las {formatTime(original.at)}</p>}
-                    {employee && (
+                    {employee && hasPending(data, e.id) && <Tag variant="warning">Corrección pendiente</Tag>}
+                    {employee && !hasPending(data, e.id) && (
                       <div className="flex gap-2">
                         <Button size="lg" variant="outline" className="flex-1" onClick={() => setTarget({ mode: 'change', event: e })}>
                           {admin ? 'Corregir hora' : 'Pedir cambio de hora'}

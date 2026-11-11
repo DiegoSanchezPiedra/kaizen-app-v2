@@ -56,6 +56,16 @@ async function professor(client, profileId) {
   return { id: p.id, display_name: p.display_name, employment: p.employment };
 }
 
+/** Los profesores empleados (los únicos con jornada nueva), por nombre: la lista del panel. */
+export async function listEmployees(client) {
+  const { rows } = await client.query(
+    `SELECT p.id, p.display_name FROM profiles p
+       JOIN user_roles ur ON ur.user_id = p.id AND ur.role = 'profesor'
+       JOIN teacher_employment te ON te.profile_id = p.id AND te.employment = 'employee'
+      ORDER BY p.display_name, p.id`);
+  return { employees: rows };
+}
+
 /** El admin marca a un profesor como empleado o autónomo (audit_log profile.employment). */
 export async function setEmployment(client, { profileId, employment, actorId }) {
   uuid(profileId, 'profile_id');

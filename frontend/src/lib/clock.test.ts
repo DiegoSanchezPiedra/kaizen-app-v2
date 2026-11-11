@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { actionsFor, formatDuration, madridToIso, originalOf, pausesOf, stateLine, sinceOf, type ClockEvent, type ClockMonth } from '@/lib/clock'
+import { actionsFor, formatDuration, hasPending, monthParam, originalOf, pausesOf, stateLine, sinceOf, whatOf, type ClockEvent, type ClockMonth, type Correction } from '@/lib/clock'
+import { madridMonth } from '@/lib/dates'
 
 describe('registro de jornada (B31.1)', () => {
   it('los botones que permite la secuencia', () => {
@@ -29,17 +30,37 @@ describe('registro de jornada (B31.1)', () => {
     expect(sinceOf({ days: [] } as unknown as ClockMonth)).toBeUndefined()
   })
 
-  it('hora de Madrid a ISO con su zona, en verano y en invierno', () => {
-    expect(madridToIso('2026-07-01', '09:30')).toBe('2026-07-01T07:30:00.000Z')
-    expect(madridToIso('2026-11-10', '09:30')).toBe('2026-11-10T08:30:00.000Z')
-    expect(madridToIso('2026-11-10', '00:15')).toBe('2026-11-09T23:15:00.000Z')
+  it('el original de un fichaje, si es del mes', () => {
+    const m = { events: [{ id: '1', kind: 'in', at: 'orig', origin: 'app' }] } as unknown as ClockMonth
+    expect(originalOf(m, '1')?.at).toBe('orig')
+    expect(originalOf(m, '2')).toBeUndefined()
+    expect(originalOf(m, null)).toBeUndefined()
   })
 
-  it('el original de un fichaje corregido', () => {
-    const m = { events: [{ id: '1', kind: 'in', at: 'orig', origin: 'app' }] } as unknown as ClockMonth
-    expect(originalOf(m, { id: '1', kind: 'in', at: 'new', origin: 'app', corrected: true })?.at).toBe('orig')
-    expect(originalOf(m, { id: '1', kind: 'in', at: 'x', origin: 'app', corrected: false })).toBeUndefined()
-    expect(originalOf(m, { id: '2', kind: 'in', at: 'x', origin: 'correction', corrected: true })).toBeUndefined()
+  const c = (over: Partial<Correction>): Correction => ({ id: 'c1', event_id: null, kind: 'in', at: null, reason: 'x', created_at: '', requested_by: { id: 'p', display_name: 'P' }, status: 'pending', resolved_by: null, resolved_at: null, resolution_reason: null, ...over })
+  const month = { events: [{ id: '1', kind: 'in', at: '2026-11-10T08:05:00Z', origin: 'app' }], corrections: [] } as unknown as ClockMonth
+
+  it('qué hace una corrección, con el original visible', () => {
+    expect(whatOf(c({ at: '2026-11-10T08:10:00Z' }), month)).toBe('Añadir entrada a las 09:10')
+    expect(whatOf(c({ event_id: '1', at: '2026-11-10T08:10:00Z' }), month)).toBe('Cambiar entrada de las 09:05 a las 09:10')
+    expect(whatOf(c({ event_id: '1' }), month)).toBe('Anular entrada de las 09:05')
+  })
+
+  it('un original que no es del mes lo dice', () => {
+    expect(whatOf(c({ event_id: '9', kind: 'out' }), month)).toBe('Anular salida (fichaje de otro mes)')
+    expect(whatOf(c({ event_id: '9', at: '2026-11-10T08:10:00Z' }), month)).toBe('Cambiar entrada a las 09:10 (fichaje de otro mes)')
+  })
+
+  it('un fichaje con una corrección pendiente no admite otra', () => {
+    const m = { corrections: [c({ event_id: '1' }), c({ id: 'c2', event_id: '2', status: 'applied' })] } as unknown as ClockMonth
+    expect(hasPending(m, '1')).toBe(true)
+    expect(hasPending(m, '2')).toBe(false)
+    expect(hasPending(m, '3')).toBe(false)
+  })
+
+  it('el mes de ?month= o el actual', () => {
+    expect(monthParam(new URLSearchParams('month=2026-03'))).toBe('2026-03')
+    for (const bad of ['', 'month=2026-13', 'month=hoy', 'month=2026-3']) expect(monthParam(new URLSearchParams(bad))).toBe(madridMonth())
   })
 })
 

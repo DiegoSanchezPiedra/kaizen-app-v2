@@ -71,6 +71,16 @@ try {
     assert.equal(rowCount, 1);
   });
 
+  await run('lista de empleados: solo profesores empleados, por nombre; solo el admin', async () => {
+    const r = await http('GET', '/admin/clock/employees', 'admin');
+    assert.equal(r.status, 200);
+    const mine = r.body.employees.filter((e) => e.display_name.startsWith(tag));
+    assert.deepEqual(mine.map((e) => e.id).sort(), ['emp', 'emp2', 'emp3', 'emp4', 'emp5'].map((k) => U[k]).sort());
+    assert.deepEqual(Object.keys(mine[0]).sort(), ['display_name', 'id']);
+    assert.deepEqual(mine.map((e) => e.display_name), [...mine.map((e) => e.display_name)].sort());
+    assert.equal((await http('GET', '/admin/clock/employees', 'emp')).status, 403);
+  });
+
   await run('autónomo → 403 not_employee al fichar; un alumno no entra', async () => {
     const r = await clock('auto', 'in');
     assert.equal(r.status, 403);

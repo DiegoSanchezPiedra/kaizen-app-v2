@@ -9,16 +9,14 @@ import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton, QueryView } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
-import { EMPLOYMENT_LABEL, type Employment } from '@/lib/clock'
+import { EMPLOYMENT_LABEL, monthParam, type Employment } from '@/lib/clock'
 import { madridMonth } from '@/lib/dates'
 import { queryClient } from '@/lib/logout'
 import { toastError, toastOk } from '@/lib/notify'
-import { useAdminClock } from '@/lib/queries'
+import { useAdminClock, useEmployees } from '@/lib/queries'
 import { path } from '@/lib/url'
 import { Filter } from '@/pages/community'
-import { useTrainers } from '@/pages/admin/schedule-bits'
 
-const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
 const refresh = () => void queryClient.invalidateQueries({ queryKey: ['admin', 'clock'] })
 
 // El CSV va con Bearer: se baja y se guarda desde una URL temporal (como el PDF de un documento).
@@ -35,26 +33,25 @@ async function downloadCsv(profileId: string, month: string) {
   }
 }
 
-// docs/api.md § Registro de jornada. Sin `profile_id`, los profesores (la API no lista solo a los empleados: el tipo de
-// relación sale al abrir cada uno); con él, su mes.
+// docs/api.md § Registro de jornada. Sin `profile_id`, los profesores empleados; con él, su mes.
 export function AdminClockPage() {
   const [params, setParams] = useSearchParams()
   const profileId = params.get('profile_id')
   return (
     <Page title="Jornada" wide>
-      {profileId ? <Professor id={profileId} month={MONTH.test(params.get('month') ?? '') ? params.get('month')! : madridMonth()} setMonth={(m) => setParams({ profile_id: profileId, month: m }, { replace: true })} /> : <Professors />}
+      {profileId ? <Professor id={profileId} month={monthParam(params)} setMonth={(m) => setParams({ profile_id: profileId, month: m }, { replace: true })} /> : <Professors />}
     </Page>
   )
 }
 
 function Professors() {
-  const list = useTrainers()
+  const list = useEmployees()
   if (list.isPending) return <ListSkeleton rows={4} className="h-14" />
   if (list.isError) return <ErrorState error={list.error} onRetry={() => void list.refetch()} />
-  if (list.data.length === 0) return <EmptyState icon={<UsersIcon />} title="No hay profesores" />
+  if (list.data.employees.length === 0) return <EmptyState icon={<UsersIcon />} title="No hay profesores empleados" text="Marca a un profesor como empleado en su ficha de Usuarios." />
   return (
     <ul className="overflow-hidden rounded-2xl border bg-card">
-      {list.data.map((p) => (
+      {list.data.employees.map((p) => (
         <li key={p.id} className="border-b last:border-b-0">
           <Link to={`/admin/clock?profile_id=${p.id}`} className="flex min-h-14 items-center px-4 py-2.5 font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
             {p.display_name ?? 'Sin nombre'}

@@ -2,7 +2,6 @@ import { useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router'
 import { QueryView } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
 import { actionsFor, sinceOf, stateLine, type ClockKind, type ClockState } from '@/lib/clock'
 import { madridMonth } from '@/lib/dates'
@@ -24,7 +23,8 @@ export function ClockCard() {
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['clock'] }),
   })
   return (
-    <QueryView query={query} skeleton={<Skeleton className="h-32 w-full rounded-2xl" />}>
+    // Sin esqueleto: el autónomo no tiene tarjeta y no debe verla parpadear.
+    <QueryView query={query} skeleton={null}>
       {(m) =>
         m.profile.employment === 'employee' && (
           <section aria-label="Jornada" className="flex flex-col gap-3 rounded-2xl border bg-card p-4">

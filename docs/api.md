@@ -360,6 +360,7 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 | Método y ruta | Cuerpo / query | Respuesta |
 |---|---|---|
 | `PUT /admin/profiles/:id/employment` | `{ employment: 'employee'\|'self_employed' }` | `{ profile_id, employment }` (`audit_log` `profile.employment`). `409 not_professor` |
+| `GET /admin/clock/employees` | — | `{ employees: [{ id, display_name }] }`: solo los profesores con `employment = 'employee'`, por nombre (la lista de «Jornada» del panel) |
 | `GET /admin/clock?profile_id&month` | — | registro del mes, como `GET /me/clock` (también del autónomo). `409 not_professor`, `404 profile_not_found` |
 | `POST /admin/clock/corrections` | `{ profile_id, event_id, at?, reason }` o `{ profile_id, kind, at, reason }` (solo empleados: `403 not_employee`) | `201` corrección ya `applied`; aviso `notice.clock_corrected` (email) al profesor |
 | `POST /admin/clock/corrections/:id/apply` | — | corrección `applied`; aviso `notice.clock_correction_applied` (email) al profesor si la pidió él |

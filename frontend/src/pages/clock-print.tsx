@@ -3,13 +3,10 @@ import { PrinterIcon } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 import { QueryView } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
-import { authorName, type ClockEvent, type ClockKind, type ClockMonth, type Correction, formatDuration, KIND_LABEL, pausesOf } from '@/lib/clock'
-import { formatDay, formatMonth, madridMonth } from '@/lib/dates'
+import { authorName, type ClockEvent, type ClockKind, type ClockMonth, type Correction, formatDuration, monthParam, pausesOf, STATUS_LABEL, whatOf } from '@/lib/clock'
+import { formatDay, formatMonth } from '@/lib/dates'
 import { formatShortDate, formatTime } from '@/lib/format'
 import { useAdminClock, useClock } from '@/lib/queries'
-
-const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
-const monthParam = (params: URLSearchParams): string => (MONTH.test(params.get('month') ?? '') ? params.get('month')! : madridMonth())
 
 // «Registro de jornada» (B31): la misma hoja para el profesor (/clock/print) y para el admin (/admin/clock/print).
 export function ClockPrintPage() {
@@ -70,7 +67,10 @@ function Sheet({ data, month }: { data: ClockMonth; month: string }) {
           <tbody>
             {data.days.map((d) => (
               <tr key={d.date} className="border-b align-top">
-                <td className="py-1.5 pe-2">{formatDay(d.date)}</td>
+                <td className="py-1.5 pe-2">
+                  {formatDay(d.date)}
+                  {d.open && <span className="block text-xs font-semibold">Jornada abierta</span>}
+                </td>
                 <td className="py-1.5 pe-2">{listOf(d.events, 'in')}</td>
                 <td className="py-1.5 pe-2">{listOf(d.events, 'out')}</td>
                 <td className="py-1.5 pe-2">
@@ -84,6 +84,7 @@ function Sheet({ data, month }: { data: ClockMonth; month: string }) {
           </tbody>
         </table>
         {data.days.length === 0 && <p className="py-3 text-sm text-muted-foreground">Sin fichajes este mes.</p>}
+        <p className="pt-1.5 text-xs text-muted-foreground">* Fichaje corregido</p>
       </section>
 
       <div className="flex items-baseline justify-between border-y py-2 font-semibold">
@@ -97,7 +98,7 @@ function Sheet({ data, month }: { data: ClockMonth; month: string }) {
           <ul className="flex flex-col gap-3 text-sm">
             {data.corrections.map((c) => (
               <li key={c.id} className="flex flex-col gap-0.5 border-b pb-2 last:border-b-0">
-                <Correction c={c} data={data} />
+                <CorrectionItem c={c} data={data} />
               </li>
             ))}
           </ul>
@@ -112,29 +113,21 @@ function Sheet({ data, month }: { data: ClockMonth; month: string }) {
   )
 }
 
-function Correction({ c, data }: { c: Correction; data: ClockMonth }) {
-  const orig = data.events.find((e) => e.id === c.event_id)
-  const kind = c.kind ?? orig?.kind
-  const label = (k: ClockKind | undefined) => (k ? KIND_LABEL[k] : 'Fichaje')
-  const status =
-    c.status === 'pending'
-      ? 'Pendiente'
-      : `${c.status === 'applied' ? 'Aplicada' : 'Rechazada'} por ${authorName(c.resolved_by)}${c.resolved_at ? ` el ${when(c.resolved_at)}` : ''}`
+function CorrectionItem({ c, data }: { c: Correction; data: ClockMonth }) {
   return (
     <>
-      <p>
-        <span className="font-semibold">Fichaje:</span> {orig ? `${label(orig.kind)} a las ${formatTime(orig.at)}` : '—'}
-      </p>
-      <p>
-        <span className="font-semibold">Nuevo valor:</span> {c.at ? `${kind ? `${KIND_LABEL[kind]} a las ` : ''}${formatTime(c.at)}` : 'Anulado'}
-      </p>
+      <p className="font-semibold">{whatOf(c, data)}</p>
       <p>
         <span className="font-semibold">Motivo:</span> {c.reason}
       </p>
       <p className="text-muted-foreground">
         Pedida por {authorName(c.requested_by)} el {when(c.created_at)}
       </p>
-      <p className="text-muted-foreground">{status}</p>
+      <p className="text-muted-foreground">
+        {STATUS_LABEL[c.status]}
+        {c.resolved_at && ` por ${authorName(c.resolved_by)} el ${when(c.resolved_at)}`}
+        {c.resolution_reason && ` · ${c.resolution_reason}`}
+      </p>
     </>
   )
 }
