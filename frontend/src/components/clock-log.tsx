@@ -38,7 +38,7 @@ export function MonthNav({ month, onChange }: { month: string; onChange: (m: str
       <Button variant="ghost" size="xl" aria-label="Mes anterior" onClick={() => onChange(addMonths(month, -1))}>
         <ChevronLeftIcon />
       </Button>
-      <span className="font-semibold capitalize" aria-live="polite">
+      <span className="inline-block font-semibold first-letter:uppercase" aria-live="polite">
         {formatMonth(month)}
       </span>
       <Button variant="ghost" size="xl" aria-label="Mes siguiente" disabled={month >= madridMonth()} onClick={() => onChange(addMonths(month, 1))}>
@@ -208,7 +208,7 @@ export function ClockLog({ data, admin = false, printTo, onChanged }: { data: Cl
         <span className="text-sm text-muted-foreground">Total del mes</span>
         <span className="font-heading text-3xl font-bold tabular-nums">{formatDuration(data.total_seconds)} h</span>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {employee && (
           <Button variant="outline" size="xl" className="flex-1" onClick={() => setTarget({ mode: 'add' })}>
             <PlusIcon />
@@ -254,7 +254,7 @@ export function ClockLog({ data, admin = false, printTo, onChanged }: { data: Cl
                     {original && <p className="text-[13px] text-muted-foreground">Fichado a las {formatTime(original.at)}</p>}
                     {employee && hasPending(data, e.id) && <Tag variant="warning">Corrección pendiente</Tag>}
                     {employee && !hasPending(data, e.id) && (
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
                         <Button size="lg" variant="outline" className="flex-1" onClick={() => setTarget({ mode: 'change', event: e })}>
                           {admin ? 'Corregir hora' : 'Pedir cambio de hora'}
                         </Button>
