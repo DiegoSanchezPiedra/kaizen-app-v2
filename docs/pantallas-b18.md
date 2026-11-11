@@ -185,6 +185,8 @@ Lo ve cualquier rol con sesión.
 | **Corregir** (en el detalle, lista cerrada) | `POST …/:studentId/correct` | presente ↔ falta con motivo obligatorio (≤ 500). `correction_window_expired` («pídelo a la academia»), `no_change`, `attendance_not_closed` |
 | **Fichas de salud** (en el detalle, solo una sesión de hoy no cancelada) | `GET /professor/sessions/:id/health` | botón «Ver fichas de salud» con «esta consulta queda registrada»; solo se piden al tocarlo y no se guardan: lesiones, condiciones, alergias, medicación y contacto de emergencia por alumno. Vacío: «nadie ha indicado nada» |
 | **Informes** `/professor/reports` | `GET /professor/reports/sessions?by&from&to&discipline_id` | por disciplina o por clase, por mes (≤ 12): sesiones, ocupación, presentes, faltas, sin registrar, tardías. Sin dinero ni alumnos. `trainer.name: null` → «otro profesor». `invalid_range` |
+| **Jornada** (tarjeta en `/professor`, solo empleados) | `POST /me/clock`, `GET /me/clock?month` | botones según la secuencia: fuera → «Entrar»; trabajando → «Pausa» y «Salir»; en pausa → «Volver». Muestra «Trabajando desde 9:30» y enlaza a Mi registro. Autónomo: no aparece. |
+| **Mi registro** `/clock?month=` | `GET /me/clock?month`, `POST /me/clock/corrections` | el mes con sus días y fichajes (corregidos marcados), total del mes y correcciones. Empleado: «Pedir cambio de hora», «Pedir anularlo» y «Añadir fichaje que falta», con motivo obligatorio. **Imprimir** abre `/clock/print?month=` (hoja A4 con firmas, sin menú). Autónomo: solo lectura, con una nota |
 | **Comunidad** | como el alumno | — |
 | **Cuenta** | `GET`/`PATCH /me`, `GET`/`PATCH /me/profile` | mis datos, perfil público, cerrar sesión. Sin avisos push (el profesor no recibe) |
 
