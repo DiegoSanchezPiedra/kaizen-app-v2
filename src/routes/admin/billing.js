@@ -1,5 +1,5 @@
-// src/routes/admin/billing.js — bajas de suscripciones y cambio de pagador (B11), morosos (B10.2) y cambio de plan y de
-// disciplina (B10.5). Solo admin.
+// src/routes/admin/billing.js — bajas de suscripciones y cambio de pagador (B11), morosos (B10.2), cambio de plan y de
+// disciplina (B10.5) y pausa (B30). Solo admin.
 import { Router } from 'express';
 import { requireAuth, requireRole, withRlsContext } from '../../middleware/auth.js';
 import { httpError } from '../../lib/errors.js';
@@ -7,6 +7,7 @@ import {
   cancelSubscription, listOverduePayers,
   changePlan, cancelScheduledChange, changeDiscipline, updateDisciplineChangeSettings,
   requestPayerChange, cancelPayerChange, getPayerChange, listPayerChanges,
+  requestPause, endPause, exemptPause, updatePauseSettings,
 } from '../../services/billing.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -51,6 +52,20 @@ router.delete('/subscriptions/:id/plan/scheduled', withRlsContext(async (req, cl
 }));
 router.post('/subscriptions/:id/disciplines', withRlsContext(async (req, client) => changeDiscipline(client, {
   id: req.params.id, actorId: req.user.id, isAdmin: true, fromId: req.body?.from_id, toId: req.body?.to_id,
+})));
+
+// Pausa (B30), como POST/DELETE /billing/pause pero por la suscripción: el admin la pide o la anula por el pagador.
+router.post('/subscriptions/:id/pause', withRlsContext(async (req, client) => requestPause(client, {
+  id: req.params.id, actorId: req.user.id, isAdmin: true, months: req.body?.months,
+})));
+router.delete('/subscriptions/:id/pause', withRlsContext(async (req, client) =>
+  endPause(client, { id: req.params.id, actorId: req.user.id, isAdmin: true })));
+// POST /admin/pauses/:id/exempt { reason } → la pausa ({ id, status, months, starts_at, ends_at, price_cents, exempt })
+router.post('/pauses/:id/exempt', withRlsContext(async (req, client) =>
+  exemptPause(client, { pauseId: req.params.id, actorId: req.user.id, reason: req.body?.reason })));
+// PUT /admin/settings/pause { price_cents?, max_months?, per_year? } → valores vigentes (price_cents null = sin pausas)
+router.put('/settings/pause', withRlsContext(async (req, client) => ({
+  settings: await updatePauseSettings(client, req.body ?? {}, req.user.id),
 })));
 
 // PUT /admin/settings/discipline-changes { per_period } → cambios de disciplina por periodo (entero ≥ 0)

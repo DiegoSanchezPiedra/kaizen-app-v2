@@ -11,6 +11,7 @@ const SQL_ERRORS = {
   session_not_bookable: [409, 'La sesión está cancelada o ya ha empezado'],
   outside_booking_window: [409, 'La sesión aún no está dentro de la ventana de reserva'],
   not_covered: [403, 'La suscripción no cubre esta sesión'],
+  paused: [403, 'La membresía está en pausa ese día'],
   age_out_of_range: [403, 'No tiene la edad de esta disciplina el día de la sesión'],
   already_booked: [409, 'Ya tiene reserva o está en espera en esta sesión'],
   booking_overlap: [409, 'Tiene otra reserva que se solapa con esta sesión'],

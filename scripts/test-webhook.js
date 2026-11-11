@@ -10,7 +10,7 @@ import { createPlan, updatePlan } from '../src/services/catalog.js';
 import { handleEvent } from '../src/services/stripeWebhook.js';
 import {
   cancelSubscription, changePlan, cancelScheduledChange, getSubscription,
-  requestPayerChange, cancelPayerChange,
+  requestPayerChange, cancelPayerChange, requestPause, updatePauseSettings,
 } from '../src/services/billing.js';
 import { listAudit } from '../src/services/panel.js';
 import webhooksRouter from '../src/routes/webhooks.js';
@@ -27,6 +27,7 @@ const people = {
   pc: 'alumno', pc2: 'alumno', // B10.5
   unp: 'alumno', // B10.6
   kid: 'alumno', t1: 'tutor', t2: 'tutor', // B11: kid (menor) lo paga t1; t2, también vinculado
+  pz: 'alumno', // B30
 };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 for (const [k, role] of Object.entries(people)) {
@@ -48,6 +49,7 @@ const customer = async (who, pm) => {
 const cusAlu = await customer('alu', 'pm_card_visa');
 const cusTutor = await customer('tutor', 'pm_card_chargeCustomerFail');
 const stripeSubs = [];
+const savedPause = await q(`SELECT key, value FROM academy_settings WHERE key LIKE 'pause\\_%'`); // B30: se restauran al final
 // Lo que deja un Checkout pagado: suscripción con el pedido en metadata.
 const paidSub = async (cus, student, payer, extra = {}) => {
   const s = await stripe.subscriptions.create({
@@ -469,6 +471,105 @@ try {
     assert.ok((await stripe.customers.retrieve(cus)).balance < 0, 'saldo a favor, sin reembolso');
   });
 
+  // --- B30: pausa. El cambio de fase se simula al releer el Schedule (current_phase); con el reloj, test:e2e-b30. ---
+  await asAdmin((c) => updatePauseSettings(c, { price_cents: 700 }, U.admin));
+  const cusPz = await customer('pz', 'pm_card_visa');
+  const pzSub = await paidSub(cusPz, 'pz', 'pz');
+  await handleEvent(completed(pzSub));
+  const pzRow = await localSub(pzSub.id);
+  const pauseOf = async (id) => (await q(`SELECT * FROM pauses WHERE id = $1`, [id]))[0];
+  const asPz = (fn) => withRls({ uid: U.pz, role: 'alumno' }, fn);
+  // Stripe al releer el Schedule, en la fase `i` (0 = la actual, 1 = mantenimiento, 2 = la vuelta).
+  const inPhase = async (i, fn) => {
+    const { retrieve } = stripe.subscriptionSchedules;
+    stripe.subscriptionSchedules.retrieve = async (...a) => {
+      const s = await retrieve.apply(stripe.subscriptionSchedules, a);
+      const p = s.phases[i];
+      return s.metadata?.kind === 'pause' ? { ...s, current_phase: { start_date: p.start_date, end_date: p.end_date } } : s;
+    };
+    try { await fn(); } finally { stripe.subscriptionSchedules.retrieve = retrieve; }
+  };
+  let pzPause;
+
+  await run('pausa: el Schedule no se toma por bajada (sin scheduled_*); empieza → active y aviso; vuelve → completed y aviso', async () => {
+    pzPause = (await asPz((c) => requestPause(c, { id: pzRow.id, actorId: U.pz, isAdmin: false, months: 1 }))).body;
+    const sch = (await stripe.subscriptions.retrieve(pzSub.id)).schedule;
+    await handleEvent(evt('subscription_schedule.created', { id: sch, object: 'subscription_schedule' }));
+    let row = await localSub(pzSub.id);
+    assert.deepEqual([row.stripe_schedule_id, row.scheduled_plan_id, row.scheduled_at], [sch, null, null]);
+    assert.equal((await pauseOf(pzPause.id)).status, 'scheduled');
+    assert.equal((await asPz((c) => getSubscription(c, { studentId: U.pz }))).scheduled_change, null);
+    await inPhase(1, async () => {
+      await updated(pzSub.id);
+      await handleEvent(evt('subscription_schedule.updated', { id: sch, object: 'subscription_schedule' })); // repetido
+    });
+    assert.equal((await pauseOf(pzPause.id)).status, 'active');
+    const started = await noticeOf('notice.pause_started', pzPause.id);
+    assert.deepEqual([started.length, started[0].recipients, started[0].student_id, started[0].plan_id], [1, [U.pz], U.pz, plan.id]);
+    assert.deepEqual(await deliveriesOf('notice.pause_started', pzPause.id), [{ recipient_id: U.pz, channel: 'email' }]);
+    row = await localSub(pzSub.id);
+    assert.deepEqual([row.status, row.plan_id, row.scheduled_plan_id], ['active', plan.id, null], 'la pausa no cambia plan ni estado');
+    await inPhase(2, () => updated(pzSub.id));
+    assert.equal((await pauseOf(pzPause.id)).status, 'completed');
+    assert.equal((await noticeOf('notice.pause_ended', pzPause.id)).length, 1);
+    await inPhase(2, () => updated(pzSub.id));
+    assert.equal((await noticeOf('notice.pause_ended', pzPause.id)).length, 1, 'repetido: un solo aviso');
+    assert.equal((await asPz((c) => getSubscription(c, { studentId: U.pz }))).pause, null);
+  });
+
+  await run('bajada sobre el Schedule de una pausa ya acabada: limpia su metadata y vuelve a ser una bajada', async () => {
+    assert.equal((await change('pz', pzRow.id, down.id, [disc])).status, 202);
+    const sch = (await stripe.subscriptions.retrieve(pzSub.id, { expand: ['schedule'] })).schedule;
+    assert.deepEqual([sch.metadata, sch.phases.length], [{}, 2]);
+    await handleEvent(evt('subscription_schedule.updated', { id: sch.id, object: 'subscription_schedule' }));
+    assert.equal((await localSub(pzSub.id)).scheduled_plan_id, down.id);
+    assert.equal((await pauseOf(pzPause.id)).status, 'completed', 'la pausa acabada no se toca');
+    await asPz((c) => cancelScheduledChange(c, { id: pzRow.id, actorId: U.pz, isAdmin: false }));
+    await handleEvent(evt('subscription_schedule.released', { id: sch.id, object: 'subscription_schedule' }));
+  });
+
+  await run('pausa anulada: el webhook de la liberación la confirma anulada', async () => {
+    await q(`UPDATE pauses SET starts_at = starts_at - interval '1 year' WHERE id = $1`, [pzPause.id]); // fuera del año
+    const p = (await asPz((c) => requestPause(c, { id: pzRow.id, actorId: U.pz, isAdmin: false, months: 1 }))).body;
+    const sch = (await stripe.subscriptions.retrieve(pzSub.id)).schedule;
+    // El webhook llega antes de que el endpoint escriba «anulada»: lo deduce de la liberación antes del inicio.
+    await stripe.subscriptionSchedules.release(sch);
+    await handleEvent(evt('subscription_schedule.released', { id: sch, object: 'subscription_schedule' }));
+    assert.equal((await pauseOf(p.id)).status, 'cancelled');
+    assert.deepEqual([(await localSub(pzSub.id)).stripe_schedule_id], [null]);
+    await q(`UPDATE pauses SET starts_at = starts_at - interval '1 year' WHERE id = $1`, [p.id]);
+  });
+
+  await run('baja con una pausa programada: libera el Schedule, el aviso la da por anulada y el webhook la anula', async () => {
+    const p = (await asPz((c) => requestPause(c, { id: pzRow.id, actorId: U.pz, isAdmin: false, months: 1 }))).body;
+    const { schedule } = await stripe.subscriptions.retrieve(pzSub.id);
+    await asAdmin((c) => cancelSubscription(c, { id: pzRow.id, atPeriodEnd: true, actorId: U.admin }));
+    assert.equal((await stripe.subscriptionSchedules.retrieve(schedule)).status, 'released');
+    const [n] = await noticeOf('notice.subscription_cancelled', pzRow.id);
+    assert.deepEqual([n.discarded_plan_id, n.discarded_pause], [null, true]);
+    await handleEvent(evt('subscription_schedule.released', { id: schedule, object: 'subscription_schedule' }));
+    assert.equal((await pauseOf(p.id)).status, 'cancelled');
+  });
+
+  await run('baja a mitad de una pausa en curso: queda acabada en el fin de la suscripción', async () => {
+    // Pausa en curso simulada: Schedule liberado a mitad de la fase de mantenimiento.
+    const [p] = await q(
+      `INSERT INTO pauses (subscription_id, starts_at, ends_at, months, price_cents, requested_by, status)
+       VALUES ($1, now() - interval '10 days', now() + interval '50 days', 2, 700, $2, 'active') RETURNING id, ends_at`, [pzRow.id, U.pz]);
+    const now = Math.floor(Date.now() / 1000);
+    const released = { id: 'sub_sched_test', object: 'subscription_schedule', status: 'released', released_at: now,
+      metadata: { kind: 'pause', pause_id: p.id }, subscription: null, released_subscription: pzSub.id, phases: [] };
+    const { retrieve } = stripe.subscriptionSchedules;
+    stripe.subscriptionSchedules.retrieve = async (id, ...a) => (id === released.id ? released : retrieve.call(stripe.subscriptionSchedules, id, ...a));
+    try {
+      await handleEvent(evt('subscription_schedule.released', { id: released.id, object: 'subscription_schedule' }));
+    } finally { stripe.subscriptionSchedules.retrieve = retrieve; }
+    const got = await pauseOf(p.id);
+    const end = (await stripe.subscriptions.retrieve(pzSub.id)).items.data[0].current_period_end * 1000;
+    assert.deepEqual([got.status, got.ends_at.getTime()], ['completed', Math.min(end, p.ends_at.getTime())]);
+    assert.deepEqual(await noticeOf('notice.pause_ended', p.id), [], 'la baja ya avisa');
+  });
+
   // --- B10.6: avisos nuevos ---
   await run('impagada: subscription_unpaid con el recibo y su entrega, solo en la transición a unpaid', async () => {
     const cus = await customer('unp', 'pm_card_visa');
@@ -685,6 +786,10 @@ try {
   }
   await q(`DELETE FROM invoices WHERE student_id = ANY($1::uuid[])`, [ids]);
   await q(`DELETE FROM payer_changes WHERE student_id = ANY($1::uuid[])`, [ids]);
+  await q(`DELETE FROM audit_log WHERE resource_id IN (SELECT id::text FROM pauses WHERE subscription_id = ANY($1::uuid[]))`, [subs]);
+  await q(`DELETE FROM pauses WHERE subscription_id = ANY($1::uuid[])`, [subs]);
+  await q(`DELETE FROM academy_settings WHERE key LIKE 'pause\\_%'`);
+  for (const r of savedPause) await q(`INSERT INTO academy_settings (key, value) VALUES ($1, $2::jsonb)`, [r.key, JSON.stringify(r.value)]);
   await q(`DELETE FROM subscription_disciplines WHERE subscription_id = ANY($1::uuid[])`, [subs]);
   await q(`DELETE FROM subscriptions WHERE id = ANY($1::uuid[])`, [subs]);
   await q(`DELETE FROM webhook_events WHERE id = ANY($1::text[])`, [eventIds]);

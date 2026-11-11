@@ -261,10 +261,11 @@ try {
   await run('ajustes: GET igual a lo que devuelven los PUT, y ve un cambio', async () => {
     const get = async () => (await http('GET', '/admin/settings', 'admin')).body;
     const before = await get();
-    assert.deepEqual(Object.keys(before).sort(), ['checkin', 'discipline_changes']);
+    assert.deepEqual(Object.keys(before).sort(), ['checkin', 'discipline_changes', 'pause']);
     assert.deepEqual(Object.keys(before.checkin).sort(), ['closes_minutes', 'opens_minutes', 'qr_seconds']);
     // Sin cambiar nada: los PUT devuelven lo mismo.
     assert.deepEqual((await http('PUT', '/admin/settings/checkin', 'admin', {})).body.settings, before.checkin);
+    assert.deepEqual((await http('PUT', '/admin/settings/pause', 'admin', {})).body.settings, before.pause); // B30
     const put = (n) => http('PUT', '/admin/settings/discipline-changes', 'admin', { per_period: n });
     assert.deepEqual((await put(before.discipline_changes.per_period)).body.settings, before.discipline_changes);
     const n = before.discipline_changes.per_period + 1;

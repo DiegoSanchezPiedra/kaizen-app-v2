@@ -296,9 +296,10 @@ export async function listCalendar(client, user, { from, to, discipline_id, prof
             CASE WHEN tn.id IS NOT NULL THEN jsonb_build_object('id', tn.id, 'display_name', tn.display_name) END AS trainer,
             s.location, s.capacity, session_taken(s.id) AS taken, s.status,
             (s.status = 'scheduled' AND s.ends_at < now()) AS held,
-            -- Cubre y, ese día, tiene la edad de la disciplina (B29). null (perfil ajeno) se queda null.
+            -- Cubre y, ese día, tiene la edad de la disciplina (B29) y no está en pausa (B30). null (perfil ajeno) se queda null.
             (SELECT COALESCE(jsonb_object_agg(e.key, CASE WHEN e.value = 'true'
-                       THEN to_jsonb(in_age_range(p.birth_date, d.min_age, d.max_age, s.starts_at)) ELSE e.value END), '{}')
+                       THEN to_jsonb(in_age_range(p.birth_date, d.min_age, d.max_age, s.starts_at)
+                                     AND NOT in_pause(p.id, s.starts_at)) ELSE e.value END), '{}')
                FROM jsonb_each(cov.covered) e JOIN profiles p ON p.id = e.key::uuid) AS covered,
             (SELECT COALESCE(jsonb_object_agg(x, (SELECT jsonb_build_object('id', b.id, 'status', b.status)
                                                     FROM bookings b

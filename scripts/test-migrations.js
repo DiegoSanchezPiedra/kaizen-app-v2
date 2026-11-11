@@ -13,9 +13,10 @@ await c.connect();
 let failed = 0;
 try {
   const [{ name }] = (await c.query(`SELECT name FROM pgmigrations ORDER BY id DESC LIMIT 1`)).rows;
-  // B31: la 059 (registro de jornada) no tiene datos que migrar; se baja con la 058 y vuelve a subir.
-  assert.equal(name, '059_clock', 'el test baja las dos últimas: actualízalo si hay otra después');
-  migrate('down', 2);
+  // B31 y B30: la 059 (registro de jornada) y la 060 (pausas) no tienen datos que migrar; se bajan con la 058 y vuelven
+  // a subir (la 060 deshace y rehace sus parches de book_session y de la racha).
+  assert.equal(name, '060_pauses', 'el test baja las tres últimas: actualízalo si hay otra después');
+  migrate('down', 3);
   await c.query(`INSERT INTO disciplines (name, minors_only) VALUES ('T-Mig-Kids', true), ('T-Mig-BJJ', false)`);
   migrate('up');
   const { rows } = await c.query(`SELECT name, min_age, max_age FROM disciplines WHERE name LIKE 'T-Mig-%' ORDER BY name`);

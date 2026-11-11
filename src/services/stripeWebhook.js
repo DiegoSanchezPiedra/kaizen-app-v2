@@ -1,9 +1,9 @@
-// src/services/stripeWebhook.js — eventos de Stripe (B10, B10.1, B10.5, B11, B21.0). Solo el webhook escribe billing (servicePool).
+// src/services/stripeWebhook.js — eventos de Stripe (B10, B10.1, B10.5, B11, B21.0, B30). Solo el webhook escribe billing (servicePool).
 // Los eventos llegan desordenados y repetidos: cada handler relee el objeto actual de Stripe y hace upsert.
 import { servicePool } from '../config/database.js';
 import { stripe } from '../config/stripe.js';
 import {
-  STATUS, ts, idOf, pendingPhase, discardSuccessor,
+  STATUS, ts, idOf, pendingPhase, isPause, discardSuccessor,
 } from './billing.js';
 import { notice } from './notices.js';
 import { refundRegistration, refundFailed } from './events.js';
@@ -374,11 +374,12 @@ async function applyPlan(client, row, sub) {
 }
 
 // Bajada programada: scheduled_* = la fase pendiente del Schedule adjunto (o nada). stripe_schedule_id sigue
-// mientras el Schedule esté adjunto, aunque ya no tenga nada pendiente.
+// mientras el Schedule esté adjunto, aunque ya no tenga nada pendiente. El de una pausa no es una bajada (B30).
 async function syncSchedule(client, sub) {
   const schedule = sub.schedule ? await stripe.subscriptionSchedules.retrieve(idOf(sub.schedule)) : null;
   const attached = ['active', 'not_started'].includes(schedule?.status) ? schedule.id : null;
-  const next = pendingPhase(schedule);
+  const next = isPause(schedule) ? null : pendingPhase(schedule);
+  if (isPause(schedule)) await syncPause(client, schedule, sub);
   await client.query(
     `UPDATE subscriptions SET stripe_schedule_id = $2, scheduled_plan_id = $3, scheduled_discipline_ids = $4,
                               scheduled_at = $5
@@ -386,12 +387,43 @@ async function syncSchedule(client, sub) {
     [sub.id, attached, next?.metadata.plan_id ?? null, next ? disciplineIds(next.metadata) : null, ts(next?.start_date)]);
 }
 
-// subscription_schedule.*: se relee la suscripción, que dice qué Schedule tiene adjunto ahora.
+// subscription_schedule.*: se relee la suscripción, que dice qué Schedule tiene adjunto ahora. Uno de pausa ya suelto
+// (liberado o cancelado) cierra su pausa.
 async function onSchedule(client, obj) {
   const schedule = await stripe.subscriptionSchedules.retrieve(obj.id);
   const subId = idOf(schedule.subscription) ?? idOf(schedule.released_subscription);
   if (!subId) return;
-  await syncSchedule(client, await stripe.subscriptions.retrieve(subId));
+  const sub = await stripe.subscriptions.retrieve(subId);
+  if (isPause(schedule) && idOf(sub.schedule) !== schedule.id) await syncPause(client, schedule, sub);
+  await syncSchedule(client, sub);
+}
+
+// --- Pausa (B30; ADR 0024): el estado lo confirma el Schedule (hora de Stripe: con test clock, la del reloj) ---
+
+/**
+ * Adjunto: según la fase en curso, programada, en curso (aviso «empieza») o acabada (aviso «vuelta»). Suelto: antes del
+ * inicio, anulada; después, acabada (a mitad = la baja la cortó: acaba con la suscripción, sin aviso de vuelta).
+ */
+async function syncPause(client, schedule, sub) {
+  const { rows: [p] } = await client.query(
+    `SELECT pa.*, s.payer_id, s.student_id, s.plan_id FROM pauses pa JOIN subscriptions s ON s.id = pa.subscription_id
+      WHERE pa.id = $1 AND s.stripe_subscription_id = $2 FOR UPDATE OF pa`, [schedule.metadata.pause_id, sub.id]);
+  if (!p || !['scheduled', 'active'].includes(p.status)) return;
+  const attached = ['active', 'not_started'].includes(schedule.status);
+  const at = ts(attached ? schedule.current_phase?.start_date
+    : schedule.released_at ?? schedule.canceled_at ?? schedule.completed_at) ?? new Date(0);
+  let endsAt = p.ends_at;
+  let status = 'completed';
+  if (at < p.starts_at) status = attached ? 'scheduled' : 'cancelled';
+  else if (at < p.ends_at && attached) status = 'active';
+  else if (at < p.ends_at) endsAt = new Date(Math.min(p.ends_at, ts(sub.ended_at) ?? ts(sub.items.data[0].current_period_end)));
+  if (status === p.status) return;
+  await client.query(`UPDATE pauses SET status = $2, ends_at = $3, updated_at = now() WHERE id = $1`, [p.id, status, endsAt]);
+  const base = {
+    actorId: p.payer_id, type: 'pause', resourceId: p.id, recipients: [p.payer_id], student_id: p.student_id, plan_id: p.plan_id,
+  };
+  if (status === 'active') await notice(client, { ...base, action: 'notice.pause_started', ends_at: p.ends_at, exempt: p.exempt });
+  if (status === 'completed' && attached) await notice(client, { ...base, action: 'notice.pause_ended' });
 }
 
 // Impagada (B10.6): solo en la transición a unpaid, no en cada evento. El pagador paga el recibo open en Stripe.

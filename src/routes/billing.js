@@ -5,7 +5,7 @@ import { requireCompleteProfile } from '../middleware/requireCompleteProfile.js'
 import { httpError } from '../lib/errors.js';
 import {
   createCheckout, createPortalSession, getSubscription, changePlan, cancelScheduledChange, changeDiscipline,
-  getPayerChange, assertNewPayer, payerChangeCheckout,
+  getPayerChange, assertNewPayer, payerChangeCheckout, requestPause, endPause, liveSubscriptionId,
 } from '../services/billing.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -49,7 +49,7 @@ router.post('/checkout', checkoutFields, checkSubject, withRlsContext(async (req
 router.param('id', (req, res, next, v) => (UUID_RE.test(v) ? next() : next(httpError(400, 'invalid_id', 'id inválido'))));
 
 // GET /billing/subscription?profile_id= → { id, status, plan, disciplines, current_period_end, cancel_at_period_end,
-//   scheduled_change, discipline_changes_left, payer_change }
+//   scheduled_change, discipline_changes_left, payer_change, pause, pause_settings }
 router.get('/subscription', (req, res, next) => (req.query.profile_id === undefined || UUID_RE.test(req.query.profile_id)
   ? next() : next(httpError(400, 'invalid_field', 'profile_id debe ser un uuid', { field: 'profile_id' }))),
 withRlsContext(async (req, client) => getSubscription(client, { studentId: req.query.profile_id ?? req.user.id })));
@@ -70,6 +70,27 @@ router.delete('/subscriptions/:id/plan/scheduled', withRlsContext(async (req, cl
 // POST /billing/subscriptions/:id/disciplines { from_id, to_id } → { disciplines, changes_left, free }
 router.post('/subscriptions/:id/disciplines', withRlsContext(async (req, client) => changeDiscipline(client, {
   id: req.params.id, actorId: req.user.id, isAdmin: false, fromId: req.body?.from_id, toId: req.body?.to_id,
+})));
+
+// --- Pausa (B30): la pide el pagador por la suscripción viva del alumno (profile_id; sin él, quien llama). ---
+const pauseSubject = (req, res, next) => {
+  const id = req.body?.profile_id ?? req.query.profile_id;
+  if (id === undefined || UUID_RE.test(id)) return next();
+  return next(httpError(400, 'invalid_field', 'profile_id debe ser un uuid', { field: 'profile_id' }));
+};
+const pauseOf = async (req, client) =>
+  liveSubscriptionId(client, req.body?.profile_id ?? req.query.profile_id ?? req.user.id);
+
+// POST /billing/pause { profile_id?, months } → 201 { id, status: 'scheduled', months, starts_at, ends_at, price_cents,
+//   exempt, cancelled_bookings }. Empieza en la siguiente fecha de cobro.
+router.post('/pause', pauseSubject, withRlsContext(async (req, client) => requestPause(client, {
+  id: await pauseOf(req, client), actorId: req.user.id, isAdmin: false, months: req.body?.months,
+})));
+
+// DELETE /billing/pause { profile_id? } (o ?profile_id=) → 200 { id, status: 'cancelled', ends_at } si no había empezado
+//   (anulada); { id, status: 'active', ends_at } si ya había empezado (vuelve en la siguiente fecha de cobro).
+router.delete('/pause', pauseSubject, withRlsContext(async (req, client) => endPause(client, {
+  id: await pauseOf(req, client), actorId: req.user.id, isAdmin: false,
 })));
 
 // --- Cambio de pagador (B11): el nuevo pagador abre el enlace del aviso en la app y paga aquí. ---
