@@ -12,7 +12,7 @@ export function toastError(err: unknown, action?: { label: string; onClick: () =
   const fits = err instanceof ApiError && typeof err.details.fits_from === 'string' ? ` Cabe desde el ${formatShortDate(err.details.fits_from)}.` : ''
   toastManager.add({
     type: code === 'network' ? 'warning' : 'error',
-    title: errorText(code) + fits,
+    title: errorText(code, err instanceof ApiError ? err.details : {}) + fits,
     timeout: action ? 8000 : 5000,
     actionProps: action && { children: action.label, onClick: action.onClick },
   })

@@ -19,7 +19,6 @@ import { useSubject } from '@/hooks/use-subject'
 import { ApiError, api } from '@/lib/api'
 import {
   canEndEarly,
-  canPause,
   changesLeft,
   disciplineLocked,
   eligibleDisciplines,
@@ -28,6 +27,7 @@ import {
   isLive,
   keepDisciplines,
   pauseFee,
+  pauseLock,
   pauseTitle,
   perMonth,
   planChange,
@@ -308,6 +308,7 @@ function Billing({ subject, profileId }: Props) {
         }
         const lock = planLock(s)
         const discLocked = disciplineLocked(s)
+        const pLock = pauseLock(s)
         const withChanges = s.plan.max_disciplines !== null
         const [label, variant] = s.cancel_at_period_end && isLive(s.status) && s.status === 'active' ? ['Termina pronto', 'warning' as const] : (BADGE[s.status] ?? ['', 'secondary' as const])
         const portalAction = (
@@ -386,13 +387,20 @@ function Billing({ subject, profileId }: Props) {
                       </Button>
                     ))}
                 </div>
-                {canPause(s) && (
-                  <Button variant="outline" size="xl" onClick={() => setPausing(true)}>
-                    <PauseIcon />
-                    Pausar membresía
-                  </Button>
-                )}
+                {s.pause_settings?.price_cents != null && !s.pause &&
+                  (pLock ? (
+                    <Button variant="outline" size="xl" disabled>
+                      <LockIcon />
+                      Pausar membresía
+                    </Button>
+                  ) : (
+                    <Button variant="outline" size="xl" onClick={() => setPausing(true)}>
+                      <PauseIcon />
+                      Pausar membresía
+                    </Button>
+                  ))}
                 {lock && <Lock>{lock}</Lock>}
+                {pLock && s.pause_settings?.price_cents != null && !s.pause && <Lock>{pLock}</Lock>}
                 {pausing && (
                   <PauseSheet
                     s={s}

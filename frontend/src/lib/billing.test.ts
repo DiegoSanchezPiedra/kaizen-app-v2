@@ -10,6 +10,7 @@ import {
   keepDisciplines,
   pauseEnd,
   pauseFee,
+  pauseLock,
   pauseTitle,
   perMonth,
   planChange,
@@ -162,15 +163,21 @@ const offered = { price_cents: 1500, max_months: 3, per_year: 1 }
 
 describe('pausa', () => {
   it('se ofrece con precio, cuota active y sin pausa, bajada, baja ni cambio de pagador', () => {
+    expect(pauseLock(sub({ pause_settings: offered }))).toBeNull()
     expect(canPause(sub({ pause_settings: offered }))).toBe(true)
     expect(canPause(sub({}))).toBe(false) // la API aún no manda ajustes
-    expect(canPause(sub({ pause_settings: { ...offered, price_cents: null } }))).toBe(false)
-    expect(canPause(sub({ pause_settings: offered, pause: pause() }))).toBe(false)
-    expect(canPause(sub({ pause_settings: offered, status: 'past_due' }))).toBe(false)
-    expect(canPause(sub({ pause_settings: offered, cancel_at_period_end: true }))).toBe(false)
-    expect(canPause(sub({ pause_settings: offered, scheduled_change: { plan_id: '2', plan_name: 'B', discipline_ids: [], scheduled_at: '' } }))).toBe(false)
-    expect(canPause(sub({ pause_settings: offered, payer_change: { id: 'x', status: 'requested', new_payer_id: 'p', starts_at: '', deadline: '' } }))).toBe(false)
     expect(canPause(sub({ pause_settings: offered, current_period_end: null }))).toBe(false)
+  })
+  it('pauseLock da el motivo concreto', () => {
+    expect(pauseLock(sub({}))).toMatch(/no ofrece pausas/)
+    expect(pauseLock(sub({ pause_settings: { ...offered, price_cents: null } }))).toMatch(/no ofrece pausas/)
+    expect(pauseLock(sub({ pause_settings: offered, pause: pause() }))).toMatch(/ya hay una pausa/i)
+    expect(pauseLock(sub({ pause_settings: offered, cancel_at_period_end: true }))).toMatch(/termina/)
+    expect(pauseLock(sub({ pause_settings: offered, scheduled_change: { plan_id: '2', plan_name: 'B', discipline_ids: [], scheduled_at: '' } }))).toMatch(/bajada/)
+    expect(pauseLock(sub({ pause_settings: offered, payer_change: { id: 'x', status: 'requested', new_payer_id: 'p', starts_at: '', deadline: '' } }))).toMatch(/pagador/)
+    expect(pauseLock(sub({ pause_settings: offered, status: 'past_due' }))).toMatch(/al día/)
+    expect(pauseLock(sub({ pause_settings: offered, status: 'unpaid' }))).toMatch(/impagada/)
+    expect(pauseLock(sub({ pause_settings: offered, status: 'incomplete' }))).toMatch(/Ahora no/)
   })
   it('el fin son N meses enteros desde el inicio, en día de Madrid y sin pasarse de mes', () => {
     expect(pauseEnd('2026-12-01T09:24:00Z', 2)).toBe('2027-02-01')
@@ -179,7 +186,7 @@ describe('pausa', () => {
     expect(pauseEnd('2027-12-15T09:00:00Z', 12)).toBe('2028-12-15')
   })
   it('con pausa no se cambia ni el plan ni la disciplina', () => {
-    expect(planLock(sub({ pause: pause() }))).toMatch(/pausa/)
+    expect(planLock(sub({ pause: pause() }))).toMatch(/pausa.*pagador/)
     expect(planLock(sub({ pause: pause({ status: 'active' }) }))).toMatch(/pausa/)
     expect(disciplineLocked(sub({ pause: pause() }))).toBe(true)
     expect(disciplineLocked(sub({ pause: null }))).toBe(false)

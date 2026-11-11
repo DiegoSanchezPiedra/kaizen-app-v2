@@ -50,10 +50,12 @@ export function planChange(currentCents: number, target: Plan, selfInMinors: boo
   return target.price_cents === currentCents ? 'same' : 'down'
 }
 
+export const PAUSE_LOCK = 'Con una pausa programada o en curso no se pueden cambiar el plan, las disciplinas ni el pagador.'
+
 // Por qué no se puede cambiar el plan (null = se puede). Solo con la cuota active y sin baja ni cambio de pagador.
 export function planLock(s: Subscription): string | null {
   if (s.payer_change) return 'Con un cambio de pagador en marcha no se pueden cambiar el plan ni las disciplinas.'
-  if (s.pause) return 'Con una pausa programada o en curso no se pueden cambiar el plan ni las disciplinas.'
+  if (s.pause) return PAUSE_LOCK
   if (s.status === 'unpaid') return 'Con la cuota impagada no se puede cambiar nada.'
   if (s.status === 'past_due') return 'El plan se podrá cambiar cuando el cobro esté al día.'
   if (s.cancel_at_period_end) return 'La cuota termina: ya no se puede cambiar el plan.'
@@ -99,17 +101,22 @@ export function takeCheckoutSubject(): string | undefined {
 
 // ── Pausa con cuota de mantenimiento (B30). La API manda el estado; esto solo lo presenta. ──
 
-// Se ofrece si la academia tiene precio y no hay nada que lo impida (la API dice 409 en los demás casos).
-export const canPause = (s: Subscription): boolean =>
-  s.pause_settings?.price_cents != null &&
-  s.status === 'active' &&
-  !s.pause &&
-  !s.scheduled_change &&
-  !s.cancel_at_period_end &&
-  !s.payer_change &&
-  !!s.current_period_end
+// Por qué no se puede pedir una pausa (null = se puede). Como `planLock`. `upgrade_pending` no se detecta en cliente:
+// la API no lo da en la suscripción y el servidor responde 409.
+export function pauseLock(s: Subscription): string | null {
+  if (s.pause_settings?.price_cents == null) return 'La academia no ofrece pausas.'
+  if (s.pause) return 'Ya hay una pausa programada o en curso.'
+  if (s.cancel_at_period_end) return 'La cuota termina: ya no se puede pausar.'
+  if (s.scheduled_change) return 'Hay una bajada de plan programada: anúlala antes de pausar.'
+  if (s.payer_change) return 'Con un cambio de pagador en marcha no se puede pausar.'
+  if (s.status === 'unpaid') return 'Con la cuota impagada no se puede pausar.'
+  if (s.status === 'past_due') return 'Se podrá pausar cuando el cobro esté al día.'
+  if (s.status !== 'active' || !s.current_period_end) return 'Ahora no se puede pausar.'
+  return null
+}
+export const canPause = (s: Subscription): boolean => pauseLock(s) === null
 
-// Fin de la pausa que se va a pedir: `months` meses enteros desde el inicio, en día de Madrid y sin pasarse de mes
+// Vista previa del fin de la pausa que se va a pedir (solo en la hoja; tras pedirla se usa el `ends_at` de la respuesta): `months` meses enteros desde el inicio, en día de Madrid y sin pasarse de mes
 // (el 31 + 2 meses = fin de febrero). El definitivo lo calcula Stripe y llega en `ends_at`.
 export function pauseEnd(startsAt: string, months: number): string {
   const [y, m, d] = madridDay(startsAt).split('-').map(Number)
@@ -121,11 +128,11 @@ export function pauseEnd(startsAt: string, months: number): string {
 // Un día de Madrid (AAAA-MM-DD) en fecha corta.
 export const shortDay = (day: string): string => formatShortDate(`${day}T12:00:00Z`)
 
+// El importe de la pausa en una sola fuente: el precio al mes o «sin cuota de mantenimiento» (exenta).
+const feeOf = (p: Pause): string => (p.exempt ? 'sin cuota de mantenimiento' : perMonth(p.price_cents))
 export const pauseTitle = (p: Pause): string =>
-  p.status === 'active'
-    ? `En pausa hasta el ${formatShortDate(p.ends_at)}`
-    : `Pausa programada del ${formatShortDate(p.starts_at)} al ${formatShortDate(p.ends_at)} · ${p.exempt ? 'sin cuota de mantenimiento' : perMonth(p.price_cents)}`
-export const pauseFee = (p: Pause): string => (p.exempt ? 'Sin cuota de mantenimiento' : `${perMonth(p.price_cents)} de cuota de mantenimiento`)
+  p.status === 'active' ? `En pausa hasta el ${formatShortDate(p.ends_at)}` : `Pausa programada del ${formatShortDate(p.starts_at)} al ${formatShortDate(p.ends_at)} · ${feeOf(p)}`
+export const pauseFee = (p: Pause): string => (p.exempt ? 'Sin cuota de mantenimiento' : `${feeOf(p)} de cuota de mantenimiento`)
 
 // «Volver antes» vuelve en la siguiente fecha de cobro: no tiene sentido si la pausa ya acaba en ella (pause_ending).
 export const canEndEarly = (s: Subscription): boolean =>

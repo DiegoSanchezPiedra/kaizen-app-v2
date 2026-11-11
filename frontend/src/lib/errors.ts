@@ -100,9 +100,11 @@ Object.assign(TEXTS, {
 
 const FALLBACK = 'Algo ha fallado; inténtalo de nuevo.'
 
-export function errorText(code: string | undefined): string {
+// `{clave}` del texto se rellena con `details[clave]`; sin el dato, se quita (« ({per_year})» → «»).
+export function errorText(code: string | undefined, details: Record<string, unknown> = {}): string {
   if (code === 'push_disabled') return ''
-  return (code && TEXTS[code]) || FALLBACK
+  const text = (code && TEXTS[code]) || FALLBACK
+  return text.replace(/ ?\(\{(\w+)\}\)/g, (_, k: string) => (details[k] === undefined ? '' : ` (${String(details[k])})`))
 }
 
 // B18.5. Propuesto en el canvas (nota b185n4), pendiente de confirmar.
@@ -209,10 +211,10 @@ Object.assign(TEXTS, {
 
 // B30 (docs/api.md § Pausa). Todos propuestos: el documento aún no les da texto. «Cuota de mantenimiento», nunca «cuota» a secas.
 Object.assign(TEXTS, {
-  paused: 'La membresía está en pausa ese día.', // propuesto
+  paused: 'No se puede durante la pausa de la membresía.', // propuesto (reservar, 403; cambiar plan, disciplina o pagador, 409)
   pause_not_configured: 'La academia no ofrece pausas ahora.', // propuesto
   change_scheduled: 'Ya hay un cambio programado: una bajada de plan o una pausa.', // propuesto
-  pause_year_limit: 'Ya has usado las pausas que permite la academia este año.', // propuesto
+  pause_year_limit: 'Ya se ha usado el máximo de pausas de este año ({per_year}).', // propuesto
   pause_ending: 'La pausa ya termina en la siguiente fecha de cobro.', // propuesto
   no_pause: 'Ya no hay ninguna pausa que anular.', // propuesto
   subscription_not_found: 'No hay una cuota en vigor.', // propuesto

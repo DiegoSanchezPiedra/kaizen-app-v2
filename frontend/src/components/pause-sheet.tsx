@@ -21,7 +21,7 @@ export function PauseSheet({
   s: Subscription
   name?: string
   admin?: boolean
-  request: (months: number) => Promise<{ cancelled_bookings: number }>
+  request: (months: number) => Promise<{ ends_at: string; cancelled_bookings: number }>
   onClose: () => void
   onDone: () => void
 }) {
@@ -32,7 +32,7 @@ export function PauseSheet({
   const ends = pauseEnd(start, n)
   const ask = useMutation({
     mutationFn: () => request(n),
-    onSuccess: (r) => toastOk(`Pausa programada hasta el ${shortDay(ends)}`, cancelledText(r.cancelled_bookings)),
+    onSuccess: (r) => toastOk(`Pausa programada hasta el ${formatShortDate(r.ends_at)}`, cancelledText(r.cancelled_bookings)),
     onError: (err) => toastError(err),
     onSettled: onDone,
   })

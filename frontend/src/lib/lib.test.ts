@@ -68,6 +68,11 @@ describe('errores', () => {
     expect(errorText('algo_nuevo')).toBe('Algo ha fallado; inténtalo de nuevo.')
     expect(errorText('push_disabled')).toBe('')
   })
+  it('rellena {clave} con los datos del error (pause_year_limit trae per_year)', () => {
+    expect(errorText('pause_year_limit', { per_year: 2 })).toBe('Ya se ha usado el máximo de pausas de este año (2).')
+    expect(errorText('pause_year_limit')).toBe('Ya se ha usado el máximo de pausas de este año.')
+    expect(errorText('paused')).toBe('No se puede durante la pausa de la membresía.')
+  })
 })
 
 describe('selector de sujeto', () => {

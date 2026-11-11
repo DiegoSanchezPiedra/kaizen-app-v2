@@ -166,6 +166,12 @@ describe('auditoría, avisos y cobros (B19.4)', () => {
     expect(auditTarget(alta)).toEqual({ to: '/admin/users/kid', label: 'Ficha' })
     expect(auditTarget({ ...alta, changes: {} })).toEqual({ to: null, label: 'Suscripción' })
   })
+  it('la pausa: etiquetas, categoría Cobros y motivo de la exención', () => {
+    for (const a of ['subscription.pause', 'subscription.pause_cancel', 'subscription.pause_end_early', 'pause.exempt', 'settings.pause']) expect(auditLabel(a)).not.toBe(a)
+    expect(categoryPrefixes('billing')).toContain('pause.')
+    expect(auditDetail({ action: 'pause.exempt', changes: { reason: 'Lesión', subscription_id: 's' } })).toBe('Lesión')
+    expect(auditTarget({ resource_type: 'pause', resource_id: 'p' })).toEqual({ to: null, label: 'Pausa' })
+  })
   it('solo se anula un cambio de pagador sin pagar', () => {
     expect(canCancelPayerChange({ status: 'requested' })).toBe(true)
     expect(canCancelPayerChange({ status: 'paid' })).toBe(false)

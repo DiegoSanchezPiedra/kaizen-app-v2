@@ -26,7 +26,7 @@ export function AdminSettingsPage() {
         <div className="grid gap-5 lg:grid-cols-2">
           <Checkin saved={q.data.checkin} />
           <DisciplineChanges saved={q.data.discipline_changes} />
-          <Pause saved={q.data.pause} />
+          <PauseSettingsGroup saved={q.data.pause} />
         </div>
       )}
     </Page>
@@ -97,7 +97,7 @@ function DisciplineChanges({ saved }: { saved: Settings['discipline_changes'] })
 }
 
 // Pausa (B30): sin precio la academia no ofrece pausas, y la API no deja quitarlo una vez puesto (solo cambiarlo).
-function Pause({ saved }: { saved: Settings['pause'] }) {
+function PauseSettingsGroup({ saved }: { saved: Settings['pause'] }) {
   const [d, setD] = useState({ price: saved.price_cents === null ? '' : centsToEuros(saved.price_cents), max_months: String(saved.max_months), per_year: String(saved.per_year) })
   const fe = useFieldError()
   const body = pauseBody(d)

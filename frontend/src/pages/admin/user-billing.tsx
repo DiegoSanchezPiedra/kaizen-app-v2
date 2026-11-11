@@ -14,14 +14,15 @@ import { payerCandidates, type ProfileFile } from '@/lib/admin'
 import { api } from '@/lib/api'
 import {
   canEndEarly,
-  canPause,
   changesLeft,
   disciplineLocked,
   inPlan,
   isLive,
   planDisciplines,
   keepDisciplines,
+  PAUSE_LOCK,
   pauseFee,
+  pauseLock,
   pauseTitle,
   perMonth,
   planChange,
@@ -299,6 +300,7 @@ function Subscription({ file, refresh }: { file: ProfileFile; refresh: () => voi
   const lock = planLock(s)
   const scheduled = s.scheduled_change
   const pause = s.pause
+  const pLock = pauseLock(s)
   const end = s.current_period_end ? formatShortDate(s.current_period_end) : null
 
   const rows: [string, React.ReactNode][] = [
@@ -311,7 +313,7 @@ function Subscription({ file, refresh }: { file: ProfileFile; refresh: () => voi
   if (s.cancel_at_period_end) rows.push(['Baja programada', end ? `Termina el ${end}` : 'Sí'])
   if (scheduled) rows.push(['Bajada programada', `A ${scheduled.plan_name} el ${formatShortDate(scheduled.scheduled_at)}`])
   if (s.discipline_changes_left != null) rows.push(['Cambios de disciplina', changesLeft(s.discipline_changes_left)])
-  if (pause) rows.push(['Pausa', pauseTitle(pause)], ['Cuota de mantenimiento', pause.exempt ? 'Eximida' : pauseFee(pause)])
+  if (pause) rows.push(['Pausa', pauseTitle(pause)], ['Cuota de mantenimiento', pauseFee(pause)])
   if (pc) {
     const to = people.find((p) => p.id === pc.new_payer_id)
     rows.push([
@@ -339,45 +341,34 @@ function Subscription({ file, refresh }: { file: ProfileFile; refresh: () => voi
             Cambiar de pagador
           </Button>
           {!pause && (
-            <Button
-              variant="outline"
-              disabled={!canPause(s)}
-              title={canPause(s) ? undefined : 'Sin cuota de mantenimiento en Ajustes, o con una baja, un cambio programado o un impago en marcha, no se puede pausar.'}
-              onClick={() => setDialog('pause')}
-            >
+            <Button variant="outline" disabled={!!pLock} onClick={() => setDialog('pause')}>
               Pausar la membresía
             </Button>
           )}
-          {pause?.status === 'scheduled' && (
+          {(pause?.status === 'scheduled' || canEndEarly(s)) && (
             <Button
               variant="outline"
               onClick={() =>
-                ask({
-                  title: 'Anular la pausa',
-                  description: `Gratis: sigue en ${s.plan.name} como hasta ahora. Las reservas canceladas al pedirla no vuelven. Se avisa al pagador.`,
-                  label: 'Anular la pausa',
-                  done: 'Pausa anulada',
-                  run: del(`/admin/subscriptions/${s.id}/pause`),
-                })
+                ask(
+                  pause?.status === 'scheduled'
+                    ? {
+                        title: 'Anular la pausa',
+                        description: `Gratis: sigue en ${s.plan.name} como hasta ahora. Las reservas canceladas al pedirla no vuelven. Se avisa al pagador.`,
+                        label: 'Anular la pausa',
+                        done: 'Pausa anulada',
+                        run: del(`/admin/subscriptions/${s.id}/pause`),
+                      }
+                    : {
+                        title: 'Volver antes de la pausa',
+                        description: `Vuelve a ${s.plan.name} en la siguiente fecha de cobro${end ? `, el ${end}` : ''}, sin prorrateo. Se avisa al pagador.`,
+                        label: 'Volver antes',
+                        done: 'Vuelta anticipada programada',
+                        run: del(`/admin/subscriptions/${s.id}/pause`),
+                      },
+                )
               }
             >
-              Anular la pausa
-            </Button>
-          )}
-          {canEndEarly(s) && (
-            <Button
-              variant="outline"
-              onClick={() =>
-                ask({
-                  title: 'Volver antes de la pausa',
-                  description: `Vuelve a ${s.plan.name} en la siguiente fecha de cobro${end ? `, el ${end}` : ''}, sin prorrateo. Se avisa al pagador.`,
-                  label: 'Volver antes',
-                  done: 'Vuelta anticipada programada',
-                  run: del(`/admin/subscriptions/${s.id}/pause`),
-                })
-              }
-            >
-              Volver antes
+              {pause?.status === 'scheduled' ? 'Anular la pausa' : 'Volver antes'}
             </Button>
           )}
           {pause && !pause.exempt && (
@@ -453,6 +444,7 @@ function Subscription({ file, refresh }: { file: ProfileFile; refresh: () => voi
       }
     >
       <Kv rows={rows} />
+      {(pause ? PAUSE_LOCK : pLock) && <p className="text-sm text-muted-foreground">{pause ? PAUSE_LOCK : pLock}</p>}
       {confirm}
       {dialog === 'plan' && <PlanDialog s={s} minor={minor} onClose={() => setDialog(null)} refresh={refresh} />}
       {dialog === 'discipline' && <DisciplineDialog s={s} onClose={() => setDialog(null)} refresh={refresh} />}
