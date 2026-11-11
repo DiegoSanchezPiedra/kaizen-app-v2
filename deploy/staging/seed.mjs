@@ -73,6 +73,8 @@ for (const [name, cents, max, minors] of [['Una disciplina', 3500, 1, false], ['
 // Clases (por disciplina: si ya tiene, no se repiten). Dos a la semana; ningún profesor se solapa.
 const trainers = (await call('/admin/profiles?role=profesor&limit=100', { token: admin })).data.profiles;
 const t = (n) => trainers.find((p) => p.display_name === n)?.id;
+// Tipo de relación de los profes (B31): Marc es empleado (ficha y pide correcciones); Marta, autónoma. Idempotente.
+for (const [name, employment] of [['Marc Soler', 'employee'], ['Sensei Marta', 'self_employed']]) must(await call(`/admin/profiles/${t(name)}/employment`, { method: 'PUT', token: admin, body: { employment } }), `tipo de relación ${name}`);
 const have = new Set((await call('/admin/classes', { token: admin })).data.classes.map((c) => String(c.discipline_id)));
 for (const [disc, trainer, weekday, time, cap] of [
   ['Boxeo', 'Marc Soler', 1, '19:00', 16],

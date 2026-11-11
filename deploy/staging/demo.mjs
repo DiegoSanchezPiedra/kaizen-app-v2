@@ -163,6 +163,25 @@ try {
     ...(s.cancelledAt ? [{ id: id('au:x:' + s.student.key), actor_id: s.payer.id, action: 'subscription.cancel_now', resource_type: 'subscription', resource_id: s.id, changes: {}, created_at: s.cancelledAt }] : []),
   ]));
 
+  // Registro de jornada de Marc (B31, el profe empleado): dos semanas de días laborables (entrada, pausa, vuelta, salida),
+  // ayer una jornada abierta (sin salida) y una corrección pendiente de la salida de hace unos días. La tabla es solo de
+  // añadir (sin UPDATE ni DELETE): ids fijos por día y `on conflict do nothing`, así que repetirlo no duplica.
+  const fichajes = [];
+  for (let k = 14; k >= 1; k--) {
+    const dia = dayMinus(TODAY, k);
+    const laborable = [1, 2, 3, 4, 5].includes(new Date(dia + 'T12:00:00Z').getUTCDay());
+    if (k === 1) fichajes.push({ dia, kind: 'in', hora: '09:00' });
+    else if (laborable) fichajes.push({ dia, kind: 'in', hora: '09:00' }, { dia, kind: 'pause_start', hora: '13:30' }, { dia, kind: 'pause_end', hora: '14:00' }, { dia, kind: 'out', hora: '18:00' });
+  }
+  await db.query(`insert into clock_events (id, profile_id, kind, at, origin)
+    select id, $2::uuid, kind::clock_kind, ((dia::date + hora::time) at time zone 'Europe/Madrid'), 'app'
+      from jsonb_to_recordset($1::jsonb) as x(id uuid, dia text, kind text, hora text)
+    on conflict (id) do nothing`, [JSON.stringify(fichajes.map((f) => ({ ...f, id: id(`clock:${f.dia}:${f.kind}`) }))), marc]);
+  const ultimaSalida = fichajes.filter((f) => f.kind === 'out').at(-1).dia;
+  await db.query(`insert into clock_corrections (id, profile_id, event_id, kind, at, reason, requested_by)
+    values ($1, $2, $3, null, (($4::date + '18:30'::time) at time zone 'Europe/Madrid'), 'Salí más tarde; no fiché a tiempo.', $2)
+    on conflict (id) do nothing`, [id('clock:correccion'), marc, id(`clock:${ultimaSalida}:out`), ultimaSalida]);
+
   // Fotos diarias: sintéticas los 180 días anteriores a ayer; ayer y hoy se reescriben con la función real (solo staging).
   const avg = Math.round(subs.reduce((a, u) => a + plans[u.plan], 0) / subs.length); // precio medio de los planes en uso
   const dayOf = (iso) => madrid(iso);
