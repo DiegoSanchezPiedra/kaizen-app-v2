@@ -15,8 +15,10 @@ const CHANNELS = Object.fromEntries([
   'payment_failed', 'checkout_payment_failed', 'checkout_race_refunded',
   'plan_downgraded', 'upgrade_requires_action', 'subscription_unpaid', 'subscription_cancelled',
   'payer_change_requested', 'payer_change_paid', 'payer_change_expired', 'payer_change_cancelled',
-  'event_refunded', 'avatar_removed',
+  'event_refunded', 'avatar_removed', 'clock_corrected', 'clock_open', 'clock_correction_applied',
+  'clock_correction_rejected',
 ].map((a) => [`notice.${a}`, ['email']]));
+// notice.clock_correction_requested no está: solo va a admins (el panel), que nunca reciben entregas.
 
 /** Aviso + una entrega por destinatario no admin y canal, en una sentencia (también en autocommit). */
 export async function notice(db, { action, actorId, type, resourceId, recipients, ...extra }) {
@@ -154,6 +156,7 @@ const one = (g, single, many) => (g.sessions.length === 1
   : `Se han cancelado ${g.sessions.length} reservas de ${g.student}: ${many}`);
 const BOOKINGS = `${APP_URL}/bookings`;
 const AGREEMENTS_URL = `${APP_URL}/agreements`;
+const CLOCK_URL = `${APP_URL}/clock`;
 const AGREEMENT_NAMES = {
   data_protection: 'la política de protección de datos',
   rights_of_image: 'la autorización de derechos de imagen',
@@ -249,6 +252,24 @@ const SERVICE = {
     title: 'Foto de perfil quitada',
     body: `La academia ha quitado la foto de perfil de ${g.c.profile_name ?? 'tu cuenta'}. Puedes subir otra desde Cuenta.`,
   }),
+  // Registro de jornada (B31): al profesor; clock_open también al panel.
+  'notice.clock_corrected': (g) => ({
+    title: 'Corrección en tu registro de jornada',
+    body: `La academia ha corregido un fichaje de tu registro de jornada. Motivo: ${g.c.reason}. `
+      + 'El fichaje original sigue a la vista junto a la corrección.',
+  }),
+  'notice.clock_correction_applied': () => ({
+    title: 'Corrección aplicada',
+    body: 'La academia ha aplicado la corrección que pediste en tu registro de jornada.',
+  }),
+  'notice.clock_correction_rejected': (g) => ({
+    title: 'Corrección rechazada',
+    body: `La academia ha rechazado la corrección que pediste en tu registro de jornada. Motivo: ${g.c.resolution_reason}.`,
+  }),
+  'notice.clock_open': (g) => ({
+    title: 'Jornada sin salida',
+    body: `Tu jornada del ${moment(g.c.in_at)} sigue abierta: no consta la salida. Pide una corrección desde tu registro.`,
+  }),
   'notice.agreement_published': (g) => ({
     title: 'Nueva versión de un acuerdo',
     body: `Hay una versión nueva de ${AGREEMENT_NAMES[g.c.type]}. Fírmala para seguir reservando.`,
@@ -289,8 +310,9 @@ async function composeService(db, d) {
   const { title, body } = SERVICE[d.action](g);
   const isAvatar = d.action === 'notice.avatar_removed';
   const isAgeSoon = d.action === 'notice.out_of_age_soon';
+  const isClock = d.action.startsWith('notice.clock_');
   const url = isBooking ? BOOKINGS : isEvent ? `${APP_URL}/events/${d.changes.event_id}` : isAvatar ? `${APP_URL}/account`
-    : isAgeSoon ? BILLING : AGREEMENTS_URL;
+    : isAgeSoon ? BILLING : isClock ? CLOCK_URL : AGREEMENTS_URL;
   if (d.channel === 'push') return { title, body, url, tag: d.audit_id };
   const { rows: [r] } = await db.query(
     `SELECT pr.display_name AS payer, ac.email FROM profiles pr
@@ -304,6 +326,7 @@ async function composeService(db, d) {
       'Este es un email de servicio sobre tus eventos en Kaizen.')
     : isAvatar ? mail(title, r, [body], ['Ir a Cuenta', url], 'Este es un email de servicio sobre tu cuenta en Kaizen.')
     : isAgeSoon ? mail(title, r, [`${body}.`], ['Ver la suscripción', url], 'Este es un email de servicio sobre tus reservas en Kaizen.')
+    : isClock ? mail(title, r, [body], ['Ver mi registro', url], 'Este es un email de servicio sobre tu registro de jornada en Kaizen.')
     : mail(title, r, [body], ['Ver los acuerdos', url], 'Este es un email de servicio sobre tus acuerdos en Kaizen.');
   return { to: r.email, ...msg };
 }

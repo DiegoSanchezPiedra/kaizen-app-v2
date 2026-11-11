@@ -77,7 +77,7 @@
 | B28 | Retirar el seguro y el `waiver`: solo se cobran membresías | B10.3, B11 | CERRADO |
 | B29 | Rango de edad por disciplina (kids 5–12) en contratar, reservar y al cumplir años | B28 | CERRADO |
 | B30 | Pausa con cuota de mantenimiento (Stripe, Subscription Schedule) | B28, B29 | Diseñado (antes de producción) |
-| B31 | Registro de jornada (fichaje) de profesores empleados | B28 | Diseñado (antes de producción) |
+| B31 | Registro de jornada (fichaje) de profesores empleados | B28 | CERRADO |
 | B32 | Acceso propio del menor con permisos limitados (sustituye ADR 0002) | B29, B30, B31 | Diseñado (antes de producción) |
 | B33 | Auditoría de rendimiento de B28–B32 y de lo que tocan | B32 | Diseñado (antes de producción) |
 | B34 | Auditoría de seguridad de B28–B32 y de lo que tocan | B33 | Diseñado (antes de producción) |
@@ -2726,7 +2726,19 @@ nocturna cancela con `no_coverage`; un `unpaid` no recibe el aviso de los 30 dí
   `test:notices`, Vitest; E2E con `stripe listen` y *test clock* (pausa, anulación, vuelta antes, impago); revisión manual
   a 375 px.
 
-### B31 — Registro de jornada (fichaje) de profesores — Diseñado (antes de producción)
+### B31 — Registro de jornada (fichaje) de profesores — CERRADO
+
+Rama `b31-fichaje`, 2026-11-11 (hecho antes que B30, que no depende de él). B31.0 (Opus, medio): `ac5938f`, `7fc11c4`;
+revisión `318e0d7`, `a81f474`. B31.1 (Sonnet, alto): `ee3ff09`; revisión `4468870` (con `GET /admin/clock/employees`).
+B31.2 (Haiku, medio): `0c3cf2c`, `e241a28`, `9332377`. Ajustes a 375 px del orquestador al final. Migración `059`, ADR
+0025, `test:clock` (16 casos, sobre BD temporal). Decisiones al implementar: tipo de relación en una tabla aparte
+(`teacher_employment`, sin fila = autónomo); por la tablet se ficha con `POST /me/clock { kind, code }` y el QR de B9
+(sin pantalla todavía: solo el botón en la PWA); el estado de una solicitud es una fila de resolución, sin `UPDATE`;
+secuencia estricta (en pausa no se sale); la jornada que cruza la medianoche se reparte entre los dos días y meses; se
+pueden corregir los fichajes añadidos por corrección; las correcciones cuentan por orden de resolución; la purga borra
+jornadas enteras con todas sus filas de más de 4 años y el trigger no deja borrar nada más reciente; avisos al profesor
+al aplicar o rechazar su solicitud y al admin cuando hay una nueva. Límites aceptados (ADR 0025): `migrator` puede
+desactivar el trigger; el aviso de jornada abierta llega con la nocturna (hasta ~1 día tarde).
 
 - **Objetivo**: cumplir el art. 34.9 ET con un registro de jornada de los profesores **empleados**, consultable por el
   trabajador y el admin, exportable y con trazabilidad de cada corrección.
@@ -2762,13 +2774,15 @@ nocturna cancela con `no_coverage`; un `unpaid` no recibe el aviso de los 30 dí
 - **Modelo y effort**: implementación **Opus, medio** (RLS, datos laborales con obligación legal y migración de solo
   añadir); las pantallas en **Sonnet, alto** en un segundo chat; la página imprimible y los docs en **Haiku, medio**. Skills: `mattpocock-skills:tdd`, `graphify`.
 - **Criterios de aceptación**:
-  - [ ] Un autónomo no ve el fichaje y `POST /me/clock` → 403; un empleado ficha con la hora del servidor.
-  - [ ] Secuencia válida (no hay dos entradas seguidas ni salida sin entrada) → 409 con el estado actual.
-  - [ ] `UPDATE` y `DELETE` sobre los fichajes fallan en la BD también para el admin.
-  - [ ] Solicitar y aplicar una corrección deja el original, la corrección, el autor y el motivo; el profesor la ve.
-  - [ ] El total del mes es correcto en los meses con cambio de hora y en jornadas que cruzan la medianoche.
-  - [ ] Un profesor no lee el registro de otro (RLS y API).
-  - [ ] La purga borra solo lo de más de 4 años.
+  - [x] Un autónomo no ve el fichaje y `POST /me/clock` → 403; un empleado ficha con la hora del servidor.
+  - [x] Secuencia válida (no hay dos entradas seguidas ni salida sin entrada) → 409 con el estado actual.
+  - [x] `UPDATE` y `DELETE` sobre los fichajes fallan en la BD también para el admin.
+  - [x] Solicitar y aplicar una corrección deja el original, la corrección, el autor y el motivo; el profesor la ve.
+  - [x] El total del mes es correcto en los meses con cambio de hora y en jornadas que cruzan la medianoche.
+  - [x] Un profesor no lee el registro de otro (RLS y API).
+  - [x] La purga borra solo lo de más de 4 años.
+  - [ ] Prueba en un iPhone real e imprimir el PDF en papel (la hace el usuario al final).
+  - [ ] Fichar desde la PWA leyendo el QR de la tablet (el backend lo admite; falta la pantalla).
 - **Verificación**: script nuevo `test:clock` (RLS por rol, secuencia, solo añadir, correcciones, purga, totales,
   CSV), `test:nightly`, `test:rls`, Vitest; revisión manual a 375 px del botón y del registro, e imprimir el PDF de un mes.
 - **A validar fuera de la app**: convenio colectivo aplicable, información a los trabajadores sobre el tratamiento de sus

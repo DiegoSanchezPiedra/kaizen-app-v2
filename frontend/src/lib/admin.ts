@@ -40,11 +40,17 @@ const NOTICE_LABEL: Record<string, string> = {
   'notice.checkout_race_refunded': 'Dos pagos a la vez: se devolvió el duplicado',
   'notice.payer_change_expired': 'Un cambio de pagador ha caducado',
   'notice.event_refund_failed': 'Stripe ha rechazado el reembolso de una inscripción: reintenta el reembolso desde el evento',
+  'notice.clock_correction_requested': 'Un profesor ha pedido una corrección de su jornada',
+  'notice.clock_open': 'Un profesor lleva más de 16 horas con la jornada abierta',
 }
 export const noticeLabel = (action: string): string => NOTICE_LABEL[action] ?? action
 
 // A quién se abre un aviso de la academia: la ficha del alumno si el aviso la trae (`student_id`).
 export const noticeStudent = (n: AcademyNotice): string | null => (typeof n.details.student_id === 'string' ? n.details.student_id : null)
+
+// De qué profesor es un aviso del registro de jornada (lo trae en `profile_id`): abre su jornada en el panel.
+export const noticeClock = (n: AcademyNotice): string | null =>
+  n.action.startsWith('notice.clock_') && typeof n.details.profile_id === 'string' ? n.details.profile_id : null
 
 // A qué evento se refiere un aviso de la academia (el de un reembolso fallido lo trae en `event_id`).
 export const noticeEvent = (n: AcademyNotice): string | null => (typeof n.details.event_id === 'string' ? n.details.event_id : null)
@@ -76,6 +82,10 @@ const DELIVERY_LABEL: Record<string, string> = {
   'notice.event_registration_cancelled': 'Inscripción cancelada',
   'notice.event_refunded': 'Reembolso de un evento',
   'notice.event_refund_failed': 'Reembolso de un evento fallido',
+  'notice.clock_corrected': 'Fichaje corregido por la academia',
+  'notice.clock_open': 'Jornada sin cerrar',
+  'notice.clock_correction_applied': 'Corrección de jornada aplicada',
+  'notice.clock_correction_rejected': 'Corrección de jornada rechazada',
 }
 export const deliveryLabel = (action: string): string => DELIVERY_LABEL[action] ?? action
 export const CHANNEL_LABEL: Record<string, string> = { email: 'Email', push: 'Push' }

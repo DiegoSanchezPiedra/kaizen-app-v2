@@ -36,3 +36,18 @@ export const shortWeekday = (day: string): string =>
 export const dayOfMonth = (day: string): number => Number(day.slice(8))
 export const longWeekday = (day: string): string =>
   new Intl.DateTimeFormat('es-ES', { timeZone: 'UTC', weekday: 'long' }).format(new Date(`${day}T12:00:00Z`))
+
+const wallFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+function wall(ms: number): number {
+  const p = Object.fromEntries(wallFmt.formatToParts(ms).map((x) => [x.type, Number(x.value)]))
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute)
+}
+
+// «2026-07-01» + «09:30» (hora de Madrid) → ISO en UTC, que es lo que pide la API.
+export function madridToIso(day: string, time: string): string {
+  const [y, m, d] = day.split('-').map(Number)
+  const [h, mi] = time.split(':').map(Number)
+  const guess = Date.UTC(y, m - 1, d, h, mi)
+  const first = guess - (wall(guess) - guess)
+  return new Date(guess - (wall(first) - first)).toISOString()
+}

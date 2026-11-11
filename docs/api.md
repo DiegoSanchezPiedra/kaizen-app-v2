@@ -46,6 +46,7 @@ El backend construye enlaces con `APP_URL`; el frontend **tiene** que servir est
 | `/events/:id` | enlace de los avisos de eventos y del email de reembolso; `cancel_url` del Checkout de un evento |
 | `/events/:id?pago=ok` | vuelta del Checkout de un evento (la inscripción se confirma con el webhook: releer `GET /events/:id`) |
 | `/agreements` | aviso de re-firma de un documento legal |
+| `/clock` | avisos del registro de jornada al profesor (corrección del admin, jornada abierta) |
 | `/reset-password?token=…` | email de recuperar contraseña (el token, en la URL: `Referrer-Policy: same-origin`) |
 
 ---
@@ -202,6 +203,38 @@ badges, ranking ni informes. `404 registration_not_found` (sin inscripción conf
 Errores: `409 session_not_started`, `409 session_cancelled`, `409 attendance_closed`, `409 attendance_not_closed`,
 `404 no_active_booking`, `409 no_change`, `403 correction_window_expired`, `400 reason_required` (lo lanza `correct_attendance`; la ruta ya rechaza un motivo vacío con `400 invalid_field`).
 
+## Registro de jornada (B31, profesor empleado)
+
+Fichajes con la **hora del servidor** (el cliente nunca la manda), de solo añadir (ADR 0025). Tiempos en segundos.
+Jornada = de una entrada a su salida, sin pausas. Días y meses se cortan en la medianoche de Madrid: una jornada que la
+cruza reparte lo trabajado entre los dos días (y meses). Estado: `out` (fuera), `in` (trabajando), `paused`.
+
+| Método y ruta | Rol | Cuerpo / query | Respuesta |
+|---|---|---|---|
+| `POST /me/clock` | profesor | `{ kind: 'in'\|'out'\|'pause_start'\|'pause_end', code? }` (`code` = el QR de check-in de la tablet → `origin: 'tablet'`) | `201 { event: { id, kind, at, origin }, state }` |
+| `GET /me/clock?month=YYYY-MM` | profesor | mes de Madrid (por defecto el actual) | registro del mes (abajo); también para el autónomo (lo que fichó cuando era empleado) |
+| `POST /me/clock/corrections` | profesor empleado | `{ event_id, at?, reason }` (nueva hora; sin `at`, anularlo; `event_id` = un `days[].events[].id`, original o añadido por corrección) o `{ kind, at, reason }` (añadir el que falta). `reason` ≤ 500; `at` ISO 8601 con hora y zona, ≤ ahora | `201` corrección `pending`; aviso `notice.clock_correction_requested` al panel |
+
+Secuencia: fuera → `in`; trabajando → `out` o `pause_start`; en pausa → `pause_end`.
+Errores: `403 not_employee` (autónomo: no ficha ni tiene correcciones), `409 invalid_sequence { state }`, `400 invalid_qr`, `400 invalid_field`
+(también un campo de más, p. ej. `at` al fichar), `404 event_not_found` (fichaje que no es suyo), `409 not_professor`.
+
+**Registro del mes** (`GET /me/clock`, `GET /admin/clock`):
+
+```
+{ profile: { id, display_name, employment: 'employee'|'self_employed' }, month: 'YYYY-MM', state, total_seconds,
+  days: [{ date, worked_seconds, pause_seconds, open, events: [{ id, kind, at, origin: 'app'|'tablet'|'correction', corrected }] }],
+  events: [{ id, kind, at, origin }],          // fichajes originales del mes, tal cual se ficharon
+  corrections: [{ id, event_id|null, kind, at|null, reason, created_at, requested_by: { id, display_name|null },
+                  status: 'pending'|'applied'|'rejected', resolved_by: { id, display_name|null }|null, resolved_at,
+                  resolution_reason }] }       // las que tocan el mes y todas las pendientes
+```
+
+`days[].events` son los fichajes **como cuentan** de ese día (con las correcciones aplicadas, la última por orden de
+aplicación; `corrected: true` si la hora o el fichaje vienen de una); `worked_seconds`/`pause_seconds` son lo de ese día
+(una jornada que cruza la medianoche suma en los dos); `open: true` = jornada sin salida que empezó ese día (no suma). `display_name` del autor es `null` cuando el
+profesor no puede leer ese perfil (un admin): la UI pone «La academia».
+
 ## Tablet
 
 | Método y ruta | Auth | Respuesta |
@@ -321,6 +354,23 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 | `POST /admin/agreements/documents/:id/publish` | — | `{ document }` (retira la vigente y avisa para re-firmar) |
 | `POST /admin/profiles/:id/unpublish` | — | `{ id, is_public: false }` |
 | `DELETE /admin/profiles/:id/avatar` | — | `204`: quita una foto inadecuada (B24). Aviso `notice.avatar_removed` (email) al dueño o, si es un menor sin acceso propio, a sus tutores, sin el motivo. `audit_log` `profile.avatar_remove` |
+
+**Registro de jornada** (B31)
+
+| Método y ruta | Cuerpo / query | Respuesta |
+|---|---|---|
+| `PUT /admin/profiles/:id/employment` | `{ employment: 'employee'\|'self_employed' }` | `{ profile_id, employment }` (`audit_log` `profile.employment`). `409 not_professor` |
+| `GET /admin/clock/employees` | — | `{ employees: [{ id, display_name }] }`: solo los profesores con `employment = 'employee'`, por nombre (la lista de «Jornada» del panel) |
+| `GET /admin/clock?profile_id&month` | — | registro del mes, como `GET /me/clock` (también del autónomo). `409 not_professor`, `404 profile_not_found` |
+| `POST /admin/clock/corrections` | `{ profile_id, event_id, at?, reason }` o `{ profile_id, kind, at, reason }` (solo empleados: `403 not_employee`) | `201` corrección ya `applied`; aviso `notice.clock_corrected` (email) al profesor |
+| `POST /admin/clock/corrections/:id/apply` | — | corrección `applied`; aviso `notice.clock_correction_applied` (email) al profesor si la pidió él |
+| `POST /admin/clock/corrections/:id/reject` | `{ reason }` (≤ 500) | corrección `rejected`; aviso `notice.clock_correction_rejected` (email, con el motivo) al profesor si la pidió él |
+| `GET /admin/clock/export?profile_id&month&format=csv` | — | `text/csv; charset=utf-8` con BOM, `;`, CRLF, horas de Madrid; una fila por fichaje y por corrección, una `Total del día` por día y la última `Total del mes`, con el total `H:MM` en la última columna (`Total`). Celdas que empiezan por `= + - @`, tabulador o retorno, con `'` delante |
+
+Errores: `404 correction_not_found`, `409 already_resolved`, `409 invalid_sequence { state }` (aplicada dejaría los
+fichajes fuera de orden; no se guarda), `400 invalid_field`. El PDF es una página imprimible del frontend sobre
+`GET /admin/clock` (sin endpoint propio). Avisos del panel: `notice.clock_correction_requested` y `notice.clock_open`
+(jornada sin salida a las 16 h, la tarea nocturna, también al profesor por email).
 
 **Informes** (B17)
 

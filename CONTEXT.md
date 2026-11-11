@@ -201,6 +201,18 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 - **Ficha de salud vista por el profesor**: lesiones, condiciones, alergias, medicación y contacto de emergencia. Solo de los alumnos con reserva activa en sus sesiones del día (sustituciones incluidas) y solo ese día. Nunca experiencia ni disciplina previa.
 - **Auditoría**: registro inalterable que solo lee el admin. Recoge cada cierre de lista, cada corrección (qué cambió y motivo) y cada consulta de una ficha de salud por un profesor. No recoge el marcado previo al cierre.
 
+## Registro de jornada
+
+- **Registro de jornada**: lo que la academia guarda de cuándo trabaja cada profesor empleado (art. 34.9 ET). Lo consultan el propio profesor, en cualquier momento, y el admin; el admin lo exporta por profesor y mes. Ningún profesor ve el de otro.
+- **Tipo de relación**: si un profesor es **empleado** o **autónomo**. Lo marca el admin; hasta entonces, autónomo. Solo el empleado ficha y aparece en el registro: al autónomo nunca se le controla el horario. Quien pasa a empleado ficha desde ese momento. Solo profesores; el admin no ficha.
+- **Fichaje**: hecho de que un profesor empleado **entra**, **sale**, **empieza una pausa** o **vuelve** de ella, con la hora de la academia en ese momento, nunca la del móvil. Se ficha con un botón en la app o escaneando el QR de check-in de una tablet. Sin ubicación ni biometría. Va en orden: tras entrar, salir o pausar; en pausa, solo volver; fuera, solo entrar. Un fichaje fuera de orden se rechaza.
+  _Evitar_: marcaje, check-in (para el fichaje).
+- **Jornada**: lo fichado desde una entrada hasta su salida, sin las pausas. Los días y los meses se cortan en la medianoche de Madrid: una jornada que la cruza cuenta en cada día (y en cada mes) lo que trabajó en él. El total del mes suma lo trabajado en sus días, de las jornadas cerradas.
+- **Corrección** (de un fichaje): un fichaje nunca se cambia ni se borra. Corregir es añadir un registro que apunta al fichaje (con otra hora, o anulándolo) o que añade el que falta, siempre con motivo, autor y fecha; un fichaje añadido así también se puede corregir. Solo tiene correcciones el profesor empleado. El profesor la **solicita** y queda pendiente hasta que el admin la **aplica** o la **rechaza** con motivo, y se le avisa de lo que decida (del rechazo, con el motivo); el admin también corrige directamente y entonces se avisa al profesor. Si un fichaje tiene varias correcciones aplicadas, cuenta la última que se aplicó. Lo original sigue a la vista junto a la corrección. Una corrección que dejaría los fichajes fuera de orden no se aplica.
+  _Evitar_: edición, ajuste.
+- **Jornada abierta**: una entrada que a las 16 horas sigue sin salida. Se avisa al profesor y al admin para que la corrijan.
+- **Conservación**: el registro se guarda 4 años; lo más antiguo se borra solo, siempre jornadas enteras (una jornada con algo de menos de 4 años se queda entera), y queda constancia de cuántos registros se borraron.
+
 ## Racha y logros
 
 - **Semana**: de lunes a domingo, en hora de Madrid.
@@ -259,8 +271,8 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
   _Evitar_: dispositivo (a secas).
 - **Email de respaldo**: un aviso por push le llega por email a quien no tiene ningún dispositivo de push cuando se crea el aviso. Es un email de servicio, como los de facturación.
 - **Entrega**: el envío de un aviso a uno de sus destinatarios por un canal. Se reintenta un tiempo y después queda **fallida**; una entrega fallida no se vuelve a enviar (el aviso ya habría perdido sentido): el admin la ve en su panel y, si importa, avisa a la persona por otro medio.
-- **Avisos de la academia**: los avisos cuyo destinatario es el admin (riesgo de fraude o disputa, un cobro duplicado reembolsado, un cambio de pagador caducado). No se le entregan: los lee en su panel.
-- **Quién no se avisa**: quien provoca el aviso no se avisa a sí mismo (p. ej. el tutor que cambia la disciplina de su hijo; los demás tutores, sí). El admin no recibe avisos por email ni push: los consulta en su panel. El profesor no recibe ninguno. Las disputas y los avisos de fraude los notifica además la pasarela de pago a la cuenta.
+- **Avisos de la academia**: los avisos cuyo destinatario es el admin (riesgo de fraude o disputa, un cobro duplicado reembolsado, un cambio de pagador caducado, una corrección de fichaje solicitada, una jornada abierta). No se le entregan: los lee en su panel.
+- **Quién no se avisa**: quien provoca el aviso no se avisa a sí mismo (p. ej. el tutor que cambia la disciplina de su hijo; los demás tutores, sí). El admin no recibe avisos por email ni push: los consulta en su panel. El profesor solo recibe los del registro de jornada (una corrección del admin, la respuesta a la que pidió y la jornada abierta), por email. Las disputas y los avisos de fraude los notifica además la pasarela de pago a la cuenta.
 - **Contenido**: un push se ve en la pantalla de bloqueo: lleva el nombre del alumno y lo imprescindible de la sesión o del acuerdo, nunca salud, edad ni fecha de nacimiento.
 - **Sin preferencias**: no se elige qué avisos recibir. Para dejar el push basta con quitarle el permiso al navegador; entonces llega el email de respaldo.
 - **Idioma**: los avisos, como la app, solo en español.

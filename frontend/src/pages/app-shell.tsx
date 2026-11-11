@@ -41,7 +41,7 @@ export function AppShell() {
     <div className="flex min-h-dvh flex-col lg:flex-row">
       <nav
         aria-label="Principal"
-        className="order-last fixed inset-x-0 bottom-0 z-10 grid border-t bg-card px-1 pt-1.5 pb-[calc(6px+env(safe-area-inset-bottom))] lg:static lg:order-first lg:flex lg:w-64 lg:flex-col lg:gap-1 lg:border-t-0 lg:border-r lg:px-3 lg:py-4"
+        className="print:hidden order-last fixed inset-x-0 bottom-0 z-10 grid border-t bg-card px-1 pt-1.5 pb-[calc(6px+env(safe-area-inset-bottom))] lg:static lg:order-first lg:flex lg:w-64 lg:flex-col lg:gap-1 lg:border-t-0 lg:border-r lg:px-3 lg:py-4"
         style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
       >
         <div className="mb-4 hidden items-center gap-2.5 px-2 lg:flex">
@@ -70,7 +70,7 @@ export function AppShell() {
           </NavLink>
         ))}
       </nav>
-      <main className="min-w-0 flex-1 px-4 pt-6 pb-28 lg:px-10 lg:pb-10">
+      <main className="min-w-0 flex-1 px-4 pt-6 pb-28 print:p-0 lg:px-10 lg:pb-10">
         {usesSubject(pathname) && <SubjectPicker />}
         <Outlet />
       </main>

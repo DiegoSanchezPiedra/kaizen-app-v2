@@ -1,12 +1,14 @@
 // Tareas nocturnas (ADR 0012): extiende el horizonte de sesiones (ADR 0004), toma la foto diaria de ayer de Madrid y
 // pide los reembolsos de eventos que quedaron pedidos sin llegar a Stripe (B21.0) y aplica el rango de edad de las
-// disciplinas (B29: aviso a 30 días y cancelación desde el cumpleaños que supera la máxima).
+// disciplinas (B29: aviso a 30 días y cancelación desde el cumpleaños que supera la máxima) y el registro de jornada
+// (B31: aviso de jornada abierta a las 16 h y purga de lo de más de 4 años).
 // Lo lanza el cron del sistema a las 03:00 de Madrid (scripts/README.md). Cada tarea en su try: si una falla, la otra
 // corre igual; código de salida 1 si alguna falló. --date=YYYY-MM-DD (solo ayer u hoy) repite la foto a mano.
 import 'dotenv/config';
 import { servicePool, closePools } from '../src/config/database.js';
 import { extendHorizon } from '../src/services/sessions.js';
 import { settleRequestedRefunds } from '../src/services/events.js';
+import { warnOpenDays, purgeClock } from '../src/services/clock.js';
 
 const date = process.argv.find((a) => a.startsWith('--date='))?.slice('--date='.length) ?? null;
 let failed = false;
@@ -35,6 +37,13 @@ try {
     console.log(`fuera de edad: ${r.warned} avisos, ${r.cancelled} reservas canceladas`);
   } catch (err) {
     console.error(`fuera de edad: ${err.message}`);
+    failed = true;
+  }
+  try {
+    console.log(`jornadas abiertas: ${await warnOpenDays()} avisos`);
+    console.log(`registro de jornada: ${await purgeClock()} registros de más de 4 años borrados`);
+  } catch (err) {
+    console.error(`registro de jornada: ${err.message}`);
     failed = true;
   }
   try {

@@ -80,7 +80,7 @@ npm run staging:api         # la API (déjala en su terminal)
 npm run staging:seed        # en otra terminal, con la API ya en marcha
 ```
 
-El seed es repetible e imprime las cuentas (contraseña: `SEED_PASSWORD`): admin, 2 profesores, 2 alumnos y un tutor con un hijo
+El seed es repetible e imprime las cuentas (contraseña: `SEED_PASSWORD`): admin, 2 profesores (Marc Soler, empleado: ficha su jornada; Sensei Marta, autónoma), 2 alumnos y un tutor con un hijo
 menor; 4 disciplinas con su temática de medallas (Boxeo, BJJ/Grappling, Muay Thai y Muay Thai Kids, solo menores), 4 planes (crean
 Products y Prices en el sandbox), 8 clases (2 a la semana por disciplina, con sus sesiones a un año) y los 2 documentos legales publicados (PDFs de prueba). **El perfil del alumno sale incompleto a propósito** (ficha
 médica, acuerdos): es parte de lo que el cliente prueba.

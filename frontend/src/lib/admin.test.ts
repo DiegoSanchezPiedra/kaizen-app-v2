@@ -14,6 +14,7 @@ import {
   trend,
   variation,
   type HomeSession,
+  noticeClock,
   noticeEvent,
   noticeLabel,
   pageHref,
@@ -273,5 +274,19 @@ describe('Inicio en vivo (B23)', () => {
     expect(trend(rows, 'active')).toBe(6)
     expect(trend([day('2026-10-01', 100)], 'active')).toBeNull()
     expect(trend([day('2026-10-01', null)], 'active')).toBeNull()
+  })
+})
+
+describe('avisos del registro de jornada (B31)', () => {
+  const n = (action: string, details: Record<string, unknown>) => ({ id: '1', created_at: '', action, resource_type: 'clock_event', resource_id: '1', details })
+  it('abren la jornada del profesor, y solo los de jornada', () => {
+    expect(noticeClock(n('notice.clock_open', { profile_id: 'p1' }))).toBe('p1')
+    expect(noticeClock(n('notice.clock_correction_requested', { profile_id: 'p2' }))).toBe('p2')
+    expect(noticeClock(n('notice.stripe_risk', { profile_id: 'p3' }))).toBeNull()
+    expect(noticeClock(n('notice.clock_open', {}))).toBeNull()
+  })
+  it('tienen texto en español', () => {
+    expect(noticeLabel('notice.clock_open')).not.toBe('notice.clock_open')
+    expect(deliveryLabel('notice.clock_correction_rejected')).not.toBe('notice.clock_correction_rejected')
   })
 })

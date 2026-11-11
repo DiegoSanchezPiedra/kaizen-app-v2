@@ -189,6 +189,13 @@ Errores: `invalid_range` («revisa las fechas: como mucho 92 días o 24 meses»)
 | **Tablets** | `GET /admin/tablets`, `POST /admin/tablets`, `POST /admin/tablets/:id/revoke` | nombre, estado (esperando vinculación, vinculada, revocada), vinculada el, vista por última vez. **Nueva tablet**: nombre → el **código** en grande (Geist Mono) con «caduca a las …; solo se ve ahora» y cómo usarlo (`/tablet` en la tablet). **Revocar** con confirmación («la tablet deja de mostrar el QR al momento») |
 | **Ajustes** | `GET /admin/settings` (**B19.1**), `PUT /admin/settings/checkin`, `PUT /admin/settings/discipline-changes` | dos grupos, cada uno con su «Guardar»: **check-in** (abre N min antes, cierra N min después, el QR cambia cada N s; 1–1440), **cambios de disciplina por periodo** (0 o más). `invalid_field` en su campo |
 
+## Jornada `/admin/clock` (B31)
+
+| Pantalla | Endpoints | Estados y errores |
+|---|---|---|
+| **Profesores** `/admin/clock` | `GET /admin/profiles?role=profesor` | lista de profesores; cada uno lleva a su mes. Vacío: «No hay profesores». En su ficha (**Usuarios**): **Tipo de relación** (empleado o autónomo, `PUT /admin/profiles/:id/employment` con confirmación) |
+| **Mes de un profesor** `/admin/clock?profile_id=&month=` | `GET /admin/clock?profile_id&month`, `GET /admin/clock/export?profile_id&month&format=csv` | días con fichajes y total del mes; **Correcciones** primero (pendientes arriba) con **Aplicar** (confirmación; avisa por email) y **Rechazar** (motivo). Cada fichaje: **Corregir hora**, **Anular** y **Añadir fichaje que falta** (`POST /admin/clock/corrections`). Autónomo: sin acciones, con una nota. **Descargar CSV** y **Imprimir** (`/admin/clock/print?profile_id=&month=`, hoja A4 sin menú). `not_professor`, `profile_not_found`, `not_employee` |
+
 ## Mapa de errores nuevos por `code`
 
 Los de B18 siguen valiendo. Texto de la UI para los nuevos y los del admin que la UI de B18 no tenía:
