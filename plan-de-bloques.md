@@ -76,7 +76,7 @@
 | B27 | Verificación de email al registrarse y confirmar el cambio de contraseña por email (ADR 0021) | B24 | Diseñado (antes de producción) |
 | B28 | Retirar el seguro y el `waiver`: solo se cobran membresías | B10.3, B11 | CERRADO |
 | B29 | Rango de edad por disciplina (kids 5–12) en contratar, reservar y al cumplir años | B28 | CERRADO |
-| B30 | Pausa con cuota de mantenimiento (Stripe, Subscription Schedule) | B28, B29 | Diseñado (antes de producción) |
+| B30 | Pausa con cuota de mantenimiento (Stripe, Subscription Schedule) | B28, B29 | Implementado; PR #11 pendiente de revisión del usuario |
 | B31 | Registro de jornada (fichaje) de profesores empleados | B28 | CERRADO |
 | B32 | Acceso propio del menor con permisos limitados (sustituye ADR 0002) | B29, B30, B31 | Diseñado (antes de producción) |
 | B33 | Auditoría de rendimiento de B28–B32 y de lo que tocan | B32 | Diseñado (antes de producción) |
@@ -2673,7 +2673,19 @@ nocturna cancela con `no_coverage`; un `unpaid` no recibe el aviso de los 30 dí
   Vitest (`lib/billing.test.ts`) con fechas fijas que cubran cumpleaños, cambio de hora y medianoche de Madrid; revisión
   manual a 375 px del formulario de disciplina y del catálogo del tutor.
 
-### B30 — Pausa con cuota de mantenimiento — Diseñado (antes de producción)
+### B30 — Pausa con cuota de mantenimiento — Implementado (PR pendiente de revisión del usuario)
+
+Rama `b30-pausa`, 2026-11-11. B30.0 (Opus, alto): `4cfdd1c`, `e946c0b`, `2483f63`; revisión `5934bc8`, `4ddbd26`,
+`af33448`. B30.1 (Sonnet, alto): `80d2c01`, `8d31ec2`; revisión `d8714a7`. Migración `060`, ADR 0024,
+`test:e2e-b30` (test clock en el sandbox). Comprobado en el sandbox: una fase con un Price mensual de 0 € da recibos de
+0 € pagados sin método de pago y la suscripción sigue `active` (la exención usa ese Price, no `trial`); `duration`
+en lugar de `iterations` (deprecado). Decisiones al implementar: el bloqueo de los días de pausa está en `book_session`
+(403 `paused`) y en el «cubre» del calendario, sin tocar `covers()`; rutas propias del admin
+(`/admin/subscriptions/:id/pause`); el importe queda fijado al pedir la pausa; eximir una pausa empezada vale desde el
+siguiente cobro (409 `pause_nothing_to_exempt` si no quedan cobros); un ajuste de sesión que lleva una reserva a un día
+de pausa la cancela con motivo `pause`; el Schedule queda enganchado un mes tras la vuelta (se limpia su metadata si se
+reutiliza). Consistencia Stripe ↔ BD: claves idempotentes y compensación si falla la BD tras tocar el Schedule (salvo
+«volver antes» y el primer Price de los ajustes, razonado en el ADR). Límite aceptado: anular la pausa no avisa.
 
 - **Objetivo**: un alumno que deja de entrenar una temporada **pausa** su membresía y paga una cuota de mantenimiento
   reducida en lugar del precio del plan; al acabar vuelve solo a su plan y sus disciplinas.
@@ -2714,14 +2726,16 @@ nocturna cancela con `no_coverage`; un `unpaid` no recibe el aviso de los 30 dí
 - **Modelo y effort**: diseño cerrado salvo la comprobación de la API; implementación **Opus, alto** (Stripe y dinero); pantallas en **Sonnet, alto**.
   Skills: `stripe-best-practices`, `stripe-docs`, `mattpocock-skills:tdd`, `graphify`.
 - **Criterios de aceptación**:
-  - [ ] Pausa de 2 meses: el siguiente cobro es la cuota de mantenimiento dos veces y luego el precio del plan, con las
+  - [x] Pausa de 2 meses: el siguiente cobro es la cuota de mantenimiento dos veces y luego el precio del plan, con las
         mismas disciplinas (con *test clock*).
-  - [ ] Pedirla cancela las reservas desde el inicio y no las anteriores; durante la pausa, reservar → 403.
-  - [ ] Anular antes de empezar deja la suscripción como estaba; volver antes adelanta la fase del plan a la siguiente
+  - [x] Pedirla cancela las reservas desde el inicio y no las anteriores; durante la pausa, reservar → 403.
+  - [x] Anular antes de empezar deja la suscripción como estaba; volver antes adelanta la fase del plan a la siguiente
         fecha de cobro.
-  - [ ] Límites de meses y de pausas por año; 409 con un cambio ya programado.
-  - [ ] Exención: fase a 0 €, `audit_log` con motivo; impago → morosos.
-  - [ ] Racha intacta tras una pausa.
+  - [x] Límites de meses y de pausas por año; 409 con un cambio ya programado.
+  - [x] Exención: fase a 0 €, `audit_log` con motivo; impago → morosos.
+  - [x] Racha intacta tras una pausa.
+  - [ ] Revisión del usuario de la PR (dinero) antes de mergear.
+  - [ ] Prueba en pantalla como pagador con una cuota real del sandbox y en un iPhone real.
 - **Verificación**: `test:billing`, `test:webhook` contra el sandbox, `test:bookings`, `test:progress`, `test:dunning`,
   `test:notices`, Vitest; E2E con `stripe listen` y *test clock* (pausa, anulación, vuelta antes, impago); revisión manual
   a 375 px.
