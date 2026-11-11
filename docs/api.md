@@ -103,12 +103,12 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 |---|---|---|---|
 | `GET /disciplines` | cualquiera | — | `{ disciplines: [{ id, name, min_age, max_age, is_active, is_open }] }` (`min_age`/`max_age`: rango de edad inclusive en años cumplidos, `null` = sin límite) (activas; las desactivadas solo si las ve por suscripción o por sus sesiones) |
 | `GET /plans` | cualquiera | — | `{ plans: [{ id, name, price_cents, billing_period, max_disciplines, minors_only, is_active, eligible_discipline_ids }] }` |
-| `GET /sessions/calendar?from&to&discipline_id&profile_id` | alumno, tutor, admin (`profile_id`: el admin, o quien sea tutor de ese perfil; si no, `403 not_guardian`) | rango ≤ 92 días, por defecto hoy + 30 | `{ sessions: [{ id, class_id (null en una sesión suelta), starts_at, ends_at, discipline: { id, name }, trainer: { id, display_name }, location, capacity, taken (reservas confirmadas de todos, solo la cuenta: `session_taken`), status, held, covered, booking }] }`. `covered`: la suscripción cubre la disciplina y, el día de la sesión (Madrid), el sujeto tiene su edad (B29). Al tutor sin `profile_id`, `covered` y `booking` vienen **por hijo** (objeto por id); con `profile_id`, planos para ese sujeto |
+| `GET /sessions/calendar?from&to&discipline_id&profile_id` | alumno, tutor, admin (`profile_id`: el admin, o quien sea tutor de ese perfil; si no, `403 not_guardian`) | rango ≤ 92 días, por defecto hoy + 30 | `{ sessions: [{ id, class_id (null en una sesión suelta), starts_at, ends_at, discipline: { id, name }, trainer: { id, display_name }, location, capacity, taken (reservas confirmadas de todos, solo la cuenta: `session_taken`), status, held, covered, booking }] }`. `covered`: la suscripción cubre la disciplina y, el día de la sesión (Madrid), el sujeto tiene su edad (B29) y no está en pausa (B30). Al tutor sin `profile_id`, `covered` y `booking` vienen **por hijo** (objeto por id); con `profile_id`, planos para ese sujeto |
 | `GET /bookings?profile_id&from&to` | alumno, tutor, admin | rango ≤ 92 días | `{ bookings: [{ id, session_id, student_id, booked_by, status, cancel_reason, discipline_id, discipline_name, starts_at, ends_at, location, session_status }] }`; una fila por sesión y alumno (la activa o, si no hay, la última cancelada) |
 | `POST /bookings` | alumno, tutor, admin (perfil completo) | `{ session_id, profile_id? }` | `201 { booking }` con `status` `confirmed` o `waitlisted` |
 | `POST /bookings/:id/cancel` | alumno, tutor, admin | — | `{ booking }` (también sale de la espera; `cancel_reason` `late` si es tardía) |
 
-Errores de reservas: `403 age_out_of_range` (`{ …, min_age, max_age }`: no tiene la edad de la disciplina el día de la sesión, en Madrid; se mira antes que la cobertura), `403 not_covered`, `409 session_not_bookable`, `409 outside_booking_window`,
+Errores de reservas: `403 age_out_of_range` (`{ …, min_age, max_age }`: no tiene la edad de la disciplina el día de la sesión, en Madrid; se mira antes que la cobertura), `403 paused` (la sesión cae en una pausa programada o en curso del alumno; también para la espera), `403 not_covered`, `409 session_not_bookable`, `409 outside_booking_window`,
 `409 already_booked`, `409 booking_overlap`, `409 booking_not_active`, `409 session_started`,
 `409 booking_conflict_retry` (reintentar), `404 session_not_found|booking_not_found`, `403 not_allowed`.
 
@@ -149,7 +149,7 @@ Errores: `400 invalid_qr`, `404 no_candidates`, `409 attendance_closed`.
 
 | Método y ruta | Cuerpo / query | Respuesta |
 |---|---|---|
-| `GET /billing/subscription?profile_id=` | — | `{ id, status, plan: { id, name, price_cents, max_disciplines }, disciplines: [{ id, name }], current_period_end, cancel_at_period_end, scheduled_change, discipline_changes_left, payer_change }` |
+| `GET /billing/subscription?profile_id=` | — | `{ id, status, plan: { id, name, price_cents, max_disciplines }, disciplines: [{ id, name }], current_period_end, cancel_at_period_end, scheduled_change, discipline_changes_left, payer_change, pause, pause_settings }`. `pause`: la programada o en curso `{ id, status: 'scheduled'\|'active', months, starts_at, ends_at, price_cents, exempt }` o `null`; `price_cents` es la cuota de mantenimiento al pedirla (si `exempt`, se cobra 0 €). `pause_settings`: `{ price_cents (null = la academia no ofrece pausas), max_months, per_year }` |
 | `POST /billing/checkout` (perfil completo) | `{ plan_id, discipline_ids?, profile_id? }` (otro campo → `400 invalid_field`) | `201 { url }` → redirigir a Stripe Checkout |
 | `POST /billing/portal` | — | `{ url }` → Portal de Stripe (método de pago, facturas, baja) |
 | `POST /billing/subscriptions/:id/plan` | `{ plan_id, discipline_ids }` | subida `{ change: 'upgrade', status: 'applied'\|'requires_action', client_secret? }`; bajada `202 { change: 'downgrade', scheduled_at }` |
@@ -157,6 +157,12 @@ Errores: `400 invalid_qr`, `404 no_candidates`, `409 attendance_closed`.
 | `POST /billing/subscriptions/:id/disciplines` | `{ from_id, to_id }` | `{ disciplines, changes_left, free }` |
 | `GET /billing/payer-changes/:id` | — | `{ id, status, student: { id, name }, plan: { id, name }, price_cents, disciplines, starts_at, deadline }` |
 | `POST /billing/payer-changes/:id/checkout` (nuevo pagador, perfil completo) | — | `{ url }` (Checkout de 0 € hoy) |
+| `POST /billing/pause` (pagador) | `{ profile_id?, months }` (sin `profile_id`, el propio alumno) | `201 { id, status: 'scheduled', months, starts_at, ends_at, price_cents, exempt, cancelled_bookings }`. Empieza en la siguiente fecha de cobro (`current_period_end`) y dura `months` meses enteros; cancela las reservas y esperas de esos días (motivo `pause`, aviso). `400 invalid_field` (`months` fuera de 1…`max_months`: `{ field, max }`), `403 not_payer`, `404 subscription_not_found`, `409 pause_not_configured`, `409 change_scheduled` (ya hay una bajada o una pausa), `409 pause_year_limit` (`{ per_year }`, año natural de Madrid del inicio; las anuladas no cuentan), `409 subscription_not_active`, `409 cancel_scheduled`, `409 upgrade_pending`, `409 payer_change_pending` |
+| `DELETE /billing/pause` (pagador) | `{ profile_id? }` o `?profile_id=` | `200 { id, status: 'cancelled', ends_at }` si no había empezado (anulada gratis; las reservas canceladas no vuelven) o `200 { id, status: 'active', ends_at }` si ya había empezado (vuelve en la siguiente fecha de cobro, sin prorrateo; `ends_at` es esa fecha). `404 no_pause`, `409 pause_ending` (ya acaba en la siguiente fecha de cobro), `403 not_payer` |
+
+Con una pausa programada o en curso, cambiar de plan o de disciplina y pedir un cambio de pagador dan `409 paused`; la baja
+sí se puede (la pausa se anula o acaba con la suscripción). `DELETE …/plan/scheduled` no anula una pausa
+(`404 no_scheduled_change`).
 
 Errores frecuentes: `409 subscription_exists`,
 `409 plan_not_purchasable`, `409 plan_minors_only`, `409 discipline_not_eligible` (también si hoy supera su edad máxima), `409 discipline_change_limit`,
@@ -323,20 +329,24 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 | `GET /admin/payer-changes?status&from&subscription_id&limit&offset` | `status` admite varios (`requested,paid`; `requested\|paid\|completed\|expired\|cancelled`), `from` es un día sobre `updated_at`, `subscription_id` limita a una suscripción | `{ rows: [{ id, status, subscription_id, student: { id, display_name }, old_payer: { … }, new_payer: { … }, plan: { id, name }, starts_at, deadline, cancel_reason, updated_at }], total, limit, offset }`, el más reciente primero. Un `requested` pasada su fecha límite sale (y se filtra) como `expired`, aunque el webhook aún no lo haya marcado. `400 invalid_field`, `invalid_pagination` |
 | `GET /admin/payer-changes/:id` | — | como el del alumno |
 | `DELETE /admin/subscriptions/:id/payer-change` | — | `204` |
+| `POST /admin/subscriptions/:id/pause` | `{ months }` | como `POST /billing/pause` (el admin la pide por el pagador; `requested_by` = admin) |
+| `DELETE /admin/subscriptions/:id/pause` | — | como `DELETE /billing/pause` |
+| `POST /admin/pauses/:id/exempt` | `{ reason }` (1–500 caracteres) | `{ id, status, months, starts_at, ends_at, price_cents, exempt: true }`: su fase de mantenimiento pasa a 0 €, sin prorrateo (si ya había empezado, desde el siguiente cobro). `audit_log` `pause.exempt` con el motivo. `400 invalid_field`, `404 pause_not_found`, `409 pause_not_live`, `409 pause_exempt` |
 
 **Ajustes de la academia** (los `PUT` devuelven `{ settings }` con los valores vigentes)
 
 | Método y ruta | Cuerpo |
 |---|---|
-| `GET /admin/settings` | — → `{ checkin: { opens_minutes, closes_minutes, qr_seconds }, discipline_changes: { per_period } }`: lo mismo que devuelve cada `PUT` en `settings` |
+| `GET /admin/settings` | — → `{ checkin: { opens_minutes, closes_minutes, qr_seconds }, discipline_changes: { per_period }, pause: { price_cents, max_months, per_year } }`: lo mismo que devuelve cada `PUT` en `settings` |
 | `PUT /admin/settings/checkin` | `{ opens_minutes?, closes_minutes?, qr_seconds? }` |
 | `PUT /admin/settings/discipline-changes` | `{ per_period }` |
+| `PUT /admin/settings/pause` | `{ price_cents? (1–10 000 000, la cuota de mantenimiento mensual), max_months? (1–12, por defecto 3), per_year? (0–12, por defecto 1) }`. Sin `price_cents` no hay pausas. Un precio nuevo no cambia las pausas ya pedidas. `400 invalid_field`. `audit_log` `settings.pause` |
 
 **Auditoría, avisos de la academia y entregas fallidas** (B19.1). Todas paginadas (`limit` 1–100, 25 por defecto; `offset`) y del más nuevo al más viejo; `from` y `to` son días de Madrid, ambos incluidos. `400 invalid_pagination`, `invalid_field`.
 
 | Método y ruta | Respuesta |
 |---|---|
-| `GET /admin/audit?action&actor_id&resource_type&resource_id&from&to&limit&offset` | `{ rows: [{ id, created_at, action, actor: { id, display_name }, resource_type, resource_id, changes }], total, limit, offset }`. `action` son prefijos separados por comas (`session.,class.`). **Nunca** devuelve `notice.*` (ni filtrando por ellos). `400 invalid_range` si `to < from`. Las altas son `subscription.create` (las escribe el webhook al nacer la cuota, con el pagador de actor y `changes: { student_id, payer_id, plan_id }`; un traspaso de pagador no es un alta) |
+| `GET /admin/audit?action&actor_id&resource_type&resource_id&from&to&limit&offset` | `{ rows: [{ id, created_at, action, actor: { id, display_name }, resource_type, resource_id, changes }], total, limit, offset }`. `action` son prefijos separados por comas (`session.,class.`). **Nunca** devuelve `notice.*` (ni filtrando por ellos). `400 invalid_range` si `to < from`. Las altas son `subscription.create` (las escribe el webhook al nacer la cuota, con el pagador de actor y `changes: { student_id, payer_id, plan_id }`; un traspaso de pagador no es un alta). La pausa (B30): `subscription.pause` (`{ pause_id, months, starts_at, ends_at }`), `subscription.pause_cancel`, `subscription.pause_end_early` (recurso: la suscripción), `pause.exempt` (recurso: la pausa; `{ reason, subscription_id }`) y `settings.pause` |
 | `GET /admin/home` | — | Inicio en vivo (B23): `{ trained: { last_30, previous_30, series } }` (B24.2, alumnos que entrenaron, ver CONTEXT § Informes: distintos en los días de Madrid [hoy-29, hoy] y [hoy-59, hoy-30]; `series`, 30 enteros del más viejo al de hoy, el i-ésimo los de los 30 días que acaban en hoy-29+i, así que `series[29] = last_30`), `students: { activos, impago, inactivos }` (como `/admin/profiles/stats`), `attendance: { today, last_week }` (entradas `present` de las sesiones no canceladas de hoy y del mismo día de hace 7 hasta esta misma hora, días de Madrid), `sessions: [{ id, starts_at, ends_at, discipline, trainer, location, capacity, status, booked, present }]` (las de hoy, también las canceladas), `next` (la próxima programada que no ha empezado, o `null`) } |
 | `GET /admin/notices?limit&offset` | `{ rows: [{ id, created_at, action, resource_type, resource_id, details }], total, limit, offset }`: los `notice.*` con algún admin entre sus destinatarios (`stripe_risk`, la carrera de Checkouts, `payer_change_expired`…); `details` es `changes` sin `recipients` |
 | `GET /admin/notice-deliveries?from&limit&offset` | `{ rows: [{ id, created_at, action, channel, recipient: { id, display_name }, attempts, last_error }], total, limit, offset }`: solo las `failed` (no se reintentan); `from` sobre `created_at` |

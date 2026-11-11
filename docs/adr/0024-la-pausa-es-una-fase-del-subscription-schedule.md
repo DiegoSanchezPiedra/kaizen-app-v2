@@ -1,0 +1,14 @@
+# La pausa es una fase del Subscription Schedule
+
+Una pausa (CONTEXT § Pausa) se pide a Stripe como la bajada de plan (ADR 0007): un **Subscription Schedule** de tres fases, la actual hasta la siguiente fecha de cobro, la de **mantenimiento** (`duration: { interval: 'month', interval_count: N }`, con el Price de la cuota de mantenimiento, o el de 0 € si está eximida) y la **vuelta** al Price vigente del plan, con `end_behavior: release`. Las tres fases llevan la `metadata` de la suscripción: el webhook no ve un cambio de plan y el plan y las disciplinas no se tocan. El Schedule lleva `metadata.kind = 'pause'`, `pause_id`, `starts_at` y `ends_at`; por esa marca el webhook no lo toma por una bajada (las columnas `scheduled_*` quedan vacías). Sigue habiendo como mucho un cambio programado a la vez (`409 change_scheduled`).
+
+La fila de `pauses` la escribe el servicio (pedirla, anularla, volver antes, eximirla) y el webhook confirma su estado con la fase en curso del Schedule (la hora de Stripe, también con un test clock): programada, en curso o acabada; un Schedule liberado antes del inicio la anula y uno liberado a mitad (la baja) la acaba con la suscripción. Así se mantiene la regla de B10: el estado de cobro solo lo escribe el webhook. Anular antes de empezar es liberar el Schedule; volver antes es acortar la fase de mantenimiento hasta la siguiente fecha de cobro (se reenvían todas las fases vigentes, como pide la API).
+
+Comprobado en el sandbox el 2026-11-11 (API `2026-09-30.endive`), con test clock: una fase con un Price mensual de `unit_amount: 0` es válida y genera facturas de 0 € pagadas sin método de pago y sin error, con la suscripción en `active`; dos meses de fase dan dos facturas. Un Price archivado se puede reenviar en una fase al actualizar el Schedule (por eso un precio nuevo de la cuota de mantenimiento archiva el anterior sin tocar las pausas ya pedidas). `iterations` está deprecado; se usa `duration`.
+
+Se descartaron:
+- `pause_collection`, porque deja de cobrar y no cobra un importe reducido.
+- Una fase entera de `trial` para la exención: añade un estado `trialing` que Kaizen no mapea (STATUS) y que el webhook trata como de otra app.
+- Guardar la pausa en local y cambiar el Price con un job, por lo mismo que en ADR 0007: reimplementa el Schedule y deja a Stripe cobrando el plan si el job falla.
+
+El precio es el de ADR 0007: con el Schedule adjunto, la suscripción se cambia a través de él. Mientras hay una pausa programada o en curso no se cambia de plan, de disciplina ni de pagador (`409 paused`); la baja la libera como a una bajada (el aviso la da por anulada). El cambio de precio de un plan ya actualiza las fases del Schedule, así que la vuelta usa el Price vigente. Tras la vuelta el Schedule sigue adjunto un periodo; una bajada que lo reutiliza le borra la `metadata`. Volver atrás supondría migrar los Schedules de pausa vivos.
