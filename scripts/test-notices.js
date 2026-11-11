@@ -211,6 +211,9 @@ try {
     const billing = `${APP_URL}/billing`;
     const cases = [
       ['notice.payment_failed', { type: 'invoice', resourceId: inv.id, next_payment_attempt: '2026-11-05T10:00:00Z' }, billing, /5 de noviembre/],
+      // B30: el recibo fallido de una pausa es la cuota de mantenimiento, no el plan.
+      ['notice.payment_failed', { type: 'invoice', resourceId: inv.id, maintenance: true }, billing,
+        /El cobro de 40,00\s€ de la cuota de mantenimiento de Nico <Hijo> no se ha podido realizar/],
       ['notice.checkout_payment_failed', { student_id: U.child }, billing],
       ['notice.checkout_race_refunded', { student_id: U.child }, billing],
       ['notice.plan_downgraded', { student_id: U.child, from_plan_id: planA.id, to_plan_id: planB.id }, billing, /T-Not Oro.*T-Not Plata/],

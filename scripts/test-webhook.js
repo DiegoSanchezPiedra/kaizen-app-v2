@@ -27,7 +27,7 @@ const people = {
   pc: 'alumno', pc2: 'alumno', // B10.5
   unp: 'alumno', // B10.6
   kid: 'alumno', t1: 'tutor', t2: 'tutor', // B11: kid (menor) lo paga t1; t2, también vinculado
-  pz: 'alumno', // B30
+  pz: 'alumno', pz2: 'alumno', // B30
 };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 for (const [k, role] of Object.entries(people)) {
@@ -190,7 +190,7 @@ try {
     assert.deepEqual([inv.status, inv.attempt_count, inv.last_payment_error, inv.payer_id, inv.student_id],
       ['open', 1, 'Your card was declined.', U.tutor, U.child]);
     const [n] = await q(`SELECT changes FROM audit_log WHERE action = 'notice.payment_failed' AND resource_id = $1`, [inv.id]);
-    assert.deepEqual(n.changes.recipients, [U.tutor]);
+    assert.deepEqual([n.changes.recipients, n.changes.maintenance], [[U.tutor], false]);
     // Reintento automático fallido (B11): sin aviso; si se agotan, avisa el paso a unpaid. Solo los reintentos
     // automáticos suben attempt_count (un pago manual no): se simula al releer el recibo.
     const { retrieve } = stripe.invoices;
@@ -568,6 +568,35 @@ try {
     const end = (await stripe.subscriptions.retrieve(pzSub.id)).items.data[0].current_period_end * 1000;
     assert.deepEqual([got.status, got.ends_at.getTime()], ['completed', Math.min(end, p.ends_at.getTime())]);
     assert.deepEqual(await noticeOf('notice.pause_ended', p.id), [], 'la baja ya avisa');
+  });
+
+  await run('cobro fallido de la cuota de mantenimiento: el aviso lo dice (maintenance), no «del plan»', async () => {
+    const [{ value: maint }] = await q(`SELECT value #>> '{}' AS value FROM academy_settings WHERE key = 'pause_stripe_price'`);
+    const s = await stripe.subscriptions.create({ customer: cusTutor, items: [{ price: maint }] });
+    stripeSubs.push(s.id);
+    await q(`INSERT INTO subscriptions (student_id, payer_id, plan_id, status, stripe_subscription_id)
+             VALUES ($1, $2, $3, 'incomplete', $4)`, [U.child, U.tutor, plan.id, s.id]);
+    await handleEvent(evt('invoice.payment_failed', { id: s.latest_invoice, object: 'invoice' }));
+    const [inv] = await q(`SELECT id FROM invoices WHERE stripe_invoice_id = $1`, [s.latest_invoice]);
+    const [n] = await q(`SELECT changes FROM audit_log WHERE action = 'notice.payment_failed' AND resource_id = $1`, [inv.id]);
+    assert.equal(n.changes.maintenance, true);
+  });
+
+  await run('cambio de precio del plan con una pausa programada: la vuelta (y la fase actual) al Price nuevo; la de mantenimiento no', async () => {
+    const pzPlan = await mkPlan('pz', { price_cents: 2000, max_disciplines: 1 });
+    const cus = await customer('pz2', 'pm_card_visa');
+    const s = await stripe.subscriptions.create({ customer: cus, items: [{ price: await priceOf(pzPlan.id) }],
+      metadata: { student_id: U.pz2, payer_id: U.pz2, plan_id: pzPlan.id, discipline_ids: String(disc) } });
+    stripeSubs.push(s.id);
+    await handleEvent(completed(s));
+    const row = await localSub(s.id);
+    await withRls({ uid: U.pz2, role: 'alumno' }, (c) => requestPause(c, { id: row.id, actorId: U.pz2, isAdmin: false, months: 2 }));
+    const maint = (await stripe.subscriptions.retrieve(s.id, { expand: ['schedule'] })).schedule.phases[1].items[0].price;
+    await asAdmin((c) => updatePlan(c, { id: pzPlan.id, body: { price_cents: 2200 }, actorId: U.admin }));
+    const sch = (await stripe.subscriptions.retrieve(s.id, { expand: ['schedule'] })).schedule;
+    const fresh = await priceOf(pzPlan.id);
+    assert.deepEqual(sch.phases.map((x) => x.items[0].price), [fresh, maint, fresh]);
+    assert.deepEqual([sch.metadata.kind, sch.phases[2].metadata.plan_id], ['pause', pzPlan.id]);
   });
 
   // --- B10.6: avisos nuevos ---

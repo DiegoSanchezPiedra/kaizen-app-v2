@@ -81,8 +81,8 @@ const monthsOf = (n) => `${n} ${n === 1 ? 'mes' : 'meses'}`;
 // d = { to, c: changes, payer, student, plans: { id: nombre }, invoice, change }
 const TEMPLATES = {
   'notice.payment_failed': (d) => mail(`No hemos podido cobrar el recibo de ${d.student}`, d, [
-    `El cobro de ${eur(d.invoice.amount_due_cents)}${d.invoice.plan ? ` del plan ${d.invoice.plan}` : ''} `
-      + `de ${d.student} no se ha podido realizar.`,
+    `El cobro de ${eur(d.invoice.amount_due_cents)}${d.c.maintenance ? ' de la cuota de mantenimiento'
+      : d.invoice.plan ? ` del plan ${d.invoice.plan}` : ''} de ${d.student} no se ha podido realizar.`,
     d.c.next_payment_attempt
       ? `Lo volveremos a intentar el ${day(d.c.next_payment_attempt)}. Si hace falta, cambia la tarjeta antes desde la app.`
       : 'No habrá más intentos automáticos. Cambia la tarjeta o paga el recibo desde la app.',

@@ -468,7 +468,7 @@ async function syncInvoice(client, invoiceId) {
     [s.student_id, s.payer_id, s.id, inv.id, inv.status, inv.currency, inv.amount_due, inv.amount_paid,
       ts(inv.status_transitions?.paid_at), inv.attempt_count, ts(inv.next_payment_attempt), err ?? null,
       inv.hosted_invoice_url, inv.invoice_pdf, ts(period?.start), ts(period?.end)]);
-  return { ...row, billing_reason: inv.billing_reason };
+  return { ...row, billing_reason: inv.billing_reason, product: inv.lines.data[0]?.pricing?.price_details?.product ?? null };
 }
 
 async function onInvoice(client, obj, event) {
@@ -478,9 +478,13 @@ async function onInvoice(client, obj, event) {
   // Prorrateo de una subida (B10.5): quien la pide está en pantalla (402) y el recibo se anula.
   if (row && event.type === 'invoice.payment_failed' && row.billing_reason !== 'subscription_update'
       && row.attempt_count === 1) {
+    // B30: el de una pausa es la cuota de mantenimiento, no el plan.
+    const { rows: [m] } = await client.query(
+      `SELECT value #>> '{}' AS product FROM academy_settings WHERE key = 'pause_stripe_product'`);
     await notice(client, {
       action: 'notice.payment_failed', actorId: row.payer_id, type: 'invoice', resourceId: row.id,
       recipients: [row.payer_id], next_payment_attempt: row.next_payment_attempt, error: row.last_payment_error,
+      maintenance: Boolean(row.product) && row.product === m?.product,
     });
   }
 }

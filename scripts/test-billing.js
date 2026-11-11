@@ -606,6 +606,21 @@ try {
     const [a] = (await servicePool.query(
       `SELECT changes FROM audit_log WHERE action = 'settings.pause' AND actor_id = $1 ORDER BY created_at DESC LIMIT 1`, [U.admin])).rows;
     assert.deepEqual([a.changes.price_cents.from, a.changes.price_cents.to], [900, 800]);
+    // Reintento tras un fallo de la BD (transacción deshecha): mismos Product y Prices (claves idempotentes), sin huérfanos.
+    const attempt = () => withRls({ uid: U.admin, role: 'admin' }, async (c) => {
+      await updatePauseSettings(c, { price_cents: 777 }, U.admin);
+      return (await c.query(`SELECT key, value FROM academy_settings WHERE key LIKE 'pause\\_stripe\\_%' ORDER BY key`)).rows;
+    }, { commit: false });
+    const [try1, try2] = [await attempt(), await attempt()];
+    assert.deepEqual(try1, try2);
+    assert.equal(try1.find((r) => r.key === 'pause_stripe_product').value, set1.pause_stripe_product);
+    // Sin el Product en los ajustes (otra BD del mismo sandbox): se reutiliza el de la cuota de mantenimiento.
+    await servicePool.query(`DELETE FROM academy_settings WHERE key IN ('pause_stripe_product', 'pause_stripe_free_price')`);
+    await settings$({ price_cents: 801 });
+    const again = Object.fromEntries((await servicePool.query(`SELECT key, value FROM academy_settings WHERE key LIKE 'pause\\_%'`)).rows
+      .map((r) => [r.key, r.value]));
+    assert.deepEqual([again.pause_stripe_product, again.pause_stripe_free_price], [set1.pause_stripe_product, free.id]);
+    await settings$({ price_cents: 800 });
   });
 
   await run('pausa: validaciones (meses, quién, estado, baja programada, subida a medias)', async () => {
@@ -619,6 +634,40 @@ try {
     await setSub('pz', `cancel_at_period_end = false`);
     await patchedSub(pzStripe.id, (st) => ({ ...st, pending_update: { expires_at: 1 } }), () => fails(pause$('pz', 1), 409, 'upgrade_pending'));
     assert.equal((await servicePool.query(`SELECT 1 FROM pauses WHERE subscription_id = $1`, [sub.pz])).rowCount, 0);
+  });
+
+  await run('pausa: con un cambio de pagador pendiente → 409 payer_change_pending', async () => {
+    const { rows: [chg] } = await servicePool.query(
+      `INSERT INTO payer_changes (subscription_id, student_id, old_payer_id, new_payer_id, plan_id, starts_at, deadline, created_by)
+       VALUES ($1, $2, $2, $3, $4, now() + interval '2 days', now() + interval '1 day', $5) RETURNING id`,
+      [sub.pz, U.pz, U.tutor, pc.one.id, U.admin]);
+    try {
+      await fails(pause$('pz', 1), 409, 'payer_change_pending');
+    } finally {
+      await servicePool.query(`DELETE FROM payer_changes WHERE id = $1`, [chg.id]);
+    }
+  });
+
+  await run('carreras: el cambio de plan y de disciplina esperan al bloqueo de la suscripción y ven la pausa recién pedida', async () => {
+    for (const [what, call] of [['plan', () => plan$Of('pz', coOne.id, [disc])], ['disciplina', () => disc$('pz', 'pz', disc, discB)]]) {
+      const blocker = await servicePool.connect();
+      try {
+        await blocker.query('BEGIN');
+        await blocker.query(`SELECT 1 FROM subscriptions WHERE id = $1 FOR UPDATE`, [sub.pz]); // como requestPause
+        const pending = call().then(() => 'ok', (e) => e.code);
+        await new Promise((r) => setTimeout(r, 500));
+        await blocker.query(
+          `INSERT INTO pauses (subscription_id, starts_at, ends_at, months, price_cents, requested_by)
+           VALUES ($1, now() + interval '10 days', now() + interval '40 days', 1, 800, $2)`, [sub.pz, U.pz]);
+        await blocker.query('COMMIT');
+        assert.equal(await pending, 'paused', what);
+      } finally {
+        await blocker.query('ROLLBACK').catch(() => {});
+        blocker.release();
+        await servicePool.query(`DELETE FROM pauses WHERE subscription_id = $1`, [sub.pz]);
+      }
+    }
+    assert.equal((await stripe.subscriptions.retrieve(pzStripe.id)).schedule, null, 'sin bajada programada en Stripe');
   });
 
   await run('pausa con una bajada programada → 409 change_scheduled', async () => {
@@ -688,7 +737,7 @@ try {
     for (const bad of [undefined, '', '   ', 5]) await fails(exempt$(bad), 400, 'invalid_field');
     await fails(exempt$('x', 'admin', crypto.randomUUID()), 404, 'pause_not_found');
     const r = await exempt$('Lesión de larga duración');
-    assert.equal(r.exempt, true);
+    assert.deepEqual([r.exempt, new Date(r.exempt_from).getTime()], [true, pzStart * 1000], 'programada: desde su inicio');
     const { rows: [{ value: free }] } = await servicePool.query(`SELECT value FROM academy_settings WHERE key = 'pause_stripe_free_price'`);
     const sch = (await stripe.subscriptions.retrieve(pzStripe.id, { expand: ['schedule'] })).schedule;
     assert.deepEqual(sch.phases.map((p) => p.items[0].price), [pcPrice, free, pcPrice]);
@@ -710,6 +759,15 @@ try {
     assert.equal((await servicePool.query(`SELECT 1 FROM bookings WHERE student_id = $1 AND cancel_reason = 'pause'`, [U.pz])).rowCount, 1);
     assert.equal((await asUser('pz', (c) => getSubscription(c, { studentId: U.pz }))).pause, null);
     await fails(end$('pz'), 404, 'no_pause');
+  });
+
+  await run('pausa: si falla la BD tras crear el Schedule, se deshace en Stripe (sin fase de mantenimiento)', async () => {
+    // Un actor que no es un perfil: la fila de pauses (requested_by) falla después de escribir en Stripe.
+    await assert.rejects(asUser('admin', (c) => requestPause(c, { id: sub.pz, actorId: crypto.randomUUID(), isAdmin: true, months: 1 })),
+      (e) => e.code === '23503');
+    const st = await stripe.subscriptions.retrieve(pzStripe.id);
+    assert.deepEqual([st.schedule, st.items.data[0].price.id], [null, pcPrice]);
+    assert.equal((await servicePool.query(`SELECT 1 FROM pauses WHERE subscription_id = $1 AND status <> 'cancelled'`, [sub.pz])).rowCount, 0);
   });
 
   await run('pausa: límite por año natural de Madrid (las anuladas no cuentan); el admin la pide por el pagador', async () => {

@@ -6,7 +6,8 @@
 // - in_pause(alumno, instante): si ese instante cae en una pausa no anulada. book_session rechaza (paused) una sesión
 //   en pausa, también la espera; la racha (achievements_in) salta las semanas enteras en pausa y en una semana a medias
 //   solo rompen las sesiones fuera de ella.
-// - cancel_paused_bookings: al pedirla, reservas y esperas de sesiones de esos días, con motivo pause y aviso.
+// - cancel_paused_bookings: al pedirla, reservas y esperas de sesiones de esos días, con motivo pause y aviso. Lo mismo
+//   cuando un cambio de clase o un ajuste (apply_session_change) mueve la sesión a un día de pausa del alumno.
 // - Ajustes por defecto: 3 meses por pausa y 1 pausa por año natural de Madrid. El precio lo pone el admin.
 /* eslint-disable camelcase */
 
@@ -30,6 +31,16 @@ const PATCHES = [
     `WHEN ${FULL_WEEK} THEN 'skip'
                  WHEN g IN (SELECT w FROM pweeks) THEN 'sum'`],
   ['achievements_in(uuid, bigint)', `AND s.ends_at <= now()`, `AND s.ends_at <= now() AND NOT in_pause(p_id, s.starts_at)`],
+  ['apply_session_change(class_sessions, class_sessions)', `IF fields <> '{}' THEN`,
+    `IF 'starts_at' = ANY(fields) THEN
+        FOR id_ IN UPDATE bookings b SET status = 'cancelled', cancel_reason = 'pause', cancelled_at = now(),
+                                         cancelled_by = ${UID}
+                    WHERE b.session_id = s.id AND b.status <> 'cancelled' AND in_pause(b.student_id, n.starts_at)
+                RETURNING b.id LOOP
+          PERFORM booking_notice(id_, 'notice.pause');
+        END LOOP;
+      END IF;
+      IF fields <> '{}' THEN`],
 ];
 const patch = ([fn, from, to]) => `
   DO $do$
