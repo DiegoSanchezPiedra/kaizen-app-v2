@@ -20,6 +20,7 @@ const { servicePool, closePools } = await import('../src/config/database.js');
 const { withRls } = await import('../src/db/rls.js');
 const { stripe } = await import('../src/config/stripe.js');
 const { createPlan } = await import('../src/services/catalog.js');
+const { endPause } = await import('../src/services/billing.js');
 const { handleEvent, HANDLED_EVENTS } = await import('../src/services/stripeWebhook.js');
 const { hashPassword } = await import('../src/services/password.js');
 const { startApp } = await import('./lib/app-server.js');
@@ -157,9 +158,23 @@ try {
     const grace = await as('admin')('GET', '/admin/billing/grace?limit=100');
     assert.ok(grace.body.payers.some((p) => p.payer_id === U.d && p.invoices.some((i) => i.amount_due_cents === MAINT)));
   });
+  // Eximir ya empezada: C (3 meses) desde la siguiente fecha de cobro; a D (1 mes) ya no le queda ningún cobro.
+  const nextC = (await stripe.subscriptions.retrieve(subs.c.id)).items.data[0].current_period_end;
+  const exC = await as('admin')('POST', `/admin/pauses/${(await pauseOf('c')).id}/exempt`, { reason: 'Lesión' });
+  assert.deepEqual([exC.status, exC.body.exempt, new Date(exC.body.exempt_from).getTime()], [200, true, nextC * 1000]);
+  const exD = await as('admin')('POST', `/admin/pauses/${(await pauseOf('d')).id}/exempt`, { reason: 'Lesión' });
+  assert.deepEqual([exD.status, exD.body.code], [409, 'pause_nothing_to_exempt']);
+
+  // C: volver antes con un fallo de la BD tras escribir en Stripe (un actor que no es un perfil): el Schedule se restaura.
+  const before = (await stripe.subscriptions.retrieve(subs.c.id, { expand: ['schedule'] })).schedule;
+  await assert.rejects(withRls({ uid: U.admin, role: 'admin' }, async (c) =>
+    endPause(c, { id: (await local('c')).id, actorId: crypto.randomUUID(), isAdmin: true })), (e) => e.code === '23503');
+  const restored = (await stripe.subscriptions.retrieve(subs.c.id, { expand: ['schedule'] })).schedule;
+  const shape = (sch) => [sch.metadata.ends_at, ...sch.phases.map((x) => [x.start_date, x.end_date, x.items[0].price])];
+  assert.deepEqual(shape(restored), shape(before), 'fases y metadata como antes');
+
   // C: volver antes, ya empezada → la fase del plan pasa a la siguiente fecha de cobro (+2 meses).
   const back = await as('c')('DELETE', '/billing/pause');
-  const nextC = (await stripe.subscriptions.retrieve(subs.c.id)).items.data[0].current_period_end;
   assert.deepEqual([back.status, back.body.status, new Date(back.body.ends_at).getTime()], [200, 'active', nextC * 1000]);
   const schC = (await stripe.subscriptions.retrieve(subs.c.id, { expand: ['schedule'] })).schedule;
   assert.deepEqual([schC.phases.length, schC.phases[0].end_date, schC.metadata.ends_at], [2, nextC, new Date(nextC * 1000).toISOString()]);
@@ -204,13 +219,13 @@ try {
 } finally {
   listen?.kill();
   for (const c of clocks) await stripe.testHelpers.testClocks.del(c.id).catch(() => {}); // borra clientes y suscripciones
-  // Products del plan y de la cuota de mantenimiento: archivados (la BD efímera se borra entera).
-  const products = (await q(`SELECT value #>> '{}' AS id FROM academy_settings WHERE key = 'pause_stripe_product'`)).map((r) => r.id);
-  products.push((await stripe.prices.retrieve(price)).product);
-  for (const product of products) {
-    for (const p of (await stripe.prices.list({ product, active: true, limit: 10 })).data) await stripe.prices.update(p.id, { active: false });
-    await stripe.products.update(product, { active: false });
-  }
+  // El Product del plan, archivado (la BD efímera se borra entera). El de la cuota de mantenimiento se comparte en el
+  // sandbox (se reutiliza por su metadata): solo se archiva el Price de esta prueba.
+  const product = (await stripe.prices.retrieve(price)).product;
+  await stripe.prices.update(price, { active: false });
+  await stripe.products.update(product, { active: false });
+  const [m] = await q(`SELECT value #>> '{}' AS id FROM academy_settings WHERE key = 'pause_stripe_price'`);
+  if (m) await stripe.prices.update(m.id, { active: false });
   await close();
   await closePools();
 }
