@@ -76,7 +76,7 @@
 | B27 | Verificación de email al registrarse y confirmar el cambio de contraseña por email (ADR 0021) | B24 | Diseñado (antes de producción) |
 | B28 | Retirar el seguro y el `waiver`: solo se cobran membresías | B10.3, B11 | CERRADO |
 | B29 | Rango de edad por disciplina (kids 5–12) en contratar, reservar y al cumplir años | B28 | CERRADO |
-| B30 | Pausa con cuota de mantenimiento (Stripe, Subscription Schedule) | B28, B29 | Implementado; PR #11 pendiente de revisión del usuario |
+| B30 | Pausa con cuota de mantenimiento (Stripe, Subscription Schedule) | B28, B29 | CERRADO |
 | B31 | Registro de jornada (fichaje) de profesores empleados | B28 | CERRADO |
 | B32 | Acceso propio del menor con permisos limitados (sustituye ADR 0002) | B29, B30, B31 | Diseñado (antes de producción) |
 | B33 | Auditoría de rendimiento de B28–B32 y de lo que tocan | B32 | Diseñado (antes de producción) |
@@ -2673,7 +2673,7 @@ nocturna cancela con `no_coverage`; un `unpaid` no recibe el aviso de los 30 dí
   Vitest (`lib/billing.test.ts`) con fechas fijas que cubran cumpleaños, cambio de hora y medianoche de Madrid; revisión
   manual a 375 px del formulario de disciplina y del catálogo del tutor.
 
-### B30 — Pausa con cuota de mantenimiento — Implementado (PR pendiente de revisión del usuario)
+### B30 — Pausa con cuota de mantenimiento — CERRADO
 
 Rama `b30-pausa`, 2026-11-11. B30.0 (Opus, alto): `4cfdd1c`, `e946c0b`, `2483f63`; revisión `5934bc8`, `4ddbd26`,
 `af33448`. B30.1 (Sonnet, alto): `80d2c01`, `8d31ec2`; revisión `d8714a7`. Migración `060`, ADR 0024,
@@ -2734,7 +2734,7 @@ reutiliza). Consistencia Stripe ↔ BD: claves idempotentes y compensación si f
   - [x] Límites de meses y de pausas por año; 409 con un cambio ya programado.
   - [x] Exención: fase a 0 €, `audit_log` con motivo; impago → morosos.
   - [x] Racha intacta tras una pausa.
-  - [ ] Revisión del usuario de la PR (dinero) antes de mergear.
+  - [x] Revisión del usuario de la PR (dinero): aprobada y mergeada (#11, 2026-11-11).
   - [ ] Prueba en pantalla como pagador con una cuota real del sandbox y en un iPhone real.
 - **Verificación**: `test:billing`, `test:webhook` contra el sandbox, `test:bookings`, `test:progress`, `test:dunning`,
   `test:notices`, Vitest; E2E con `stripe listen` y *test clock* (pausa, anulación, vuelta antes, impago); revisión manual
@@ -2818,10 +2818,15 @@ desactivar el trigger; el aviso de jornada abierta llega con la nocturna (hasta 
   - **Sujeto y actor**: con su acceso, el menor es actor y sujeto de sus acciones; el tutor sigue pudiendo actuar por él.
   - **Al cumplir 18**: reclamar el perfil ya no necesita invitación si tiene acceso: añade su email, firma los acuerdos y
     confirma su ficha.
-- **Por decidir** (grill al abrir el bloque, con `docs/research/legal-fichaje-menores.md` §2):
-  - Perfil público y rankings de un menor de 14: propuesta, que solo los active el tutor (privacidad por defecto, art. 25
-    RGPD) y que la foto nunca sea pública, como hoy.
-  - Si el menor puede cambiar su nombre visible y su foto o solo el tutor.
+- **Decidido en el grill** (2026-11-11, con `docs/research/legal-fichaje-menores.md` §2):
+  - Perfil público, rankings y foto pública de un menor: desactivados por defecto. Por debajo de 14 los activa solo el
+    tutor; desde los 14, el propio menor. La foto pública es una opción aparte con la misma regla (cambia la regla de
+    B24 «nunca la de un menor»; a validar con el abogado, LO 1/1996 art. 4.3).
+  - Nombre visible: solo el tutor. Foto: la puede cambiar el menor y el tutor recibe un aviso.
+  - Eventos gratuitos: el menor se inscribe si tiene el permiso de reservar (los de pago siguen bloqueados).
+  - Cualquier tutor vinculado activa, revoca y cambia permisos del acceso; los demás tutores reciben un aviso.
+  - Avisos al menor: solo los operativos (reservas, cancelaciones, cambios de sesión, eventos). Cobro, impago, firmas y
+    salud, solo al tutor.
 - **Diseño técnico**:
   - El rol sigue siendo alumno; `requireAuth` ya lee el rol de la BD en cada petición y añade si el perfil es un menor con
     acceso. Los bloqueos se aplican en la ruta **y** en las funciones `SECURITY DEFINER` (el actor de un cobro, una firma o
