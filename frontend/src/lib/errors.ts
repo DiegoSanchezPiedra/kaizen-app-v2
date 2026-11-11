@@ -206,3 +206,18 @@ Object.assign(TEXTS, {
   correction_not_found: 'No encontramos esa corrección.', // propuesto
   not_professor: 'Esta persona no es profesora.', // propuesto
 })
+
+// B30 (docs/api.md § Pausa). Todos propuestos: el documento aún no les da texto. «Cuota de mantenimiento», nunca «cuota» a secas.
+Object.assign(TEXTS, {
+  paused: 'La membresía está en pausa ese día.', // propuesto
+  pause_not_configured: 'La academia no ofrece pausas ahora.', // propuesto
+  change_scheduled: 'Ya hay un cambio programado: una bajada de plan o una pausa.', // propuesto
+  pause_year_limit: 'Ya has usado las pausas que permite la academia este año.', // propuesto
+  pause_ending: 'La pausa ya termina en la siguiente fecha de cobro.', // propuesto
+  no_pause: 'Ya no hay ninguna pausa que anular.', // propuesto
+  subscription_not_found: 'No hay una cuota en vigor.', // propuesto
+  pause_not_found: 'No encontramos esa pausa.', // propuesto
+  pause_not_live: 'Esa pausa ya ha terminado o se anuló.', // propuesto
+  pause_exempt: 'Esa pausa ya está sin cuota de mantenimiento.', // propuesto
+  pause_nothing_to_exempt: 'No queda ninguna cuota de mantenimiento por cobrar en esa pausa.', // propuesto
+})

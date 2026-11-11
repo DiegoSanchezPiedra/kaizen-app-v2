@@ -1,6 +1,6 @@
 import { ageOn, madridDay } from '@/lib/dates'
-import { formatEuros } from '@/lib/format'
-import type { Discipline, Plan, Subscription } from '@/lib/types'
+import { formatEuros, formatShortDate } from '@/lib/format'
+import type { Discipline, Pause, Plan, Subscription } from '@/lib/types'
 
 // Lógica de la cuota (B18.3), sin React. Viva = active, past_due o unpaid (CONTEXT § Suscripción).
 const LIVE = ['active', 'past_due', 'unpaid']
@@ -53,6 +53,7 @@ export function planChange(currentCents: number, target: Plan, selfInMinors: boo
 // Por qué no se puede cambiar el plan (null = se puede). Solo con la cuota active y sin baja ni cambio de pagador.
 export function planLock(s: Subscription): string | null {
   if (s.payer_change) return 'Con un cambio de pagador en marcha no se pueden cambiar el plan ni las disciplinas.'
+  if (s.pause) return 'Con una pausa programada o en curso no se pueden cambiar el plan ni las disciplinas.'
   if (s.status === 'unpaid') return 'Con la cuota impagada no se puede cambiar nada.'
   if (s.status === 'past_due') return 'El plan se podrá cambiar cuando el cobro esté al día.'
   if (s.cancel_at_period_end) return 'La cuota termina: ya no se puede cambiar el plan.'
@@ -62,7 +63,7 @@ export function planLock(s: Subscription): string | null {
 
 // La disciplina se cambia con la cuota en vigor (active o past_due), sin cambio de pagador. Un plan «todas» no tiene.
 export const disciplineLocked = (s: Subscription): boolean =>
-  !!s.payer_change || !['active', 'past_due'].includes(s.status)
+  !!s.payer_change || !!s.pause || !['active', 'past_due'].includes(s.status)
 
 // Gratis si la que se deja ya no se cubre: desactivada, o la edad de hoy supera su máximo.
 export const freeChange = (from: Discipline | undefined, birthDate: string | null): boolean => !!from && (!from.is_active || !fitsAge(from, birthDate))
@@ -95,3 +96,40 @@ export function takeCheckoutSubject(): string | undefined {
     return undefined
   }
 }
+
+// ── Pausa con cuota de mantenimiento (B30). La API manda el estado; esto solo lo presenta. ──
+
+// Se ofrece si la academia tiene precio y no hay nada que lo impida (la API dice 409 en los demás casos).
+export const canPause = (s: Subscription): boolean =>
+  s.pause_settings?.price_cents != null &&
+  s.status === 'active' &&
+  !s.pause &&
+  !s.scheduled_change &&
+  !s.cancel_at_period_end &&
+  !s.payer_change &&
+  !!s.current_period_end
+
+// Fin de la pausa que se va a pedir: `months` meses enteros desde el inicio, en día de Madrid y sin pasarse de mes
+// (el 31 + 2 meses = fin de febrero). El definitivo lo calcula Stripe y llega en `ends_at`.
+export function pauseEnd(startsAt: string, months: number): string {
+  const [y, m, d] = madridDay(startsAt).split('-').map(Number)
+  const last = new Date(Date.UTC(y, m - 1 + months + 1, 0))
+  const day = Math.min(d, last.getUTCDate())
+  return new Date(Date.UTC(last.getUTCFullYear(), last.getUTCMonth(), day)).toISOString().slice(0, 10)
+}
+
+// Un día de Madrid (AAAA-MM-DD) en fecha corta.
+export const shortDay = (day: string): string => formatShortDate(`${day}T12:00:00Z`)
+
+export const pauseTitle = (p: Pause): string =>
+  p.status === 'active'
+    ? `En pausa hasta el ${formatShortDate(p.ends_at)}`
+    : `Pausa programada del ${formatShortDate(p.starts_at)} al ${formatShortDate(p.ends_at)} · ${p.exempt ? 'sin cuota de mantenimiento' : perMonth(p.price_cents)}`
+export const pauseFee = (p: Pause): string => (p.exempt ? 'Sin cuota de mantenimiento' : `${perMonth(p.price_cents)} de cuota de mantenimiento`)
+
+// «Volver antes» vuelve en la siguiente fecha de cobro: no tiene sentido si la pausa ya acaba en ella (pause_ending).
+export const canEndEarly = (s: Subscription): boolean =>
+  s.pause?.status === 'active' && !!s.current_period_end && Date.parse(s.pause.ends_at) > Date.parse(s.current_period_end)
+
+export const cancelledText = (n: number): string =>
+  n === 0 ? 'No había reservas en esos días.' : n === 1 ? 'Se canceló 1 reserva de esos días.' : `Se cancelaron ${n} reservas de esos días.`

@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Link } from 'react-router'
 import { Kv, Tag } from '@/components/billing-bits'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { PauseSheet } from '@/components/pause-sheet'
 import { EmptyState } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -12,12 +13,16 @@ import { toastManager } from '@/components/ui/toast'
 import { payerCandidates, type ProfileFile } from '@/lib/admin'
 import { api } from '@/lib/api'
 import {
+  canEndEarly,
+  canPause,
   changesLeft,
   disciplineLocked,
   inPlan,
   isLive,
   planDisciplines,
   keepDisciplines,
+  pauseFee,
+  pauseTitle,
   perMonth,
   planChange,
   planLock,
@@ -28,6 +33,7 @@ import { formatDeadline, formatShortDate } from '@/lib/format'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
 import { refreshBookings, useDisciplines, usePlans } from '@/lib/queries'
 import { Filter } from '@/pages/community'
+import { FormSheet, TextField } from '@/pages/admin/schedule-bits'
 
 type Sub = NonNullable<ProfileFile['subscription']>
 
@@ -241,6 +247,32 @@ function PayerDialog({ file, onClose, refresh }: { file: ProfileFile; onClose: (
   )
 }
 
+// Eximir una pausa de la cuota de mantenimiento (B30): motivo obligatorio, queda en la auditoría.
+function ExemptDialog({ pauseId, onClose, refresh }: { pauseId: string; onClose: () => void; refresh: () => void }) {
+  const [reason, setReason] = useState('')
+  const exempt = useMutation({
+    mutationFn: () => api<{ exempt_from: string }>(`/admin/pauses/${pauseId}/exempt`, { method: 'POST', body: { reason: reason.trim() } }),
+    onSuccess: (r) => toastOk('Pausa eximida', `Sin cuota de mantenimiento desde el ${formatShortDate(r.exempt_from)}. Lo ya cobrado no se devuelve.`),
+    onError: (err) => toastError(err),
+    onSettled: refresh,
+  })
+  return (
+    <FormSheet
+      open
+      onClose={onClose}
+      title="Eximir de la cuota de mantenimiento"
+      description="Esta pausa no cobra cuota de mantenimiento (0 €). Si ya ha empezado, vale desde el siguiente cobro; lo ya cobrado no se devuelve."
+      submitLabel="Eximir"
+      disabled={!reason.trim()}
+      loading={exempt.isPending}
+      confirm={{ title: '¿Eximir la pausa?', description: 'No se puede deshacer desde la app. El motivo queda en la auditoría.' }}
+      onSubmit={() => exempt.mutateAsync()}
+    >
+      <TextField label="Motivo" value={reason} onChange={setReason} maxLength={500} hint="Obligatorio, hasta 500 caracteres." />
+    </FormSheet>
+  )
+}
+
 function Section({ title, children, actions }: { title: string; children: React.ReactNode; actions?: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
@@ -260,12 +292,13 @@ const PersonLink = ({ p }: { p: { id: string; display_name: string | null } }) =
 function Subscription({ file, refresh }: { file: ProfileFile; refresh: () => void }) {
   const s = file.subscription!
   const minor = file.profile.is_minor
-  const [dialog, setDialog] = useState<'plan' | 'discipline' | 'payer' | null>(null)
+  const [dialog, setDialog] = useState<'plan' | 'discipline' | 'payer' | 'pause' | 'exempt' | null>(null)
   const { ask, dialog: confirm } = useConfirm(refresh)
   const pc = s.payer_change
   const people = [file.profile, ...file.guardians]
   const lock = planLock(s)
   const scheduled = s.scheduled_change
+  const pause = s.pause
   const end = s.current_period_end ? formatShortDate(s.current_period_end) : null
 
   const rows: [string, React.ReactNode][] = [
@@ -278,6 +311,7 @@ function Subscription({ file, refresh }: { file: ProfileFile; refresh: () => voi
   if (s.cancel_at_period_end) rows.push(['Baja programada', end ? `Termina el ${end}` : 'Sí'])
   if (scheduled) rows.push(['Bajada programada', `A ${scheduled.plan_name} el ${formatShortDate(scheduled.scheduled_at)}`])
   if (s.discipline_changes_left != null) rows.push(['Cambios de disciplina', changesLeft(s.discipline_changes_left)])
+  if (pause) rows.push(['Pausa', pauseTitle(pause)], ['Cuota de mantenimiento', pause.exempt ? 'Eximida' : pauseFee(pause)])
   if (pc) {
     const to = people.find((p) => p.id === pc.new_payer_id)
     rows.push([
@@ -301,9 +335,56 @@ function Subscription({ file, refresh }: { file: ProfileFile; refresh: () => voi
               Cambiar de disciplina
             </Button>
           )}
-          <Button variant="outline" disabled={!!pc || !!s.cancel_at_period_end || payerCandidates(file).length === 0} onClick={() => setDialog('payer')}>
+          <Button variant="outline" disabled={!!pc || !!pause || !!s.cancel_at_period_end || payerCandidates(file).length === 0} onClick={() => setDialog('payer')}>
             Cambiar de pagador
           </Button>
+          {!pause && (
+            <Button
+              variant="outline"
+              disabled={!canPause(s)}
+              title={canPause(s) ? undefined : 'Sin cuota de mantenimiento en Ajustes, o con una baja, un cambio programado o un impago en marcha, no se puede pausar.'}
+              onClick={() => setDialog('pause')}
+            >
+              Pausar la membresía
+            </Button>
+          )}
+          {pause?.status === 'scheduled' && (
+            <Button
+              variant="outline"
+              onClick={() =>
+                ask({
+                  title: 'Anular la pausa',
+                  description: `Gratis: sigue en ${s.plan.name} como hasta ahora. Las reservas canceladas al pedirla no vuelven. Se avisa al pagador.`,
+                  label: 'Anular la pausa',
+                  done: 'Pausa anulada',
+                  run: del(`/admin/subscriptions/${s.id}/pause`),
+                })
+              }
+            >
+              Anular la pausa
+            </Button>
+          )}
+          {canEndEarly(s) && (
+            <Button
+              variant="outline"
+              onClick={() =>
+                ask({
+                  title: 'Volver antes de la pausa',
+                  description: `Vuelve a ${s.plan.name} en la siguiente fecha de cobro${end ? `, el ${end}` : ''}, sin prorrateo. Se avisa al pagador.`,
+                  label: 'Volver antes',
+                  done: 'Vuelta anticipada programada',
+                  run: del(`/admin/subscriptions/${s.id}/pause`),
+                })
+              }
+            >
+              Volver antes
+            </Button>
+          )}
+          {pause && !pause.exempt && (
+            <Button variant="outline" onClick={() => setDialog('exempt')}>
+              Eximir de la cuota de mantenimiento
+            </Button>
+          )}
           {scheduled && (
             <Button
               variant="outline"
@@ -342,7 +423,7 @@ function Subscription({ file, refresh }: { file: ProfileFile; refresh: () => voi
               onClick={() =>
                 ask({
                   title: 'Baja a fin de periodo',
-                  description: `Sigue en vigor hasta ${end ? `el ${end}` : 'el fin del periodo'} y no se renueva. Se avisa al pagador.${scheduled ? ' La bajada programada se descarta.' : ''}${pc ? ' El cambio de pagador se anula.' : ''}`,
+                  description: `Sigue en vigor hasta ${end ? `el ${end}` : 'el fin del periodo'} y no se renueva. Se avisa al pagador.${scheduled ? ' La bajada programada se descarta.' : ''}${pause ? ' La pausa se descarta.' : ''}${pc ? ' El cambio de pagador se anula.' : ''}`,
                   label: 'Dar de baja',
                   done: 'Baja programada',
                   destructive: true,
@@ -358,7 +439,7 @@ function Subscription({ file, refresh }: { file: ProfileFile; refresh: () => voi
             onClick={() =>
               ask({
                 title: 'Baja inmediata',
-                description: `Termina ya: anula los recibos pendientes y cancela sus reservas futuras. Se avisa al pagador.${scheduled ? ' La bajada programada se descarta.' : ''}`,
+                description: `Termina ya: anula los recibos pendientes y cancela sus reservas futuras. Se avisa al pagador.${scheduled ? ' La bajada programada se descarta.' : ''}${pause ? ' La pausa se descarta.' : ''}`,
                 label: 'Dar de baja ya',
                 done: 'Cuota dada de baja',
                 destructive: true,
@@ -376,6 +457,20 @@ function Subscription({ file, refresh }: { file: ProfileFile; refresh: () => voi
       {dialog === 'plan' && <PlanDialog s={s} minor={minor} onClose={() => setDialog(null)} refresh={refresh} />}
       {dialog === 'discipline' && <DisciplineDialog s={s} onClose={() => setDialog(null)} refresh={refresh} />}
       {dialog === 'payer' && <PayerDialog file={file} onClose={() => setDialog(null)} refresh={refresh} />}
+      {dialog === 'pause' && (
+        <PauseSheet
+          s={s}
+          name={name(file.profile)}
+          admin
+          request={(months) => api(`/admin/subscriptions/${s.id}/pause`, { method: 'POST', body: { months } })}
+          onClose={() => setDialog(null)}
+          onDone={() => {
+            refresh()
+            void refreshBookings()
+          }}
+        />
+      )}
+      {dialog === 'exempt' && pause && <ExemptDialog pauseId={pause.id} onClose={() => setDialog(null)} refresh={refresh} />}
     </Section>
   )
 }

@@ -116,7 +116,7 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
     const uncovered = !noSub && list.some((s) => sessionState(s, now, blockedFrom) === 'uncovered')
     return (
       <>
-        {uncovered && <p className="px-0.5 text-[13px] text-muted-foreground">«No cubierta»: tu cuota no incluye esa disciplina.</p>}
+        {uncovered && <p className="px-0.5 text-[13px] text-muted-foreground">«No cubierta»: tu cuota no la cubre ese día (otra disciplina, la edad o una pausa).</p>}
         <SessionRows>{list.map(row)}</SessionRows>
       </>
     )

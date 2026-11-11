@@ -8,6 +8,7 @@ import {
   eurosToCents,
   groupDocuments,
   MAX_PDF,
+  pauseBody,
   pdfProblem,
   perPeriodBody,
   tabletState,
@@ -57,6 +58,18 @@ describe('ajustes: qué grupos han cambiado', () => {
     expect(perPeriodBody('')).toBeNull()
     expect(changed({ per_period: 1 }, perPeriodBody('1'))).toBe(false)
     expect(changed({ per_period: 1 }, perPeriodBody('2'))).toBe(true)
+  })
+  it('pausa: precio en euros (> 0, o vacío = no cambia), meses 1–12, pausas al año 0–12', () => {
+    expect(pauseBody({ price: '15', max_months: '3', per_year: '1' })).toEqual({ price_cents: 1500, max_months: 3, per_year: 1 })
+    expect(pauseBody({ price: '12,50', max_months: '12', per_year: '0' })).toEqual({ price_cents: 1250, max_months: 12, per_year: 0 })
+    expect(pauseBody({ price: '', max_months: '3', per_year: '1' })).toEqual({ max_months: 3, per_year: 1 })
+    expect(pauseBody({ price: '0', max_months: '3', per_year: '1' })).toBeNull()
+    expect(pauseBody({ price: 'x', max_months: '3', per_year: '1' })).toBeNull()
+    expect(pauseBody({ price: '15', max_months: '0', per_year: '1' })).toBeNull()
+    expect(pauseBody({ price: '15', max_months: '13', per_year: '1' })).toBeNull()
+    expect(pauseBody({ price: '15', max_months: '3', per_year: '13' })).toBeNull()
+    expect(changed({ price_cents: 1500, max_months: 3, per_year: 1 }, pauseBody({ price: '15', max_months: '3', per_year: '1' }))).toBe(false)
+    expect(changed({ price_cents: null, max_months: 3, per_year: 1 }, pauseBody({ price: '', max_months: '3', per_year: '1' }))).toBe(false)
   })
 })
 
