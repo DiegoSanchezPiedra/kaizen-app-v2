@@ -98,6 +98,7 @@ export const router = createBrowserRouter([
           { path: 'documents', lazy: async () => ({ Component: (await import('@/pages/admin/documents')).AdminDocumentsPage }) },
           { path: 'tablets', lazy: async () => ({ Component: (await import('@/pages/admin/tablets')).AdminTabletsPage }) },
           { path: 'settings', lazy: async () => ({ Component: (await import('@/pages/admin/settings')).AdminSettingsPage }) },
+          { path: 'clock', lazy: async () => ({ Component: (await import('@/pages/admin/clock')).AdminClockPage }) },
           { path: 'reports', lazy: async () => ({ Component: (await import('@/pages/admin/reports')).AdminReportsPage }) },
           { path: '*', lazy: async () => ({ Component: (await import('@/pages/admin/shell')).AdminNotFound }) },
         ],
@@ -109,6 +110,8 @@ export const router = createBrowserRouter([
       { path: '/bookings', element: <BookingsPage /> },
       // El lector de QR solo se baja al abrir el check-in.
       { path: '/checkin', lazy: async () => ({ Component: (await import('@/pages/checkin')).CheckinPage }) },
+      // Mi registro (B31): lleva el formulario de correcciones, así que se baja solo aquí.
+      { path: '/clock', lazy: async () => ({ Component: (await import('@/pages/clock')).ClockPage }) },
       { path: '/professor', element: <ProfessorSessionsPage /> },
       { path: '/professor/sessions/:id', element: <ProfessorSessionPage /> },
       { path: '/professor/events/:id', element: <ProfessorEventPage /> },

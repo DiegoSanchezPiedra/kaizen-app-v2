@@ -176,7 +176,7 @@ Object.assign(TEXTS, {
 
 // B21.1 (docs/api.md § Eventos). Los marcados «propuesto» no tienen texto en el documento.
 Object.assign(TEXTS, {
-  event_not_found: 'No encontramos este evento.', // propuesto
+  event_not_found: 'No lo encontramos.', // un evento o, en el registro de jornada, un fichaje
   registration_not_found: 'No encontramos esta inscripción.', // propuesto
   event_cancelled: 'El evento está cancelado.', // propuesto
   event_full: 'El evento está completo.', // propuesto
@@ -196,4 +196,13 @@ Object.assign(TEXTS, {
   too_large: 'La foto pesa demasiado. Prueba con otra.',
   wrong_password: 'La contraseña actual no es correcta.',
   no_password: 'Tu cuenta no tiene contraseña: créala con el email que te enviamos.',
+})
+
+// B31 (docs/api.md § Registro de jornada). Todos propuestos: el documento no les da texto.
+Object.assign(TEXTS, {
+  not_employee: 'Solo los profesores empleados fichan y piden correcciones.', // propuesto
+  invalid_sequence: 'Ese fichaje no encaja con el anterior. Actualiza la pantalla y revisa el orden.', // propuesto
+  already_resolved: 'Esa corrección ya estaba resuelta.', // propuesto
+  correction_not_found: 'No encontramos esa corrección.', // propuesto
+  not_professor: 'Esta persona no es profesora.', // propuesto
 })

@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { ChevronLeftIcon, ChevronRightIcon, FileSignatureIcon, GlobeIcon, HeartPulseIcon, IdCardIcon, KeyRoundIcon, LogOutIcon, UsersIcon, WalletIcon } from 'lucide-react'
+import { ChevronLeftIcon, ChevronRightIcon, ClockIcon, FileSignatureIcon, GlobeIcon, HeartPulseIcon, IdCardIcon, KeyRoundIcon, LogOutIcon, UsersIcon, WalletIcon } from 'lucide-react'
 import { useState } from 'react'
 import type React from 'react'
 import { Link, useNavigate, type LinkProps } from 'react-router'
@@ -70,6 +70,11 @@ export function AccountPage() {
         {role !== 'tutor' && <Row to="/account/profile" icon={GlobeIcon} label="Perfil público" hint="Qué ven los demás de ti" />}
         {family && <Row to="/account/children" icon={UsersIcon} label="Mis hijos" />}
       </Group>
+      {role === 'profesor' && (
+        <Group title="Trabajo">
+          <Row to="/clock" icon={ClockIcon} label="Mi registro" hint="Tus fichajes y correcciones" />
+        </Group>
+      )}
       {family && (
         <Group title="Salud y documentos">
           <Row to={withSubject('/account/health')} icon={HeartPulseIcon} label="Ficha de salud" />

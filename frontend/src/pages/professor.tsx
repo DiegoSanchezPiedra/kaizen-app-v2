@@ -16,6 +16,7 @@ import { useState } from 'react'
 import type React from 'react'
 import { Link, useParams } from 'react-router'
 import { attKey, AttendanceItem, CorrectDialog, useCloseList } from '@/components/attendance'
+import { ClockCard } from '@/components/clock-card'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Page } from '@/components/page'
 import { SessionRow, SessionRows } from '@/components/session-row'
@@ -124,6 +125,7 @@ export function ProfessorSessionsPage() {
 
   return (
     <Page title="Sesiones" wide>
+      <ClockCard />
       <WeekBoard
         w={w}
         query={query}

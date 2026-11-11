@@ -4,6 +4,7 @@ import { queryClient } from '@/lib/logout'
 import { path } from '@/lib/url'
 import { getSession } from '@/lib/session'
 import type { AuthMe } from '@/lib/admin'
+import type { ClockMonth } from '@/lib/clock'
 import type { EventInfo } from '@/lib/events'
 import type { Booking, Discipline, Plan, ProfileStatus, Progress, Subscription } from '@/lib/types'
 
@@ -76,3 +77,8 @@ export const useEvent = (id: string, profileId: string | undefined) =>
   useQuery({ queryKey: ['events', who(profileId), 'one', id], queryFn: () => eventOf(id, profileId) })
 // Tras inscribirse o cancelar cambian la lista, el detalle, Reservas e Inicio.
 export const refreshEvents = () => queryClient.invalidateQueries({ queryKey: ['events'] })
+
+// Registro de jornada (B31): el del profesor (['clock', mes]) y el que mira el admin (['admin', 'clock', perfil, mes]).
+export const useClock = (month: string) => useQuery({ queryKey: ['clock', month], queryFn: () => api<ClockMonth>(path('/me/clock', { month })) })
+export const useAdminClock = (profileId: string, month: string) =>
+  useQuery({ queryKey: ['admin', 'clock', profileId, month], queryFn: () => api<ClockMonth>(path('/admin/clock', { profile_id: profileId, month })) })

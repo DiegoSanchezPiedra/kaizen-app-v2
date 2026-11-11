@@ -48,6 +48,7 @@ import type { Booking, Plan } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { Filter, useDebounced } from '@/pages/community'
 import { PAGE_SIZE, Pager } from '@/pages/admin/shell'
+import { EmploymentChange } from '@/pages/admin/clock'
 import { BillingTab, del, useConfirm } from '@/pages/admin/user-billing'
 
 const name = (p: { display_name: string | null }) => p.display_name ?? 'Sin nombre'
@@ -419,6 +420,7 @@ function Summary({ file, refresh }: { file: ProfileFile; refresh: () => void }) 
     <section className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
       <Kv rows={rows} />
       {canChangeRole(p) && <RoleChange file={file} refresh={refresh} />}
+      {p.role === 'profesor' && <EmploymentChange id={p.id} />}
       {dialog}
     </section>
   )
