@@ -111,6 +111,8 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 Errores de reservas: `403 age_out_of_range` (`{ …, min_age, max_age }`: no tiene la edad de la disciplina el día de la sesión, en Madrid; se mira antes que la cobertura), `403 paused` (la sesión cae en una pausa programada o en curso del alumno; también para la espera), `403 not_covered`, `409 session_not_bookable`, `409 outside_booking_window`,
 `409 already_booked`, `409 booking_overlap`, `409 booking_not_active`, `409 session_started`,
 `409 booking_conflict_retry` (reintentar), `404 session_not_found|booking_not_found`, `403 not_allowed`.
+Una reserva o espera cancelada por una pausa (al pedirla, o porque un cambio de clase o un ajuste mueve la sesión a un día
+de pausa del alumno) tiene `cancel_reason: 'pause'` y aviso `notice.pause`.
 
 ## Eventos (B21.0)
 
@@ -157,7 +159,7 @@ Errores: `400 invalid_qr`, `404 no_candidates`, `409 attendance_closed`.
 | `POST /billing/subscriptions/:id/disciplines` | `{ from_id, to_id }` | `{ disciplines, changes_left, free }` |
 | `GET /billing/payer-changes/:id` | — | `{ id, status, student: { id, name }, plan: { id, name }, price_cents, disciplines, starts_at, deadline }` |
 | `POST /billing/payer-changes/:id/checkout` (nuevo pagador, perfil completo) | — | `{ url }` (Checkout de 0 € hoy) |
-| `POST /billing/pause` (pagador) | `{ profile_id?, months }` (sin `profile_id`, el propio alumno) | `201 { id, status: 'scheduled', months, starts_at, ends_at, price_cents, exempt, cancelled_bookings }`. Empieza en la siguiente fecha de cobro (`current_period_end`) y dura `months` meses enteros; cancela las reservas y esperas de esos días (motivo `pause`, aviso). `400 invalid_field` (`months` fuera de 1…`max_months`: `{ field, max }`), `403 not_payer`, `404 subscription_not_found`, `409 pause_not_configured`, `409 change_scheduled` (ya hay una bajada o una pausa), `409 pause_year_limit` (`{ per_year }`, año natural de Madrid del inicio; las anuladas no cuentan), `409 subscription_not_active`, `409 cancel_scheduled`, `409 upgrade_pending`, `409 payer_change_pending` |
+| `POST /billing/pause` (pagador) | `{ profile_id?, months }` (sin `profile_id`, el propio alumno) | `201 { id, status: 'scheduled', months, starts_at, ends_at, price_cents, exempt, cancelled_bookings }`. Empieza en la siguiente fecha de cobro (`current_period_end`) y dura `months` meses enteros; cancela las reservas y esperas de esos días (motivo `pause`, aviso). `400 invalid_field` (`months` fuera de 1…`max_months`: `{ field, max }`), `403 not_payer`, `404 subscription_not_found`, `409 pause_not_configured`, `409 change_scheduled` (ya hay una bajada o una pausa), `409 pause_year_limit` (`{ per_year }`, año natural de Madrid del inicio; las anuladas no cuentan), `409 payer_change_pending`, `409 subscription_not_active`, `409 cancel_scheduled`, `409 upgrade_pending` |
 | `DELETE /billing/pause` (pagador) | `{ profile_id? }` o `?profile_id=` | `200 { id, status: 'cancelled', ends_at }` si no había empezado (anulada gratis; las reservas canceladas no vuelven) o `200 { id, status: 'active', ends_at }` si ya había empezado (vuelve en la siguiente fecha de cobro, sin prorrateo; `ends_at` es esa fecha). `404 no_pause`, `409 pause_ending` (ya acaba en la siguiente fecha de cobro), `403 not_payer` |
 
 Con una pausa programada o en curso, cambiar de plan o de disciplina y pedir un cambio de pagador dan `409 paused`; la baja
@@ -331,7 +333,7 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 | `DELETE /admin/subscriptions/:id/payer-change` | — | `204` |
 | `POST /admin/subscriptions/:id/pause` | `{ months }` | como `POST /billing/pause` (el admin la pide por el pagador; `requested_by` = admin) |
 | `DELETE /admin/subscriptions/:id/pause` | — | como `DELETE /billing/pause` |
-| `POST /admin/pauses/:id/exempt` | `{ reason }` (1–500 caracteres) | `{ id, status, months, starts_at, ends_at, price_cents, exempt: true }`: su fase de mantenimiento pasa a 0 €, sin prorrateo (si ya había empezado, desde el siguiente cobro). `audit_log` `pause.exempt` con el motivo. `400 invalid_field`, `404 pause_not_found`, `409 pause_not_live`, `409 pause_exempt` |
+| `POST /admin/pauses/:id/exempt` | `{ reason }` (1–500 caracteres) | `{ id, status, months, starts_at, ends_at, price_cents, exempt: true, exempt_from }`: su fase de mantenimiento pasa a 0 €, sin prorrateo, desde `exempt_from` (su inicio o, si ya había empezado, la siguiente fecha de cobro; lo ya cobrado no se devuelve). `audit_log` `pause.exempt` con el motivo y `exempt_from`. `400 invalid_field`, `404 pause_not_found`, `409 pause_not_live`, `409 pause_exempt`, `409 pause_nothing_to_exempt` (ya empezada y sin ningún cobro de la cuota de mantenimiento por delante) |
 
 **Ajustes de la academia** (los `PUT` devuelven `{ settings }` con los valores vigentes)
 

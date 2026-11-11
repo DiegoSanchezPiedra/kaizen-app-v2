@@ -83,7 +83,7 @@ Solo términos de dominio. Sin detalles de implementación.
   _Evitar_: congelar, suspender, baja temporal.
 - **Cuota de mantenimiento**: lo que se cobra cada mes de pausa: un precio mensual único de la academia (más de 0 €), que fija el admin. Un cambio de precio no afecta a las pausas ya pedidas. En la UI y en los avisos se escribe siempre «cuota de mantenimiento», nunca «cuota» a secas (ver *Cuota*).
 - **Ajustes de la pausa**: parámetros de la academia: la cuota de mantenimiento, el máximo de meses por pausa (por defecto 3) y el máximo de pausas por año natural de Madrid (por defecto 1; cuenta el año en que empieza y las anuladas no cuentan).
-- **Exención**: el admin exime una pausa concreta, con un motivo que queda registrado: esa pausa no cobra cuota de mantenimiento (0 €; si ya había empezado, desde el siguiente cobro).
+- **Exención**: el admin exime una pausa concreta, con un motivo que queda registrado: esa pausa no cobra cuota de mantenimiento (0 €; si ya había empezado, desde el siguiente cobro, y si ya no le queda ninguno no hay nada que eximir). Lo ya cobrado no se devuelve.
 - **Al cumplir 18**: la suscripción no cambia hasta que el ahora adulto reclama su perfil. Las disciplinas cuya edad máxima supera (las de máxima 17, el día que cumple 18) se pueden sustituir gratis (ver Superar la máxima) y, si su plan es solo menores, debe elegir un plan abierto antes de reservar. Ese cambio es inmediato y con prorrateo, suba o baje.
 
 ### Cobros
@@ -165,7 +165,7 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
   - **sin cobertura**;
   - **cambio de disciplina**;
   - **fuera de edad** (ver Superar la máxima);
-  - **pausa** (al pedirla, las de sus días).
+  - **pausa** (al pedirla, las de sus días; o si un cambio de hora o de día lleva la sesión a un día de pausa del alumno).
 
 ## Eventos
 
