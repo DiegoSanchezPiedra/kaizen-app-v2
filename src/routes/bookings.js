@@ -1,7 +1,7 @@
 // src/routes/bookings.js — reservas del alumno, del tutor por sus hijos y del admin por cualquiera.
 // El profesor no reserva ni cancela (CONTEXT).
 import { Router } from 'express';
-import { requireAuth, requireRole, withRlsContext } from '../middleware/auth.js';
+import { requireAuth, requireRole, withRlsContext, requireCanBook } from '../middleware/auth.js';
 import { requireCompleteProfile } from '../middleware/requireCompleteProfile.js';
 import { httpError } from '../lib/errors.js';
 import { bookSession, cancelBooking, listBookings } from '../services/bookings.js';
@@ -28,6 +28,7 @@ router.get('/', uuidFields('query', ['profile_id']), withRlsContext(async (req, 
 // POST /bookings { session_id, profile_id? } → 201 { booking } (status 'confirmed' o 'waitlisted')
 router.post(
   '/',
+  requireCanBook, // B32: el menor sin permiso de reservar (403 minor_restricted)
   (req, res, next) => (req.body?.session_id === undefined
     ? next(httpError(400, 'invalid_field', 'session_id requerido', { field: 'session_id' })) : next()),
   uuidFields('body', ['session_id', 'profile_id']),
@@ -40,7 +41,7 @@ router.post(
 );
 
 // POST /bookings/:id/cancel — también sale de la espera. Sin guard: un perfil incompleto puede cancelar.
-router.post('/:id/cancel', withRlsContext(async (req, client) => ({
+router.post('/:id/cancel', requireCanBook, withRlsContext(async (req, client) => ({
   booking: await cancelBooking(client, req.params.id),
 })));
 

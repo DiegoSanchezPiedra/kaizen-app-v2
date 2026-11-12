@@ -95,6 +95,24 @@ try {
   await run('sin credenciales cambiadas nunca, un token de antes sigue valiendo (desplegar no cierra sesiones)', async () => {
     assert.equal((await http('GET', '/me', signToken({ sub: U.goo, role: 'alumno' }))).status, 200);
   });
+  // B32: la contraseña de un menor la pone y la restablece su tutor; el email de restablecer no sirve aunque lo tenga.
+  await run('B32: un menor con email (14+) no restablece por email: create_password_reset no crea nada', async () => {
+    U.teen = crypto.randomUUID();
+    await q(`INSERT INTO profiles (id, display_name, birth_date) VALUES ($1, 'Teen', CURRENT_DATE - interval '15 years')`, [U.teen]);
+    await q(`INSERT INTO auth_credentials (profile_id, email, username, password_hash) VALUES ($1, $2, $3, 'x')`,
+      [U.teen, email('teen'), `${tag}-teen`]);
+    const { rows: [r] } = await q(`SELECT create_password_reset($1, 'x') AS ok`, [email('teen')]);
+    assert.equal(r.ok, false);
+    assert.equal((await q(`SELECT 1 FROM password_resets WHERE profile_id = $1`, [U.teen])).rowCount, 0);
+  });
+
+  await run('B32: el menor cambia su contraseña con la sesión (sin email no se manda el aviso)', async () => {
+    const t = signToken({ sub: U.teen, role: 'alumno' });
+    await q(`UPDATE auth_credentials SET email = NULL, password_hash = $2 WHERE profile_id = $1`, [U.teen, await hashPassword('vieja-1234')]);
+    await q(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [U.ana, U.teen]);
+    const r = await http('POST', '/me/password', t, { current_password: 'vieja-1234', new_password: 'nueva-1234' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+  });
 } finally {
   console.error = realError;
   server.close();

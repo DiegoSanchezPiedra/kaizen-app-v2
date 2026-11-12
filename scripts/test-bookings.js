@@ -388,6 +388,26 @@ try {
     await assert.rejects(bookSession(deadlocked, { sessionId: S.race, studentId: U.alu1 }),
       (e) => e.status === 409 && e.code === 'booking_conflict_retry');
   });
+  // B32: con su acceso propio el hijo es actor y sujeto; el permiso de reservar lo quita su tutor (también en SQL).
+  await run('B32: el hijo con acceso reserva y cancela por sí mismo; sin permiso de reservar, no; su tutor sí', async () => {
+    await servicePool.query(`INSERT INTO auth_credentials (profile_id, username, password_hash) VALUES ($1, $2, 'x')`,
+      [U.child, `child-${U.child.slice(0, 8)}`]);
+    try {
+      await withRls({ uid: U.child, role: 'alumno' }, async (c) => {
+        const b = await bookSession(c, { sessionId: S.kids, studentId: U.child });
+        assert.equal(b.booked_by, U.child);
+        assert.equal((await cancelBooking(c, b.id)).cancelled_by, U.child);
+        await rejects(c, () => bookSession(c, { sessionId: S.kids, studentId: U.kid5 }), 403, 'not_allowed'); // un hermano
+        await servicePool.query(`UPDATE auth_credentials SET can_book = false WHERE profile_id = $1`, [U.child]);
+        await rejects(c, () => bookSession(c, { sessionId: S.kids, studentId: U.child }), 403, 'not_allowed');
+      }, { commit: false });
+      await withRls({ uid: U.tutor1, role: 'tutor' }, async (c) => {
+        assert.equal((await bookSession(c, { sessionId: S.kids, studentId: U.child })).booked_by, U.tutor1);
+      }, { commit: false });
+    } finally {
+      await servicePool.query(`DELETE FROM auth_credentials WHERE profile_id = $1`, [U.child]);
+    }
+  });
 } finally {
   const sessions = Object.values(S);
   await servicePool.query(

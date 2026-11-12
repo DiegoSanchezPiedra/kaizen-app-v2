@@ -166,7 +166,7 @@ export async function getProfile(client, { id }) {
 export async function changeRole(client, { id, role, actorId, mfaSession, mfaCode }) {
   if (!SETTABLE.includes(role)) throw invalid('role', 'role debe ser alumno, tutor, profesor o admin');
   const { rows: [p] } = await client.query(
-    `SELECT ${ROLE} AS role, c.profile_id IS NOT NULL AS has_access ${FROM} WHERE p.id = $1 FOR UPDATE OF p`, [id]);
+    `SELECT ${ROLE} AS role, c.profile_id IS NOT NULL AND NOT ${MINOR} AS has_access ${FROM} WHERE p.id = $1 FOR UPDATE OF p`, [id]);
   if (!p) throw notFound();
   if (p.role === 'admin') throw conflict('admin_role_locked', 'El rol admin no se quita desde la app');
   if (!p.has_access) throw conflict('child_role_locked', 'Un hijo siempre es alumno');

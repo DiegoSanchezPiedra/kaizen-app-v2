@@ -23,6 +23,13 @@ export async function findCredentialsByEmail(email) {
   return rows[0] ?? null;
 }
 
+// B32: el menor entra con el usuario que eligió su tutor (en minúsculas y sin '@': no se confunde con un email).
+async function findCredentialsByUsername(username) {
+  const { rows } = await servicePool.query(
+    `SELECT profile_id, email, password_hash FROM auth_credentials WHERE username = $1`, [username.trim().toLowerCase()]);
+  return rows[0] ?? null;
+}
+
 export async function findCredentialsByGoogleSub(googleSub) {
   const { rows } = await servicePool.query(
     `SELECT profile_id, email, password_hash, google_sub, email_verified
@@ -84,7 +91,7 @@ export function isAdultBirthDate(value) {
   return value <= cutoff.toISOString().slice(0, 10);
 }
 
-function assertStrongPassword(password) {
+export function assertStrongPassword(password) {
   if (typeof password !== 'string' || password.length < 8) {
     throw httpError(400, 'weak_password', 'password too short');
   }
@@ -118,10 +125,11 @@ export async function registerLocal({ email, password, displayName, birthDate })
 // para que la ruta decida (JWT normal vs mfa_token).
 // ---------------------------------------------------------------------------
 export async function loginLocal({ email, password }) {
-  if (!email || !password) {
+  if (typeof email !== 'string' || !email || !password) {
     throw httpError(400, 'invalid_payload', 'email and password required');
   }
-  const cred = await findCredentialsByEmail(email);
+  // `email`: el email o el usuario (B32).
+  const cred = email.includes('@') ? await findCredentialsByEmail(email) : await findCredentialsByUsername(email);
   if (!cred || !cred.password_hash) {
     throw httpError(401, 'invalid_credentials', 'invalid credentials');
   }
@@ -244,6 +252,7 @@ export async function changePassword(client, userId, { current_password: current
 
 /** Aviso de seguridad tras el cambio; directo, como el de recuperar (un fallo de envío no deshace el cambio). */
 export function sendPasswordChanged(email) {
+  if (!email) return; // B32: un menor sin email
   send({
     to: email,
     ...mail('Tu contraseña de Kaizen ha cambiado', {}, [

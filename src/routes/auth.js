@@ -3,7 +3,7 @@ import { Router } from 'express';
 
 import { httpError } from '../lib/errors.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { authLimit, forgotLimit } from '../middleware/rateLimit.js';
+import { authLimit, forgotLimit, loginAccountLimit } from '../middleware/rateLimit.js';
 import { withRls } from '../db/rls.js';
 import { registerLocal, loginLocal, loginGoogle, requestPasswordReset, resetPassword } from '../services/auth.js';
 import { signToken } from '../services/jwt.js';
@@ -42,7 +42,8 @@ router.post('/register', authLimit, async (req, res, next) => {
   }
 });
 
-router.post('/login', authLimit, async (req, res, next) => {
+// POST /auth/login { email, password }: `email` es el email o el usuario (B32); límite por IP y por cuenta.
+router.post('/login', authLimit, loginAccountLimit, async (req, res, next) => {
   try {
     const { email, password } = req.body || {};
     const { profileId, email: userEmail, role } = await loginLocal({

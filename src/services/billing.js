@@ -24,8 +24,9 @@ const INTEGRATION_ID = 'kaizen-sub-qzmhtrwa';
 /** Cliente de Stripe del pagador; lo crea la primera vez. */
 export async function ensureCustomer(client, payerId) {
   const { rows: [p] } = await client.query(
-    `SELECT p.stripe_customer_id, p.display_name, c.email
+    `SELECT p.stripe_customer_id, p.display_name, c.email, p.birth_date > CURRENT_DATE - interval '18 years' AS minor
        FROM profiles p LEFT JOIN auth_credentials c ON c.profile_id = p.id WHERE p.id = $1`, [payerId]);
+  if (p.minor) throw httpError(403, 'minor_restricted', 'Un menor no paga: lo hace su tutor'); // B32
   if (p.stripe_customer_id) return p.stripe_customer_id;
   const customer = await stripe.customers.create({
     name: p.display_name ?? undefined, email: p.email ?? undefined, metadata: { profile_id: payerId },

@@ -117,6 +117,8 @@ const SYSTEM_COLUMNS = {
 async function cleanup(ids) {
   const arr = Object.values(ids);
   await withServiceCommit(async (c) => {
+    await c.query(`DELETE FROM invoices WHERE student_id = ANY($1::uuid[])`, [arr]);
+    await c.query(`DELETE FROM subscriptions WHERE student_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM user_agreements WHERE profile_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM student_health_info WHERE profile_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM audit_log WHERE actor_id = ANY($1::uuid[])`, [arr]);
@@ -335,9 +337,9 @@ async function main() {
       assert.equal((await insert('display_name, birth_date', `'x', NULL`)).rowCount, 1);
     });
 
-    // B20 (B5): de su hijo, el tutor edita nombre, fecha y foto; nada del perfil público (un hijo nunca es público).
-    await run('B20 — el tutor no edita bio, redes ni campos visibles de su hijo', async () => {
-      for (const set of [`bio = 'x'`, `social_links = '{}'`, `visible_fields = '{"bio": true}'`]) {
+    // B20 (B5): de su hijo, el tutor edita nombre, fecha y foto; no su bio ni sus redes. B32: su visibilidad, sí.
+    await run('B20 — el tutor no edita bio ni redes de su hijo', async () => {
+      for (const set of [`bio = 'x'`, `social_links = '{}'`]) {
         await expectDenied(update(tutor, ids.child, set));
       }
     });
@@ -556,6 +558,62 @@ async function main() {
         c.query(`SELECT id FROM user_agreements WHERE profile_id = $1`, [ids.b])
       );
       assert.equal(rows.length, 0);
+    });
+
+    // B32: el hijo con acceso propio actúa con su token. Lee lo suyo (perfil, credenciales, reservas) y nada de su
+    // hermano ni de sus tutores; tampoco su salud, sus cobros ni sus firmas, aunque sean suyos.
+    await run('B32 — el menor como actor: ni salud, cobros, suscripción ni firmas (suyos o del hermano), ni hermano ni tutores', async () => {
+      const sib = crypto.randomUUID();
+      const plan = (await withServiceCommit(async (c) => {
+        await c.query(`INSERT INTO profiles (id, display_name, birth_date) VALUES ($1, 'hermano', $2)`, [sib, yearsAgo(15)]);
+        await c.query(`INSERT INTO user_roles (user_id, role) VALUES ($1, 'alumno')`, [sib]);
+        await c.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [ids.tutor, sib]);
+        await c.query(`INSERT INTO auth_credentials (profile_id, username, password_hash) VALUES ($1, $2, 'x'), ($3, $4, 'x')`,
+          [ids.child, `hijo-${ids.child.slice(0, 8)}`, sib, `hermano-${sib.slice(0, 8)}`]);
+        await c.query(`INSERT INTO student_health_info (profile_id, allergies) VALUES ($1, 'x'), ($2, 'y')`, [ids.child, sib]);
+        await c.query(`INSERT INTO user_agreements (id, profile_id, signed_by, type, version) VALUES
+          (gen_random_uuid(), $1, $3, 'data_protection', '1.0'), (gen_random_uuid(), $2, $3, 'data_protection', '1.0')`,
+        [ids.child, sib, ids.tutor]);
+        return (await c.query(`INSERT INTO plans (name, price_cents) VALUES ('B32-rls', 1000) RETURNING id`)).rows[0].id;
+      }));
+      ids.sib = sib;
+      await withServiceCommit(async (c) => {
+        for (const who of [ids.child, sib]) {
+          const { rows: [s] } = await c.query(`INSERT INTO subscriptions (student_id, payer_id, plan_id, status, stripe_subscription_id)
+            VALUES ($1, $2, $3, 'active', 'sub_' || gen_random_uuid()) RETURNING id`, [who, ids.tutor, plan]);
+          await c.query(`INSERT INTO invoices (student_id, payer_id, stripe_invoice_id, subscription_id)
+            VALUES ($1, $2, 'in_' || gen_random_uuid(), $3)`, [who, ids.tutor, s.id]);
+        }
+      });
+      await withCtx({ uid: ids.child, role: 'alumno' }, async (c) => {
+        const count = async (sql) => (await c.query(sql, [ids.child, sib, ids.tutor])).rowCount;
+        assert.equal(await count(`SELECT 1 FROM student_health_info WHERE profile_id IN ($1, $2) AND $3::uuid IS NOT NULL`), 0, 'salud');
+        assert.equal(await count(`SELECT 1 FROM invoices WHERE student_id IN ($1, $2) OR payer_id = $3`), 0, 'recibos');
+        assert.equal(await count(`SELECT 1 FROM subscriptions WHERE student_id IN ($1, $2) OR payer_id = $3`), 0, 'suscripciones');
+        assert.equal(await count(`SELECT 1 FROM user_agreements WHERE profile_id IN ($1, $2) OR signed_by = $3`), 0, 'firmas');
+        assert.equal(await count(`SELECT 1 FROM profiles WHERE id IN ($2, $3) AND $1::uuid IS NOT NULL`), 0, 'hermano y tutor');
+        assert.equal(await count(`SELECT 1 FROM profiles WHERE id = $1 AND $2::uuid IS NOT NULL AND $3::uuid IS NOT NULL`), 1, 'el suyo');
+        assert.equal(await count(`SELECT 1 FROM auth_credentials WHERE profile_id IN ($2, $3) AND $1::uuid IS NOT NULL`), 0, 'credenciales ajenas');
+        assert.equal(await count(`SELECT 1 FROM auth_credentials WHERE profile_id = $1 AND $2::uuid IS NOT NULL AND $3::uuid IS NOT NULL`), 1);
+        await expectDenied(c.query(`INSERT INTO student_health_info (profile_id, allergies) VALUES ($1, 'z')
+          ON CONFLICT (profile_id) DO UPDATE SET allergies = 'z'`, [ids.child]));
+      });
+      await withCtx({ uid: ids.child, role: 'alumno' }, async (c) => {
+        await expectDenied(c.query(`UPDATE profiles SET display_name = 'otro' WHERE id = $1`, [ids.child]));
+      });
+      await withCtx({ uid: ids.child, role: 'alumno' }, async (c) => {
+        await expectDenied(c.query(`UPDATE profiles SET is_public = true WHERE id = $1`, [ids.child])); // < 14
+      });
+      await withCtx({ uid: sib, role: 'alumno' }, async (c) => { // desde los 14, su visibilidad sí
+        assert.equal((await c.query(`UPDATE profiles SET is_public = true, visible_fields = '{"ranking": true}' WHERE id = $1`, [sib])).rowCount, 1);
+      });
+      // El tutor sí lo ve todo de los dos y lee su usuario (no la contraseña).
+      await withCtx({ uid: ids.tutor, role: 'tutor' }, async (c) => {
+        const { rows } = await c.query(`SELECT username, can_book FROM auth_credentials WHERE profile_id IN ($1, $2)`, [ids.child, sib]);
+        assert.equal(rows.length, 2);
+        assert.equal((await c.query(`SELECT 1 FROM student_health_info WHERE profile_id IN ($1, $2)`, [ids.child, sib])).rowCount, 2);
+        assert.equal((await c.query(`SELECT 1 FROM invoices WHERE student_id IN ($1, $2)`, [ids.child, sib])).rowCount, 2);
+      });
     });
   } finally {
     await cleanup(ids);

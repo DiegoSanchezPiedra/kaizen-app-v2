@@ -25,20 +25,39 @@ export async function requireAuth(req, res, next) {
   // B19: el rol es el de user_roles en cada petición, no el del token (un cambio de rol vale al momento).
   // Se lee con el contexto RLS del propio perfil (user_roles_select deja leer la fila propia); sin fila, alumno.
   // ADR 0020: un token emitido antes del último cambio de contraseña ya no vale (auth_credentials propia, también por RLS).
+  // B32 (ADR 0026): un hijo sin credenciales (acceso revocado) no tiene sesión; el menor con acceso lleva `minor`
+  // ({ can_book, can_publish }) para los bloqueos de las rutas. La edad y el permiso, de la BD en cada petición.
   try {
     const { rows: [u] } = await withRls({ uid: payload.sub, role: 'alumno' }, (client) => client.query(
       `SELECT (SELECT role FROM user_roles WHERE user_id = $1) AS role,
-              (SELECT extract(epoch FROM credentials_changed_at)::bigint FROM auth_credentials WHERE profile_id = $1) AS changed`,
+              extract(epoch FROM c.credentials_changed_at)::bigint AS changed, c.profile_id IS NOT NULL AS creds,
+              COALESCE(c.can_book, false) AS can_book,
+              EXISTS (SELECT 1 FROM guardianships WHERE minor_id = $1) AS ward,
+              (SELECT birth_date > CURRENT_DATE - interval '18 years' FROM profiles WHERE id = $1) AS minor,
+              (SELECT birth_date <= CURRENT_DATE - interval '14 years' FROM profiles WHERE id = $1) AS over14
+         FROM (SELECT 1) one LEFT JOIN auth_credentials c ON c.profile_id = $1`,
       [payload.sub]));
-    if (u.changed !== null && !(payload.iat >= Number(u.changed))) { // sin iat, también fuera
+    if ((u.ward && !u.creds) || (u.changed !== null && !(payload.iat >= Number(u.changed)))) { // sin iat, también fuera
       return next(httpError(401, 'session_revoked', 'session revoked'));
     }
     req.user = { id: payload.sub, role: u.role ?? 'alumno', mfa: Array.isArray(payload.amr) && payload.amr.includes('mfa'),
-      iat: payload.iat };
+      iat: payload.iat, minor: u.minor ? { can_book: u.can_book, can_publish: u.over14 } : null };
   } catch (err) {
     return next(err);
   }
   return next();
+}
+
+const minorRestricted = () => httpError(403, 'minor_restricted', 'Esto lo hace tu tutor');
+
+// B32: lo que un menor nunca hace con su acceso (pagos, pausas, firmas, salud, sus datos y su familia).
+export function blockMinor(req, res, next) {
+  return next(req.user?.minor ? minorRestricted() : undefined);
+}
+
+// B32: reservar, cancelar e inscribirse; el menor sin el permiso de reservar, no (su tutor sí, por él).
+export function requireCanBook(req, res, next) {
+  return next(req.user?.minor && !req.user.minor.can_book ? minorRestricted() : undefined);
 }
 
 export function requireRole(...roles) {

@@ -59,14 +59,19 @@ export async function getMyProfile(client, id) {
 
 /** PATCH del propio perfil (body ya validado). `visible_fields` se fusiona con lo guardado. */
 export async function updateMyProfile(client, id, body) {
+  const has = (k) => Object.hasOwn(body, k);
+  if (has('is_public') || has('visible_fields')) { // B32: su visibilidad, desde los 14 (antes la decide su tutor)
+    const { rows: [p] } = await client.query(
+      `SELECT birth_date > CURRENT_DATE - interval '14 years' AS young FROM profiles WHERE id = $1`, [id]);
+    if (p?.young) throw httpError(403, 'minor_restricted', 'Tu perfil público lo decide tu tutor');
+  }
   if (body.is_public === true && !(await getMyProfile(client, id)).eligible) {
     throw httpError(403, 'not_eligible', 'Este perfil no puede ser público');
   }
-  const has = (k) => Object.hasOwn(body, k);
   await client.query(
     `UPDATE profiles SET
        is_public = COALESCE($2, is_public),
-       visible_fields = COALESCE(visible_fields, '{}') || COALESCE($3::jsonb, '{}'),
+       visible_fields = CASE WHEN $3::jsonb IS NULL THEN visible_fields ELSE COALESCE(visible_fields, '{}') || $3 END,
        bio = CASE WHEN $4 THEN $5 ELSE bio END,
        social_links = CASE WHEN $6 THEN $7::jsonb ELSE social_links END
      WHERE id = $1`,

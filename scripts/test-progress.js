@@ -294,7 +294,8 @@ try {
       hidden: await F.person('alumno', { pub: true, flags: { achievements: true } }),
       priv: await F.person('alumno', { flags: on }),
       zero: await F.person('alumno', { pub: true, flags: on }),
-      child: await F.person('alumno', { pub: true, flags: on, birth: '2014-01-01', creds: false }),
+      // B32: un menor sale solo si su tutor lo publica; por defecto, no (como aquí).
+      child: await F.person('alumno', { flags: on, birth: '2014-01-01', creds: false }),
       child18: await F.person('alumno', { pub: true, flags: on, birth: '2000-01-01', creds: false }),
       prof: await F.person('profesor', { pub: true, flags: on }),
     };
@@ -477,9 +478,9 @@ try {
       await servicePool.query(`DELETE FROM user_agreements WHERE id = $1`, [ua]);
     }
   });
-  await run('ranking de medallas por disciplina: quien enseña su ranking y tiene alguna en ella; medallas solo con logros; un menor nunca', async () => {
-    // El hijo, aunque se marque público y con todo visible, no puede serlo (can_be_public): no sale.
-    await servicePool.query(`UPDATE profiles SET is_public = true, visible_fields = '{"ranking": true, "achievements": true}' WHERE id = $1`, [who.child]);
+  await run('ranking de medallas por disciplina: quien enseña su ranking y tiene alguna en ella; medallas solo con logros; un menor sin publicar no', async () => {
+    // B32: el hijo con todo visible pero sin publicar (lo decide su tutor) no sale.
+    await servicePool.query(`UPDATE profiles SET is_public = false, visible_fields = '{"ranking": true, "achievements": true}' WHERE id = $1`, [who.child]);
     const r = await http(`/rankings/${Z}/medals?limit=100`, 'other');
     assert.equal(r.status, 200);
     assert.deepEqual(r.body.discipline, { id: Z, name: `${tag}-Z-off` });

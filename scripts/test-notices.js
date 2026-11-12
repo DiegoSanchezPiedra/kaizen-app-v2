@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { servicePool, closePools } from '../src/config/database.js';
 import { APP_URL } from '../src/config/stripe.js';
-import { notice, sendPending } from '../src/services/notices.js';
+import { notice, sendPending, compose } from '../src/services/notices.js';
 
 let failed = 0;
 async function run(name, fn) {
@@ -252,6 +252,41 @@ try {
       assert.doesNotMatch(all, /2016|5 de mayo|\d+ años|menor/i, `${action}: sin fecha de nacimiento ni edad`);
       if (extra) assert.match(e.text, extra, action);
       if (action.startsWith('notice.pause')) assert.doesNotMatch(all, /cuota(?! de mantenimiento)/i, `${action}: «cuota» a secas`);
+    }
+  });
+  await run('B32: los operativos también al hijo con acceso propio; cobro, pausa y cambios de plan solo a sus tutores', async () => {
+    const to = async (id, action) => (await q(`SELECT notice_recipients($1, $2) AS r`, [id, action]))[0].r.sort();
+    assert.deepEqual(await to(U.child, 'notice.session_cancelled'), [U.tutor], 'sin acceso, solo el tutor');
+    assert.deepEqual(await to(U.payer, 'notice.session_cancelled'), [U.payer], 'el adulto, él mismo');
+    await q(`INSERT INTO auth_credentials (profile_id, username, password_hash) VALUES ($1, $2, 'x')`, [U.child, `nico-${U.child.slice(0, 8)}`]);
+    for (const action of ['notice.session_cancelled', 'notice.session_changed', 'notice.session_restored', 'notice.booking_promoted',
+      'notice.out_of_age', 'notice.event_changed', 'notice.event_cancelled', 'notice.event_registration_cancelled']) {
+      assert.deepEqual(await to(U.child, action), [U.child, U.tutor].sort(), action);
+    }
+    for (const action of ['notice.no_coverage', 'notice.pause', 'notice.discipline_change']) {
+      assert.deepEqual(await to(U.child, action), [U.tutor], action);
+    }
+    // Los de facturación van al pagador por nombre (notice()): el hijo nunca es pagador.
+    const id = await emit('notice.payment_failed', { invoice_id: inv.id }, [U.tutor]);
+    assert.deepEqual((await q(`SELECT d.recipient_id FROM notice_deliveries d JOIN audit_log a ON a.id = d.audit_id
+                                WHERE a.resource_id = $1`, [id])).map((r) => r.recipient_id), [U.tutor]);
+  });
+
+  await run('B32: textos de los avisos del acceso propio al tutor (push), sin edad', async () => {
+    const c = { profile_name: 'Nico', actor_name: 'Tomás', fields: ['password', 'can_book'], can_book: false };
+    const push = (action) => compose(servicePool, { action, channel: 'push', resource_type: 'profile', resource_id: U.child,
+      audit_id: crypto.randomUUID(), recipient_id: U.tutor, changes: c });
+    const texts = {
+      'notice.minor_access_granted': /Tomás ha activado el acceso propio de Nico/,
+      'notice.minor_access_revoked': /Tomás ha retirado el acceso propio de Nico/,
+      'notice.minor_access_changed': /Tomás ha cambiado la contraseña y ha quitado el permiso de reservar del acceso propio de Nico/,
+      'notice.minor_avatar_changed': /Nico ha cambiado su foto de perfil/,
+    };
+    for (const [action, re] of Object.entries(texts)) {
+      const m = await push(action);
+      assert.match(m.body, re, action);
+      assert.equal(m.url, `${APP_URL}/account/children/${U.child}`, action);
+      assert.doesNotMatch(`${m.title} ${m.body}`, /\d+ años|menor/i, action);
     }
   });
 } finally {

@@ -42,6 +42,293 @@ const fails = async (c, fn, expected) => {
 };
 const denied = (c, fn) => fails(c, fn, /row-level security/);
 
+// ---------------------------------------------------------------------------
+// B32: acceso propio del menor. Matriz por endpoint con el token del menor (la app en proceso sobre la BD efímera).
+// A (10 años) y B (15, su hermano), hijos de T; T2 también es tutor de A. Los dos cubiertos y con el perfil completo.
+// ---------------------------------------------------------------------------
+let close;
+const avatars = []; // las fotos subidas van al storage real: se borran al acabar
+const NOTICE_VERSION = '1.0';
+async function matrix() {
+  const { startApp } = await import('./lib/app-server.js');
+  const { signToken } = await import('../src/services/jwt.js');
+  const { hashPassword } = await import('../src/services/password.js');
+  const { qrCode, qrStep } = await import('../src/services/checkin.js');
+  const app = await startApp();
+  close = app.close;
+  const q = (text, params) => servicePool.query(text, params).then((r) => r.rows);
+  const tag = `m${crypto.randomBytes(3).toString('hex')}`;
+  const P = {};
+  for (const [k, role, years] of [['T', 'tutor', 40], ['T2', 'alumno', 42], ['A', 'alumno', 10], ['B', 'alumno', 15]]) {
+    [{ id: P[k] }] = await q(`INSERT INTO profiles (id, display_name, birth_date) VALUES (gen_random_uuid(), $1, $2) RETURNING id`,
+      [`${tag}-${k}`, yearsAgo(years)]);
+    await q(`INSERT INTO user_roles (user_id, role) VALUES ($1, $2)`, [P[k], role]);
+  }
+  for (const k of ['T', 'T2']) {
+    await q(`INSERT INTO auth_credentials (profile_id, email, password_hash) VALUES ($1, $2, $3)`,
+      [P[k], `${tag}-${k.toLowerCase()}@test.local`, await hashPassword('tutor-1234')]);
+  }
+  await q(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $3), ($1, $4), ($2, $3)`, [P.T, P.T2, P.A, P.B]);
+  const V = `8.${Date.now() % 1e9}`;
+  for (const type of TYPES) {
+    await q(`INSERT INTO agreement_documents (id, type, version, storage_path, checksum, published_at)
+             VALUES (gen_random_uuid(), $1, $2, 'test-minors.pdf', 'x', now())`, [type, V]);
+    for (const [who, by] of [['A', 'T'], ['B', 'T'], ['T', 'T'], ['T2', 'T2']]) {
+      await q(`INSERT INTO user_agreements (id, profile_id, signed_by, type, version) VALUES (gen_random_uuid(), $1, $2, $3, $4)`,
+        [P[who], P[by], type, V]);
+    }
+  }
+  for (const k of ['A', 'B', 'T2']) {
+    // De hace un mes: la ficha que el tutor rellenó antes de que B cumpla 18 (el trigger solo toca updated_at al UPDATE).
+    await q(`INSERT INTO student_health_info (profile_id, allergies, emergency_contact_name, emergency_contact_phone, updated_at)
+             VALUES ($1, 'polen', 'x', '600000000', now() - interval '30 days')`, [P[k]]);
+  }
+  const [{ id: D }] = await q(`INSERT INTO disciplines (name) VALUES ($1) RETURNING id`, [tag]);
+  const [{ id: plan }] = await q(`INSERT INTO plans (name, price_cents) VALUES ($1, 1000) RETURNING id`, [tag]);
+  const sub = {};
+  for (const k of ['A', 'B']) {
+    [{ id: sub[k] }] = await q(`INSERT INTO subscriptions (id, student_id, payer_id, plan_id, status, stripe_subscription_id)
+      VALUES (gen_random_uuid(), $1, $2, $3, 'active', 'sub_test_' || gen_random_uuid()) RETURNING id`, [P[k], P.T, plan]);
+  }
+  const [{ id: trainer }] = await q(`INSERT INTO profiles (id, display_name) VALUES (gen_random_uuid(), $1) RETURNING id`, [`${tag}-prof`]);
+  await q(`INSERT INTO user_roles (user_id, role) VALUES ($1, 'profesor')`, [trainer]);
+  const session = async (offset) => (await q(
+    `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status)
+     VALUES ($1, $2, now() + $3::interval, now() + $3::interval + interval '60 min', 60, 10, 'scheduled') RETURNING id`,
+    [D, trainer, offset]))[0].id;
+  const S = { one: await session('2 days'), two: await session('3 days'), now: await session('5 min') };
+  const event = async (price) => (await q(
+    `INSERT INTO events (title, starts_at, ends_at, location, price_cents, created_by, trainer_id)
+     VALUES ($1, now() + interval '5 days', now() + interval '5 days 2 hours', 'Tatami', $2, $3, $3) RETURNING id`,
+    [`${tag}-${price}`, price, trainer]))[0].id;
+  const E = { free: await event(0), paid: await event(1000) };
+
+  const tok = { T: signToken({ sub: P.T, role: 'tutor' }), T2: signToken({ sub: P.T2, role: 'alumno' }) };
+  const as = (who) => (method, url, body) => app.http(method, url, { token: tok[who], body });
+  const T = as('T');
+  const login = (email, password) => app.http('POST', '/auth/login', { body: { email, password } });
+  const user = { A: `${tag}-a`, B: `${tag}.b` };
+  const pass = { A: 'peque-1234', B: 'mayor-1234' };
+  const expectErr = (r, status, code, what) => {
+    assert.equal(r.status, status, `${what}: ${r.status} ${JSON.stringify(r.body)}`);
+    if (code) assert.equal(r.body.code, code, what);
+  };
+  const deliveries = async (action, recipient) => (await q(
+    `SELECT 1 FROM notice_deliveries d JOIN audit_log a ON a.id = d.audit_id
+      WHERE a.action = $1 AND d.recipient_id = $2 AND a.resource_id = ANY($3)`, [action, recipient, [P.A, P.B]])).length;
+
+  await run('B32 alta: usuario con forma de email, contraseña corta, email por debajo de 14 y sin versión del texto → 400', async () => {
+    const base = { username: user.A, password: pass.A, notice_version: NOTICE_VERSION };
+    expectErr(await T('POST', `/me/children/${P.A}/access`, { ...base, username: 'nino@correo.es' }), 400, 'invalid_username', 'email');
+    expectErr(await T('POST', `/me/children/${P.A}/access`, { ...base, username: 'a' }), 400, 'invalid_username', 'corto');
+    expectErr(await T('POST', `/me/children/${P.A}/access`, { ...base, password: 'corta' }), 400, 'weak_password', 'pass');
+    expectErr(await T('POST', `/me/children/${P.A}/access`, { ...base, email: `${tag}-a@test.local` }), 400, 'email_requires_14', '<14');
+    expectErr(await T('POST', `/me/children/${P.A}/access`, { ...base, notice_version: undefined }), 400, 'invalid_field', 'versión');
+    expectErr(await T('POST', `/me/children/${P.A}/access`, { ...base, notice_version: '0.1' }), 400, 'invalid_field', 'versión vieja');
+    expectErr(await as('T2')('POST', `/me/children/${P.B}/access`, { ...base, username: user.B }), 403, 'not_guardian', 'no es su tutor');
+  });
+
+  await run('B32 alta: cualquier tutor activa; queda el consentimiento (quién, cuándo, IP, versión) y avisa a los demás tutores', async () => {
+    const r = await T('POST', `/me/children/${P.A}/access`, { username: user.A.toUpperCase(), password: pass.A, notice_version: NOTICE_VERSION });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.deepEqual(r.body.access, { username: user.A, email: null, can_book: true });
+    expectErr(await T('POST', `/me/children/${P.A}/access`, { username: `${user.A}x`, password: pass.A, notice_version: NOTICE_VERSION }),
+      409, 'access_exists', 'dos veces');
+    expectErr(await T('POST', `/me/children/${P.B}/access`, { username: user.A, password: pass.B, notice_version: NOTICE_VERSION }),
+      409, 'username_taken', 'usuario repetido');
+    const b = await T('POST', `/me/children/${P.B}/access`,
+      { username: user.B, password: pass.B, email: `${tag}-b@test.local`, notice_version: NOTICE_VERSION });
+    assert.equal(b.status, 201, JSON.stringify(b.body));
+    const [rec] = await q(`SELECT actor_id, created_at, changes FROM audit_log WHERE action = 'notice.minor_access_granted' AND resource_id = $1`, [P.A]);
+    assert.equal(rec.actor_id, P.T);
+    assert.equal(rec.changes.notice_version, NOTICE_VERSION);
+    assert.match(rec.changes.ip, /127\.0\.0\.1/);
+    assert.equal(await deliveries('notice.minor_access_granted', P.T2), 1, 'aviso al otro tutor');
+    assert.equal(await deliveries('notice.minor_access_granted', P.T), 0, 'no al que lo hace');
+    const kids = (await T('GET', '/me/children')).body.children;
+    assert.deepEqual(kids.find((k) => k.id === P.A).access, { username: user.A, email: null, can_book: true });
+  });
+
+  await run('B32 login por usuario (sin distinguir mayúsculas) y por email desde 14; sesión de 7 días', async () => {
+    const a = await login(user.A.toUpperCase(), pass.A);
+    assert.equal(a.status, 200, JSON.stringify(a.body));
+    tok.A = a.body.token;
+    const { exp, iat } = JSON.parse(Buffer.from(tok.A.split('.')[1], 'base64url'));
+    assert.equal(exp - iat, 7 * 86400);
+    const b = await login(`${tag}-b@test.local`, pass.B);
+    assert.equal(b.status, 200, JSON.stringify(b.body));
+    tok.B = b.body.token;
+    assert.equal((await login(user.B, pass.B)).status, 200);
+    assert.equal((await login(user.A, 'mala-1234')).status, 401);
+  });
+
+  await run('B32 /me del menor: minor { can_book, can_publish } y usuario; el adulto, minor null', async () => {
+    const a = (await as('A')('GET', '/me')).body;
+    assert.equal(a.username, user.A);
+    assert.deepEqual(a.minor, { can_book: true, can_publish: false });
+    assert.deepEqual((await as('B')('GET', '/me')).body.minor, { can_book: true, can_publish: true });
+    assert.equal((await T('GET', '/me')).body.minor, null);
+  });
+
+  await run('B32 matriz: lo bloqueado → 403 minor_restricted, también con el profile_id del hermano', async () => {
+    const A = as('A');
+    const other = crypto.randomUUID();
+    const blocked = [
+      ['POST', '/billing/checkout', { plan_id: plan }], ['POST', '/billing/checkout', { plan_id: plan, profile_id: P.B }],
+      ['GET', '/billing/subscription'], ['GET', `/billing/subscription?profile_id=${P.B}`],
+      ['POST', '/billing/pause', { months: 1 }], ['POST', '/billing/pause', { months: 1, profile_id: P.B }], ['DELETE', '/billing/pause'],
+      ['POST', '/billing/portal'], ['POST', `/billing/subscriptions/${sub.A}/plan`, { plan_id: plan }],
+      ['DELETE', `/billing/subscriptions/${sub.A}/plan/scheduled`], ['POST', `/billing/subscriptions/${sub.B}/disciplines`, { from_id: 1, to_id: 2 }],
+      ['GET', `/billing/payer-changes/${other}`], ['POST', `/billing/payer-changes/${other}/checkout`],
+      ['GET', '/me/health'], ['GET', `/me/health?profile_id=${P.B}`],
+      ['POST', '/me/health', { allergies: 'x' }], ['POST', '/me/health', { profile_id: P.B, allergies: 'x' }],
+      ['POST', '/me/agreements', { type: 'data_protection', version: V }],
+      ['POST', '/me/agreements', { type: 'data_protection', version: V, profile_id: P.B }],
+      ['PATCH', '/me', { display_name: 'otro' }], ['PATCH', '/me', { birth_date: '2000-01-01' }],
+      ['PATCH', '/me', { email: `${tag}-a@test.local` }],
+      ['GET', '/me/children'], ['POST', '/me/children', { display_name: 'x', birth_date: yearsAgo(2) }],
+      ['PATCH', `/me/children/${P.B}`, { display_name: 'x' }],
+      ['POST', `/me/children/${P.B}/access`, { username: 'xyz', password: 'x', notice_version: NOTICE_VERSION }],
+      ['PATCH', `/me/children/${P.B}/access`, { can_book: false }], ['DELETE', `/me/children/${P.B}/access`],
+      ['PATCH', `/me/children/${P.B}/profile`, { is_public: true }],
+      ['PATCH', '/me/profile', { is_public: true }], ['PATCH', '/me/profile', { visible_fields: { ranking: true } }],
+      ['POST', `/events/${E.paid}/registrations`],
+    ];
+    for (const [method, url, body] of blocked) expectErr(await A(method, url, body), 403, 'minor_restricted', `${method} ${url}`);
+    // Solo para adultos por rol: el menor es alumno.
+    expectErr(await A('GET', '/admin/profiles'), 403, 'insufficient_role', 'admin');
+    expectErr(await A('GET', '/professor/sessions'), 403, 'insufficient_role', 'profesor');
+  });
+
+  await run('B32 matriz: lo permitido funciona; con el profile_id del hermano, el 403 de siempre', async () => {
+    const A = as('A');
+    for (const url of ['/me', '/me/profile', '/me/progress', '/me/profile-status', `/sessions/calendar`, '/disciplines',
+      '/plans', '/profiles', `/rankings/${D}`, '/events', `/events/${E.free}`, '/bookings']) {
+      const r = await A('GET', url);
+      assert.equal(r.status, 200, `GET ${url}: ${r.status} ${JSON.stringify(r.body)}`);
+    }
+    for (const url of [`/me/progress?profile_id=${P.B}`, `/me/profile-status?profile_id=${P.B}`, `/sessions/calendar?profile_id=${P.B}`]) {
+      expectErr(await A('GET', url), 403, 'not_guardian', url);
+    }
+    assert.deepEqual((await A('GET', `/bookings?profile_id=${P.B}`)).body.bookings, []);
+    expectErr(await A('POST', '/bookings', { session_id: S.one, profile_id: P.B }), 403, 'not_guardian', 'reservar por el hermano');
+    expectErr(await A('POST', `/events/${E.free}/registrations`, { profile_id: P.B }), 403, 'not_guardian', 'inscribir al hermano');
+    expectErr(await app.http('PUT', `/me/avatar?profile_id=${P.B}`, { token: tok.A, body: PNG, type: 'image/png' }),
+      403, 'not_guardian', 'foto del hermano');
+
+    const b = await A('POST', '/bookings', { session_id: S.one });
+    assert.equal(b.status, 201, JSON.stringify(b.body));
+    assert.equal(b.body.booking.booked_by, P.A, 'actor y sujeto');
+    assert.equal((await A('POST', `/bookings/${b.body.booking.id}/cancel`)).status, 200);
+    assert.equal((await A('POST', '/bookings', { session_id: S.now })).status, 201);
+    const ci = await A('POST', '/checkin', { code: qrCode(qrStep(30)) });
+    assert.equal(ci.status, 200, JSON.stringify(ci.body));
+    assert.equal(ci.body.status, 'checked_in');
+    const reg = await A('POST', `/events/${E.free}/registrations`);
+    assert.equal(reg.status, 201, JSON.stringify(reg.body));
+    assert.equal((await A('DELETE', `/events/registrations/${reg.body.registration.id}`)).status, 204);
+    assert.equal((await A('PATCH', '/me/profile', { bio: 'hola' })).status, 200, 'su bio sí');
+    const push = await A('POST', '/me/push-subscriptions', { endpoint: `https://fcm.googleapis.com/fcm/send/${tag}`,
+      keys: { p256dh: Buffer.alloc(65, 4).toString('base64url'), auth: Buffer.alloc(16, 1).toString('base64url') } });
+    assert.equal(push.status, 201, JSON.stringify(push.body));
+    const pic = await app.http('PUT', '/me/avatar', { token: tok.A, body: PNG, type: 'image/png' });
+    assert.equal(pic.status, 200, JSON.stringify(pic.body));
+    avatars.push(pic.body.avatar);
+    assert.equal(await deliveries('notice.minor_avatar_changed', P.T), 1, 'aviso de la foto al tutor');
+    assert.equal(await deliveries('notice.minor_avatar_changed', P.T2), 1, 'y al otro');
+  });
+
+  await run('B32 perfil público: por debajo de 14 lo decide el tutor; desde los 14, también el menor', async () => {
+    const pub = await T('PATCH', `/me/children/${P.A}/profile`, { is_public: true, visible_fields: { photo: true, ranking: true } });
+    assert.equal(pub.status, 200, JSON.stringify(pub.body));
+    assert.equal(pub.body.is_public, true);
+    assert.equal(pub.body.visible_fields.photo, true);
+    const card = await T('GET', `/profiles/${P.A}`);
+    assert.equal(card.status, 200, JSON.stringify(card.body));
+    assert.ok(card.body.profile.avatar, 'la foto, pública porque el tutor lo ha decidido');
+    const b = await as('B')('PATCH', '/me/profile', { is_public: true, visible_fields: { ranking: true } });
+    assert.equal(b.status, 200, JSON.stringify(b.body));
+    assert.equal(b.body.is_public, true);
+    expectErr(await as('T2')('PATCH', `/me/children/${P.B}/profile`, { is_public: false }), 403, 'not_guardian', 'no es su tutor');
+  });
+
+  await run('B32 sin permiso de reservar: el menor no reserva, cancela ni se inscribe; el tutor sí', async () => {
+    const off = await T('PATCH', `/me/children/${P.A}/access`, { can_book: false });
+    assert.equal(off.status, 200, JSON.stringify(off.body));
+    assert.equal(off.body.access.can_book, false);
+    assert.equal(await deliveries('notice.minor_access_changed', P.T2), 1, 'aviso al otro tutor');
+    const A = as('A');
+    assert.deepEqual((await A('GET', '/me')).body.minor, { can_book: false, can_publish: false });
+    expectErr(await A('POST', '/bookings', { session_id: S.two }), 403, 'minor_restricted', 'reservar');
+    const byTutor = await T('POST', '/bookings', { session_id: S.two, profile_id: P.A });
+    assert.equal(byTutor.status, 201, JSON.stringify(byTutor.body));
+    expectErr(await A('POST', `/bookings/${byTutor.body.booking.id}/cancel`), 403, 'minor_restricted', 'cancelar');
+    expectErr(await A('POST', `/events/${E.free}/registrations`), 403, 'minor_restricted', 'inscribirse');
+    const reg = await T('POST', `/events/${E.free}/registrations`, { profile_id: P.A });
+    assert.equal(reg.status, 201, JSON.stringify(reg.body));
+    expectErr(await A('DELETE', `/events/registrations/${reg.body.registration.id}`), 403, 'minor_restricted', 'baja del evento');
+    assert.equal((await T('POST', `/bookings/${byTutor.body.booking.id}/cancel`)).status, 200);
+    // Y en SQL (defensa en profundidad): book_session con el menor como actor.
+    await assert.rejects(withRls({ uid: P.A, role: 'alumno' }, (c) => c.query(`SELECT book_session($1, $2)`, [S.two, P.A]),
+      { commit: false }), { message: 'not_allowed' });
+    assert.equal((await T('PATCH', `/me/children/${P.A}/access`, { can_book: true })).status, 200);
+  });
+
+  await run('B32 el tutor restablece la contraseña: la sesión abierta del menor cae al momento', async () => {
+    await new Promise((r) => setTimeout(r, 1100)); // iat en segundos: un token del mismo segundo seguiría valiendo (ADR 0020)
+    const r = await T('PATCH', `/me/children/${P.B}/access`, { password: 'nueva-12345' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    expectErr(await as('B')('GET', '/me'), 401, 'session_revoked', 'sesión vieja');
+    assert.equal((await login(user.B, pass.B)).status, 401);
+    const again = await login(user.B, 'nueva-12345');
+    assert.equal(again.status, 200);
+    tok.B = again.body.token;
+    expectErr(await T('PATCH', `/me/children/${P.A}/access`, { email: `${tag}-a@test.local` }), 400, 'email_requires_14', 'email <14');
+  });
+
+  await run('B32 el menor cambia su propia contraseña con la sesión iniciada', async () => {
+    const r = await as('A')('POST', '/me/password', { current_password: pass.A, new_password: 'propia-1234' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    tok.A = r.body.token;
+    pass.A = 'propia-1234';
+  });
+
+  await run('B32 revocar invalida la sesión abierta al momento, borra sus dispositivos y avisa a los demás tutores', async () => {
+    assert.equal((await T('DELETE', `/me/children/${P.A}/access`)).status, 204);
+    expectErr(await as('A')('GET', '/me'), 401, 'session_revoked', 'token tras revocar');
+    expectErr(await login(user.A, pass.A), 401, 'invalid_credentials', 'login tras revocar');
+    expectErr(await T('DELETE', `/me/children/${P.A}/access`), 404, 'access_not_found', 'ya revocado');
+    assert.equal((await q(`SELECT 1 FROM push_subscriptions WHERE profile_id = $1`, [P.A])).length, 0);
+    assert.equal(await deliveries('notice.minor_access_revoked', P.T2), 1);
+    assert.equal((await T('GET', '/me/children')).body.children.find((k) => k.id === P.A).access, null);
+    // Un token firmado a mano para un hijo sin credenciales tampoco vale.
+    expectErr(await app.http('GET', '/me', { token: signToken({ sub: P.A, role: 'alumno' }) }), 401, 'session_revoked', 'a mano');
+  });
+
+  await run('B32 a los 18 con acceso: reclama sin invitación (email, acuerdos y ficha) y conserva su historial', async () => {
+    await q(`UPDATE profiles SET birth_date = $2 WHERE id = $1`, [P.B, yearsAgo(18.01)]);
+    const B = as('B');
+    assert.equal((await B('GET', '/me')).body.minor, null);
+    let st = (await B('GET', '/me/profile-status')).body;
+    assert.deepEqual(st.missing, ['health_info', 'data_protection', 'rights_of_image']);
+    await q(`UPDATE auth_credentials SET email = NULL WHERE profile_id = $1`, [P.B]);
+    assert.deepEqual((await B('GET', '/me/profile-status')).body.missing,
+      ['health_info', 'data_protection', 'rights_of_image', 'email']);
+    assert.equal((await B('PATCH', '/me', { email: `${tag}-b18@test.local` })).status, 200);
+    expectErr(await B('PATCH', '/me', { email: `${tag}-otro@test.local` }), 409, 'email_already_set', 'segunda vez');
+    for (const type of TYPES) assert.equal((await B('POST', '/me/agreements', { type, version: V })).status, 200);
+    assert.equal((await B('GET', '/me/health')).body.health.allergies, 'polen', 'lee la ficha que hizo su tutor');
+    assert.equal((await B('POST', '/me/health', { allergies: 'polen' })).status, 200);
+    st = (await B('GET', '/me/profile-status')).body;
+    assert.deepEqual(st, { ok: true });
+    assert.equal((await login(`${tag}-b18@test.local`, 'nueva-12345')).status, 200);
+    assert.equal((await q(`SELECT 1 FROM subscriptions WHERE student_id = $1`, [P.B])).length, 1, 'su suscripción sigue');
+  });
+}
+
+// PNG mínimo (la firma basta para storeAvatar).
+const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), crypto.randomBytes(200)]);
+
 try {
   await withRls({ uid: admin, role: 'admin' }, async (c) => {
     // Versiones de prueba vigentes (el ROLLBACK final las descarta), únicas: no chocan con documentos ya subidos.
@@ -147,6 +434,8 @@ try {
     });
   }, { commit: false });
 
+  await matrix();
+
   await run('un menor no puede registrarse', async () => {
     await assert.rejects(
       registerLocal({ email: 'x@x.x', password: '12345678', birthDate: yearsAgo(17) }),
@@ -154,7 +443,9 @@ try {
     );
   });
 } finally {
-  await servicePool.query(`DELETE FROM profiles WHERE id = ANY($1::uuid[])`, [[admin, tutor, otro, nino]]);
+  await close?.();
+  const { deleteAvatarFile } = await import('../src/services/avatar.js');
+  await Promise.all(avatars.map(deleteAvatarFile));
   await Promise.all(files.map(deleteFile));
   await closePools();
 }

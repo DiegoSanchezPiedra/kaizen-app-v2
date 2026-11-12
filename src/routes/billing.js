@@ -1,6 +1,6 @@
 // src/routes/billing.js — contratar y portal. Paga el propio alumno adulto o un tutor por su hijo (CONTEXT § Pagador).
 import { Router } from 'express';
-import { requireAuth, requireRole, withRlsContext } from '../middleware/auth.js';
+import { requireAuth, requireRole, withRlsContext, blockMinor } from '../middleware/auth.js';
 import { requireCompleteProfile } from '../middleware/requireCompleteProfile.js';
 import { httpError } from '../lib/errors.js';
 import {
@@ -11,7 +11,8 @@ import {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const router = Router();
-router.use(requireAuth, requireRole('alumno', 'tutor'));
+// B32: un menor con acceso propio no paga, no pausa ni ve la cuota (403 minor_restricted).
+router.use(requireAuth, requireRole('alumno', 'tutor'), blockMinor);
 
 // Antes de abrir transacción: requireCompleteProfile usa profile_id en SQL.
 // Sin profile_id el sujeto es quien llama, y solo un alumno se suscribe a sí mismo (el rol tutor no entrena).
