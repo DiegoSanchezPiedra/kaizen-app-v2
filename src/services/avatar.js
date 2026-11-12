@@ -55,10 +55,10 @@ export async function setAvatar(client, actorId, subjectId, name) {
   return r.old;
 }
 
-/** El admin quita una foto inadecuada: aviso al dueño o, si es un menor sin acceso propio, a sus tutores; sin motivo. */
+/** El admin quita una foto inadecuada: aviso al dueño o, si es un menor (con acceso propio o sin él, B32), a sus tutores. */
 export async function noticeAvatarRemoved(adminId, subjectId) {
   const { rows: [p] } = await servicePool.query(
-    `SELECT p.display_name, EXISTS (SELECT 1 FROM auth_credentials c WHERE c.profile_id = p.id) AS own,
+    `SELECT p.display_name, EXISTS (SELECT 1 FROM auth_credentials c WHERE c.profile_id = p.id) AND NOT is_minor(p.id) AS own,
             ARRAY(SELECT tutor_id FROM guardianships WHERE minor_id = p.id) AS tutors
        FROM profiles p WHERE p.id = $1`, [subjectId]);
   await notice(servicePool, {

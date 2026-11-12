@@ -117,6 +117,13 @@ const SYSTEM_COLUMNS = {
 async function cleanup(ids) {
   const arr = Object.values(ids);
   await withServiceCommit(async (c) => {
+    await c.query(`DELETE FROM invoices WHERE student_id = ANY($1::uuid[])`, [arr]);
+    await c.query(`DELETE FROM pauses WHERE requested_by = ANY($1::uuid[])`, [arr]);
+    await c.query(`DELETE FROM payer_changes WHERE student_id = ANY($1::uuid[])`, [arr]);
+    await c.query(`DELETE FROM subscription_disciplines WHERE subscription_id IN (SELECT id FROM subscriptions WHERE student_id = ANY($1::uuid[]))`, [arr]);
+    await c.query(`DELETE FROM bookings WHERE student_id = ANY($1::uuid[])`, [arr]);
+    await c.query(`DELETE FROM event_registrations WHERE profile_id = ANY($1::uuid[])`, [arr]);
+    await c.query(`DELETE FROM subscriptions WHERE student_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM user_agreements WHERE profile_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM student_health_info WHERE profile_id = ANY($1::uuid[])`, [arr]);
     await c.query(`DELETE FROM audit_log WHERE actor_id = ANY($1::uuid[])`, [arr]);
@@ -335,9 +342,9 @@ async function main() {
       assert.equal((await insert('display_name, birth_date', `'x', NULL`)).rowCount, 1);
     });
 
-    // B20 (B5): de su hijo, el tutor edita nombre, fecha y foto; nada del perfil público (un hijo nunca es público).
-    await run('B20 — el tutor no edita bio, redes ni campos visibles de su hijo', async () => {
-      for (const set of [`bio = 'x'`, `social_links = '{}'`, `visible_fields = '{"bio": true}'`]) {
+    // B20 (B5): de su hijo, el tutor edita nombre, fecha y foto; no su bio. B32: su visibilidad y sus redes, sí.
+    await run('B20 — el tutor no edita la bio de su hijo', async () => {
+      for (const set of [`bio = 'x'`]) {
         await expectDenied(update(tutor, ids.child, set));
       }
     });
@@ -556,6 +563,116 @@ async function main() {
         c.query(`SELECT id FROM user_agreements WHERE profile_id = $1`, [ids.b])
       );
       assert.equal(rows.length, 0);
+    });
+
+    // B32: el hijo con acceso propio actúa con su token. Lee lo suyo (perfil, credenciales, reservas) y nada de su
+    // hermano ni de sus tutores; tampoco su salud, sus cobros ni sus firmas, aunque sean suyos.
+    await run('B32 — el menor como actor: ni salud, cobros, suscripción ni firmas (suyos o del hermano), ni hermano ni tutores', async () => {
+      const sib = crypto.randomUUID();
+      const plan = (await withServiceCommit(async (c) => {
+        await c.query(`INSERT INTO profiles (id, display_name, birth_date) VALUES ($1, 'hermano', $2)`, [sib, yearsAgo(15)]);
+        await c.query(`INSERT INTO user_roles (user_id, role) VALUES ($1, 'alumno')`, [sib]);
+        await c.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [ids.tutor, sib]);
+        await c.query(`INSERT INTO auth_credentials (profile_id, username, password_hash) VALUES ($1, $2, 'x'), ($3, $4, 'x')`,
+          [ids.child, `hijo-${ids.child.slice(0, 8)}`, sib, `hermano-${sib.slice(0, 8)}`]);
+        await c.query(`INSERT INTO student_health_info (profile_id, allergies) VALUES ($1, 'x'), ($2, 'y')`, [ids.child, sib]);
+        await c.query(`INSERT INTO user_agreements (id, profile_id, signed_by, type, version) VALUES
+          (gen_random_uuid(), $1, $3, 'data_protection', '1.0'), (gen_random_uuid(), $2, $3, 'data_protection', '1.0')`,
+        [ids.child, sib, ids.tutor]);
+        return (await c.query(`INSERT INTO plans (name, price_cents) VALUES ('B32-rls', 1000) RETURNING id`)).rows[0].id;
+      }));
+      ids.sib = sib;
+      await withServiceCommit(async (c) => {
+        for (const who of [ids.child, sib]) {
+          const { rows: [s] } = await c.query(`INSERT INTO subscriptions (student_id, payer_id, plan_id, status, stripe_subscription_id)
+            VALUES ($1, $2, $3, 'active', 'sub_' || gen_random_uuid()) RETURNING id`, [who, ids.tutor, plan]);
+          await c.query(`INSERT INTO invoices (student_id, payer_id, stripe_invoice_id, subscription_id)
+            VALUES ($1, $2, 'in_' || gen_random_uuid(), $3)`, [who, ids.tutor, s.id]);
+        }
+      });
+      await withCtx({ uid: ids.child, role: 'alumno' }, async (c) => {
+        const count = async (sql) => (await c.query(sql, [ids.child, sib, ids.tutor])).rowCount;
+        assert.equal(await count(`SELECT 1 FROM student_health_info WHERE profile_id IN ($1, $2) AND $3::uuid IS NOT NULL`), 0, 'salud');
+        assert.equal(await count(`SELECT 1 FROM invoices WHERE student_id IN ($1, $2) OR payer_id = $3`), 0, 'recibos');
+        assert.equal(await count(`SELECT 1 FROM subscriptions WHERE student_id IN ($1, $2) OR payer_id = $3`), 0, 'suscripciones');
+        assert.equal(await count(`SELECT 1 FROM user_agreements WHERE profile_id IN ($1, $2) OR signed_by = $3`), 0, 'firmas');
+        assert.equal(await count(`SELECT 1 FROM profiles WHERE id IN ($2, $3) AND $1::uuid IS NOT NULL`), 0, 'hermano y tutor');
+        assert.equal(await count(`SELECT 1 FROM profiles WHERE id = $1 AND $2::uuid IS NOT NULL AND $3::uuid IS NOT NULL`), 1, 'el suyo');
+        assert.equal(await count(`SELECT 1 FROM auth_credentials WHERE profile_id IN ($2, $3) AND $1::uuid IS NOT NULL`), 0, 'credenciales ajenas');
+        assert.equal(await count(`SELECT 1 FROM auth_credentials WHERE profile_id = $1 AND $2::uuid IS NOT NULL AND $3::uuid IS NOT NULL`), 1);
+        await expectDenied(c.query(`INSERT INTO student_health_info (profile_id, allergies) VALUES ($1, 'z')
+          ON CONFLICT (profile_id) DO UPDATE SET allergies = 'z'`, [ids.child]));
+      });
+      await withCtx({ uid: ids.child, role: 'alumno' }, async (c) => {
+        await expectDenied(c.query(`UPDATE profiles SET display_name = 'otro' WHERE id = $1`, [ids.child]));
+      });
+      await withCtx({ uid: ids.child, role: 'alumno' }, async (c) => {
+        await expectDenied(c.query(`UPDATE profiles SET is_public = true WHERE id = $1`, [ids.child])); // < 14
+      });
+      await withCtx({ uid: sib, role: 'alumno' }, async (c) => { // desde los 14, su visibilidad sí
+        assert.equal((await c.query(`UPDATE profiles SET is_public = true, visible_fields = '{"ranking": true}' WHERE id = $1`, [sib])).rowCount, 1);
+      });
+      // El tutor sí lo ve todo de los dos y lee su usuario (no la contraseña).
+      await withCtx({ uid: ids.tutor, role: 'tutor' }, async (c) => {
+        const { rows } = await c.query(`SELECT username, can_book FROM auth_credentials WHERE profile_id IN ($1, $2)`, [ids.child, sib]);
+        assert.equal(rows.length, 2);
+        assert.equal((await c.query(`SELECT 1 FROM student_health_info WHERE profile_id IN ($1, $2)`, [ids.child, sib])).rowCount, 2);
+        assert.equal((await c.query(`SELECT 1 FROM invoices WHERE student_id IN ($1, $2)`, [ids.child, sib])).rowCount, 2);
+      });
+    });
+
+    await run('B32 — el menor como actor: ni pausas, disciplinas elegidas, cambios de pagador, ni reservas o inscripciones del hermano', async () => {
+      const sib = ids.sib;
+      let b32;
+      await withServiceCommit(async (c) => {
+        const { rows: [d] } = await c.query(`INSERT INTO disciplines (name) VALUES ('B32-rls') RETURNING id`);
+        const { rows: subs } = await c.query(`SELECT id, student_id FROM subscriptions WHERE student_id IN ($1, $2)`, [ids.child, sib]);
+        for (const x of subs) {
+          await c.query(`INSERT INTO subscription_disciplines (subscription_id, discipline_id) VALUES ($1, $2)`, [x.id, d.id]);
+          await c.query(`INSERT INTO pauses (subscription_id, starts_at, ends_at, months, price_cents, requested_by)
+                         VALUES ($1, now() - interval '1 day', now() + interval '30 days', 1, 500, $2)`, [x.id, ids.tutor]);
+          await c.query(`INSERT INTO payer_changes (subscription_id, student_id, old_payer_id, new_payer_id, plan_id, starts_at,
+                         deadline, created_by) SELECT $1, $2, $3, $3, plan_id, now() + interval '9 days', now() + interval '8 days', $4
+                         FROM subscriptions WHERE id = $1`, [x.id, x.student_id, ids.tutor, ids.admin]);
+        }
+        const { rows: [s] } = await c.query(`INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status)
+          VALUES ($1, $2, now() + interval '2 days', now() + interval '2 days 1 hour', 60, 10, 'scheduled') RETURNING id`, [d.id, ids.professor]);
+        await c.query(`INSERT INTO bookings (session_id, student_id, booked_by, status) VALUES ($1, $2, $3, 'confirmed')`, [s.id, sib, ids.tutor]);
+        const { rows: [e] } = await c.query(`INSERT INTO events (title, starts_at, ends_at, location, created_by)
+          VALUES ('B32-rls', now() + interval '3 days', now() + interval '3 days 1 hour', 'x', $1) RETURNING id`, [ids.admin]);
+        await c.query(`INSERT INTO event_registrations (event_id, profile_id, actor_id, status, amount_cents)
+                       VALUES ($1, $2, $3, 'confirmed', 0)`, [e.id, sib, ids.tutor]);
+        b32 = { discipline: d.id, session: s.id, event: e.id };
+      });
+      await withCtx({ uid: ids.child, role: 'alumno' }, async (c) => {
+        const n = async (sql, params = []) => (await c.query(sql, params)).rowCount;
+        assert.equal(await n(`SELECT 1 FROM pauses`), 0, 'pausas');
+        assert.equal(await n(`SELECT 1 FROM subscription_disciplines`), 0, 'disciplinas elegidas');
+        assert.equal(await n(`SELECT 1 FROM payer_changes`), 0, 'cambios de pagador');
+        assert.equal(await n(`SELECT 1 FROM bookings WHERE student_id = $1`, [sib]), 0, 'reservas del hermano');
+        assert.equal(await n(`SELECT 1 FROM event_registrations WHERE profile_id = $1`, [sib]), 0, 'inscripciones del hermano');
+        const { rows: [f] } = await c.query(`SELECT session_coverage($1, $3) AS sib, visible_in_pause($1, now()) AS sib_pause,
+                                                    visible_in_pause($2, now()) AS own_pause, minor_consent_age() AS age`,
+        [sib, ids.child, b32.discipline]);
+        assert.deepEqual(f, { sib: null, sib_pause: null, own_pause: true, age: 14 });
+      });
+      // Lo interno o de otro perfil no se llama con app_user; lo del personal, tampoco el menor.
+      for (const sql of [`SELECT in_pause('${ids.sib}', now())`, `SELECT is_minor('${ids.sib}')`,
+        `SELECT write_audit('${ids.child}', 'subscription.upgrade', 'subscription', 'x', '{}')`,
+        `SELECT cancel_session('${b32.session}', 'x')`, `SELECT adjust_session('${b32.session}', '{}')`,
+        `SELECT mark_attendance('${b32.session}', '${ids.sib}', true)`, `SELECT cancel_event('${b32.event}', 'x')`,
+        `SELECT event_notice('${b32.event}', 'notice.event_cancelled', NULL, NULL)`]) {
+        await assert.rejects(withCtx({ uid: ids.child, role: 'alumno' }, (c) => c.query(sql)), (e) => e.code === '42501'
+          || /not_allowed|not_found|forbidden|permission denied/.test(e.message), sql);
+      }
+      await withCtx({ uid: ids.child, role: 'alumno' }, (c) => c.query(`SELECT write_audit($1::uuid, 'auth.password_change', 'profile', $2, '{}')`,
+        [ids.child, ids.child])); // su contraseña, sí
+      await withServiceCommit(async (c) => {
+        await c.query(`DELETE FROM bookings WHERE session_id = $1`, [b32.session]);
+        await c.query(`DELETE FROM class_sessions WHERE id = $1`, [b32.session]);
+        await c.query(`DELETE FROM event_registrations WHERE event_id = $1`, [b32.event]);
+        await c.query(`DELETE FROM events WHERE id = $1`, [b32.event]);
+      });
     });
   } finally {
     await cleanup(ids);

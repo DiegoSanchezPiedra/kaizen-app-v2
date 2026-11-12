@@ -117,8 +117,9 @@ try {
 
   await withRls({ uid: U.admin, role: 'admin' }, async (c) => {
     const seen = async (table, id) => (await c.query(`SELECT 1 FROM ${table} WHERE id = $1`, [id])).rowCount === 1;
-    await run('RLS: suscripción y recibo del hijo los ven tutor, hijo y admin; no otro alumno ni profesor', async () => {
-      for (const [who, expected] of [['tutor', true], ['child', true], ['admin', true], ['other', false], ['prof', false]]) {
+    // B32: el hijo (con acceso propio) tampoco: los cobros son de su tutor.
+    await run('RLS: suscripción y recibo del hijo los ven tutor y admin; no el hijo, otro alumno ni profesor', async () => {
+      for (const [who, expected] of [['tutor', true], ['child', false], ['admin', true], ['other', false], ['prof', false]]) {
         await as(c, U[who], people[who]);
         assert.equal(await seen('subscriptions', sub.child), expected, `sub ${who}`);
         assert.equal(await seen('invoices', inv), expected, `inv ${who}`);
@@ -485,7 +486,8 @@ try {
     assert.equal(a.payer_change_id, change1.id);
     const got = await asUser('tutor3', (c) => getSubscription(c, { studentId: U.child4 }));
     assert.deepEqual([got.payer_change.id, got.payer_change.status, got.payer_change.new_payer_id], [change1.id, 'requested', U.tutor4]);
-    assert.equal((await asUser('child4', (c) => getSubscription(c, { studentId: U.child4 }))).payer_change, null, 'el alumno no lo ve (RLS)');
+    await assert.rejects(asUser('child4', (c) => getSubscription(c, { studentId: U.child4 })), { code: 'subscription_not_found' },
+      'el hijo no ve su suscripción (RLS, B32)');
   });
 
   await run('cambio de pagador pendiente: congela cambio de plan (subida y bajada), anular la bajada y cambio de disciplina', async () => {

@@ -47,21 +47,36 @@ export async function getProfileStatus(client, profileId, role) {
 
 const TUTOR_REQUIRED = ['display_name', 'data_protection'];
 
-/** Mis datos (B18.0): la RLS deja leer el propio perfil y la propia fila de auth_credentials. */
+/**
+ * Mis datos (B18.0): la RLS deja leer el propio perfil y la propia fila de auth_credentials.
+ * B32: `username` (el del acceso propio de un menor) y `minor`: null, o { can_book, can_publish } si es un menor.
+ */
 export async function getMe(client, user) {
   const { rows } = await client.query(
-    `SELECT p.id, $2::text AS role, p.display_name, c.email, p.birth_date::text AS birth_date,
+    `SELECT p.id, $2::text AS role, p.display_name, c.email, c.username, p.birth_date::text AS birth_date,
             COALESCE(c.has_password, false) AS has_password, p.avatar
        FROM profiles p LEFT JOIN auth_credentials c ON c.profile_id = p.id
       WHERE p.id = $1`,
     [user.id, user.role]
   );
   if (!rows[0]) throw httpError(404, 'profile_not_found', 'Perfil no encontrado');
-  return rows[0];
+  return { ...rows[0], minor: user.minor ?? null };
+}
+
+/** B32: el adulto que entró con el usuario de su tutor añade su email, una vez (409 email_already_set, email_taken). */
+export async function setOwnEmail(client, email) {
+  try {
+    await client.query(`SELECT set_own_email($1)`, [email]);
+  } catch (err) {
+    if (err.message === 'email_already_set') throw httpError(409, 'email_already_set', 'Ya tienes email');
+    if (err.code === '23505') throw httpError(409, 'email_taken', 'email already registered');
+    throw err;
+  }
 }
 
 /** display_name y/o birth_date propios; birth_date solo si estaba vacía. Validar antes (adulto). */
 export async function updateMe(client, id, { displayName, birthDate }) {
+  if (displayName === undefined && birthDate === undefined) return;
   const { rowCount } = await client.query(
     `UPDATE profiles SET display_name = COALESCE($2, display_name), birth_date = COALESCE($3::date, birth_date)
       WHERE id = $1 AND ($3::date IS NULL OR birth_date IS NULL)`,
@@ -77,15 +92,21 @@ export async function assertGuardianOf(client, profileId) {
 }
 
 // birth_date::text: pg convierte `date` a Date local y en JSON sale el día anterior en UTC.
-const CHILD_COLUMNS = `id, display_name, birth_date::text AS birth_date, NOT is_guardian_of(id) AS pending_claim, avatar`;
+// B32: `access` (null o { username, email, can_book }), su visibilidad pública y sus redes, que decide el tutor, y `can_publish`
+// (tiene la edad de consentimiento: lo mismo que el `can_publish` de /me).
+const CHILD_COLUMNS = `id, display_name, birth_date::text AS birth_date, NOT is_guardian_of(id) AS pending_claim, avatar,
+  COALESCE(is_public, false) AS is_public, COALESCE(visible_fields, '{}') AS visible_fields, social_links,
+  (birth_date IS NOT NULL AND birth_date <= CURRENT_DATE - make_interval(years => minor_consent_age())) AS can_publish,
+  (SELECT jsonb_build_object('username', c.username, 'email', c.email, 'can_book', c.can_book)
+     FROM auth_credentials c WHERE c.profile_id = profiles.id) AS access`;
 
 /** Hijos del tutor, incluidos los que cumplieron 18 sin reclamar su perfil (pending_claim, D16). */
 export async function listChildren(client, tutorId) {
   const { rows } = await client.query(
     `SELECT ${CHILD_COLUMNS}
-       FROM guardianships g JOIN profiles p ON p.id = g.minor_id
+       FROM guardianships g JOIN profiles ON profiles.id = g.minor_id
       WHERE g.tutor_id = $1
-      ORDER BY p.birth_date, p.id`,
+      ORDER BY profiles.birth_date, profiles.id`,
     [tutorId]
   );
   return rows;

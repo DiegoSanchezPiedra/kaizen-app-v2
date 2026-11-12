@@ -12,7 +12,10 @@ import { Input } from '@/components/ui/input'
 import { OTPField, OTPFieldInput, OTPFieldSeparator } from '@/components/ui/otp-field'
 import { ApiError, api } from '@/lib/api'
 import { errorText } from '@/lib/errors'
+import { isUsername } from '@/lib/minor'
 import { setToken } from '@/lib/session'
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 type AuthResponse = { token: string } | { mfa_required: true; mfa_token: string }
 
@@ -25,7 +28,7 @@ function loginNotice(code: string): Notice {
     case 'network':
       return { kind: 'warning', icon: 'wifi', title: 'Sin conexión', text: 'Conéctate y vuelve a intentarlo.' }
     case 'invalid_credentials':
-      return { kind: 'error', title: 'El email o la contraseña no son correctos', text: 'Revísalos e inténtalo de nuevo.' }
+      return { kind: 'error', title: 'El email, el usuario o la contraseña no son correctos', text: 'Revísalos e inténtalo de nuevo.' }
     case 'invalid_google_token':
       return { kind: 'error', title: 'No hemos podido entrar con Google', text: 'Inténtalo de nuevo o entra con tu email.' }
     default:
@@ -37,13 +40,17 @@ export function LoginPage() {
   const [params] = useSearchParams()
   const [mfaToken, setMfaToken] = useState<string | null>(null) // ADR 0014: el mfa_token solo en memoria
   const [loading, setLoading] = useState(false)
+  // B32: el campo vale para el email o para el usuario que da el tutor a un menor.
+  const [login, setLogin] = useState('')
+  const [loginError, setLoginError] = useState<string | null>(null)
+  const [usernameHint, setUsernameHint] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(() =>
     params.get('acceso')
       ? { kind: 'info', title: 'Tu acceso ha cambiado', text: 'Vuelve a entrar.' }
       : params.get('caducada')
         ? { kind: 'info', icon: 'clock', title: 'Tu sesión ha caducado', text: 'Vuelve a entrar y seguirás donde estabas.' }
         : params.get('clave')
-          ? { kind: 'info', title: 'Tu contraseña ha cambiado: vuelve a entrar' }
+          ? { kind: 'info', title: 'Tu acceso ha cambiado', text: 'Vuelve a entrar.' }
           : params.get('cambiada')
             ? { kind: 'success', title: 'Contraseña cambiada', text: 'Ya puedes entrar con la nueva.' }
             : null,
@@ -91,23 +98,56 @@ export function LoginPage() {
       <Form
         className="flex flex-col gap-4"
         aria-busy={loading}
-        onFormSubmit={(v) => run('/auth/login', { email: v.email, password: v.password })}
+        // Escribir borra el error: con él puesto, el Form de Base UI no deja enviar.
+        errors={loginError ? { email: loginError } : undefined}
+        onFormSubmit={(v) => {
+          const id = String(v.email).trim()
+          // Un email se valida como siempre; sin @ es un usuario.
+          if (!isUsername(id) && !EMAIL.test(id)) return setLoginError('Escribe un email válido.')
+          void run('/auth/login', { email: id, password: v.password })
+        }}
       >
         <Field name="email" className="items-stretch">
-          <FieldLabel>Email</FieldLabel>
-          <Input type="email" autoComplete="email" inputMode="email" placeholder="tu@email.com" required autoFocus />
-          <NativeMessages email />
+          <FieldLabel>Email o usuario</FieldLabel>
+          <Input
+            autoComplete="username"
+            autoCapitalize="none"
+            spellCheck={false}
+            placeholder="tu@email.com o tu usuario"
+            value={login}
+            onChange={(e) => {
+              setLogin(e.target.value)
+              setLoginError(null)
+              setUsernameHint(false)
+            }}
+            required
+            autoFocus
+          />
+          <NativeMessages />
+          {loginError && <FieldMessage>{loginError}</FieldMessage>}
         </Field>
         <Field name="password" className="items-stretch gap-1">
           <FieldLabel className="mb-1">Contraseña</FieldLabel>
           <PasswordInput autoComplete="current-password" required />
           <NativeMessages />
-          <Link
-            to="/forgot-password"
-            className="inline-flex min-h-11 items-center self-end text-sm font-semibold text-link underline underline-offset-3"
-          >
-            ¿Has olvidado tu contraseña?
-          </Link>
+          {isUsername(login) ? (
+            <button
+              type="button"
+              aria-expanded={usernameHint}
+              className="inline-flex min-h-11 items-center self-end text-sm font-semibold text-link underline underline-offset-3"
+              onClick={() => setUsernameHint((h) => !h)}
+            >
+              ¿Has olvidado tu contraseña?
+            </button>
+          ) : (
+            <Link
+              to="/forgot-password"
+              className="inline-flex min-h-11 items-center self-end text-sm font-semibold text-link underline underline-offset-3"
+            >
+              ¿Has olvidado tu contraseña?
+            </Link>
+          )}
+          {usernameHint && <p role="status" className="text-sm text-muted-foreground">Si entras con un usuario, la contraseña la restablece tu tutor desde la app.</p>}
         </Field>
         <Button type="submit" size="xl" className="w-full" loading={loading}>
           Entrar

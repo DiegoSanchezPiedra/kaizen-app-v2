@@ -4,7 +4,10 @@ import logo from '@/assets/logo.png'
 import { SubjectPicker } from '@/components/subject-picker'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { ListSkeleton } from '@/components/screen-state'
 import { usePushQuery } from '@/hooks/use-push'
+import { isMinorClosedPath } from '@/lib/minor'
+import { useMe } from '@/lib/queries'
 import { logout } from '@/lib/logout'
 import { cn } from '@/lib/utils'
 import { useSession, type Role } from '@/lib/session'
@@ -34,6 +37,8 @@ export function AppShell() {
   usePushQuery()
   const items = navFor(session?.role ?? 'alumno')
   const { pathname } = useLocation()
+  // Las rutas cerradas a un menor esperan a /me: sin parpadear la pantalla antes de redirigir (el guard está en el router).
+  const wait = useMe().isPending && isMinorClosedPath(pathname)
   // El sujeto sigue al cambiar de pestaña.
   const para = useSearchParams()[0].get('para')
   const search = para ? `?${new URLSearchParams({ para })}` : ''
@@ -72,7 +77,7 @@ export function AppShell() {
       </nav>
       <main className="min-w-0 flex-1 px-4 pt-6 pb-28 print:p-0 lg:px-10 lg:pb-10">
         {usesSubject(pathname) && <SubjectPicker />}
-        <Outlet />
+        {wait ? <ListSkeleton /> : <Outlet />}
       </main>
     </div>
   )

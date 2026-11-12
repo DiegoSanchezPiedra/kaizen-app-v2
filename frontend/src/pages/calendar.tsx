@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { InfoIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { Page } from '@/components/page'
@@ -7,6 +8,7 @@ import { StateBadge } from '@/components/session-card'
 import { Seats } from '@/components/seats'
 import { SessionRow, SessionRows } from '@/components/session-row'
 import { SubjectGate } from '@/components/subject-gate'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
 import { WeekBoard } from '@/components/week-board'
@@ -20,8 +22,10 @@ import { api } from '@/lib/api'
 import { addDays } from '@/lib/dates'
 import { toastManager } from '@/components/ui/toast'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
+import { errorText } from '@/lib/errors'
+import { bookBlock, tutorHint } from '@/lib/minor'
 import { NO_SUBSCRIPTION } from '@/lib/notices'
-import { path, refreshBookings, useSubscription } from '@/lib/queries'
+import { path, refreshBookings, useMinor, useSubscription } from '@/lib/queries'
 import { canCancel, groupByDay, seatsOf, sessionState, type SessionState } from '@/lib/sessions'
 import type { Subject } from '@/lib/subject'
 import type { Booking, CalendarSession, Discipline } from '@/lib/types'
@@ -36,6 +40,9 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
   const cancel = useCancelBooking()
   const now = useNow()
   const noSub = useSubscription(profileId).data === null
+  // B32: un menor sin permiso de reservar ve el motivo, no el botón (ni el de cancelar: la API también lo cierra).
+  const minor = useMinor()
+  const blocked = bookBlock(minor)
 
   const disciplines = useQuery({ queryKey: ['disciplines'], queryFn: () => api<{ disciplines: Discipline[] }>('/disciplines').then((r) => r.disciplines) })
   const calendar = useQuery({
@@ -56,6 +63,12 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
       const code = errorCode(err)
       const start = Date.parse(calendar.data?.find((s) => s.id === id)?.starts_at ?? '')
       if (code === 'outside_booking_window' && start) setBlockedFrom((b) => Math.min(b ?? start, start))
+      // Un menor no puede arreglar la cuota ni el perfil: «Habla con tu tutor».
+      const hint = tutorHint(minor, code)
+      if (hint) {
+        toastManager.add({ type: 'error', title: errorText(code), description: hint, timeout: 5000 })
+        return
+      }
       const action =
         code === 'not_covered'
           ? { label: 'Ver cuota', onClick: () => void navigate(withSubject('/billing')) }
@@ -71,6 +84,7 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
   const options = disciplines.data?.filter((d) => d.is_active) ?? []
 
   function actions(s: CalendarSession, state: SessionState) {
+    if (blocked) return state === 'available' ? <span className="text-[13px] font-semibold text-muted-foreground">Sin permiso</span> : null
     if (state === 'available')
       return (
         // En las 7 columnas de lg «Lista de espera» no cabe en una línea: se parte en dos.
@@ -124,6 +138,13 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
 
   return (
     <>
+      {blocked && (
+        <Alert variant="info" role="status">
+          <InfoIcon />
+          <AlertTitle>{blocked}</AlertTitle>
+          <AlertDescription>Habla con tu tutor si quieres reservar.</AlertDescription>
+        </Alert>
+      )}
       {noSub && <NoticeCard n={NO_SUBSCRIPTION} />}
       {options.length > 1 && (
         <ToggleGroup

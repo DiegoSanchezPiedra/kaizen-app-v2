@@ -21,4 +21,17 @@ t = 999;
 assert.equal(hit('1.1.1.1').err?.status, 429, 'sigue bloqueada hasta el final de la ventana');
 t = 1000;
 assert.equal(hit('1.1.1.1').err, undefined, 'ventana nueva: vuelve a contar');
+// B32: el login cuenta también por usuario (o email), aunque cambie la IP.
+t = 0;
+const byLogin = rateLimit({ name: 'login', max: 2, windowMs: 1000, now: () => t, key: (req) => req.body?.email?.toLowerCase() });
+const tryLogin = (ip, email) => {
+  let err;
+  byLogin({ ip, body: { email } }, { set() {} }, (e) => { err = e; });
+  return err;
+};
+assert.equal(tryLogin('1.1.1.1', 'Peque'), undefined);
+assert.equal(tryLogin('2.2.2.2', 'peque'), undefined);
+assert.equal(tryLogin('3.3.3.3', 'PEQUE')?.status, 429, 'el mismo usuario desde otra IP');
+assert.equal(tryLogin('3.3.3.3', 'otro'), undefined, 'otro usuario cuenta aparte');
+assert.equal(tryLogin('4.4.4.4', undefined), undefined, 'sin usuario no cuenta (lo rechaza la ruta)');
 console.log('todo OK');

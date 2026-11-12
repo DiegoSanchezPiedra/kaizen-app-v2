@@ -83,7 +83,8 @@ try {
   // profile_incomplete (la guarda mira al alumno del cambio y al pagador) antes de llegar a Stripe.
   const checkout = (who, id = pc) => http('POST', `/billing/payer-changes/${id}/checkout`, { token: tok[who], body: {} });
   assert.deepEqual(status(await checkout('tutorA')), [403, 'not_new_payer']); // el antiguo lo ve (RLS) pero no paga
-  for (const who of ['tutorC', 'child']) assert.deepEqual(status(await checkout(who)), [404, 'payer_change_not_found']);
+  assert.deepEqual(status(await checkout('tutorC')), [404, 'payer_change_not_found']);
+  assert.deepEqual(status(await checkout('child')), [403, 'minor_restricted']); // B32: un menor no paga
   assert.deepEqual(status(await checkout('tutorB', crypto.randomUUID())), [404, 'payer_change_not_found']);
   const r = await checkout('tutorB');
   assert.deepEqual(status(r), [403, 'profile_incomplete']);

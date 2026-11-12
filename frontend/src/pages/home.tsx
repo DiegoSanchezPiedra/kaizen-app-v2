@@ -16,8 +16,9 @@ import { useNow } from '@/hooks/use-now'
 import { useSubject } from '@/hooks/use-subject'
 import { addDays, formatDay, madridDay } from '@/lib/dates'
 import { isUpcomingRegistration, mergeByStart } from '@/lib/events'
+import { MINOR_INCOMPLETE, minorView } from '@/lib/minor'
 import { homeNotices, type HomeNotice } from '@/lib/notices'
-import { useBookings, useEvents, useProfileStatus, useProgress, useSubscription } from '@/lib/queries'
+import { useBookings, useEvents, useMinor, useProfileStatus, useProgress, useSubscription } from '@/lib/queries'
 import type { Subject } from '@/lib/subject'
 
 const ICON = { warning: TriangleAlertIcon, error: CircleAlertIcon, info: InfoIcon }
@@ -50,7 +51,9 @@ function Home({ subject, profileId }: { subject: Subject | null; profileId?: str
   const today = madridDay()
   const bookings = useBookings(profileId, today, addDays(today, 30))
   const name = subjectName(subject)
-  const notices = homeNotices({
+  // B32: un menor con acceso propio no ve cuota ni pasos de perfil (los lleva su tutor).
+  const minor = minorView(useMinor()).isMinor
+  const notices = minor ? [] : homeNotices({
     status: status.data,
     subscription: subscription.data,
     subject: subject && !subject.self ? subject : null,
@@ -64,7 +67,13 @@ function Home({ subject, profileId }: { subject: Subject | null; profileId?: str
 
   return (
     <>
-      {(status.isPending || subscription.isPending) && <Skeleton className="h-20 w-full rounded-xl" />}
+      {(status.isPending || (!minor && subscription.isPending)) && <Skeleton className="h-20 w-full rounded-xl" />}
+      {minor && !!status.data?.missing?.length && (
+        <Alert variant="info" role="status">
+          <InfoIcon />
+          <AlertDescription>{MINOR_INCOMPLETE}</AlertDescription>
+        </Alert>
+      )}
       {notices.length > 0 && (
         <div className="flex flex-col gap-3" aria-label="Avisos">
           {notices.map((n) => (

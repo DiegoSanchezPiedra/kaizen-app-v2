@@ -1,7 +1,7 @@
 // src/routes/me.js
 import express, { Router } from 'express';
 import { httpError } from '../lib/errors.js';
-import { requireAuth, requireRole, withRlsContext } from '../middleware/auth.js';
+import { requireAuth, requireRole, withRlsContext, minorAllowlist } from '../middleware/auth.js';
 import {
   getProfileStatus,
   getMe,
@@ -14,17 +14,25 @@ import {
   createChild,
   updateChild,
   CHILD_FIELDS,
+  setOwnEmail,
 } from '../services/profile.js';
+import { grantAccess, updateAccess, revokeAccess, setChildVisibility } from '../services/minorAccess.js';
 import { signAgreement } from '../services/agreements.js';
 import { getMyProfile, updateMyProfile, VISIBLE_FIELDS, SOCIAL_NETWORKS } from '../services/profiles.js';
 import { getProgress, markMedalsSeen } from '../services/progress.js';
-import { isValidPastDate, isAdultBirthDate, changePassword, sendPasswordChanged } from '../services/auth.js';
+import { isValidPastDate, isAdultBirthDate, changePassword, sendPasswordChanged, EMAIL_RE } from '../services/auth.js';
 import { signToken } from '../services/jwt.js';
 import { withRls } from '../db/rls.js';
 import { storeAvatar, setAvatar, deleteAvatarFile, AVATAR_MAX_BYTES } from '../services/avatar.js';
 import { authLimit, avatarLimit } from '../middleware/rateLimit.js';
 
 const router = Router();
+
+// B32 (ADR 0026): /me está cerrado al menor con acceso propio salvo estas rutas (403 minor_restricted en el resto,
+// también en una ruta nueva). Salud, acuerdos, sus datos y su familia, nunca.
+router.use(requireAuth, minorAllowlist(['GET /', 'GET /profile-status', 'GET /profile', 'PATCH /profile', 'GET /progress',
+  'POST /progress/seen', 'POST /push-subscriptions', 'DELETE /push-subscriptions', 'POST /password', 'PUT /avatar',
+  'DELETE /avatar']));
 
 // profile_id (opcional, body o query): hijo por el que actúa un tutor vinculado.
 // Sin él, el sujeto es el propio usuario. La RLS decide si el tutor puede.
@@ -40,15 +48,22 @@ function validateSubject(req, res, next) {
 
 // ------------------------------------------------------------
 // Mis datos (B18.0). Sin profile_id: un tutor edita a sus hijos en /me/children.
-// GET   /me → { id, role, display_name, email, birth_date, has_password }
-// PATCH /me { display_name?, birth_date? } → igual. birth_date solo si estaba vacía (alta con Google)
+// GET   /me → { id, role, display_name, email, username, birth_date, has_password, avatar, minor }
+//   minor (B32): null, o { can_book, can_publish } si es un menor con acceso propio.
+// PATCH /me { display_name?, birth_date?, email? } → igual. birth_date solo si estaba vacía (alta con Google)
 //   y de un adulto: 409 birth_date_already_set, 400 minor_cannot_register | invalid_birth_date.
+//   email (B32, reclamar a los 18): solo si no tenía (409 email_already_set, email_taken). Un menor: 403 minor_restricted.
 // ------------------------------------------------------------
+const ME_FIELDS = [...CHILD_FIELDS, 'email'];
 function validateMe(req, res, next) {
   const body = req.body ?? {};
-  const provided = CHILD_FIELDS.filter((k) => Object.hasOwn(body, k));
+  const provided = ME_FIELDS.filter((k) => Object.hasOwn(body, k));
   if (provided.length === 0) {
-    return next(httpError(400, 'no_fields', 'Ningún campo válido en el body.', { allowed: CHILD_FIELDS }));
+    return next(httpError(400, 'no_fields', 'Ningún campo válido en el body.', { allowed: ME_FIELDS }));
+  }
+  if (provided.includes('email') && (typeof body.email !== 'string' || body.email.length > 254
+    || !EMAIL_RE.test(body.email.trim()))) {
+    return next(httpError(400, 'invalid_field', 'Campo inválido: email', { field: 'email' }));
   }
   if (provided.includes('display_name') && (typeof body.display_name !== 'string' || !body.display_name.trim())) {
     return next(httpError(400, 'invalid_field_type', 'Campo inválido: display_name', { field: 'display_name' }));
@@ -75,6 +90,7 @@ router.patch(
   requireAuth,
   validateMe,
   withRlsContext(async (req, client) => {
+    if (req.body.email !== undefined) await setOwnEmail(client, req.body.email.trim());
     await updateMe(client, req.user.id, {
       displayName: req.body.display_name?.trim(),
       birthDate: req.body.birth_date,
@@ -258,9 +274,30 @@ router.patch(
 );
 
 // ------------------------------------------------------------
+// Acceso propio del hijo (B32, ADR 0026). Cualquier tutor vinculado; los demás reciben un aviso. 403 not_guardian.
+// POST   /me/children/:id/access { username, password, email?, notice_version } → 201 { access }
+//   400 invalid_username | weak_password | email_requires_14 | invalid_field (notice_version); 409 access_exists |
+//   username_taken | email_taken. Queda el consentimiento: quién, cuándo, IP y versión del texto informativo.
+// PATCH  /me/children/:id/access { password?, email?, can_book? } → { access }; 404 access_not_found
+// DELETE /me/children/:id/access → 204; 404 access_not_found. Su sesión abierta cae al momento.
+// PATCH  /me/children/:id/profile { is_public?, visible_fields?, social_links? } → como GET /me/profile, del hijo
+// access = { username, email, can_book }
+// ------------------------------------------------------------
+const childId = (req, res, next) => (UUID_RE.test(req.params.id)
+  ? next() : next(httpError(400, 'invalid_profile_id', 'id debe ser un uuid')));
+
+router.post('/children/:id/access', requireAuth, childId,
+  withRlsContext((req, client) => grantAccess(client, req.params.id, req.body ?? {}, req.ip)));
+router.patch('/children/:id/access', requireAuth, childId,
+  withRlsContext((req, client) => updateAccess(client, req.params.id, req.body ?? {})));
+router.delete('/children/:id/access', requireAuth, childId,
+  withRlsContext((req, client) => revokeAccess(client, req.params.id)));
+
+// ------------------------------------------------------------
 // Perfil público propio (B13). Sin profile_id: un tutor nunca edita el perfil público de un hijo.
 // GET   /me/profile → { is_public, eligible, visible_fields, bio, social_links }
 // PATCH /me/profile { is_public?, visible_fields?, bio?, social_links? } → igual; 403 not_eligible
+// B32: un menor de menos de 14 no cambia is_public ni visible_fields (403 minor_restricted): los decide su tutor.
 // ------------------------------------------------------------
 const PROFILE_FIELDS = ['is_public', 'visible_fields', 'bio', 'social_links'];
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -292,6 +329,18 @@ router.patch(
   requireAuth,
   validateProfile,
   withRlsContext(async (req, client) => updateMyProfile(client, req.user.id, req.body ?? {}))
+);
+
+const VISIBILITY = ['is_public', 'visible_fields', 'social_links'];
+router.patch(
+  '/children/:id/profile',
+  requireAuth,
+  childId,
+  (req, res, next) => {
+    const bad = Object.keys(req.body ?? {}).find((k) => !VISIBILITY.includes(k));
+    return bad ? next(httpError(400, 'invalid_field', `Campo inválido: ${bad}`, { field: bad })) : validateProfile(req, res, next);
+  },
+  withRlsContext((req, client) => setChildVisibility(client, req.params.id, req.body ?? {}))
 );
 
 // ------------------------------------------------------------
@@ -377,8 +426,9 @@ router.post(
   authLimit,
   withRlsContext(async (req, client) => {
     const { iat, email } = await changePassword(client, req.user.id, req.body ?? {});
+    await client.query(`SELECT minor_self_notice('password')`); // B32: el menor cambia la suya → aviso a sus tutores
     sendPasswordChanged(email);
-    return { token: signToken({ sub: req.user.id, role: req.user.role, iat, mfa: req.user.mfa }) };
+    return { token: signToken({ sub: req.user.id, role: req.user.role, iat, mfa: req.user.mfa, minor: !!req.user.minor }) };
   }),
 );
 
@@ -399,7 +449,9 @@ const avatarRoute = (put) => async (req, res, next) => {
     try {
       old = await withRls({ uid: req.user.id, role: req.user.role }, async (client) => {
         if (subject !== req.user.id) await assertGuardianOf(client, subject);
-        return setAvatar(client, req.user.id, subject, name);
+        const prev = await setAvatar(client, req.user.id, subject, name);
+        await client.query(`SELECT minor_self_notice('avatar')`); // B32: el menor cambia su foto → aviso a sus tutores
+        return prev;
       });
     } catch (err) {
       await deleteAvatarFile(name); // no llegó a la base: el nuevo sobra

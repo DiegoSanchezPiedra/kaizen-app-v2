@@ -202,6 +202,11 @@ const changedFields = (g) => CHANGE_ORDER.filter((f) => g.sessions.some((s) => s
 
 // Avisos de eventos (B21.0): uno por inscripción, con el evento como está ahora.
 const eventLabel = (g) => `${g.title}, ${when(g.starts_at)} (${g.student})`;
+const ACCESS_CHANGED = {
+  password: () => 'ha cambiado la contraseña',
+  email: () => 'ha cambiado el email',
+  can_book: (c) => (c.can_book ? 'ha dado el permiso de reservar' : 'ha quitado el permiso de reservar'),
+};
 const EVENT_CHANGED = {
   starts_at: (g) => `el inicio (antes ${when(g.c.previous_starts_at)})`,
   ends_at: () => 'la hora de fin',
@@ -299,6 +304,23 @@ const SERVICE = {
     title: 'Jornada sin salida',
     body: `Tu jornada del ${moment(g.c.in_at)} sigue abierta: no consta la salida. Pide una corrección desde tu registro.`,
   }),
+  // Acceso propio del menor (B32): a sus tutores, salvo a quien lo hace. Sin edad.
+  'notice.minor_access_granted': (g) => ({
+    title: 'Acceso propio activado',
+    body: `${g.c.actor_name} ha activado el acceso propio de ${g.c.profile_name} a la app`,
+  }),
+  'notice.minor_access_revoked': (g) => ({
+    title: 'Acceso propio retirado',
+    body: `${g.c.actor_name} ha retirado el acceso propio de ${g.c.profile_name} a la app`,
+  }),
+  'notice.minor_access_changed': (g) => ({
+    title: 'Acceso propio cambiado',
+    body: g.c.fields.includes('own_password') ? `${g.c.profile_name} ha cambiado su contraseña`
+      : `${g.c.actor_name} ${and(g.c.fields.map((f) => ACCESS_CHANGED[f](g.c)))} del acceso propio de ${g.c.profile_name}`,
+  }),
+  'notice.minor_avatar_changed': (g) => ({
+    title: 'Foto de perfil cambiada', body: `${g.c.profile_name} ha cambiado su foto de perfil`,
+  }),
   'notice.agreement_published': (g) => ({
     title: 'Nueva versión de un acuerdo',
     body: `Hay una versión nueva de ${AGREEMENT_NAMES[g.c.type]}. Fírmala para seguir reservando.`,
@@ -340,8 +362,9 @@ async function composeService(db, d) {
   const isAvatar = d.action === 'notice.avatar_removed';
   const isAgeSoon = d.action === 'notice.out_of_age_soon';
   const isClock = d.action.startsWith('notice.clock_');
+  const isMinor = d.action.startsWith('notice.minor_');
   const url = isBooking ? BOOKINGS : isEvent ? `${APP_URL}/events/${d.changes.event_id}` : isAvatar ? `${APP_URL}/account`
-    : isAgeSoon ? BILLING : isClock ? CLOCK_URL : AGREEMENTS_URL;
+    : isAgeSoon ? BILLING : isClock ? CLOCK_URL : isMinor ? `${APP_URL}/account/children/${d.resource_id}` : AGREEMENTS_URL;
   if (d.channel === 'push') return { title, body, url, tag: d.audit_id };
   const { rows: [r] } = await db.query(
     `SELECT pr.display_name AS payer, ac.email FROM profiles pr
@@ -356,6 +379,7 @@ async function composeService(db, d) {
     : isAvatar ? mail(title, r, [body], ['Ir a Cuenta', url], 'Este es un email de servicio sobre tu cuenta en Kaizen.')
     : isAgeSoon ? mail(title, r, [`${body}.`], ['Ver la suscripción', url], 'Este es un email de servicio sobre tus reservas en Kaizen.')
     : isClock ? mail(title, r, [body], ['Ver mi registro', url], 'Este es un email de servicio sobre tu registro de jornada en Kaizen.')
+    : isMinor ? mail(title, r, [`${body}.`], ['Ver la cuenta familiar', url], 'Este es un email de servicio sobre tu cuenta en Kaizen.')
     : mail(title, r, [body], ['Ver los acuerdos', url], 'Este es un email de servicio sobre tus acuerdos en Kaizen.');
   return { to: r.email, ...msg };
 }

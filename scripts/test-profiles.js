@@ -39,7 +39,7 @@ const people = {
   admin: ['admin', true, null, true], prof1: ['profesor', true, null, true], prof2: ['profesor', false, null, true],
   aluPub: ['alumno', true, null, true], aluAll: ['alumno', true, null, true], aluNone: ['alumno', true, null, true],
   aluHidden: ['alumno', true, null, true], aluPriv: ['alumno', false, null, true], aluOther: ['alumno', false, null, true],
-  tutor: ['tutor', true, null, true], child: ['alumno', true, yearsAgo(10), false],
+  tutor: ['tutor', true, null, true], child: ['alumno', false, yearsAgo(10), false],
   child18: ['alumno', true, yearsAgo(19), false],
 };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
@@ -48,7 +48,7 @@ const CALLED = ['can_be_public', 'public_disciplines', 'public_achievements', 'c
   'student_present'];
 const ALL_FLAGS = { bio: true, social_links: true, disciplines: true, member_since: true };
 for (const [k, [role, isPublic, birth, creds]] of Object.entries(people)) {
-  // is_public = true en el hijo, el tutor y el admin: forzado por SQL, la vista debe ignorarlo.
+  // is_public = true en el tutor, el admin y el hijo con 18 sin reclamar: forzado por SQL, la vista debe ignorarlo.
   await servicePool.query(
     `INSERT INTO profiles (id, display_name, birth_date, is_public, visible_fields, bio, social_links)
      VALUES ($1, $2, $3, $4, $5, 'bio de ' || $2, '{"web":"https://example.com"}')`,
@@ -181,7 +181,17 @@ try {
     // ---------- Quién sale ----------
     await run('salen el alumno adulto público y el profesor público; no el resto', async () => {
       for (const k of ['aluPub', 'prof1']) assert.equal(await visible(k), true, k);
-      for (const k of ['aluPriv', 'prof2', 'child', 'child18', 'tutor', 'admin']) assert.equal(await visible(k), false, k);
+      for (const k of ['aluPriv', 'prof2', 'child18', 'tutor', 'admin']) assert.equal(await visible(k), false, k);
+    });
+    // B32: la visibilidad de un menor la decide su tutor (o él desde los 14); con is_public, sale, tenga acceso o no.
+    await run('B32: el hijo no sale por defecto; si su tutor lo publica, sí (tenga acceso propio o no)', async () => {
+      assert.equal(await visible('child'), false);
+      await sp(c, async () => {
+        await as(c, U.tutor, 'tutor');
+        await c.query(`UPDATE profiles SET is_public = true WHERE id = $1`, [U.child]);
+        await as(c, U.aluOther, 'alumno');
+        assert.equal(await visible('child'), true);
+      });
     });
     await run('el hijo con 18 sin reclamar no sale aunque sea adulto e is_public', async () => {
       const { rows: [r] } = await servicePool.query(`SELECT is_public, birth_date FROM profiles WHERE id = $1`, [U.child18]);
@@ -303,15 +313,37 @@ try {
           assert.deepEqual([cleared.bio, cleared.social_links, cleared.is_public], [null, null, true]);
       });
     });
-    // Lo para el trigger de la 045 antes que el WITH CHECK: los dos con 42501.
-    await run('el tutor no puede poner is_public a su hijo por SQL, pero sí editarlo', async () => {
+    // B32: el tutor decide la visibilidad de su hijo (perfil, ranking y foto); el contenido sigue siendo del hijo.
+    await run('B32: el tutor publica a su hijo, elige sus campos visibles y sus redes; no edita su bio', async () => {
       await sp(c, async () => {
         await as(c, U.admin, 'admin');
         await c.query(`UPDATE profiles SET is_public = false WHERE id = $1`, [U.child]);
         await as(c, U.tutor, 'tutor');
+        assert.equal((await c.query(`UPDATE profiles SET is_public = true, visible_fields = '{"photo": true}' WHERE id = $1`,
+          [U.child])).rowCount, 1);
         await sp(c, () => assert.rejects(
-          c.query(`UPDATE profiles SET is_public = true WHERE id = $1`, [U.child]), (e) => e.code === '42501'));
+          c.query(`UPDATE profiles SET bio = 'x' WHERE id = $1`, [U.child]), (e) => e.code === '42501'));
+        // Las redes (un canal de contacto, LOPIVI), sí: por debajo de 14 solo las edita él.
+        assert.equal((await c.query(`UPDATE profiles SET social_links = '{"web": "https://example.com"}' WHERE id = $1`,
+          [U.child])).rowCount, 1);
         assert.equal((await c.query(`UPDATE profiles SET display_name = 'x' WHERE id = $1`, [U.child])).rowCount, 1);
+      });
+    });
+    await run('B32: con acceso, por debajo de 14 el menor no cambia su visibilidad; desde los 14, sí', async () => {
+      await sp(c, async () => {
+        await as(c, U.child, 'alumno');
+        assert.equal((await getMyProfile(c, U.child)).eligible, true);
+        await rejects(c, () => updateMyProfile(c, U.child, { is_public: true }), 403, 'minor_restricted');
+        await rejects(c, () => updateMyProfile(c, U.child, { visible_fields: { ranking: true } }), 403, 'minor_restricted');
+        assert.equal((await updateMyProfile(c, U.child, { bio: 'hola' })).bio, 'hola');
+        await rejects(c, () => updateMyProfile(c, U.child, { social_links: null }), 403, 'minor_restricted');
+        await sp(c, () => assert.rejects(c.query(`UPDATE profiles SET social_links = NULL WHERE id = $1`, [U.child]),
+          (e) => e.message === 'minor_restricted'));
+        await as(c, U.admin, 'admin');
+        await c.query(`UPDATE profiles SET birth_date = $2 WHERE id = $1`, [U.child, yearsAgo(14.1)]);
+        await as(c, U.child, 'alumno');
+        const me = await updateMyProfile(c, U.child, { is_public: true, visible_fields: { ranking: true }, social_links: null });
+        assert.deepEqual([me.is_public, me.visible_fields.ranking, me.social_links], [true, true, null]);
       });
     });
 
@@ -371,7 +403,7 @@ try {
     const r = await http('GET', `/profiles?q=${tag}&role=alumno&limit=2`, 'tutor');
     assert.equal(r.status, 200);
     assert.deepEqual([r.body.total, r.body.limit, r.body.offset, r.body.profiles.length], [4, 2, 0, 2]);
-    const hidden = await http('GET', `/profiles/${U.aluHidden}`, 'child18');
+    const hidden = await http('GET', `/profiles/${U.aluHidden}`, 'aluOther');
     assert.equal(hidden.status, 200);
     assert.deepEqual(Object.keys(hidden.body.profile).sort(), ['bio', 'display_name', 'id', 'role']);
     assert.deepEqual((await http('GET', `/profiles/${U.aluPriv}`, 'aluOther')).body.code, 'profile_not_found');

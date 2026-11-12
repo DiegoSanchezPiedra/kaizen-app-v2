@@ -71,7 +71,7 @@ export function OnboardingPage() {
           Paso {all.indexOf(now) + 1} de {all.length} · {TITLES[now]}
         </h2>
       </div>
-      {now === 'datos' && <MyDataForm submitLabel="Continuar" />}
+      {now === 'datos' && <MyDataForm submitLabel="Continuar" askEmail={missing.includes('email')} />}
       {now === 'ficha' && <HealthForm />}
       {now === 'acuerdos' && <AgreementsPanel types={agreementsFor(role)} status={status.data!} />}
     </Page>

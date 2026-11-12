@@ -17,7 +17,7 @@ const TEXTS: Record<string, string> = {
   invalid_pagination: 'Revisa las fechas.',
   network: 'Sin conexión. Conéctate y vuelve a intentarlo.',
   // sesión
-  invalid_credentials: 'El email o la contraseña no son correctos.', // propuesto
+  invalid_credentials: 'El email, el usuario o la contraseña no son correctos.', // propuesto
   invalid_google_token: 'No hemos podido entrar con Google. Inténtalo de nuevo.', // propuesto
   link_required: 'Ya hay una cuenta con ese email: entra con tu contraseña.',
   invalid_mfa_code: 'El código no es correcto. Escribe el que se ve ahora en la app.', // propuesto
@@ -44,7 +44,7 @@ Object.assign(TEXTS, {
   no_candidates: 'No tienes ninguna reserva con el check-in abierto.',
   attendance_closed: 'La lista ya está cerrada; habla con el profesor.',
   profile_not_found: 'Este perfil no existe o no es público.',
-  not_eligible: 'Tu perfil todavía no puede ser público.', // propuesto
+  not_eligible: 'Este perfil todavía no puede ser público.', // propuesto
   child_must_be_minor: 'Tiene que ser menor de edad. Un adulto se registra con su propia cuenta.', // propuesto
   child_not_found: 'No encontramos a esa persona.', // propuesto
   birth_date_already_set: 'La fecha de nacimiento ya estaba puesta.', // propuesto
@@ -222,4 +222,17 @@ Object.assign(TEXTS, {
   pause_not_live: 'Esa pausa ya ha terminado o se anuló.', // propuesto
   pause_exempt: 'Esa pausa ya está sin cuota de mantenimiento.', // propuesto
   pause_nothing_to_exempt: 'No queda ninguna cuota de mantenimiento por cobrar en esa pausa.', // propuesto
+})
+
+// B32 (docs/api.md § Acceso propio del menor). Todos propuestos: el documento no les da texto. Los que habla de «él o ella» los
+// ve el tutor; `minor_restricted` y `session_revoked` los ve el menor.
+Object.assign(TEXTS, {
+  invalid_username: 'El usuario debe tener de 3 a 30 caracteres: letras minúsculas, números, punto, guion o guion bajo.', // propuesto
+  email_requires_14: 'Aún no tiene la edad para tener email propio.', // propuesto
+  access_exists: 'Ya tiene acceso propio.', // propuesto
+  username_taken: 'Ese usuario ya está en uso. Prueba con otro.', // propuesto
+  access_not_found: 'No tiene acceso propio.', // propuesto
+  email_already_set: 'Ya tienes un email en tu cuenta.', // propuesto
+  minor_restricted: 'Esto lo hace tu tutor.', // propuesto
+  session_revoked: 'Tu acceso ha cambiado; vuelve a entrar.', // propuesto
 })

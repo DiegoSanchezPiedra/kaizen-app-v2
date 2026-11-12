@@ -24,6 +24,7 @@ const DESCRIPTOR_SUFFIX = /[A-Za-z]/.test(SUFFIX ?? '') ? SUFFIX : undefined;
 const SQL_ERRORS = {
   not_allowed: [403, 'No puedes hacer esto en este evento'],
   not_guardian: [403, 'No eres tutor de este perfil'],
+  minor_restricted: [403, 'Un evento de pago lo paga tu tutor'],
   profile_incomplete: [403, 'profile incomplete'],
   event_not_found: [404, 'Evento no encontrado'],
   registration_not_found: [404, 'Inscripción no encontrada'],
@@ -110,11 +111,12 @@ const pick = (r) => Object.fromEntries(REG_COLS.split(', ').map((k) => [k, r[k]]
  * Inscribe al sujeto. Importe 0 → `{ registration }` confirmada; si no, pendiente y `{ registration, url }` del
  * Checkout (pago único, ADR 0018). El Checkout se abre dentro de la transacción: si Stripe falla, no queda inscripción.
  */
-export async function registerEvent(client, { eventId, subjectId, actorId }) {
+export async function registerEvent(client, { eventId, subjectId, actorId, minor = false }) {
   // El cliente de Stripe del pagador (el actor), antes de inscribir: ensureCustomer guarda el cus_ con otra conexión, y
   // la inscripción deja un FOR KEY SHARE sobre su perfil (FK) que bloquearía ese UPDATE hasta el COMMIT (cuelgue).
   const { rows: [e] } = await client.query(`SELECT title, price_cents FROM events WHERE id = $1`, [eventId]);
-  const customer = e?.price_cents > 0 ? await ensureCustomer(client, actorId) : null;
+  // Un menor no paga (B32): sin cliente; si le toca pagar, register_event lo rechaza (minor_restricted).
+  const customer = e?.price_cents > 0 && !minor ? await ensureCustomer(client, actorId) : null;
   const [reg] = await callFn(client, `SELECT * FROM register_event($1, $2, false)`, [eventId, subjectId]);
   if (reg.status !== 'pending') return { registration: pick(reg) };
   // kind = 'event': lo que el webhook reconoce como de Kaizen (la cuenta la comparte maat).

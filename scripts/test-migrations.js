@@ -13,10 +13,10 @@ await c.connect();
 let failed = 0;
 try {
   const [{ name }] = (await c.query(`SELECT name FROM pgmigrations ORDER BY id DESC LIMIT 1`)).rows;
-  // B31 y B30: la 059 (registro de jornada) y la 060 (pausas) no tienen datos que migrar; se bajan con la 058 y vuelven
-  // a subir (la 060 deshace y rehace sus parches de book_session y de la racha).
-  assert.equal(name, '060_pauses', 'el test baja las tres últimas: actualízalo si hay otra después');
-  migrate('down', 3);
+  // B31, B30 y B32: la 059 (registro de jornada), la 060 (pausas) y la 061 (acceso del menor) no tienen datos que
+  // migrar; se bajan con la 058 y vuelven a subir (la 060 y la 061 deshacen y rehacen sus parches de funciones).
+  assert.equal(name, '061_minor_access', 'el test baja las cuatro últimas: actualízalo si hay otra después');
+  migrate('down', 4);
   await c.query(`INSERT INTO disciplines (name, minors_only) VALUES ('T-Mig-Kids', true), ('T-Mig-BJJ', false)`);
   migrate('up');
   const { rows } = await c.query(`SELECT name, min_age, max_age FROM disciplines WHERE name LIKE 'T-Mig-%' ORDER BY name`);

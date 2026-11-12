@@ -105,7 +105,18 @@ export type Health = {
   emergency_contact_phone: string | null
 }
 
-export type Me = { id: string; role: string; display_name: string | null; email: string; birth_date: string | null; has_password: boolean; avatar: string | null }
+// `minor`: B32, null en un adulto. `email` y `username`: un menor con acceso propio puede no tener email; un adulto, no tener usuario.
+export type Me = {
+  id: string
+  role: string
+  display_name: string | null
+  email: string | null
+  username: string | null
+  birth_date: string | null
+  has_password: boolean
+  avatar: string | null
+  minor: { can_book: boolean; can_publish: boolean } | null
+}
 
 export type MyProfile = {
   is_public: boolean

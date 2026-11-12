@@ -18,7 +18,8 @@ export function profileNotice(missing: string[] = []): 'complete' | 'sign' | nul
 export type Step = 'datos' | 'ficha' | 'acuerdos'
 export function onboardingSteps(missing: string[], birthMissing: boolean): Step[] {
   const steps: Step[] = []
-  if (missing.includes('display_name') || birthMissing) steps.push('datos')
+  // B32: a los 18, quien entró con el usuario de su tutor añade su email en el mismo paso.
+  if (missing.includes('display_name') || missing.includes('email') || birthMissing) steps.push('datos')
   if (missing.some((m) => m === 'health_info' || m === 'emergency_contact')) steps.push('ficha')
   if (missing.some(isAgreement)) steps.push('acuerdos')
   return steps
@@ -26,3 +27,7 @@ export function onboardingSteps(missing: string[], birthMissing: boolean): Step[
 
 // Los acuerdos que cuenta el sujeto: un tutor (rol), solo su protección de datos.
 export const agreementsFor = (role: string): AgreementType[] => (role === 'tutor' ? ['data_protection'] : [...AGREEMENTS])
+
+// Redes del perfil público (propio o de un hijo): solo enlaces https.
+export const NETWORKS: [string, string][] = [['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['web', 'Web']]
+export const isHttps = (u: string): boolean => /^https:\/\/\S+$/.test(u)

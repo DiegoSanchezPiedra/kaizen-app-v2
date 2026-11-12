@@ -1,6 +1,12 @@
 # PLAN_FAMILIA — Cuenta Familiar (rediseño de B4.6)
 
 > Decidido el 2026-10-27, antes de empezar B5. Vocabulario en `CONTEXT.md`; razón de fondo en `docs/adr/0002-hijo-sin-credenciales.md`.
+>
+> **B32 (2026-11-11, ADR 0026, que sustituye al 0002)**: el tutor puede dar a su hijo **acceso propio** (usuario y
+> contraseña; email desde los 14) y quitárselo. Quedan sustituidos aquí: «el hijo no tiene credenciales» (D1, § 6
+> check-in), «nunca al hijo» en los avisos (D6, § 6: ahora recibe los operativos) y «un hijo nunca es público» (§ 6:
+> ahora lo decide su tutor, y él desde los 14). Con acceso, el hijo reclama a los 18 sin invitación. Detalle en
+> `CONTEXT.md` (Acceso del menor) y en el ADR 0026.
 > Este documento es el plan. **No hay código escrito todavía.**
 
 ## 1. Qué cambia

@@ -64,6 +64,8 @@ const [plan] = await q(`INSERT INTO plans (name, price_cents) VALUES ($1, 1000) 
 async function student({ name, cover = true, birth = null, tutors = [] } = {}) {
   const id = await person('alumno', { name, birth });
   for (const t of tutors) await q(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [t, id]);
+  // Un hijo sin acceso propio (B32: con credenciales, también recibiría los avisos de sus reservas).
+  if (tutors.length) await q(`DELETE FROM auth_credentials WHERE profile_id = $1`, [id]);
   const by = birth ? tutors[0] : id;
   for (const type of ['data_protection', 'rights_of_image']) {
     await q(`INSERT INTO user_agreements (id, profile_id, signed_by, type, version)
