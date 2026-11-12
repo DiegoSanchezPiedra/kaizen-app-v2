@@ -16,6 +16,7 @@ import { queryClient } from '@/lib/logout'
 import { toastError, toastOk } from '@/lib/notify'
 import { minorView } from '@/lib/minor'
 import { useMinor } from '@/lib/queries'
+import { NETWORKS, isHttps } from '@/lib/profile'
 import { useSession } from '@/lib/session'
 import type { MyProfile } from '@/lib/types'
 
@@ -30,8 +31,6 @@ const FIELDS: [string, string][] = [
 ]
 // El profesor no tiene logros ni sale en los rankings.
 const PROFESSOR_FIELDS = FIELDS.filter(([k]) => k !== 'achievements' && k !== 'ranking').map(([k, l]): [string, string] => [k, k === 'member_since' ? 'Desde cuándo estoy en la academia' : l])
-export const NETWORKS: [string, string][] = [['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['web', 'Web']]
-export const isHttps = (u: string) => /^https:\/\/\S+$/.test(u)
 
 function ProfileForm({ profile }: { profile: MyProfile }) {
   const role = useSession()?.role

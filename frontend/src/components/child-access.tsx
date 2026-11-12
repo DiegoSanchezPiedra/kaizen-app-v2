@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { useEffect, useId, useState } from 'react'
+import { useId, useState } from 'react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PasswordInput } from '@/components/password-input'
 import { Button } from '@/components/ui/button'
@@ -8,14 +8,12 @@ import { Switch } from '@/components/ui/switch'
 import { FormSheet, TextField } from '@/pages/admin/schedule-bits'
 import { Kv } from '@/components/billing-bits'
 import { ApiError, api } from '@/lib/api'
-import { madridDay } from '@/lib/dates'
 import { errorText } from '@/lib/errors'
 import { queryClient } from '@/lib/logout'
 import { ACCESS_NOTICE, ACCESS_NOTICE_VERSION } from '@/lib/minor-access'
-import { atConsentAge } from '@/lib/minor'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
 import type { Child, ChildAccess } from '@/lib/subject'
-import { NETWORKS, isHttps } from '@/pages/account-profile'
+import { NETWORKS, isHttps } from '@/lib/profile'
 
 const refresh = () => queryClient.invalidateQueries({ queryKey: ['me', 'children'] })
 // Un fallo de campo se queda en la hoja (junto al campo); el resto, en un aviso.
@@ -184,7 +182,8 @@ export function ChildAccessSection({ child }: { child: Child }) {
   const access = child.access ?? null
   const [sheet, setSheet] = useState<'grant' | Edit | null>(null)
   const [revoking, setRevoking] = useState(false)
-  const canEmail = atConsentAge(child.birth_date, madridDay())
+  // Con la edad de consentimiento (`can_publish`, la decide el servidor) puede tener email; si no, el servidor da email_requires_14.
+  const canEmail = !!child.can_publish
   const toggle = useMutation({
     mutationFn: (can_book: boolean) => api(`/me/children/${child.id}/access`, { method: 'PATCH', body: { can_book } }),
     onSuccess: (_, can) => toastOk(can ? 'Ahora puede reservar' : 'Ya no puede reservar'),
@@ -270,21 +269,14 @@ type ProfileOut = { is_public: boolean; visible_fields: Record<string, boolean>;
 const patchProfile = (id: string, body: ProfilePatch) => api<ProfileOut>(`/me/children/${id}/profile`, { method: 'PATCH', body })
 
 function SocialSheet({ child, onClose }: { child: Child; onClose: () => void }) {
-  const [links, setLinks] = useState<Record<string, string> | null>(null)
+  const [links, setLinks] = useState<Record<string, string>>(child.social_links ?? {})
   const [bad, setBad] = useState<Record<string, boolean>>({})
-  // La ficha no trae las redes: se leen con un PATCH que repite lo que ya hay (is_public), sin cambiar nada.
-  const read = useMutation({
-    mutationFn: () => patchProfile(child.id, { is_public: child.is_public ?? false }),
-    onSuccess: (p) => setLinks(p.social_links ?? {}),
-    onError: (err) => {
-      toastError(err)
-      onClose()
-    },
-  })
-  useEffect(() => read.mutate(), []) // eslint-disable-line react-hooks/exhaustive-deps
   const save = useMutation({
     mutationFn: (social: Record<string, string>) => patchProfile(child.id, { social_links: Object.keys(social).length ? social : null }),
-    onSuccess: () => toastOk('Redes guardadas'),
+    onSuccess: async () => {
+      toastOk('Redes guardadas')
+      await refresh()
+    },
     onError: (err) => toastError(err),
   })
   return (
@@ -294,10 +286,9 @@ function SocialSheet({ child, onClose }: { child: Child; onClose: () => void }) 
       title="Redes del perfil"
       description="Enlaces que empiecen por https://. Se ven solo si activas «Redes» en lo que se ve."
       submitLabel="Guardar"
-      disabled={links === null}
       loading={save.isPending}
       onSubmit={() => {
-        const social: Record<string, string> = Object.fromEntries(NETWORKS.map(([k]) => [k, (links?.[k] ?? '').trim()]).filter(([, u]) => u))
+        const social: Record<string, string> = Object.fromEntries(NETWORKS.map(([k]) => [k, (links[k] ?? '').trim()]).filter(([, u]) => u))
         const wrong = Object.fromEntries(Object.entries(social).map(([k, u]) => [k, !isHttps(u)]))
         setBad(wrong)
         return Object.values(wrong).some(Boolean) ? Promise.reject(new Error('invalid')) : save.mutateAsync(social)
@@ -310,8 +301,7 @@ function SocialSheet({ child, onClose }: { child: Child; onClose: () => void }) 
           type="url"
           inputMode="url"
           placeholder="https://"
-          value={links?.[k] ?? ''}
-          disabled={links === null}
+          value={links[k] ?? ''}
           onChange={(v) => setLinks((l) => ({ ...l, [k]: v }))}
           error={bad[k] ? 'Usa un enlace que empiece por https://' : undefined}
         />
@@ -323,18 +313,19 @@ function SocialSheet({ child, onClose }: { child: Child; onClose: () => void }) 
 export function ChildVisibilitySection({ child }: { child: Child }) {
   const [social, setSocial] = useState(false)
   const visible = child.visible_fields ?? {}
+  // El servidor mezcla visible_fields con lo que ya había: se manda solo el campo que cambia.
   const set = useMutation({
     mutationFn: (body: ProfilePatch) => patchProfile(child.id, body),
     // La respuesta trae el perfil entero: se pinta ya, sin esperar a recargar la lista.
     onSuccess: (p) =>
-      queryClient.setQueryData<Child[]>(['me', 'children'], (list) => list?.map((c) => (c.id === child.id ? { ...c, is_public: p.is_public, visible_fields: p.visible_fields } : c))),
+      queryClient.setQueryData<Child[]>(['me', 'children'], (list) => list?.map((c) => (c.id === child.id ? { ...c, is_public: p.is_public, visible_fields: p.visible_fields, social_links: p.social_links } : c))),
     onError: (err) => toastError(err),
   })
-  const own = atConsentAge(child.birth_date, madridDay())
+  const own = !!child.can_publish
   const field = (key: string, label: string) => (
     <label key={key} className="flex min-h-12 items-center justify-between gap-3 border-b last:border-b-0">
       <span className="text-[15px]">{label}</span>
-      <Switch checked={visible[key] ?? false} disabled={set.isPending} aria-label={label} onCheckedChange={(c) => set.mutate({ visible_fields: { ...visible, [key]: c } })} />
+      <Switch checked={visible[key] ?? false} disabled={set.isPending} aria-label={label} onCheckedChange={(c) => set.mutate({ visible_fields: { [key]: c } })} />
     </label>
   )
   return (

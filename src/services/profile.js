@@ -92,9 +92,11 @@ export async function assertGuardianOf(client, profileId) {
 }
 
 // birth_date::text: pg convierte `date` a Date local y en JSON sale el día anterior en UTC.
-// B32: `access` (null o { username, email, can_book }) y su visibilidad pública, que decide el tutor.
+// B32: `access` (null o { username, email, can_book }), su visibilidad pública y sus redes, que decide el tutor, y `can_publish`
+// (tiene la edad de consentimiento: lo mismo que el `can_publish` de /me).
 const CHILD_COLUMNS = `id, display_name, birth_date::text AS birth_date, NOT is_guardian_of(id) AS pending_claim, avatar,
-  COALESCE(is_public, false) AS is_public, COALESCE(visible_fields, '{}') AS visible_fields,
+  COALESCE(is_public, false) AS is_public, COALESCE(visible_fields, '{}') AS visible_fields, social_links,
+  (birth_date IS NOT NULL AND birth_date <= CURRENT_DATE - make_interval(years => minor_consent_age())) AS can_publish,
   (SELECT jsonb_build_object('username', c.username, 'email', c.email, 'can_book', c.can_book)
      FROM auth_credentials c WHERE c.profile_id = profiles.id) AS access`;
 

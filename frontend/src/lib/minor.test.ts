@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { onboardingSteps } from '@/lib/profile'
 import { MISSING_TEXT } from '@/lib/notices'
-import { bookBlock, atConsentAge, isUsername, joinBlock, minorView } from '@/lib/minor'
+import { bookBlock, isUsername, joinBlock, minorView, redirectForMinor } from '@/lib/minor'
 
 const can = { can_book: true, can_publish: false }
 const noBook = { can_book: false, can_publish: true }
@@ -36,17 +36,26 @@ describe('reservar e inscribirse', () => {
 })
 
 describe('hoja de acceso propio', () => {
-  it('el email solo se pide desde los 14 años cumplidos', () => {
-    expect(atConsentAge('2012-11-12', '2026-11-12')).toBe(true)
-    expect(atConsentAge('2012-11-13', '2026-11-12')).toBe(false)
-    expect(atConsentAge('2015-03-01', '2026-11-12')).toBe(false)
-    expect(atConsentAge(null, '2026-11-12')).toBe(false)
-  })
   it('un usuario no lleva @', () => {
     expect(isUsername('hugo')).toBe(true)
     expect(isUsername('  hugo ')).toBe(true)
     expect(isUsername('hugo@kaizen.test')).toBe(false)
     expect(isUsername('  ')).toBe(false)
+  })
+})
+
+describe('rutas directas de un menor', () => {
+  it('cuota, acuerdos, salud, mis datos y mis hijos llevan a Inicio', () => {
+    for (const p of ['/billing', '/billing/plans/3', '/billing/success', '/agreements', '/account/health', '/account/data', '/account/children', '/account/children/abc']) {
+      expect(redirectForMinor(noBook, p)).toBe('/')
+    }
+  })
+  it('lo demás, y un adulto o /me sin cargar, no se tocan', () => {
+    for (const p of ['/', '/calendar', '/bookings', '/progress', '/account', '/account/password', '/account/profile', '/events/1', '/profiles']) {
+      expect(redirectForMinor(can, p)).toBeNull()
+    }
+    expect(redirectForMinor(null, '/billing')).toBeNull()
+    expect(redirectForMinor(undefined, '/account/children')).toBeNull()
   })
 })
 

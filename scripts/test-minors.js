@@ -268,6 +268,16 @@ async function matrix() {
     expectErr(await as('T2')('PATCH', `/me/children/${P.B}/profile`, { is_public: false }), 403, 'not_guardian', 'no es su tutor');
   });
 
+  await run('B32 GET /me/children trae las redes y can_publish (la edad de consentimiento, en SQL)', async () => {
+    const kids = (await T('GET', '/me/children')).body.children;
+    const a = kids.find((k) => k.id === P.A);
+    const b = kids.find((k) => k.id === P.B);
+    assert.deepEqual(a.social_links, { web: 'https://example.com' });
+    assert.equal(a.can_publish, false, 'por debajo de 14');
+    assert.equal(b.social_links, null);
+    assert.equal(b.can_publish, true, 'desde los 14');
+  });
+
   await run('B32 sin permiso de reservar: el menor no reserva, cancela ni se inscribe; el tutor sí', async () => {
     const off = await T('PATCH', `/me/children/${P.A}/access`, { can_book: false });
     assert.equal(off.status, 200, JSON.stringify(off.body));

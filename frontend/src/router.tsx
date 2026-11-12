@@ -4,7 +4,9 @@ import { createBrowserRouter, Navigate, Outlet, redirect, useLocation, useSearch
 import { setUnauthorizedHandler, setWrongRoleHandler } from '@/lib/api'
 import { catalogRedirect } from '@/lib/catalog'
 import { checkRole, logout } from '@/lib/logout'
+import { redirectForMinor } from '@/lib/minor'
 import { loginPath, redirectFor, safeReturnPath } from '@/lib/paths'
+import { useMinor } from '@/lib/queries'
 import { getEndReason, isExpired, useSession } from '@/lib/session'
 import { AccountPage, AgreementsPage, DataPage, HealthPage, PasswordPage } from '@/pages/account'
 import { PublicProfilePage } from '@/pages/account-profile'
@@ -39,6 +41,7 @@ function RequireSession() {
   const location = useLocation()
   const expired = session ? isExpired(session) : false
   const token = expired ? null : session?.token
+  const minor = useMinor()
 
   useEffect(() => {
     if (expired) logout({ expired: true })
@@ -52,6 +55,8 @@ function RequireSession() {
   if (expired) return null
   const to = redirectFor(session.role, location.pathname)
   if (to) return <Navigate to={to} replace />
+  const toHome = redirectForMinor(minor, location.pathname)
+  if (toHome) return <Navigate to={toHome} replace />
   return session.role === 'admin' ? <Outlet /> : <AppShell />
 }
 

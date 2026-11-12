@@ -27,3 +27,7 @@ export function onboardingSteps(missing: string[], birthMissing: boolean): Step[
 
 // Los acuerdos que cuenta el sujeto: un tutor (rol), solo su protección de datos.
 export const agreementsFor = (role: string): AgreementType[] => (role === 'tutor' ? ['data_protection'] : [...AGREEMENTS])
+
+// Redes del perfil público (propio o de un hijo): solo enlaces https.
+export const NETWORKS: [string, string][] = [['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['web', 'Web']]
+export const isHttps = (u: string): boolean => /^https:\/\/\S+$/.test(u)

@@ -182,13 +182,13 @@ Un hijo puede entrar en la app con su propio usuario y contraseña (ADR 0026). E
 
 ### Tutor: ficha del hijo `/account/children/:id`
 
-Datos de `GET /me/children`: por hijo, `access` (`null` o `{ username, email, can_book }`), `is_public` y `visible_fields`. Después del formulario de nombre y fecha, dos secciones.
+Datos de `GET /me/children`: por hijo, `access` (`null` o `{ username, email, can_book }`), `is_public`, `visible_fields`, `social_links` y `can_publish` (la edad de consentimiento, que decide el servidor). Después del formulario de nombre y fecha, dos secciones.
 
 | Sección | Qué hay | Endpoints y errores |
 |---|---|---|
-| **Acceso propio**, sin acceso | explicación y «Dar acceso propio» → hoja con usuario, contraseña, **email opcional solo si tiene 14 años cumplidos** (con la fecha de nacimiento que ya muestra la ficha), el **texto informativo** (`lib/minor-access.ts`, versión `1.0`) y una casilla «He leído este texto y activo el acceso propio…» que habilita «Activar acceso» | `POST /me/children/:id/access` con `notice_version`. `invalid_username`, `username_taken`, `weak_password`, `email_requires_14`, `email_taken` (junto al campo); `access_exists`, `not_guardian` (aviso) |
-| **Acceso propio**, con acceso | usuario y email; interruptor «Puede reservar»; «Cambiar contraseña» (cierra su sesión); «Cambiar email» o «Añadir email» (desde los 14; vacío = quitarlo); «Retirar el acceso» con confirmación | `PATCH` (`password`, `email`, `can_book`) y `DELETE /me/children/:id/access`. `access_not_found`, `weak_password`, `email_requires_14`, `email_taken`. Los demás tutores reciben un aviso de cada cambio |
-| **Perfil público** (con o sin acceso) | «Perfil público», «Foto pública» aparte, «Qué se ve» (presentación, redes, disciplinas, desde cuándo, logros, rankings) y «Cambiar sus redes» (hoja con las 4 redes, `https`). Por debajo de 14 lo decide el tutor; desde los 14 también puede el menor desde su cuenta (el texto lo dice) | `PATCH /me/children/:id/profile`. La respuesta trae el perfil entero y se pinta sin recargar. Las redes no vienen en `GET /me/children`: la hoja las lee con un `PATCH { is_public }` que repite el valor actual |
+| **Acceso propio**, sin acceso | explicación y «Dar acceso propio» → hoja con usuario, contraseña, **email opcional solo si `can_publish`**, el **texto informativo** (`lib/minor-access.ts`, versión `1.0`) y una casilla «He leído este texto y activo el acceso propio…» que habilita «Activar acceso» | `POST /me/children/:id/access` con `notice_version`. `invalid_username`, `username_taken`, `weak_password`, `email_requires_14`, `email_taken` (junto al campo); `access_exists`, `not_guardian` (aviso) |
+| **Acceso propio**, con acceso | usuario y email; interruptor «Puede reservar»; «Cambiar contraseña» (cierra su sesión); «Cambiar email» o «Añadir email» (con `can_publish`; vacío = quitarlo); «Retirar el acceso» con confirmación | `PATCH` (`password`, `email`, `can_book`) y `DELETE /me/children/:id/access`. `access_not_found`, `weak_password`, `email_requires_14`, `email_taken`. Los demás tutores reciben un aviso de cada cambio |
+| **Perfil público** (con o sin acceso) | «Perfil público», «Foto pública» aparte, «Qué se ve» (presentación, redes, disciplinas, desde cuándo, logros, rankings) y «Cambiar sus redes» (hoja con las 4 redes, `https`). Sin `can_publish` lo decide el tutor; con él también puede el menor desde su cuenta (el texto lo dice) | `PATCH /me/children/:id/profile`. El servidor mezcla `visible_fields`: se manda solo el campo que cambia. La respuesta trae el perfil entero y se pinta sin recargar |
 
 En la lista de hijos, «Con acceso» marca a los que ya entran solos.
 
@@ -201,6 +201,7 @@ Misma app del alumno, decidida por `minor` de `GET /me` (`lib/minor.ts`, `minorV
 - **Inicio**: sin avisos de cuota ni de perfil; si falta algo del perfil, «Tu tutor tiene que completar tu perfil para que puedas reservar.» No hay selector de sujeto (no pide `/me/children`).
 - **Calendario, Reservas y Eventos**: con `can_book: false`, un aviso «Tu tutor no te ha dado permiso para reservar», «Sin permiso» en lugar de «Reservar» y sin botones de cancelar ni de inscribirse. Un evento de pago lo inscribe su tutor.
 - **Progreso, medallas, check-in y Comunidad**: igual que el alumno.
+- **Rutas directas**: Cuota, Acuerdos, Salud, Mis datos y Mis hijos redirigen a Inicio (`redirectForMinor`, en el router).
 - **Sesión**: `401 session_revoked` (el tutor le retiró el acceso o cambió su contraseña) lleva a `/login` con «Tu acceso ha cambiado. Vuelve a entrar.».
 - **A los 18**: si `GET /me/profile-status` trae `email` en `missing`, completar perfil pide el email en el paso «Tus datos» (`PATCH /me { email }`: `email_already_set`, `email_taken`).
 
