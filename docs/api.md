@@ -15,16 +15,23 @@
   traen `field` (`invalid_field`). `message` está en español pero es técnico: la UI pone su propio texto por `code`.
 - **Rate limiting** (B20): por IP, `429 rate_limited` (`error: too_many_requests`) con `Retry-After` en segundos. `POST /auth/register`,
   `/auth/login`, `/auth/google`, `/auth/mfa/verify` y `/auth/password/reset`: 30 cada 15 min (contador común); `/auth/password/forgot`:
-  5 por hora; `/tablet/link`: 10 cada 15 min; todo `/admin/agreements/*`: 60 cada 15 min. La IP sale de `TRUST_PROXY` (saltos de proxy:
+  5 por hora; `/tablet/link`: 10 cada 15 min; `/auth/login` además 30 cada 15 min **por cuenta** (el email o usuario, B32); todo `/admin/agreements/*`: 60 cada 15 min. La IP sale de `TRUST_PROXY` (saltos de proxy:
   1 en el VPS con Nginx, 2 en el staging con Tailscale Funnel + Nginx).
-- **Comunes**: `401 missing_token|invalid_token|session_revoked` (`session_revoked`: el token se emitió antes del último cambio o restablecimiento de la contraseña, ADR 0020), `403 insufficient_role` (rol no permitido), `400 invalid_id` (uuid o id
+- **Comunes**: `401 missing_token|invalid_token|session_revoked` (`session_revoked`: el token se emitió antes del último cambio o restablecimiento de la contraseña, ADR 0020, o es de un hijo cuyo acceso propio se ha revocado, ADR 0026), `403 insufficient_role` (rol no permitido), `400 invalid_id` (uuid o id
   numérico mal formado), `404 not_found` (ruta inexistente).
 - **Perfil completo** (`requireCompleteProfile`): reservar, contratar y el Checkout del cambio de pagador fallan con
   `403 profile_incomplete { missing: [...] }` si al sujeto (y al tutor que actúa por un hijo) le falta algo.
-  `missing` usa `display_name`, `health_info`, `emergency_contact`, `data_protection` y `rights_of_image`. La UI lo evita mirando antes
+  `missing` usa `display_name`, `health_info`, `emergency_contact`, `data_protection`, `rights_of_image` y `email` (B32: el
+  adulto que entra con el usuario que le dio su tutor; `health_info` también si su ficha es de antes de cumplir 18). La UI lo evita mirando antes
   `GET /me/profile-status`.
 - **`profile_id`**: en las rutas de alumno y tutor, el hijo por el que actúa el tutor. Sin él, el sujeto es quien llama.
-  El hijo **no tiene credenciales** (ADR 0002): nunca inicia sesión.
+- **Menor con acceso propio** (B32, ADR 0026): su tutor le da usuario y contraseña. Es `alumno`; `GET /me` trae
+  `minor: { can_book, can_publish }` (`null` en un adulto). Actúa por sí mismo y nunca por otro (`profile_id` de un hermano:
+  el `403` de siempre de cada ruta). Siempre `403 minor_restricted`: todo `/billing`, `GET/POST /me/health`,
+  `POST /me/agreements`, `PATCH /me`, `/me/children*` y los eventos de pago. Sin el permiso de reservar (`can_book: false`),
+  también `POST /bookings`, `POST /bookings/:id/cancel`, `POST /events/:id/registrations` y
+  `DELETE /events/registrations/:id`. Con menos de 14 (`can_publish: false`), `PATCH /me/profile` con `is_public` o
+  `visible_fields`.
 - **Fechas**: instantes en ISO con zona (`timestamptz`); días `YYYY-MM-DD` y meses `YYYY-MM` siempre **de Madrid**.
   Rangos `from`/`to` incluidos. Importes en céntimos (`*_cents`). Ids de catálogo (disciplinas, planes) son enteros
   que a veces llegan como string; perfiles, sesiones, reservas, etc. son uuid.
@@ -57,7 +64,7 @@ El backend construye enlaces con `APP_URL`; el frontend **tiene** que servir est
 |---|---|---|---|
 | `GET /health` | — | — | `{ status: ok\|degraded, uptime, db, timestamp }` |
 | `POST /auth/register` | — | `{ email, password, displayName, birthDate }` | `201 { token, user: { id, email, role: 'alumno' } }`. Errores: `email_taken`, `weak_password`, `invalid_birth_date`, `minor_cannot_register`, `invalid_payload` |
-| `POST /auth/login` | — | `{ email, password }` | `{ token, user }` o, con MFA, `{ mfa_required: true, mfa_token }`. `401 invalid_credentials` |
+| `POST /auth/login` | — | `{ email, password }` (`email`: el email o el usuario de un menor, B32; sin `@` es usuario, sin distinguir mayúsculas) | `{ token, user }` (`user.email` puede ser `null`) o, con MFA, `{ mfa_required: true, mfa_token }`. `401 invalid_credentials` |
 | `POST /auth/google` | — | `{ id_token }` (Google Identity Services) | como `/auth/login`. `invalid_google_token` |
 | `POST /auth/mfa/verify` | — (con `mfa_token`) | `{ mfa_token, code }` | `{ token, user }`. `401 invalid_mfa_code` (también un TOTP ya usado o de un paso anterior al último usado: cada código vale una vez) |
 | `POST /auth/password/forgot` | — | `{ email }` | `204` **siempre** (no dice si el email existe). Si existe, email con el enlace a `/reset-password?token=…`, válido 1 h y una vez; pedir otro anula los anteriores |
@@ -73,8 +80,8 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 
 | Método y ruta | Rol | Cuerpo / query | Respuesta |
 |---|---|---|---|
-| `GET /me` | cualquiera | — | `{ id, role, display_name, email, birth_date, has_password, avatar }` (`avatar`: nombre de la foto o `null`; la imagen está en `GET /avatars/<avatar>`) (`birth_date` y `display_name` pueden ser `null` tras el alta con Google) |
-| `PATCH /me` | cualquiera | `{ display_name?, birth_date? }` | como `GET /me`. `display_name` no vacío (`invalid_field_type`); `birth_date` solo si estaba vacía (`409 birth_date_already_set`) y de un adulto (`minor_cannot_register`, `invalid_birth_date`); `no_fields` |
+| `GET /me` | cualquiera | — | `{ id, role, display_name, email, username, birth_date, has_password, avatar, minor }` (`username`: el del acceso propio de un menor, o `null`; `minor`: `{ can_book, can_publish }` si es un menor, si no `null`) (`avatar`: nombre de la foto o `null`; la imagen está en `GET /avatars/<avatar>`) (`birth_date` y `display_name` pueden ser `null` tras el alta con Google) |
+| `PATCH /me` | cualquiera salvo un menor (`403 minor_restricted`) | `{ display_name?, birth_date?, email? }` | como `GET /me`. `email` (B32, reclamar a los 18): solo si no tenía (`409 email_already_set`, `409 email_taken`, `400 invalid_field`). `display_name` no vacío (`invalid_field_type`); `birth_date` solo si estaba vacía (`409 birth_date_already_set`) y de un adulto (`minor_cannot_register`, `invalid_birth_date`); `no_fields` |
 | `POST /me/password` | cualquiera | `{ current_password, new_password }` | `{ token }` (B24, ADR 0020): el token nuevo de esta sesión; los anteriores, también los de otros dispositivos, dan `401 session_revoked`. Email de aviso. `400 invalid_field`, `wrong_password`, `weak_password` (< 8); `409 no_password` (cuenta solo con Google: se crea con `POST /auth/password/forgot`). Con el límite del login. `audit_log` `auth.password_change` |
 | `PUT /me/avatar?profile_id` | cualquiera (tutor con `profile_id` de un hijo menor) | cuerpo crudo `image/jpeg`, `image/png` o `image/webp`, ≤ 1 MB | `{ avatar }` (B24, ADR 0019). El frontend la recorta a 512×512 JPEG. `400 invalid_image` (tipo no admitido o la firma no cuadra), `413 too_large`, `403 not_guardian`. 20 por hora. `audit_log` `profile.avatar_set` |
 | `DELETE /me/avatar?profile_id` | igual | — | `204` (también sin foto). Borra el fichero. `audit_log` `profile.avatar_remove` |
@@ -84,11 +91,15 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 | `POST /me/health` | alumno, tutor | `{ profile_id?, injuries?, conditions?, previous_experience?, previous_discipline?, medication?, allergies?, emergency_contact_name?, emergency_contact_phone? }` (strings o null) | `{ health }`. `no_fields`, `invalid_field_type`, `403 not_guardian` |
 | `GET /agreements/:type/current` | cualquiera | `type`: `data_protection`, `rights_of_image` | el PDF (`X-Agreement-Version`). `404 no_current_document` |
 | `POST /me/agreements` | alumno, tutor | `{ type, version, profile_id? }` (`version` = la vigente) | `{ agreement }`. `409 agreement_already_signed`, `invalid_version`, `403 not_allowed_to_sign` |
-| `GET /me/children` | cualquiera (un alumno también puede tener hijos) | — | `{ children: [{ id, display_name, birth_date, pending_claim }] }` (`pending_claim`: cumplió 18, solo lectura) |
+| `GET /me/children` | cualquiera (un alumno también puede tener hijos) | — | `{ children: [{ id, display_name, birth_date, pending_claim, avatar, is_public, visible_fields, access }] }` (`pending_claim`: cumplió 18, solo lectura; `access`: `null` o `{ username, email, can_book }`) |
+| `POST /me/children/:id/access` | su tutor (B32) | `{ username, password, email?, notice_version }` (`username`: 3–30 de `a-z 0-9 . _ -`, sin `@`; `email` solo desde los 14; `notice_version`: la del texto informativo, hoy `1.0`) | `201 { access }`. Registra quién, cuándo, IP y versión; avisa a los demás tutores. `400 invalid_username`, `weak_password`, `email_requires_14`, `invalid_field` (`notice_version`, `email`); `409 access_exists`, `username_taken`, `email_taken`; `403 not_guardian` |
+| `PATCH /me/children/:id/access` | su tutor | `{ password?, email? (o null), can_book? }` | `{ access }`. La contraseña nueva cierra las sesiones del menor. Avisa a los demás tutores. `404 access_not_found`, `400 email_requires_14`, `weak_password`, `invalid_field`, `no_fields`; `403 not_guardian` |
+| `DELETE /me/children/:id/access` | su tutor | — | `204`. Su sesión abierta cae al momento y se borran sus dispositivos de push. Avisa a los demás tutores. `404 access_not_found`, `403 not_guardian` |
+| `PATCH /me/children/:id/profile` | su tutor | `{ is_public?, visible_fields? }` | como `GET /me/profile`, del hijo (con o sin acceso). `400 invalid_field`, `403 not_guardian` |
 | `POST /me/children` | cualquier adulto | `{ display_name, birth_date }` | `201 { child }`. `child_must_be_minor`, `invalid_birth_date` |
 | `PATCH /me/children/:id` | cualquiera (su tutor) | `{ display_name?, birth_date? }` | `{ child }`. `child_not_found` |
 | `GET /me/profile` | cualquiera | — | `{ is_public, eligible, visible_fields, bio, social_links }` |
-| `PATCH /me/profile` | cualquiera | `{ is_public?, visible_fields?, bio? (≤500), social_links? (https) }` | igual. `403 not_eligible` |
+| `PATCH /me/profile` | cualquiera | `{ is_public?, visible_fields?, bio? (≤500), social_links? (https) }` | igual. `403 not_eligible`; `403 minor_restricted` (menor de 14 con `is_public` o `visible_fields`: lo decide su tutor) |
 | `GET /me/progress?profile_id=&month=YYYY-MM` | alumno, tutor (hijo), admin | — | `{ streak: { current, best }, disciplines: [{ id, name, theme, hours, streak: { current, best }, badges: [{ code, earned_at }] }], hours: { month, disciplines: [{ id, name, hours }] }, medals_seen }`. `streak` es la racha general (toda la academia); cada entrada de `disciplines` es la escalera de medallas de una disciplina con asistencia (037): su temática (`theme`, `null` = Kaizen), sus horas totales y su racha. `medals_seen`: claves `<discipline_id>:<código>` ya celebradas por quien mira, o `null` |
 | `POST /me/progress/seen` | alumno, tutor (hijo), admin | `{ profile_id?, codes }` (≤ 1024 claves `<discipline_id>:<código>`) | `{ codes }`: añade las claves que quien mira ya celebró (idempotente: une); claves inválidas, 400 `invalid_field`; si no puede verlo, 403 `not_guardian` |
 | `POST /me/push-subscriptions` | alumno, tutor | `{ endpoint, keys: { p256dh, auth } }` (de `PushManager.subscribe`) | `201 { ok }` |
@@ -365,7 +376,7 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 | `GET /admin/agreements/documents/:id/file` | — | el PDF (`application/pdf`, con `X-Agreement-Type` y `X-Agreement-Version`) de cualquier estado: borrador, vigente o retirado. `404 document_not_found` |
 | `POST /admin/agreements/documents/:id/publish` | — | `{ document }` (retira la vigente y avisa para re-firmar) |
 | `POST /admin/profiles/:id/unpublish` | — | `{ id, is_public: false }` |
-| `DELETE /admin/profiles/:id/avatar` | — | `204`: quita una foto inadecuada (B24). Aviso `notice.avatar_removed` (email) al dueño o, si es un menor sin acceso propio, a sus tutores, sin el motivo. `audit_log` `profile.avatar_remove` |
+| `DELETE /admin/profiles/:id/avatar` | — | `204`: quita una foto inadecuada (B24). Aviso `notice.avatar_removed` (email) al dueño o, si es un menor (B32: también con acceso propio), a sus tutores, sin el motivo. `audit_log` `profile.avatar_remove` |
 
 **Registro de jornada** (B31)
 
