@@ -80,8 +80,8 @@ npm run staging:api         # la API (déjala en su terminal)
 npm run staging:seed        # en otra terminal, con la API ya en marcha
 ```
 
-El seed es repetible e imprime las cuentas (contraseña: `SEED_PASSWORD`): admin, 2 profesores (Marc Soler, empleado: ficha su jornada; Sensei Marta, autónoma), 2 alumnos y un tutor con un hijo
-menor; 4 disciplinas con su temática de medallas (Boxeo, BJJ/Grappling, Muay Thai y Muay Thai Kids, solo menores), 4 planes (crean
+El seed es repetible e imprime las cuentas (contraseña: `SEED_PASSWORD`): admin, 2 profesores (Marc Soler, empleado: ficha su jornada; Sensei Marta, autónoma), 2 alumnos y un tutor con dos hijos
+menores con acceso propio (B32: **Hugo Hijo**, 11 años, usuario `hugo`, y **Lara Hija**, 15 años, usuario `lara`; los dos con la contraseña `SEED_PASSWORD`, sin email y con permiso de reservar: se entra en `/login` con el usuario); 4 disciplinas con su temática de medallas (Boxeo, BJJ/Grappling, Muay Thai y Muay Thai Kids, solo menores), 4 planes (crean
 Products y Prices en el sandbox), 8 clases (2 a la semana por disciplina, con sus sesiones a un año) y los 2 documentos legales publicados (PDFs de prueba). **El perfil del alumno sale incompleto a propósito** (ficha
 médica, acuerdos): es parte de lo que el cliente prueba.
 
@@ -153,6 +153,7 @@ Ensayo de punta a punta, con las cuentas del seed:
 - [ ] «He olvidado mi contraseña»: que llegue el email de verdad (ver § Emails).
 - [ ] Check-in: vincular una tablet en `/tablet` (otro dispositivo) con el código de Admin › Tablets y escanear el QR.
 - [ ] Push: instalar la app (en iPhone, desde la pantalla de inicio) y activar los avisos en Cuenta.
+- [ ] Acceso propio del menor: entrar en `/login` con `hugo` (o `lara`) y la contraseña del seed; ver que no hay Cuota, Acuerdos, Salud ni Mis hijos, y que el tutor lo gestiona en Cuenta › Mis hijos.
 - [ ] El panel admin en el móvil.
 
 ## 5. Qué necesita cada prueba

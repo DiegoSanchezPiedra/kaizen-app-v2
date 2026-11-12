@@ -47,10 +47,22 @@ await db.end();
 const login = async (n) => (must(await call('/auth/login', { method: 'POST', body: { email: email(n), password: PASSWORD } }), `login ${n}`).data.token);
 const admin = await login('admin');
 
-// Un hijo del tutor (menor).
+// Dos hijos del tutor (menores), cada uno con acceso propio (B32): usuario y SEED_PASSWORD, y permiso de reservar.
+// Hugo (11 años) y Lara (15: ya puede decidir su perfil público y tener email). Por la API del tutor, con la versión del texto informativo.
 const tutor = await login('tutor');
-const kids = must(await call('/me/children', { token: tutor }), 'hijos').data;
-if (!(kids.children ?? kids).length) must(await call('/me/children', { method: 'POST', token: tutor, body: { display_name: 'Hugo Hijo', birth_date: '2015-03-02' } }), 'crear hijo');
+const listKids = async () => {
+  const r = must(await call('/me/children', { token: tutor }), 'hijos').data;
+  return r.children ?? r;
+};
+for (const [display_name, birth_date, username] of [['Hugo Hijo', '2015-03-02', 'hugo'], ['Lara Hija', '2011-09-20', 'lara']]) {
+  let kid = (await listKids()).find((k) => k.display_name === display_name);
+  if (!kid) {
+    must(await call('/me/children', { method: 'POST', token: tutor, body: { display_name, birth_date } }), `crear ${display_name}`);
+    kid = (await listKids()).find((k) => k.display_name === display_name);
+  }
+  if (!kid.access) must(await call(`/me/children/${kid.id}/access`, { method: 'POST', token: tutor, body: { username, password: PASSWORD, notice_version: '1.0' } }), `acceso de ${username}`, ['access_exists', 'username_taken']);
+  if (kid.access?.can_book === false) must(await call(`/me/children/${kid.id}/access`, { method: 'PATCH', token: tutor, body: { can_book: true } }), `permiso de reservar de ${username}`);
+}
 
 // Catálogo: una temática de medallas por disciplina (una sola disciplina activa por temática).
 // [nombre, edad mínima, edad máxima (null = sin límite), temática]
@@ -104,4 +116,4 @@ for (const d of (await call('/admin/agreements/documents', { token: admin })).da
 const pauseCfg = must(await call('/admin/settings', { token: admin }), 'ajustes').data.pause;
 if (pauseCfg.price_cents === null) must(await call('/admin/settings/pause', { method: 'PUT', token: admin, body: { price_cents: 1500, max_months: 3, per_year: 1 } }), 'ajustes de la pausa');
 
-console.log(`\nListo. Cuentas (contraseña: la de SEED_PASSWORD):\n${USERS.map(([n, name, role]) => `  ${email(n).padEnd(28)} ${role ?? 'alumno'}  (${name})`).join('\n')}\n  + Hugo Hijo, menor de ${email('tutor')}\n`);
+console.log(`\nListo. Cuentas (contraseña: la de SEED_PASSWORD):\n${USERS.map(([n, name, role]) => `  ${email(n).padEnd(28)} ${role ?? 'alumno'}  (${name})`).join('\n')}\n  + Hugo Hijo (11 años) y Lara Hija (15), menores de ${email('tutor')}, con acceso propio y permiso de reservar:\n    usuario hugo / usuario lara (no llevan email; entran con el usuario)\n`);
