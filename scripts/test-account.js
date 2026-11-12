@@ -104,7 +104,7 @@ try {
     const r = await http('GET', '/me', 'parent');
     assert.equal(r.status, 200);
     assert.deepEqual(r.body, { id: U.parent, role: 'alumno', display_name: `${tag}-parent`, email: email('parent'),
-      username: null, birth_date: people.parent[1], has_password: true, avatar: null, minor: null });
+      username: null, birth_date: people.parent[1], has_password: true, avatar: null, can_create_children: false, minor: null });
     const g = await http('GET', '/me', 'google');
     assert.deepEqual([g.body.birth_date, g.body.has_password], [null, false]);
     expectError(await http('GET', '/me'), 401, 'missing_token');

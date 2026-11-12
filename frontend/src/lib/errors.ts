@@ -101,6 +101,9 @@ Object.assign(TEXTS, {
 const FALLBACK = 'Algo ha fallado; inténtalo de nuevo.'
 
 // `{clave}` del texto se rellena con `details[clave]`; sin el dato, se quita (« ({per_year})» → «»).
+// Permiso de crear hijos (migración 062).
+Object.assign(TEXTS, { child_creation_not_allowed: 'Para añadir hijos, contacta con administración.' })
+
 export function errorText(code: string | undefined, details: Record<string, unknown> = {}): string {
   if (code === 'push_disabled') return ''
   const text = (code && TEXTS[code]) || FALLBACK

@@ -115,7 +115,8 @@ async function profileRow(client, id) {
     `SELECT p.id, p.display_name, p.avatar, c.email, ${ROLE} AS role, p.created_at, ${MINOR} AS is_minor,
             ${PENDING_CLAIM} AS pending_claim, COALESCE(p.is_public, false) AS is_public,
             COALESCE(c.has_password, false) AS has_password,
-            COALESCE(c.google_sub IS NOT NULL, false) AS has_google
+            COALESCE(c.google_sub IS NOT NULL, false) AS has_google,
+            COALESCE(c.can_create_children, false) AS can_create_children
        ${FROM} WHERE p.id = $1`, [id]);
   if (!row) throw notFound();
   return row;
@@ -196,6 +197,18 @@ export async function changeRole(client, { id, role, actorId, mfaSession, mfaCod
     `INSERT INTO user_roles (user_id, role) VALUES ($1, $2)
      ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role`, [id, role]);
   await audit(client, actorId, 'profile.role_change', id, { from: p.role, to: role });
+  return { profile: await profileRow(client, id) };
+}
+
+/** PUT /admin/profiles/:id/can-create-children { enabled } → { profile } (audit_log profile.can_create_children, en SQL). */
+export async function setCanCreateChildren(client, { id, enabled }) {
+  if (typeof enabled !== 'boolean') throw invalid('enabled', 'enabled debe ser booleano');
+  try {
+    await client.query(`SELECT set_can_create_children($1, $2)`, [id, enabled]);
+  } catch (err) {
+    if (err.code === 'P0002') throw notFound();
+    throw err;
+  }
   return { profile: await profileRow(client, id) };
 }
 

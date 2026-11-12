@@ -94,6 +94,9 @@ try {
   versions.data_protection = '9.2';
 
   // 5. Menor y tutor: el tutor firma por el hijo; la guarda exige completos al hijo y al tutor (D15).
+  // Crear hijos lo concede un admin.
+  const { rows: [{ profile_id: tutorId }] } = await servicePool.query(`SELECT profile_id FROM auth_credentials WHERE email = 'e2e-tutor@test.local'`);
+  assert.equal((await http('PUT', `/admin/profiles/${tutorId}/can-create-children`, { token: admin, body: { enabled: true } })).status, 200);
   r = await http('POST', '/me/children', { token: tutor, body: { display_name: 'E2E hijo', birth_date: '2018-01-01' } });
   assert.equal(r.status, 201);
   const child = r.body.child.id;

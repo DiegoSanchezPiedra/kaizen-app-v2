@@ -42,6 +42,8 @@ await db.connect();
 for (const [n, , role] of USERS.filter((u) => u[2])) {
   await db.query(`insert into user_roles(user_id, role) select profile_id, $2 from auth_credentials where email = $1 on conflict (user_id) do update set role = excluded.role`, [email(n), role]);
 }
+// 062: crear hijos es un permiso que da el admin; el tutor sembrado lo tiene.
+await db.query(`update auth_credentials set can_create_children = true where email = $1`, [email('tutor')]);
 await db.end();
 
 const login = async (n) => (must(await call('/auth/login', { method: 'POST', body: { email: email(n), password: PASSWORD } }), `login ${n}`).data.token);

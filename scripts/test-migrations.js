@@ -13,18 +13,28 @@ await c.connect();
 let failed = 0;
 try {
   const [{ name }] = (await c.query(`SELECT name FROM pgmigrations ORDER BY id DESC LIMIT 1`)).rows;
-  // B31, B30 y B32: la 059 (registro de jornada), la 060 (pausas) y la 061 (acceso del menor) no tienen datos que
+  // B31, B30 y B32: la 059 (registro de jornada), la 060 (pausas), la 061 (acceso del menor) y la 062 (permiso de crear hijos) no tienen datos que
   // migrar; se bajan con la 058 y vuelven a subir (la 060 y la 061 deshacen y rehacen sus parches de funciones).
-  assert.equal(name, '061_minor_access', 'el test baja las cuatro últimas: actualízalo si hay otra después');
-  migrate('down', 4);
+  assert.equal(name, '062_can_create_children', 'el test baja las cinco últimas: actualízalo si hay otra después');
+  migrate('down', 5);
   await c.query(`INSERT INTO disciplines (name, minors_only) VALUES ('T-Mig-Kids', true), ('T-Mig-BJJ', false)`);
+  // 062: quien ya es tutor conserva el permiso de crear hijos; el resto empieza sin él.
+  const { rows: [tutor, solo, kid] } = await c.query(
+    `INSERT INTO profiles (id, display_name, birth_date) VALUES (gen_random_uuid(), 'T-Mig-Tutor', '1980-01-01'), (gen_random_uuid(), 'T-Mig-Solo', '1980-01-01'), (gen_random_uuid(), 'T-Mig-Kid', CURRENT_DATE - 3000)
+     RETURNING id`);
+  await c.query(`INSERT INTO auth_credentials (profile_id, email, password_hash) VALUES ($1, 't-mig-tutor@test.local', 'x'), ($2, 't-mig-solo@test.local', 'x')`,
+    [tutor.id, solo.id]);
+  await c.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [tutor.id, kid.id]);
   migrate('up');
+  const { rows: perms } = await c.query(
+    `SELECT can_create_children FROM auth_credentials WHERE profile_id IN ($1, $2) ORDER BY profile_id = $1 DESC`, [tutor.id, solo.id]);
+  assert.deepEqual(perms.map((r) => r.can_create_children), [true, false], '062: backfill de tutores');
   const { rows } = await c.query(`SELECT name, min_age, max_age FROM disciplines WHERE name LIKE 'T-Mig-%' ORDER BY name`);
   assert.deepEqual(rows, [{ name: 'T-Mig-BJJ', min_age: null, max_age: null }, { name: 'T-Mig-Kids', min_age: null, max_age: 17 }]);
   const { rowCount } = await c.query(
     `SELECT 1 FROM information_schema.columns WHERE table_name = 'disciplines' AND column_name = 'minors_only'`);
   assert.equal(rowCount, 0);
-  console.log('OK   058: minors_only → max_age = 17 (y down/up de ida y vuelta)');
+  console.log('OK   058: minors_only → max_age = 17; 062: backfill de tutores (y down/up de ida y vuelta)');
 } catch (e) {
   failed++;
   console.error('FAIL 058: minors_only → max_age = 17\n', e);

@@ -15,6 +15,7 @@ import { Form } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { api } from '@/lib/api'
+import { useMe } from '@/lib/queries'
 import { errorText } from '@/lib/errors'
 import { isoToSpanish, maskSpanishDate, parseSpanishDate } from '@/lib/format'
 import { queryClient } from '@/lib/logout'
@@ -33,6 +34,7 @@ const Back = () => (
 
 export function ChildrenPage() {
   const children = useChildren()
+  const me = useMe()
   return (
     <Page title="Mis hijos">
       <Link to="/account" className="-mt-3 inline-flex min-h-11 items-center gap-1 self-start font-semibold text-link">
@@ -62,10 +64,14 @@ export function ChildrenPage() {
               ))}
             </ul>
           )}
-          <Button size="xl" render={<Link to="/account/children/new" />}>
-            <PlusIcon />
-            Añadir hijo o hija
-          </Button>
+          {me.data?.can_create_children ? (
+            <Button size="xl" render={<Link to="/account/children/new" />}>
+              <PlusIcon />
+              Añadir hijo o hija
+            </Button>
+          ) : me.data && (
+            <StatusAlert notice={{ kind: 'info', icon: 'info', title: errorText('child_creation_not_allowed') }} />
+          )}
         </>
       )}
     </Page>
