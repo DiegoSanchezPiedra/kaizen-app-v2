@@ -315,7 +315,8 @@ const SERVICE = {
   }),
   'notice.minor_access_changed': (g) => ({
     title: 'Acceso propio cambiado',
-    body: `${g.c.actor_name} ${and(g.c.fields.map((f) => ACCESS_CHANGED[f](g.c)))} del acceso propio de ${g.c.profile_name}`,
+    body: g.c.fields.includes('own_password') ? `${g.c.profile_name} ha cambiado su contraseña`
+      : `${g.c.actor_name} ${and(g.c.fields.map((f) => ACCESS_CHANGED[f](g.c)))} del acceso propio de ${g.c.profile_name}`,
   }),
   'notice.minor_avatar_changed': (g) => ({
     title: 'Foto de perfil cambiada', body: `${g.c.profile_name} ha cambiado su foto de perfil`,

@@ -288,6 +288,10 @@ try {
       assert.equal(m.url, `${APP_URL}/account/children/${U.child}`, action);
       assert.doesNotMatch(`${m.title} ${m.body}`, /\d+ años|menor/i, action);
     }
+    const own = await compose(servicePool, { action: 'notice.minor_access_changed', channel: 'push', resource_type: 'profile',
+      resource_id: U.child, audit_id: crypto.randomUUID(), recipient_id: U.tutor,
+      changes: { profile_name: 'Nico', actor_name: 'Nico', fields: ['own_password'] } });
+    assert.equal(own.body, 'Nico ha cambiado su contraseña');
   });
 } finally {
   await q(`UPDATE notice_deliveries SET next_attempt_at = next_attempt_at - interval '100 years' WHERE id = ANY($1::uuid[])`, [parked]);

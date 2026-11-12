@@ -113,6 +113,7 @@ async function matrix() {
     assert.equal(r.status, status, `${what}: ${r.status} ${JSON.stringify(r.body)}`);
     if (code) assert.equal(r.body.code, code, what);
   };
+  const life = (t) => { const { exp, iat } = JSON.parse(Buffer.from(t.split('.')[1], 'base64url')); return exp - iat; };
   const deliveries = async (action, recipient) => (await q(
     `SELECT 1 FROM notice_deliveries d JOIN audit_log a ON a.id = d.audit_id
       WHERE a.action = $1 AND d.recipient_id = $2 AND a.resource_id = ANY($3)`, [action, recipient, [P.A, P.B]])).length;
@@ -153,8 +154,8 @@ async function matrix() {
     const a = await login(user.A.toUpperCase(), pass.A);
     assert.equal(a.status, 200, JSON.stringify(a.body));
     tok.A = a.body.token;
-    const { exp, iat } = JSON.parse(Buffer.from(tok.A.split('.')[1], 'base64url'));
-    assert.equal(exp - iat, 7 * 86400);
+    assert.equal(life(tok.A), 7 * 86400, 'el menor, 7 días aunque cambie JWT_EXPIRES_IN');
+    assert.equal(life((await login(`${tag}-t@test.local`, 'tutor-1234')).body.token), 3600, 'el adulto, JWT_EXPIRES_IN (1h en el test)');
     const b = await login(`${tag}-b@test.local`, pass.B);
     assert.equal(b.status, 200, JSON.stringify(b.body));
     tok.B = b.body.token;
@@ -195,6 +196,17 @@ async function matrix() {
       ['POST', `/events/${E.paid}/registrations`],
     ];
     for (const [method, url, body] of blocked) expectErr(await A(method, url, body), 403, 'minor_restricted', `${method} ${url}`);
+    // /me cerrado por defecto: toda ruta del router que no esté en la lista blanca da minor_restricted (también una nueva).
+    const { default: meRouter } = await import('../src/routes/me.js');
+    const ALLOWED = ['GET /', 'GET /profile-status', 'GET /profile', 'PATCH /profile', 'GET /progress', 'POST /progress/seen',
+      'POST /push-subscriptions', 'DELETE /push-subscriptions', 'POST /password', 'PUT /avatar', 'DELETE /avatar'];
+    const routes = meRouter.stack.filter((l) => l.route).flatMap((l) => Object.keys(l.route.methods)
+      .map((m) => `${m.toUpperCase()} ${l.route.path}`));
+    assert.ok(ALLOWED.every((r) => routes.includes(r)), 'la lista blanca existe');
+    for (const r of routes.filter((x) => !ALLOWED.includes(x))) {
+      const [method, path] = r.split(' ');
+      expectErr(await A(method, `/me${path.replace(':id', P.B)}`, method === 'GET' ? undefined : {}), 403, 'minor_restricted', `/me ${r}`);
+    }
     // Solo para adultos por rol: el menor es alumno.
     expectErr(await A('GET', '/admin/profiles'), 403, 'insufficient_role', 'admin');
     expectErr(await A('GET', '/professor/sessions'), 403, 'insufficient_role', 'profesor');
@@ -228,6 +240,10 @@ async function matrix() {
     assert.equal(reg.status, 201, JSON.stringify(reg.body));
     assert.equal((await A('DELETE', `/events/registrations/${reg.body.registration.id}`)).status, 204);
     assert.equal((await A('PATCH', '/me/profile', { bio: 'hola' })).status, 200, 'su bio sí');
+    expectErr(await A('PATCH', '/me/profile', { social_links: { web: 'https://example.com' } }), 403, 'minor_restricted',
+      'sus redes, por debajo de 14, solo su tutor');
+    const links = await T('PATCH', `/me/children/${P.A}/profile`, { social_links: { web: 'https://example.com' } });
+    assert.deepEqual([links.status, links.body.social_links], [200, { web: 'https://example.com' }]);
     const push = await A('POST', '/me/push-subscriptions', { endpoint: `https://fcm.googleapis.com/fcm/send/${tag}`,
       keys: { p256dh: Buffer.alloc(65, 4).toString('base64url'), auth: Buffer.alloc(16, 1).toString('base64url') } });
     assert.equal(push.status, 201, JSON.stringify(push.body));
@@ -290,7 +306,11 @@ async function matrix() {
     const r = await as('A')('POST', '/me/password', { current_password: pass.A, new_password: 'propia-1234' });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     tok.A = r.body.token;
+    assert.equal(life(tok.A), 7 * 86400, 'el token nuevo, también de 7 días');
     pass.A = 'propia-1234';
+    const [n] = await q(`SELECT changes FROM audit_log WHERE action = 'notice.minor_access_changed' AND actor_id = $1`, [P.A]);
+    assert.deepEqual(n?.changes.fields, ['own_password'], 'aviso a los tutores');
+    assert.equal(await deliveries('notice.minor_access_changed', P.T), 1, 'al tutor (los cambios anteriores los hizo él)');
   });
 
   await run('B32 revocar invalida la sesión abierta al momento, borra sus dispositivos y avisa a los demás tutores', async () => {

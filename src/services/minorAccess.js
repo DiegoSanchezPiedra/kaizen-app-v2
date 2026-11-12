@@ -2,14 +2,13 @@
 // las reglas (tutor vigente y adulto, email desde los 14, aviso a los demás tutores) viven en las funciones SQL de la 061.
 import { httpError } from '../lib/errors.js';
 import { hashPassword } from './password.js';
-import { assertStrongPassword } from './auth.js';
+import { assertStrongPassword, EMAIL_RE } from './auth.js';
 import { assertGuardianOf } from './profile.js';
 import { getMyProfile } from './profiles.js';
 
 // Versión del texto informativo que el tutor acepta al activar el acceso (el frontend la muestra y la manda).
 export const MINOR_ACCESS_NOTICE_VERSION = '1.0';
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,29}$/; // sin '@': nunca tiene forma de email (como el CHECK de la 061)
-const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const ACCESS_FIELDS = ['password', 'email', 'can_book'];
 
 const SQL_ERRORS = {
@@ -90,12 +89,17 @@ export async function revokeAccess(client, minorId) {
   return { status: 204, body: null };
 }
 
-/** PATCH /me/children/:id/profile { is_public?, visible_fields? } (validado) → como GET /me/profile, del hijo. */
+/**
+ * PATCH /me/children/:id/profile { is_public?, visible_fields?, social_links? } (validado) → como GET /me/profile, del
+ * hijo. Las redes también: por debajo de la edad de consentimiento son un canal de contacto que solo pone el tutor.
+ */
 export async function setChildVisibility(client, minorId, body) {
   await assertGuardianOf(client, minorId);
   await client.query(
     `UPDATE profiles SET is_public = COALESCE($2, is_public),
-            visible_fields = CASE WHEN $3::jsonb IS NULL THEN visible_fields ELSE COALESCE(visible_fields, '{}') || $3 END
-      WHERE id = $1`, [minorId, body.is_public ?? null, body.visible_fields ?? null]);
+            visible_fields = CASE WHEN $3::jsonb IS NULL THEN visible_fields ELSE COALESCE(visible_fields, '{}') || $3 END,
+            social_links = CASE WHEN $4 THEN $5::jsonb ELSE social_links END
+      WHERE id = $1`, [minorId, body.is_public ?? null, body.visible_fields ?? null, Object.hasOwn(body, 'social_links'),
+      body.social_links ?? null]);
   return getMyProfile(client, minorId);
 }

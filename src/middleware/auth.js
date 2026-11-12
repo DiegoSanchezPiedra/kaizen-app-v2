@@ -33,15 +33,15 @@ export async function requireAuth(req, res, next) {
               extract(epoch FROM c.credentials_changed_at)::bigint AS changed, c.profile_id IS NOT NULL AS creds,
               COALESCE(c.can_book, false) AS can_book,
               EXISTS (SELECT 1 FROM guardianships WHERE minor_id = $1) AS ward,
-              (SELECT birth_date > CURRENT_DATE - interval '18 years' FROM profiles WHERE id = $1) AS minor,
-              (SELECT birth_date <= CURRENT_DATE - interval '14 years' FROM profiles WHERE id = $1) AS over14
-         FROM (SELECT 1) one LEFT JOIN auth_credentials c ON c.profile_id = $1`,
+              p.birth_date > CURRENT_DATE - interval '18 years' AS minor,
+              p.birth_date <= CURRENT_DATE - make_interval(years => minor_consent_age()) AS can_publish
+         FROM (SELECT 1) one LEFT JOIN profiles p ON p.id = $1 LEFT JOIN auth_credentials c ON c.profile_id = $1`,
       [payload.sub]));
     if ((u.ward && !u.creds) || (u.changed !== null && !(payload.iat >= Number(u.changed)))) { // sin iat, también fuera
       return next(httpError(401, 'session_revoked', 'session revoked'));
     }
     req.user = { id: payload.sub, role: u.role ?? 'alumno', mfa: Array.isArray(payload.amr) && payload.amr.includes('mfa'),
-      iat: payload.iat, minor: u.minor ? { can_book: u.can_book, can_publish: u.over14 } : null };
+      iat: payload.iat, minor: u.minor ? { can_book: u.can_book, can_publish: u.can_publish } : null };
   } catch (err) {
     return next(err);
   }
@@ -53,6 +53,13 @@ const minorRestricted = () => httpError(403, 'minor_restricted', 'Esto lo hace t
 // B32: lo que un menor nunca hace con su acceso (pagos, pausas, firmas, salud, sus datos y su familia).
 export function blockMinor(req, res, next) {
   return next(req.user?.minor ? minorRestricted() : undefined);
+}
+
+// B32: en un router con rutas de adulto (router.use, tras requireAuth), el menor queda fuera salvo en `allowed`
+// ('MÉTODO /ruta', rutas sin parámetros): cerrado por defecto, una ruta nueva no se le abre sin añadirla.
+export function minorAllowlist(allowed) {
+  return (req, res, next) => next(!req.user?.minor || allowed.includes(`${req.method} ${req.path}`)
+    ? undefined : minorRestricted());
 }
 
 // B32: reservar, cancelar e inscribirse; el menor sin el permiso de reservar, no (su tutor sí, por él).

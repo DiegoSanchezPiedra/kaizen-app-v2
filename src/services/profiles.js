@@ -60,9 +60,10 @@ export async function getMyProfile(client, id) {
 /** PATCH del propio perfil (body ya validado). `visible_fields` se fusiona con lo guardado. */
 export async function updateMyProfile(client, id, body) {
   const has = (k) => Object.hasOwn(body, k);
-  if (has('is_public') || has('visible_fields')) { // B32: su visibilidad, desde los 14 (antes la decide su tutor)
+  // B32: su visibilidad y sus redes, desde la edad de consentimiento (minor_consent_age); antes, su tutor.
+  if (has('is_public') || has('visible_fields') || has('social_links')) {
     const { rows: [p] } = await client.query(
-      `SELECT birth_date > CURRENT_DATE - interval '14 years' AS young FROM profiles WHERE id = $1`, [id]);
+      `SELECT birth_date > CURRENT_DATE - make_interval(years => minor_consent_age()) AS young FROM profiles WHERE id = $1`, [id]);
     if (p?.young) throw httpError(403, 'minor_restricted', 'Tu perfil público lo decide tu tutor');
   }
   if (body.is_public === true && !(await getMyProfile(client, id)).eligible) {

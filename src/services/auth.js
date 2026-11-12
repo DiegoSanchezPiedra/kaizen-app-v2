@@ -23,6 +23,9 @@ export async function findCredentialsByEmail(email) {
   return rows[0] ?? null;
 }
 
+// Un email con una '@' y un punto en el dominio (la verificación de verdad es la del ADR 0021).
+export const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
 // B32: el menor entra con el usuario que eligió su tutor (en minúsculas y sin '@': no se confunde con un email).
 async function findCredentialsByUsername(username) {
   const { rows } = await servicePool.query(
@@ -124,25 +127,26 @@ export async function registerLocal({ email, password, displayName, birthDate })
 // loginLocal — CAMBIO: no firma token. Devuelve { profileId, email, role }
 // para que la ruta decida (JWT normal vs mfa_token).
 // ---------------------------------------------------------------------------
+let dummy;
+const dummyHash = () => (dummy ??= hashPassword(crypto.randomBytes(16).toString('hex')));
+
 export async function loginLocal({ email, password }) {
   if (typeof email !== 'string' || !email || !password) {
     throw httpError(400, 'invalid_payload', 'email and password required');
   }
   // `email`: el email o el usuario (B32).
   const cred = email.includes('@') ? await findCredentialsByEmail(email) : await findCredentialsByUsername(email);
-  if (!cred || !cred.password_hash) {
-    throw httpError(401, 'invalid_credentials', 'invalid credentials');
-  }
-  const ok = await verifyPassword(cred.password_hash, password);
-  if (!ok) {
+  // B32: sin cuenta también se verifica (contra un hash fijo): el tiempo no dice si el email o el usuario existen.
+  const ok = await verifyPassword(cred?.password_hash ?? await dummyHash(), password);
+  if (!cred?.password_hash || !ok) {
     throw httpError(401, 'invalid_credentials', 'invalid credentials');
   }
   const { rows } = await servicePool.query(
-    `SELECT role FROM user_roles WHERE user_id = $1 ORDER BY id LIMIT 1`,
+    `SELECT (SELECT role FROM user_roles WHERE user_id = $1 ORDER BY id LIMIT 1) AS role, is_minor($1) AS minor`,
     [cred.profile_id]
   );
   const role = rows[0]?.role ?? 'alumno';
-  return { profileId: cred.profile_id, email: cred.email, role };
+  return { profileId: cred.profile_id, email: cred.email, role, minor: rows[0].minor };
 }
 
 // ---------------------------------------------------------------------------

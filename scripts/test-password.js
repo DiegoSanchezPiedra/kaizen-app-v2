@@ -95,6 +95,24 @@ try {
   await run('sin credenciales cambiadas nunca, un token de antes sigue valiendo (desplegar no cierra sesiones)', async () => {
     assert.equal((await http('GET', '/me', signToken({ sub: U.goo, role: 'alumno' }))).status, 200);
   });
+  // B32: sin enumeración por tiempo: un email o usuario que no existe tarda como una contraseña mala (argon2 igualmente).
+  await run('B32: login de una cuenta que no existe, con verificación argon2 como la de una contraseña mala', async () => {
+    const time = async (email) => {
+      const t = [];
+      for (let i = 0; i < 3; i++) {
+        const t0 = performance.now();
+        assert.equal((await http('POST', '/auth/login', null, { email, password: 'mala-12345' })).status, 401);
+        t.push(performance.now() - t0);
+      }
+      return t.sort((a, b) => a - b)[1];
+    };
+    const bad = await time(email('ana'));
+    for (const who of [`nadie-${tag}@kz.test`, `nadie-${tag}`]) {
+      const none = await time(who);
+      assert.ok(none > bad / 2, `${who}: ${none.toFixed(1)} ms frente a ${bad.toFixed(1)} ms`);
+    }
+  });
+
   // B32: la contraseña de un menor la pone y la restablece su tutor; el email de restablecer no sirve aunque lo tenga.
   await run('B32: un menor con email (14+) no restablece por email: create_password_reset no crea nada', async () => {
     U.teen = crypto.randomUUID();

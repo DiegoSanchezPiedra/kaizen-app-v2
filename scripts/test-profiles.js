@@ -314,7 +314,7 @@ try {
       });
     });
     // B32: el tutor decide la visibilidad de su hijo (perfil, ranking y foto); el contenido sigue siendo del hijo.
-    await run('B32: el tutor publica a su hijo y elige sus campos visibles; no edita su bio', async () => {
+    await run('B32: el tutor publica a su hijo, elige sus campos visibles y sus redes; no edita su bio', async () => {
       await sp(c, async () => {
         await as(c, U.admin, 'admin');
         await c.query(`UPDATE profiles SET is_public = false WHERE id = $1`, [U.child]);
@@ -323,6 +323,9 @@ try {
           [U.child])).rowCount, 1);
         await sp(c, () => assert.rejects(
           c.query(`UPDATE profiles SET bio = 'x' WHERE id = $1`, [U.child]), (e) => e.code === '42501'));
+        // Las redes (un canal de contacto, LOPIVI), sí: por debajo de 14 solo las edita él.
+        assert.equal((await c.query(`UPDATE profiles SET social_links = '{"web": "https://example.com"}' WHERE id = $1`,
+          [U.child])).rowCount, 1);
         assert.equal((await c.query(`UPDATE profiles SET display_name = 'x' WHERE id = $1`, [U.child])).rowCount, 1);
       });
     });
@@ -333,11 +336,14 @@ try {
         await rejects(c, () => updateMyProfile(c, U.child, { is_public: true }), 403, 'minor_restricted');
         await rejects(c, () => updateMyProfile(c, U.child, { visible_fields: { ranking: true } }), 403, 'minor_restricted');
         assert.equal((await updateMyProfile(c, U.child, { bio: 'hola' })).bio, 'hola');
+        await rejects(c, () => updateMyProfile(c, U.child, { social_links: null }), 403, 'minor_restricted');
+        await sp(c, () => assert.rejects(c.query(`UPDATE profiles SET social_links = NULL WHERE id = $1`, [U.child]),
+          (e) => e.message === 'minor_restricted'));
         await as(c, U.admin, 'admin');
         await c.query(`UPDATE profiles SET birth_date = $2 WHERE id = $1`, [U.child, yearsAgo(14.1)]);
         await as(c, U.child, 'alumno');
-        const me = await updateMyProfile(c, U.child, { is_public: true, visible_fields: { ranking: true } });
-        assert.deepEqual([me.is_public, me.visible_fields.ranking], [true, true]);
+        const me = await updateMyProfile(c, U.child, { is_public: true, visible_fields: { ranking: true }, social_links: null });
+        assert.deepEqual([me.is_public, me.visible_fields.ranking, me.social_links], [true, true, null]);
       });
     });
 

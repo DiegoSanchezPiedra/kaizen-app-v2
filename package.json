@@ -15,7 +15,7 @@
     "test:mfa": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-mfa.js",
     "test:migrations": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-migrations.js",
     "test:agreements": "dotenv -e .env -- node scripts/test-agreements.js",
-    "test:minors": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-minors.js",
+    "test:minors": "JWT_EXPIRES_IN=1h dotenv -e .env -- node scripts/with-temp-db.js scripts/test-minors.js",
     "test:catalog": "dotenv -e .env -- node scripts/test-catalog.js",
     "test:classes": "dotenv -e .env -- node scripts/test-classes.js",
     "test:bookings": "dotenv -e .env -- node scripts/test-bookings.js",

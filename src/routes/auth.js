@@ -46,7 +46,7 @@ router.post('/register', authLimit, async (req, res, next) => {
 router.post('/login', authLimit, loginAccountLimit, async (req, res, next) => {
   try {
     const { email, password } = req.body || {};
-    const { profileId, email: userEmail, role } = await loginLocal({
+    const { profileId, email: userEmail, role, minor } = await loginLocal({
       email,
       password,
     });
@@ -59,7 +59,7 @@ router.post('/login', authLimit, loginAccountLimit, async (req, res, next) => {
       return res.status(200).json({ mfa_required: true, mfa_token: mfaToken });
     }
 
-    const token = signToken({ sub: profileId, role });
+    const token = signToken({ sub: profileId, role, minor });
     return res
       .status(200)
       .json({ token, user: { id: profileId, email: userEmail, role } });

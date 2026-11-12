@@ -6,13 +6,17 @@
 // - Funciones del tutor (SECURITY DEFINER): grant/update/revoke_minor_access. Revocar borra las credenciales y sus
 //   dispositivos de push; la activación y cada cambio dejan un aviso en audit_log (el de la activación es el registro
 //   del consentimiento: quién, cuándo, IP y versión del texto informativo) que reciben los demás tutores.
-// - El menor como actor (is_minor(uid)): no lee su salud, sus cobros, su suscripción ni sus firmas; no cambia su nombre
+// - El menor como actor (actor_is_minor()): no lee su salud, sus cobros, su suscripción ni sus firmas; no cambia su nombre
 //   visible ni (por debajo de 14) su visibilidad pública; no reserva ni se inscribe sin el permiso de reservar; no paga
 //   eventos ni cambia de disciplina (minor_restricted); no restablece su contraseña por email.
 // - Perfil público de un menor: lo decide su tutor (y él desde los 14), con o sin acceso; antes, nunca.
 // - Avisos operativos de reservas y eventos: también al menor con acceso (notice_recipients), salvo los de cobertura,
 //   pausa y cambio de disciplina, que siguen solo a sus tutores.
 // - Reclamar a los 18 con acceso: profile_missing pide su email y que confirme la ficha que rellenó su tutor.
+// - minor_consent_age(): la edad de consentimiento (hoy 14, art. 7 LOPDGDD) en un solo sitio; si la ley la sube, se
+//   cambia aquí. La usan el email del menor, su visibilidad pública y sus redes (y requireAuth, para can_publish).
+// - Con app_user, nada responde por otro perfil: in_pause e is_minor pasan a internas (visible_in_pause y
+//   actor_is_minor para la API); write_audit no deja a un menor anotar cambios de suscripción.
 /* eslint-disable camelcase */
 
 export const shorthands = undefined;
@@ -22,7 +26,8 @@ const ROLE = `current_setting('app.current_role', true)`;
 const IS_ADMIN = `COALESCE(${ROLE} = 'admin', false)`;
 const UID_004 = `(current_setting('app.current_user_id', true))::uuid`;
 const UID_003 = `current_setting('app.current_user_id', true)::uuid`;
-const MINOR_ACTOR = `is_minor(${UID})`;
+const MINOR_ACTOR = 'actor_is_minor()';
+const UNDER_CONSENT = (birth) => `${birth} > CURRENT_DATE - make_interval(years => minor_consent_age())`;
 
 // Parches sobre la definición actual (como 060): [función, texto de antes, texto de después]. Si no encuentra, falla.
 const PATCHES = [
@@ -39,19 +44,24 @@ ${' '.repeat(28)}ARRAY[r.profile_id])`, `notice_recipients(r.profile_id, p_actio
   ['create_password_reset(text, text)', `SELECT profile_id INTO pid FROM auth_credentials WHERE email = p_email;`,
     `SELECT profile_id INTO pid FROM auth_credentials WHERE email = p_email AND NOT is_minor(profile_id);`],
   ['profiles_update_guard()', `IF OLD.id IS DISTINCT FROM ${UID} THEN`,
-    `IF OLD.id = ${UID} AND is_minor(OLD.id)
+    `IF OLD.id = ${UID} AND actor_is_minor()
            AND (NEW.display_name IS DISTINCT FROM OLD.display_name
-                OR ((NEW.is_public, NEW.visible_fields) IS DISTINCT FROM (OLD.is_public, OLD.visible_fields)
-                    AND OLD.birth_date > CURRENT_DATE - interval '14 years')) THEN
+                OR ((NEW.is_public, NEW.visible_fields, NEW.social_links)
+                      IS DISTINCT FROM (OLD.is_public, OLD.visible_fields, OLD.social_links)
+                    AND ${UNDER_CONSENT('OLD.birth_date')})) THEN
           RAISE EXCEPTION 'minor_restricted' USING ERRCODE = '42501';
         END IF;
         IF OLD.id IS DISTINCT FROM ${UID} THEN`],
   ['profiles_update_guard()',
     `IF (NEW.bio, NEW.social_links, NEW.visible_fields) IS DISTINCT FROM (OLD.bio, OLD.social_links, OLD.visible_fields)`,
-    `IF (NEW.bio, NEW.social_links) IS DISTINCT FROM (OLD.bio, OLD.social_links)
-             OR (NEW.visible_fields IS DISTINCT FROM OLD.visible_fields AND NOT guardian)`],
+    `IF NEW.bio IS DISTINCT FROM OLD.bio
+             OR ((NEW.social_links, NEW.visible_fields) IS DISTINCT FROM (OLD.social_links, OLD.visible_fields) AND NOT guardian)`],
   ['profiles_update_guard()', `OR (COALESCE(NEW.is_public, false) AND NOT COALESCE(OLD.is_public, false))`,
     `OR (COALESCE(NEW.is_public, false) AND NOT COALESCE(OLD.is_public, false) AND NOT guardian)`],
+  ['write_audit(uuid, text, text, text, jsonb)', `uid IS NULL OR p_actor IS DISTINCT FROM uid`,
+    `uid IS NULL OR p_actor IS DISTINCT FROM uid OR (is_minor(uid) AND p_action LIKE 'subscription.%')`],
+  ['visible_discipline_changes_used(uuid)', `(s.student_id = ${UID} OR s.payer_id`,
+    `((s.student_id = ${UID} AND NOT is_minor(${UID})) OR s.payer_id`],
 ];
 const patch = ([fn, from, to]) => `
   DO $do$
@@ -148,7 +158,22 @@ export const up = (pgm) => {
     CREATE FUNCTION is_minor(p_id uuid) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
       SELECT COALESCE((SELECT birth_date > CURRENT_DATE - interval '18 years' FROM profiles WHERE id = p_id), false)
     $$;
-    ${own('is_minor(uuid)')}
+    ${own('is_minor(uuid)', false)}
+    CREATE FUNCTION actor_is_minor() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+      SELECT is_minor(${UID})
+    $$;
+    ${own('actor_is_minor()')}
+    -- Edad de consentimiento (art. 7 LOPDGDD): hoy 14; si la ley la sube a 16, se cambia solo aquí.
+    CREATE FUNCTION minor_consent_age() RETURNS integer LANGUAGE sql IMMUTABLE AS $$ SELECT 14 $$;
+    ${own('minor_consent_age()')}
+
+    -- in_pause es interna (la usan las reservas y la racha de cualquiera); la API pregunta solo por quien puede ver.
+    REVOKE EXECUTE ON FUNCTION in_pause(uuid, timestamptz) FROM app_user;
+    CREATE FUNCTION visible_in_pause(p_student uuid, p_at timestamptz) RETURNS boolean
+      LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+      SELECT CASE WHEN p_student = ${UID} OR is_guardian_of(p_student, true) OR ${IS_ADMIN} THEN in_pause(p_student, p_at) END
+    $$;
+    ${own('visible_in_pause(uuid, timestamptz)')}
 
     ALTER TABLE auth_credentials
       ALTER COLUMN email DROP NOT NULL,
@@ -194,7 +219,7 @@ export const up = (pgm) => {
       LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
       BEGIN
         ${GUARDIAN}
-        IF p_email IS NOT NULL AND (SELECT birth_date FROM profiles WHERE id = p_minor) > CURRENT_DATE - interval '14 years' THEN
+        IF p_email IS NOT NULL AND ${UNDER_CONSENT('(SELECT birth_date FROM profiles WHERE id = p_minor)')} THEN
           RAISE EXCEPTION 'email_requires_14' USING ERRCODE = '22023';
         END IF;
         -- credentials_changed_at: un token de un acceso anterior (revocado) no vuelve a valer.
@@ -214,7 +239,7 @@ export const up = (pgm) => {
       BEGIN
         ${GUARDIAN}
         IF p_set_email AND p_email IS NOT NULL
-           AND (SELECT birth_date FROM profiles WHERE id = p_minor) > CURRENT_DATE - interval '14 years' THEN
+           AND ${UNDER_CONSENT('(SELECT birth_date FROM profiles WHERE id = p_minor)')} THEN
           RAISE EXCEPTION 'email_requires_14' USING ERRCODE = '22023';
         END IF;
         UPDATE auth_credentials SET
@@ -247,13 +272,18 @@ export const up = (pgm) => {
     $$;
     ${own('revoke_minor_access(uuid)')}
 
-    -- El menor cambia su foto: aviso a sus tutores. Para cualquier otro, nada.
-    CREATE FUNCTION minor_avatar_notice() RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+    -- El menor cambia su foto ('avatar') o su contraseña ('password'): aviso a sus tutores. Para cualquier otro, nada.
+    CREATE FUNCTION minor_self_notice(p_kind text) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
       BEGIN
-        IF ${MINOR_ACTOR} THEN PERFORM minor_notice(${UID}, 'notice.minor_avatar_changed', '{}'); END IF;
+        IF NOT ${MINOR_ACTOR} THEN RETURN; END IF;
+        IF p_kind = 'avatar' THEN PERFORM minor_notice(${UID}, 'notice.minor_avatar_changed', '{}');
+        ELSIF p_kind = 'password' THEN
+          PERFORM minor_notice(${UID}, 'notice.minor_access_changed', '{"fields": ["own_password"]}');
+        ELSE RAISE EXCEPTION 'not_allowed' USING ERRCODE = '42501';
+        END IF;
       END
     $$;
-    ${own('minor_avatar_notice()')}
+    ${own('minor_self_notice(text)')}
 
     -- Reclamar a los 18: el adulto que entra con su usuario añade su email una vez (app_user no escribe el email).
     CREATE FUNCTION set_own_email(p_email text) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -281,7 +311,7 @@ export const down = (pgm) => {
     ${replaceFn([CAN_BE_PUBLIC[0], CAN_BE_PUBLIC[2]])}
     ${replaceFn([BOOKING_CAN_ACT[0], BOOKING_CAN_ACT[2]])}
     DROP FUNCTION set_own_email(text);
-    DROP FUNCTION minor_avatar_notice();
+    DROP FUNCTION minor_self_notice(text);
     DROP FUNCTION revoke_minor_access(uuid);
     DROP FUNCTION update_minor_access(uuid, text, boolean, text, boolean);
     DROP FUNCTION grant_minor_access(uuid, text, text, text, inet, text);
@@ -292,6 +322,10 @@ export const down = (pgm) => {
     DELETE FROM auth_credentials WHERE email IS NULL;
     ALTER TABLE auth_credentials DROP CONSTRAINT auth_credentials_identity_check, DROP COLUMN can_book, DROP COLUMN username,
       ALTER COLUMN email SET NOT NULL;
+    DROP FUNCTION visible_in_pause(uuid, timestamptz);
+    GRANT EXECUTE ON FUNCTION in_pause(uuid, timestamptz) TO app_user;
+    DROP FUNCTION minor_consent_age();
+    DROP FUNCTION actor_is_minor();
     DROP FUNCTION is_minor(uuid);
   `);
 };
