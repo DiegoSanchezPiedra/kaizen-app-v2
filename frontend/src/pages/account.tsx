@@ -22,7 +22,8 @@ import { errorText } from '@/lib/errors'
 import { logout } from '@/lib/logout'
 import { agreementsFor } from '@/lib/profile'
 import { madridMonth } from '@/lib/dates'
-import { useClock, useProfileStatus } from '@/lib/queries'
+import { minorView } from '@/lib/minor'
+import { useClock, useMe, useProfileStatus } from '@/lib/queries'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
 import { setToken, useSession } from '@/lib/session'
 import type { Me } from '@/lib/types'
@@ -64,32 +65,34 @@ function ClockGroup() {
 export function AccountPage() {
   const role = useSession()?.role
   const { withSubject } = useSubject()
-  const me = useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/me') })
+  const me = useMe()
   const family = role === 'alumno' || role === 'tutor'
+  // B32: un menor con acceso propio no ve lo que su tutor lleva (cuota, acuerdos, salud, hijos, su nombre).
+  const view = minorView(me.data?.minor)
   return (
     <Page title="Cuenta">
       <div className="rounded-2xl border bg-card p-4">
         <AvatarEditor name={me.data?.display_name ?? null} avatar={me.data?.avatar}>
           <div className="min-w-0">
             {me.isPending ? <Skeleton className="h-10 w-40" /> : <p className="truncate font-semibold">{me.data?.display_name ?? 'Sin nombre'}</p>}
-            {me.data && <p className="truncate text-sm text-muted-foreground">{me.data.email}</p>}
+            {me.data && <p className="truncate text-sm text-muted-foreground">{me.data.email ?? me.data.username}</p>}
           </div>
         </AvatarEditor>
       </div>
       <Group title="Tú">
-        <Row to="/account/data" icon={IdCardIcon} label="Mis datos" />
+        {view.ownData && <Row to="/account/data" icon={IdCardIcon} label="Mis datos" />}
         <Row to="/account/password" icon={KeyRoundIcon} label="Contraseña" />
-        {role !== 'tutor' && <Row to="/account/profile" icon={GlobeIcon} label="Perfil público" hint="Qué ven los demás de ti" />}
-        {family && <Row to="/account/children" icon={UsersIcon} label="Mis hijos" />}
+        {role !== 'tutor' && view.publicProfile && <Row to="/account/profile" icon={GlobeIcon} label="Perfil público" hint="Qué ven los demás de ti" />}
+        {family && view.children && <Row to="/account/children" icon={UsersIcon} label="Mis hijos" />}
       </Group>
       {role === 'profesor' && <ClockGroup />}
-      {family && (
+      {family && view.health && (
         <Group title="Salud y documentos">
           <Row to={withSubject('/account/health')} icon={HeartPulseIcon} label="Ficha de salud" />
           <Row to={withSubject('/agreements')} icon={FileSignatureIcon} label="Acuerdos" />
         </Group>
       )}
-      {family && (
+      {family && view.billing && (
         <Group title="Cuota">
           <Row to={withSubject('/billing')} icon={WalletIcon} label="Mi cuota" />
         </Group>
@@ -191,7 +194,7 @@ export function PasswordSection() {
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/me') })
   if (me.isPending) return <ListSkeleton rows={2} />
   if (me.isError) return <ErrorState error={me.error} onRetry={() => void me.refetch()} />
-  return me.data.has_password ? <PasswordForm /> : <CreatePassword email={me.data.email} />
+  return me.data.has_password ? <PasswordForm /> : <CreatePassword email={me.data.email ?? ''} />
 }
 
 export function PasswordPage() {

@@ -18,7 +18,8 @@ export function profileNotice(missing: string[] = []): 'complete' | 'sign' | nul
 export type Step = 'datos' | 'ficha' | 'acuerdos'
 export function onboardingSteps(missing: string[], birthMissing: boolean): Step[] {
   const steps: Step[] = []
-  if (missing.includes('display_name') || birthMissing) steps.push('datos')
+  // B32: a los 18, quien entró con el usuario de su tutor añade su email en el mismo paso.
+  if (missing.includes('display_name') || missing.includes('email') || birthMissing) steps.push('datos')
   if (missing.some((m) => m === 'health_info' || m === 'emergency_contact')) steps.push('ficha')
   if (missing.some(isAgreement)) steps.push('acuerdos')
   return steps

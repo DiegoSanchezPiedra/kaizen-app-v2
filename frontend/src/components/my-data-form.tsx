@@ -19,7 +19,8 @@ import type { Me } from '@/lib/types'
 export const useMeKey = ['me'] as const
 
 // Mis datos: nombre y, solo si falta (alta con Google), la fecha de nacimiento. El email no se cambia (B18 lo deja fuera).
-export function MyDataForm({ showEmail, submitLabel = 'Guardar', onSaved }: { showEmail?: boolean; submitLabel?: string; onSaved?: () => void }) {
+// `askEmail` (B32): a los 18, quien entró con el usuario de su tutor añade su email, una vez (`missing` lo trae).
+export function MyDataForm({ showEmail, askEmail, submitLabel = 'Guardar', onSaved }: { showEmail?: boolean; askEmail?: boolean; submitLabel?: string; onSaved?: () => void }) {
   const me = useQuery({ queryKey: useMeKey, queryFn: () => api<Me>('/me') })
   const [birth, setBirth] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -34,6 +35,7 @@ export function MyDataForm({ showEmail, submitLabel = 'Guardar', onSaved }: { sh
       const code = errorCode(err)
       if (code === 'invalid_birth_date' || code === 'minor_cannot_register' || code === 'birth_date_already_set') setErrors({ birth_date: errorText(code) })
       else if (code === 'invalid_field_type') setErrors({ display_name: 'Escribe tu nombre.' })
+      else if (code === 'email_taken' || code === 'email_already_set' || code === 'invalid_field') setErrors({ email: errorText(code) })
       else toastError(err)
     },
   })
@@ -45,6 +47,7 @@ export function MyDataForm({ showEmail, submitLabel = 'Guardar', onSaved }: { sh
   function submit(v: Record<string, unknown>) {
     setErrors({})
     const body: Record<string, string> = { display_name: String(v.display_name).trim() }
+    if (askEmail) body.email = String(v.email).trim()
     if (askBirth) {
       const iso = parseSpanishDate(birth)
       if (!iso) return setErrors({ birth_date: errorText('invalid_birth_date') })
@@ -61,12 +64,22 @@ export function MyDataForm({ showEmail, submitLabel = 'Guardar', onSaved }: { sh
         <FieldMessage match="valueMissing">Escribe tu nombre.</FieldMessage>
         {errors.display_name && <FieldMessage>{errors.display_name}</FieldMessage>}
       </Field>
-      {showEmail && (
+      {askEmail ? (
         <Field name="email" className="items-stretch">
           <FieldLabel>Email</FieldLabel>
-          <Input value={me.data.email} readOnly />
-          <FieldDescription>Por ahora el email no se puede cambiar.</FieldDescription>
+          <Input type="email" autoComplete="email" inputMode="email" placeholder="tu@email.com" required />
+          <FieldMessage match="valueMissing">Escribe tu email.</FieldMessage>
+          <FieldMessage match="typeMismatch">Escribe un email válido.</FieldMessage>
+          {errors.email ? <FieldMessage>{errors.email}</FieldMessage> : <FieldDescription>Con él recuperas la contraseña y recibes los avisos. Se pide una vez.</FieldDescription>}
         </Field>
+      ) : (
+        showEmail && (
+          <Field name="email" className="items-stretch">
+            <FieldLabel>Email</FieldLabel>
+            <Input value={me.data.email ?? ''} readOnly />
+            <FieldDescription>Por ahora el email no se puede cambiar.</FieldDescription>
+          </Field>
+        )
       )}
       {askBirth && (
         <Field name="birth_date" className="items-stretch">

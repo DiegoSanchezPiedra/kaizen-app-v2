@@ -13,16 +13,19 @@ export function useSubject() {
   const session = useSession()
   const [params, setParams] = useSearchParams()
   const enabled = session?.role === 'alumno' || session?.role === 'tutor'
+  const alumno = session?.role === 'alumno'
+  // La fecha propia (para la edad de las disciplinas) sale de /me: misma clave que my-data-form.
+  const me = useQuery({ queryKey: useMeKey, queryFn: () => api<Me>('/me'), enabled: alumno, staleTime: 30_000 })
+  // B32: un menor con acceso propio actúa solo por sí mismo y /me/children le da 403: sin selector. Se espera a /me para saberlo.
+  const minor = !!me.data?.minor
   const { data, isPending, error, refetch } = useQuery({
     // Misma clave y misma forma (la lista) que pages/children.tsx: si no, la que llega primero a la caché rompe a la otra.
     queryKey: ['me', 'children'],
     queryFn: () => api<{ children: Child[] }>('/me/children').then((r) => r.children),
-    enabled,
+    enabled: enabled && !minor && (!alumno || me.isSuccess),
     staleTime: 30_000, // igual en pages/children.tsx: cada pantalla monta el selector y no debe volver a pedirla
   })
-  // La fecha propia (para la edad de las disciplinas) sale de /me: misma clave que my-data-form.
-  const me = useQuery({ queryKey: useMeKey, queryFn: () => api<Me>('/me'), enabled: session?.role === 'alumno', staleTime: 30_000 })
-  const options = session && data && (session.role !== 'alumno' || me.data) ? subjectOptions(session.role, session.id, me.data?.birth_date ?? null, data) : []
+  const options = session && !minor && data && (session.role !== 'alumno' || me.data) ? subjectOptions(session.role, session.id, me.data?.birth_date ?? null, data) : []
   const subject = activeSubject(options, params.get('para'))
   const select = (id: string) =>
     setParams((p) => {
@@ -38,9 +41,9 @@ export function useSubject() {
     subject,
     // Para uno mismo no se manda: el calendario solo acepta profile_id de un hijo (o del admin) y responde 403.
     profileId: subject && !subject.self ? subject.id : undefined,
-    loading: enabled && (isPending || (session?.role === 'alumno' && me.isPending)),
+    loading: enabled && !minor && (alumno ? me.isPending || (me.isSuccess && isPending) : isPending),
     error: error ?? me.error,
-    retry: () => void Promise.all([refetch(), me.refetch()]),
+    retry: () => void Promise.all([!minor && refetch(), alumno && me.refetch()]),
     select,
   }
 }

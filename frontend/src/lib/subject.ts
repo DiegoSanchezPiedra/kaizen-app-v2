@@ -1,6 +1,17 @@
 import type { Role } from '@/lib/paths'
 
-export type Child = { id: string; display_name: string; avatar?: string | null; birth_date: string | null; pending_claim: boolean }
+// B32: `access` (null o el usuario del menor), `is_public` y `visible_fields` los trae /me/children para la ficha del tutor.
+export type ChildAccess = { username: string; email: string | null; can_book: boolean }
+export type Child = {
+  id: string
+  display_name: string
+  avatar?: string | null
+  birth_date: string | null
+  pending_claim: boolean
+  is_public?: boolean
+  visible_fields?: Record<string, boolean>
+  access?: ChildAccess | null
+}
 // birth_date: la edad de hoy (rango de disciplinas) sale de aquí; null = sin fecha, se toma como adulto.
 export type Subject = { id: string; label: string; self: boolean; avatar?: string | null; birth_date: string | null }
 

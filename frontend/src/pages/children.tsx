@@ -3,6 +3,7 @@ import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, UsersIcon } 
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { AvatarEditor } from '@/components/avatar-editor'
+import { ChildAccessSection, ChildVisibilitySection } from '@/components/child-access'
 import { Page } from '@/components/page'
 import { ProfileAvatar } from '@/components/profile-avatar'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
@@ -54,6 +55,7 @@ export function ChildrenPage() {
                     <ProfileAvatar name={c.display_name} avatar={c.avatar} className="size-10" />
                     <span className="min-w-0 flex-1 truncate font-semibold">{c.display_name}</span>
                     {c.pending_claim && <Badge variant="info" size="lg">Mayor de edad</Badge>}
+                    {c.access && !c.pending_claim && <Badge variant="outline" size="lg">Con acceso</Badge>}
                     <ChevronRightIcon className="size-4 text-muted-foreground" aria-hidden="true" />
                   </Link>
                 </li>
@@ -140,6 +142,12 @@ export function ChildFormPage() {
           {id ? 'Guardar' : 'Añadir'}
         </Button>
       </Form>
+      {child && (
+        <>
+          <ChildAccessSection child={child} />
+          <ChildVisibilitySection child={child} />
+        </>
+      )}
     </Page>
   )
 }

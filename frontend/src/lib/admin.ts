@@ -91,6 +91,10 @@ const DELIVERY_LABEL: Record<string, string> = {
   'notice.clock_open': 'Jornada sin cerrar',
   'notice.clock_correction_applied': 'Corrección de jornada aplicada',
   'notice.clock_correction_rejected': 'Corrección de jornada rechazada',
+  'notice.minor_access_granted': 'Acceso propio de un hijo activado',
+  'notice.minor_access_revoked': 'Acceso propio de un hijo retirado',
+  'notice.minor_access_changed': 'Acceso propio de un hijo cambiado',
+  'notice.minor_avatar_changed': 'Un hijo ha cambiado su foto',
 }
 export const deliveryLabel = (action: string): string => DELIVERY_LABEL[action] ?? action
 export const CHANNEL_LABEL: Record<string, string> = { email: 'Email', push: 'Push' }

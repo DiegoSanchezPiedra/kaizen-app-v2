@@ -14,6 +14,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { api } from '@/lib/api'
 import { queryClient } from '@/lib/logout'
 import { toastError, toastOk } from '@/lib/notify'
+import { minorView } from '@/lib/minor'
+import { useMinor } from '@/lib/queries'
 import { useSession } from '@/lib/session'
 import type { MyProfile } from '@/lib/types'
 
@@ -28,8 +30,8 @@ const FIELDS: [string, string][] = [
 ]
 // El profesor no tiene logros ni sale en los rankings.
 const PROFESSOR_FIELDS = FIELDS.filter(([k]) => k !== 'achievements' && k !== 'ranking').map(([k, l]): [string, string] => [k, k === 'member_since' ? 'Desde cuándo estoy en la academia' : l])
-const NETWORKS: [string, string][] = [['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['web', 'Web']]
-const isHttps = (u: string) => /^https:\/\/\S+$/.test(u)
+export const NETWORKS: [string, string][] = [['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['web', 'Web']]
+export const isHttps = (u: string) => /^https:\/\/\S+$/.test(u)
 
 function ProfileForm({ profile }: { profile: MyProfile }) {
   const role = useSession()?.role
@@ -98,7 +100,10 @@ function ProfileForm({ profile }: { profile: MyProfile }) {
 // Perfil público propio. Un tutor no tiene (ni un hijo); un alumno que aún no cumple los requisitos, tampoco.
 export function PublicProfilePage() {
   const role = useSession()?.role
-  const query = useQuery({ queryKey: ['my-profile'], queryFn: () => api<MyProfile>('/me/profile'), enabled: role !== 'tutor' })
+  // B32: un menor por debajo de la edad de consentimiento no decide su perfil público: lo hace su tutor.
+  const minor = useMinor()
+  const locked = minor && !minorView(minor).publicProfile
+  const query = useQuery({ queryKey: ['my-profile'], queryFn: () => api<MyProfile>('/me/profile'), enabled: role !== 'tutor' && !locked })
   return (
     <Page title="Perfil público">
       <Link to="/account" className="-mt-3 inline-flex min-h-11 items-center gap-1 self-start font-semibold text-link">
@@ -107,6 +112,8 @@ export function PublicProfilePage() {
       </Link>
       {role === 'tutor' ? (
         <EmptyState icon={<LockIcon />} title="No disponible" text="Los tutores no tienen perfil público." />
+      ) : locked ? (
+        <EmptyState icon={<LockIcon />} title="Lo decide tu tutor" text="Hasta que tengas la edad para decidirlo, tu tutor elige si tu perfil es público y qué se ve." />
       ) : query.isPending ? (
         <ListSkeleton rows={3} />
       ) : query.isError ? (

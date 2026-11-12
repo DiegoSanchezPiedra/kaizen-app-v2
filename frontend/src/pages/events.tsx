@@ -18,9 +18,10 @@ import {
   amountFor, audienceTag, audienceText, eventWhen, isMember, joinState, priceView, spotsLabel, type EventInfo, type JoinState,
 } from '@/lib/events'
 import { formatDeadline, formatEuros } from '@/lib/format'
+import { joinBlock } from '@/lib/minor'
 import { homeNotices } from '@/lib/notices'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
-import { eventOf, refreshEvents, useEvent, useEvents, useProfileStatus, useSubscription } from '@/lib/queries'
+import { eventOf, refreshEvents, useEvent, useEvents, useMinor, useProfileStatus, useSubscription } from '@/lib/queries'
 import type { Subject } from '@/lib/subject'
 import { toastManager } from '@/components/ui/toast'
 
@@ -80,6 +81,8 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
   const now = useNow()
   const state: JoinState = joinState(e, { now, blocked: blockers.length > 0, audienceBlocked: mismatch })
   const amount = amountFor(e, member === true)
+  // B32: un menor sin permiso de reservar (o ante un evento de pago) ve el motivo en lugar de inscribirse o cancelar.
+  const blocked = joinBlock(useMinor(), e.price_cents)
 
   const join = useMutation({
     mutationFn: () => api<{ url?: string }>(`/events/${e.id}/registrations`, { method: 'POST', body: { profile_id: profileId } }),
@@ -163,14 +166,16 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
               </Note>
             ) : (
               <Note kind="success" title={name ? `${name} está inscrito` : 'Estás inscrito'}>
-                Puedes cancelar hasta que empiece.
+                {blocked ? blocked : 'Puedes cancelar hasta que empiece.'}
               </Note>
             )}
-            <StickyFooter>
-              <Button size="xl" variant="outline" loading={cancel.isPending} onClick={() => setAsking(true)}>
-                Cancelar inscripción
-              </Button>
-            </StickyFooter>
+            {!blocked && (
+              <StickyFooter>
+                <Button size="xl" variant="outline" loading={cancel.isPending} onClick={() => setAsking(true)}>
+                  Cancelar inscripción
+                </Button>
+              </StickyFooter>
+            )}
           </>
         )
       case 'closed':
@@ -195,6 +200,7 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
           </>
         )
       case 'open':
+        if (blocked) return <Note kind="info" title={blocked} />
         return (
           <StickyFooter>
             <Button size="xl" loading={!ready || join.isPending || redirecting} onClick={() => join.mutate()}>

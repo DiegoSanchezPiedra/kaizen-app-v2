@@ -6,7 +6,7 @@ import { getSession } from '@/lib/session'
 import type { AuthMe } from '@/lib/admin'
 import type { ClockMonth } from '@/lib/clock'
 import type { EventInfo } from '@/lib/events'
-import type { Booking, Discipline, Plan, ProfileStatus, Progress, Subscription } from '@/lib/types'
+import type { Booking, Discipline, Me, Plan, ProfileStatus, Progress, Subscription } from '@/lib/types'
 
 // GET /bookings también devuelve las que el alumno hizo por sus hijos: cada pantalla enseña solo las del sujeto.
 export const bookingsOf = (profileId: string | undefined, from: string, to: string): Promise<Booking[]> =>
@@ -28,9 +28,15 @@ export const useBookings = (profileId: string | undefined, from: string, to: str
     queryFn: () => bookingsOf(profileId, from, to),
   })
 
-// Sin suscripción es un 404 esperado: llega como null, no como error.
-export const useSubscription = (profileId?: string) =>
-  useQuery({
+export const useMe = () => useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/me'), staleTime: 30_000 })
+// `minor` de /me (B32): null en un adulto; undefined mientras carga. Lo que se oculta o se bloquea sale de lib/minor.ts.
+export const useMinor = () => useMe().data?.minor
+
+// Sin suscripción es un 404 esperado: llega como null, no como error. Un menor con acceso propio no ve la cuota (403): ni se pide.
+export const useSubscription = (profileId?: string) => {
+  const me = useMe()
+  return useQuery({
+    enabled: me.isSuccess && !me.data.minor,
     queryKey: ['subscription', who(profileId)],
     queryFn: () =>
       api<Subscription>(path('/billing/subscription', { profile_id: profileId })).catch((err) => {
@@ -38,6 +44,7 @@ export const useSubscription = (profileId?: string) =>
         throw err
       }),
   })
+}
 
 export const usePlans = () => useQuery({ queryKey: ['plans'], queryFn: () => api<{ plans: Plan[] }>('/plans').then((r) => r.plans) })
 export const useDisciplines = () =>

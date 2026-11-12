@@ -5,6 +5,7 @@ export type HomeNotice = { id: string; kind: 'warning' | 'error' | 'info'; title
 
 export const MISSING_TEXT: Record<string, string> = {
   display_name: 'tu nombre',
+  email: 'tu email',
   health_info: 'la ficha de salud',
   emergency_contact: 'un contacto de emergencia',
   data_protection: 'la protección de datos',
