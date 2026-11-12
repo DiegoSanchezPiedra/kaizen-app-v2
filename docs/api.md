@@ -28,10 +28,13 @@
 - **Menor con acceso propio** (B32, ADR 0026): su tutor le da usuario y contraseña. Es `alumno`; `GET /me` trae
   `minor: { can_book, can_publish }` (`null` en un adulto). Actúa por sí mismo y nunca por otro (`profile_id` de un hermano:
   el `403` de siempre de cada ruta). Siempre `403 minor_restricted`: todo `/billing`, `GET/POST /me/health`,
-  `POST /me/agreements`, `PATCH /me`, `/me/children*` y los eventos de pago. Sin el permiso de reservar (`can_book: false`),
+  `POST /me/agreements`, `PATCH /me`, `/me/children*` y los eventos de pago. `/me` está cerrado por defecto: solo `GET /me`,
+  `GET /me/profile-status`, `GET`/`PATCH /me/profile`, `GET /me/progress`, `POST /me/progress/seen`, push, `POST /me/password` y
+  `PUT`/`DELETE /me/avatar`. Sin el permiso de reservar (`can_book: false`),
   también `POST /bookings`, `POST /bookings/:id/cancel`, `POST /events/:id/registrations` y
-  `DELETE /events/registrations/:id`. Con menos de 14 (`can_publish: false`), `PATCH /me/profile` con `is_public` o
-  `visible_fields`.
+  `DELETE /events/registrations/:id`. Por debajo de la edad de consentimiento (hoy 14; `can_publish: false`), `PATCH /me/profile` con
+  `is_public`, `visible_fields` o `social_links`. Su token dura siempre 7 días. Si cambia su contraseña, sus tutores reciben
+  `notice.minor_access_changed`.
 - **Fechas**: instantes en ISO con zona (`timestamptz`); días `YYYY-MM-DD` y meses `YYYY-MM` siempre **de Madrid**.
   Rangos `from`/`to` incluidos. Importes en céntimos (`*_cents`). Ids de catálogo (disciplinas, planes) son enteros
   que a veces llegan como string; perfiles, sesiones, reservas, etc. son uuid.
@@ -95,11 +98,11 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 | `POST /me/children/:id/access` | su tutor (B32) | `{ username, password, email?, notice_version }` (`username`: 3–30 de `a-z 0-9 . _ -`, sin `@`; `email` solo desde los 14; `notice_version`: la del texto informativo, hoy `1.0`) | `201 { access }`. Registra quién, cuándo, IP y versión; avisa a los demás tutores. `400 invalid_username`, `weak_password`, `email_requires_14`, `invalid_field` (`notice_version`, `email`); `409 access_exists`, `username_taken`, `email_taken`; `403 not_guardian` |
 | `PATCH /me/children/:id/access` | su tutor | `{ password?, email? (o null), can_book? }` | `{ access }`. La contraseña nueva cierra las sesiones del menor. Avisa a los demás tutores. `404 access_not_found`, `400 email_requires_14`, `weak_password`, `invalid_field`, `no_fields`; `403 not_guardian` |
 | `DELETE /me/children/:id/access` | su tutor | — | `204`. Su sesión abierta cae al momento y se borran sus dispositivos de push. Avisa a los demás tutores. `404 access_not_found`, `403 not_guardian` |
-| `PATCH /me/children/:id/profile` | su tutor | `{ is_public?, visible_fields? }` | como `GET /me/profile`, del hijo (con o sin acceso). `400 invalid_field`, `403 not_guardian` |
+| `PATCH /me/children/:id/profile` | su tutor | `{ is_public?, visible_fields?, social_links? }` | como `GET /me/profile`, del hijo (con o sin acceso). `400 invalid_field`, `403 not_guardian` |
 | `POST /me/children` | cualquier adulto | `{ display_name, birth_date }` | `201 { child }`. `child_must_be_minor`, `invalid_birth_date` |
 | `PATCH /me/children/:id` | cualquiera (su tutor) | `{ display_name?, birth_date? }` | `{ child }`. `child_not_found` |
 | `GET /me/profile` | cualquiera | — | `{ is_public, eligible, visible_fields, bio, social_links }` |
-| `PATCH /me/profile` | cualquiera | `{ is_public?, visible_fields?, bio? (≤500), social_links? (https) }` | igual. `403 not_eligible`; `403 minor_restricted` (menor de 14 con `is_public` o `visible_fields`: lo decide su tutor) |
+| `PATCH /me/profile` | cualquiera | `{ is_public?, visible_fields?, bio? (≤500), social_links? (https) }` | igual. `403 not_eligible`; `403 minor_restricted` (menor de 14 con `is_public`, `visible_fields` o `social_links`: lo decide su tutor) |
 | `GET /me/progress?profile_id=&month=YYYY-MM` | alumno, tutor (hijo), admin | — | `{ streak: { current, best }, disciplines: [{ id, name, theme, hours, streak: { current, best }, badges: [{ code, earned_at }] }], hours: { month, disciplines: [{ id, name, hours }] }, medals_seen }`. `streak` es la racha general (toda la academia); cada entrada de `disciplines` es la escalera de medallas de una disciplina con asistencia (037): su temática (`theme`, `null` = Kaizen), sus horas totales y su racha. `medals_seen`: claves `<discipline_id>:<código>` ya celebradas por quien mira, o `null` |
 | `POST /me/progress/seen` | alumno, tutor (hijo), admin | `{ profile_id?, codes }` (≤ 1024 claves `<discipline_id>:<código>`) | `{ codes }`: añade las claves que quien mira ya celebró (idempotente: une); claves inválidas, 400 `invalid_field`; si no puede verlo, 403 `not_guardian` |
 | `POST /me/push-subscriptions` | alumno, tutor | `{ endpoint, keys: { p256dh, auth } }` (de `PushManager.subscribe`) | `201 { ok }` |

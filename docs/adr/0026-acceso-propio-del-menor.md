@@ -9,11 +9,17 @@ art. 8 RGPD: el tutor ya está identificado por su relación con la academia) y 
 versión del texto informativo.
 
 - **Credenciales en `auth_credentials`**: `username` (lo elige el tutor; único; en minúsculas, de 3 a 30 letras, números,
-  `.`, `_` o `-`, así que nunca tiene forma de email) y contraseña. `email` pasa a ser opcional: por debajo de 14 años el
-  menor no tiene; desde los 14, el tutor le puede poner uno. Sin Google. La contraseña la pone y la restablece el tutor
-  (el email de restablecer no sirve para un menor); el menor la puede cambiar con su sesión, como cualquiera.
+  `.`, `_` o `-`, así que nunca tiene forma de email) y contraseña. `email` pasa a ser opcional: por debajo de la edad
+  de consentimiento el menor no tiene; desde ella, el tutor le puede poner uno. Sin Google. La contraseña la pone y la
+  restablece el tutor (el email de restablecer no sirve para un menor); el menor la puede cambiar con su sesión, como
+  cualquiera, y sus tutores reciben un aviso («Y ha cambiado su contraseña»).
+- **Edad de consentimiento en un solo sitio**: la función SQL `minor_consent_age()`. Hoy 14 (art. 7 LOPDGDD); si la ley
+  la sube a 16, se cambia en un sitio. La usan el email del menor, su visibilidad pública y sus redes, y `requireAuth`
+  (que calcula `can_publish`); el JavaScript no repite el número.
 - **Login** por email o por usuario en el mismo campo (`email` con `@` busca el email; sin `@`, el usuario), con el límite
-  por IP y el mismo límite por cuenta. La sesión dura 7 días.
+  por IP y el mismo límite por cuenta. Sin enumeración por tiempo: si la cuenta no existe se verifica igualmente contra
+  un hash fijo. La sesión del menor dura siempre 7 días, aunque cambie `JWT_EXPIRES_IN`. La IP del consentimiento es
+  `req.ip`, con `trust proxy` por número de saltos (`TRUST_PROXY`: 1 en el VPS, 2 en el staging), que el cliente no falsea.
 - **Revocar** borra las credenciales y los dispositivos de push del menor. `requireAuth` rechaza (`401 session_revoked`)
   el token de un hijo (perfil con tutores) sin credenciales: la sesión abierta cae al momento, también si después cumple
   18. Restablecer la contraseña pone `credentials_changed_at` (ADR 0020); activar también, así un token de un acceso
@@ -22,6 +28,8 @@ versión del texto informativo.
   (`{ can_book, can_publish }` o `null`): con su acceso, el menor es actor y sujeto de lo suyo, y el tutor sigue
   pudiendo actuar por él. El menor no actúa por nadie más: el `profile_id` de un hermano da el error de siempre de cada
   ruta (`403 not_guardian`) o, en lo bloqueado, `403 minor_restricted`.
+- **`/me` cerrado por defecto**: el menor solo usa las rutas de una lista blanca (sus datos, su perfil público, su
+  progreso, push, su contraseña y su foto); cualquier otra, también una nueva, da `403 minor_restricted`.
 - **Bloqueado siempre** (`403 minor_restricted`) en la ruta **y** en la base: pagos (contratar, cambiar plan o
   disciplina, portal, cambio de pagador, eventos de pago), pausas, ver la cuota, firmar acuerdos, la ficha de salud (leer
   y escribir), su nombre visible, su fecha de nacimiento, su email, crear o editar hijos y el acceso de otros. En la base:
@@ -30,9 +38,10 @@ versión del texto informativo.
   crea cliente de pago para un menor; y la firma ya exigía un adulto (RLS de `user_agreements`).
 - **Permiso de reservar** (`auth_credentials.can_book`, por defecto sí): sin él, el menor no reserva, no cancela y no se
   inscribe ni se da de baja en eventos (tampoco en `booking_can_act`); su tutor sí, por él. Lo cambia cualquier tutor.
-- **Perfil público, rankings y foto pública** de un menor: desactivados por defecto. Por debajo de 14 los decide solo su
-  tutor; desde los 14, también el menor. Vale para cualquier menor, con acceso o sin él (`can_be_public` admite al menor;
-  el tutor cambia `is_public` y `visible_fields`, no la bio ni las redes). Cambia la regla de B24 de que la foto de un
+- **Perfil público, rankings y foto pública** de un menor: desactivados por defecto. Por debajo de la edad de
+  consentimiento los decide solo su tutor; desde ella, también el menor. Vale para cualquier menor, con acceso o sin él
+  (`can_be_public` admite al menor; el tutor cambia `is_public`, `visible_fields` y las redes, no la bio). Las **redes**
+  son un canal de contacto (LOPIVI): por debajo de la edad de consentimiento solo las edita el tutor; la bio, el menor. Cambia la regla de B24 de que la foto de un
   menor nunca es pública. A validar con el abogado (LO 1/1996 art. 4.3).
 - **Avisos al menor**: solo los operativos de reservas, sesiones y eventos (`notice_recipients`), por push o, si tiene,
   email, y siguen llegando a sus tutores. Los de cobertura perdida, pausa y cambio de disciplina, los de cobro, impago,
@@ -66,7 +75,7 @@ Todas las políticas que distinguen sujeto y actor o usan `is_guardian_of`. El m
 
 | Tabla | Antes | Con su acceso (061) |
 | --- | --- | --- |
-| `profiles` | Lee la suya; la de sus hijos | Solo la suya (ni hermanos ni tutores). Edita su foto, su bio y sus redes; su nombre, no; su visibilidad, desde los 14 |
+| `profiles` | Lee la suya; la de sus hijos | Solo la suya (ni hermanos ni tutores). Edita su foto y su bio; su nombre, no; su visibilidad y sus redes, desde la edad de consentimiento (14) |
 | `auth_credentials` | La suya | La suya. El tutor lee la del hijo (sin la contraseña) |
 | `guardianships` | Las suyas (`minor_id`) | Igual: ve qué tutores tiene (ids), no sus datos. `requireAuth` lo usa |
 | `student_health_info` | La suya | Ninguna (ni leer ni escribir) |
@@ -78,7 +87,11 @@ Todas las políticas que distinguen sujeto y actor o usan `is_guardian_of`. El m
 | `clock_*`, `teacher_employment`, `audit_log`, `notice_deliveries`, `device_tokens` | Profesor o admin | Nada |
 | Catálogo, sesiones, eventos, perfiles públicos | Cualquiera con sesión | Igual |
 
-Funciones `SECURITY DEFINER` con actor: `booking_can_act` (y con ella `book_session`, `cancel_booking`,
+Funciones que `app_user` puede llamar: ninguna responde por otro perfil. `in_pause` e `is_minor` pasan a internas (la
+API usa `visible_in_pause`, que solo responde por uno mismo, un hijo o el admin, y `actor_is_minor`); `session_coverage`,
+`student_progress`, `visible_profile_missing` y `visible_discipline_changes_used` (esta, sin el menor) ya lo hacían;
+`write_audit` no deja a un menor anotar cambios de suscripción; las del personal (sesiones, asistencia, eventos) siguen
+exigiendo admin o profesor. Funciones `SECURITY DEFINER` con actor: `booking_can_act` (y con ella `book_session`, `cancel_booking`,
 `register_event`, `cancel_event_registration`) exige el permiso de reservar al menor; `register_event` y
 `change_discipline` rechazan al menor como pagador; `check_in`, `student_progress` y `mark_medals_seen` le dejan lo
 suyo; `visible_profile_missing` le dice qué le falta a su perfil (sin el contenido de la ficha ni de las firmas).
