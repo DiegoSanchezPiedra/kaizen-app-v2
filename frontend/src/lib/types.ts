@@ -115,6 +115,7 @@ export type Me = {
   birth_date: string | null
   has_password: boolean
   avatar: string | null
+  can_create_children: boolean
   minor: { can_book: boolean; can_publish: boolean } | null
 }
 

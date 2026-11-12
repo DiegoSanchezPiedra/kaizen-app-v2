@@ -9,6 +9,7 @@ import { ProfileAvatar } from '@/components/profile-avatar'
 import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxPopup } from '@/components/ui/combobox'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
@@ -359,6 +360,22 @@ function RoleChange({ file, refresh }: { file: ProfileFile; refresh: () => void 
   )
 }
 
+// Permiso de dar de alta hijos (POST /me/children): lo concede un admin, por usuario. Solo un adulto con acceso propio.
+function CanCreateChildren({ file, refresh }: { file: ProfileFile; refresh: () => void }) {
+  const p = file.profile
+  const toggle = useMutation({
+    mutationFn: (enabled: boolean) => api(`/admin/profiles/${p.id}/can-create-children`, { method: 'PUT', body: { enabled } }),
+    onError: (err) => toastError(err),
+    onSettled: refresh,
+  })
+  return (
+    <label className="flex min-h-12 items-center justify-between gap-3 border-t pt-3">
+      <span className="text-[15px] font-medium">Puede crear hijos</span>
+      <Switch checked={toggle.isPending ? toggle.variables : p.can_create_children} disabled={toggle.isPending} onCheckedChange={(v) => toggle.mutate(v)} />
+    </label>
+  )
+}
+
 function Summary({ file, refresh }: { file: ProfileFile; refresh: () => void }) {
   const p = file.profile
   const { ask, dialog } = useConfirm(refresh)
@@ -419,6 +436,7 @@ function Summary({ file, refresh }: { file: ProfileFile; refresh: () => void }) 
   return (
     <section className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
       <Kv rows={rows} />
+      {!isChild(p) && !p.is_minor && <CanCreateChildren file={file} refresh={refresh} />}
       {canChangeRole(p) && <RoleChange file={file} refresh={refresh} />}
       {p.role === 'profesor' && <EmploymentChange id={p.id} />}
       {dialog}

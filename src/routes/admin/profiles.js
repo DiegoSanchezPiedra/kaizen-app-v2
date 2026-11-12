@@ -6,7 +6,7 @@ import { unpublishProfile } from '../../services/profiles.js';
 import { withRls } from '../../db/rls.js';
 import { adminGrantLimit } from '../../middleware/rateLimit.js';
 import { setAvatar, deleteAvatarFile, noticeAvatarRemoved } from '../../services/avatar.js';
-import { listProfiles, getProfileStats, getProfile, changeRole, addGuardian, removeGuardian } from '../../services/users.js';
+import { listProfiles, getProfileStats, getProfile, changeRole, setCanCreateChildren, addGuardian, removeGuardian } from '../../services/users.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const checkId = (req, res, next, v) => (UUID_RE.test(v) ? next() : next(httpError(400, 'invalid_id', 'id inválido')));
@@ -30,6 +30,10 @@ router.get('/profiles/:id', withRlsContext((req, client) => getProfile(client, {
 const grantLimit = (req, res, next) => (req.body?.role === 'admin' ? adminGrantLimit(req, res, next) : next());
 router.put('/profiles/:id/role', grantLimit, withRlsContext((req, client) => changeRole(client, {
   id: req.params.id, role: req.body?.role, actorId: req.user.id, mfaSession: req.user.mfa, mfaCode: req.body?.mfa_code })));
+
+// PUT /admin/profiles/:id/can-create-children { enabled } → { profile }: permiso de dar de alta hijos (audit_log)
+router.put('/profiles/:id/can-create-children', withRlsContext((req, client) =>
+  setCanCreateChildren(client, { id: req.params.id, enabled: req.body?.enabled })));
 
 // POST /admin/profiles/:id/guardians { tutor_id } → 201 { guardians }; DELETE …/guardians/:tutorId → 204
 router.post('/profiles/:id/guardians', withRlsContext((req, client) =>

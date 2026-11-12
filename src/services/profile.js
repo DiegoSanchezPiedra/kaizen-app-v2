@@ -54,7 +54,8 @@ const TUTOR_REQUIRED = ['display_name', 'data_protection'];
 export async function getMe(client, user) {
   const { rows } = await client.query(
     `SELECT p.id, $2::text AS role, p.display_name, c.email, c.username, p.birth_date::text AS birth_date,
-            COALESCE(c.has_password, false) AS has_password, p.avatar
+            COALESCE(c.has_password, false) AS has_password, p.avatar,
+            COALESCE(c.can_create_children, false) AS can_create_children
        FROM profiles p LEFT JOIN auth_credentials c ON c.profile_id = p.id
       WHERE p.id = $1`,
     [user.id, user.role]
@@ -118,6 +119,9 @@ export async function createChild(client, { displayName, birthDate }) {
   try {
     await client.query(`SELECT create_child($1, $2, $3)`, [id, displayName, birthDate]);
   } catch (err) {
+    if (err.code === 'P0001' && err.message === 'child_creation_not_allowed') {
+      throw httpError(403, 'child_creation_not_allowed', 'No puedes añadir hijos: pídelo a administración');
+    }
     if (err.code === '22023') throw httpError(400, 'child_must_be_minor', 'El hijo debe ser menor de 18');
     if (err.code === '42501') throw httpError(403, 'minor_cannot_create_child', 'Solo un adulto puede dar de alta hijos');
     throw err;

@@ -110,7 +110,7 @@ describe('avisos de la academia', () => {
 })
 
 describe('usuarios del panel (B19.3)', () => {
-  const adult = { id: 'a', display_name: 'Ana', email: 'ana@x.es', role: 'alumno' as const, is_minor: false, pending_claim: false, created_at: '', is_public: false, has_password: true, has_google: false }
+  const adult = { id: 'a', display_name: 'Ana', email: 'ana@x.es', role: 'alumno' as const, is_minor: false, pending_claim: false, created_at: '', is_public: false, has_password: true, has_google: false, can_create_children: false }
   const child = { ...adult, id: 'h', display_name: 'Hijo', email: null, is_minor: true, has_password: false }
   const tutor = { id: 't', display_name: 'Tutora', email: 't@x.es' }
   const file = (profile: typeof adult | typeof child, payer?: string) =>

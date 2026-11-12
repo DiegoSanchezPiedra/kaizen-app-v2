@@ -32,6 +32,11 @@ await servicePool.query(
   [admin, tutor, otro, nino, yearsAgo(40), yearsAgo(10)]
 );
 
+await servicePool.query(
+  `INSERT INTO auth_credentials (profile_id, email, password_hash, can_create_children) VALUES ($1, $2, 'x', true)`,
+  [tutor, `${crypto.randomUUID()}@test.local`]
+);
+
 const as = (c, uid, role) =>
   c.query(`SELECT set_config('app.current_user_id',$1,true), set_config('app.current_role',$2,true)`, [uid, role]);
 // Ejecuta fn esperando un error (regex sobre el mensaje o código) sin abortar la transacción.

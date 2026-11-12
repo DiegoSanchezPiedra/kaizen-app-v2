@@ -140,7 +140,7 @@ try {
     for (const k of ['birth_date', 'injuries', 'allergies', 'rodilla', 'polen', 'emergency_contact_name']) {
       assert.ok(!json.includes(k), `la ficha incluye ${k}`);
     }
-    assert.deepEqual(Object.keys(r.body.profile).sort(), ['avatar', 'created_at', 'display_name', 'email', 'has_google',
+    assert.deepEqual(Object.keys(r.body.profile).sort(), ['avatar', 'can_create_children', 'created_at', 'display_name', 'email', 'has_google',
       'has_password', 'id', 'is_minor', 'is_public', 'pending_claim', 'role']);
   });
   await run('ficha: el padre con sus hijos; status solo de un alumno; 404', async () => {

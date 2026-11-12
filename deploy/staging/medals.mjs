@@ -43,6 +43,7 @@ const one = async (sql, p) => (await db.query(sql, p)).rows[0];
 try {
   await db.query(`INSERT INTO user_roles (user_id, role) SELECT profile_id, 'tutor' FROM auth_credentials WHERE email = $1
                   ON CONFLICT (user_id) DO UPDATE SET role = excluded.role`, [TUTOR]);
+  await db.query(`UPDATE auth_credentials SET can_create_children = true WHERE email = $1`, [TUTOR]); // 062
   const { token } = await call('/auth/login', { method: 'POST', body: { email: TUTOR, password: PASSWORD } });
   let nico = (await call('/me/children', { token })).children.find((c) => c.display_name === 'Nico');
   nico ??= (await call('/me/children', { method: 'POST', token, body: { display_name: 'Nico', birth_date: '2016-04-12' } })).child;
