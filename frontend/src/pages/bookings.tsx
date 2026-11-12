@@ -29,8 +29,8 @@ function stateOf(b: Booking, past: boolean): SessionState {
 function Bookings({ profileId }: { profileId?: string }) {
   const { withSubject } = useSubject()
   const cancel = useCancelBooking()
-  // B32: un menor sin permiso de reservar tampoco cancela (la API lo cierra): sin botón.
-  const canCancel = !bookBlock(useMinor())
+  // B32: un menor sin permiso de reservar tampoco cancela (la API lo cierra): en lugar del botón, el motivo.
+  const blocked = bookBlock(useMinor())
   const today = madridDay()
   const upcoming = useBookings(profileId, today, addDays(today, PAST_CHUNK_DAYS - 1))
   // Pasadas por tramos de 92 días hacia atrás (la API no deja más por petición).
@@ -100,11 +100,14 @@ function Bookings({ profileId }: { profileId?: string }) {
                   note={b.cancel_reason ? CANCEL_REASON[b.cancel_reason] : undefined}
                   state={state}
                 >
-                  {canCancel && (state === 'booked' || state === 'waitlisted') && (
-                    <Button size="lg" variant="outline" loading={cancel.pendingId === b.id} onClick={() => cancel.ask(b.id, state === 'waitlisted')}>
-                      {state === 'waitlisted' ? 'Salir de la espera' : 'Cancelar'}
-                    </Button>
-                  )}
+                  {(state === 'booked' || state === 'waitlisted') &&
+                    (blocked ? (
+                      <p className="text-[13px] text-muted-foreground">{blocked}</p>
+                    ) : (
+                      <Button size="lg" variant="outline" loading={cancel.pendingId === b.id} onClick={() => cancel.ask(b.id, state === 'waitlisted')}>
+                        {state === 'waitlisted' ? 'Salir de la espera' : 'Cancelar'}
+                      </Button>
+                    ))}
                 </SessionCard>
               )
             })

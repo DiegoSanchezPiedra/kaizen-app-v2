@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { onboardingSteps } from '@/lib/profile'
 import { MISSING_TEXT } from '@/lib/notices'
-import { bookBlock, isUsername, joinBlock, minorView, redirectForMinor } from '@/lib/minor'
+import { errorText } from '@/lib/errors'
+import { bookBlock, isMinorClosedPath, isUsername, joinBlock, minorView, redirectForMinor, tutorHint } from '@/lib/minor'
+import { ACCESS_NOTICE, minorNotice } from '@/lib/minor-access'
 
 const can = { can_book: true, can_publish: false }
 const noBook = { can_book: false, can_publish: true }
@@ -64,5 +66,37 @@ describe('a los 18, el email que falta', () => {
     expect(onboardingSteps(['email'], false)).toEqual(['datos'])
     expect(onboardingSteps(['health_info', 'email'], false)).toEqual(['datos', 'ficha'])
     expect(MISSING_TEXT.email).toBe('tu email')
+  })
+})
+
+describe('errores de reservar para un menor', () => {
+  it('sin cuota o con el perfil incompleto, «Habla con tu tutor» en vez de una salida que no tiene', () => {
+    expect(tutorHint(can, 'not_covered')).toBe('Habla con tu tutor')
+    expect(tutorHint(can, 'profile_incomplete')).toBe('Habla con tu tutor')
+    expect(tutorHint(can, 'already_booked')).toBeNull()
+    expect(tutorHint(null, 'not_covered')).toBeNull()
+  })
+})
+
+describe('el guard de rutas cerradas espera a /me', () => {
+  it('reconoce las rutas cerradas sin saber aún si es un menor', () => {
+    expect(isMinorClosedPath('/billing/plans/2')).toBe(true)
+    expect(isMinorClosedPath('/account/children')).toBe(true)
+    expect(isMinorClosedPath('/account/password')).toBe(false)
+    expect(isMinorClosedPath('/')).toBe(false)
+  })
+})
+
+describe('textos sin la edad', () => {
+  it('ningún texto dice «14»: la edad la dice el servidor', () => {
+    const all = JSON.stringify([ACCESS_NOTICE, minorNotice(true), minorNotice(false), errorText('email_requires_14')])
+    expect(all).not.toMatch(/\b14\b/)
+  })
+  it('al menor, en lenguaje sencillo: qué puede hacer, quién decide y a quién acudir', () => {
+    const t = JSON.stringify(minorNotice(false))
+    expect(t).toMatch(/tutor decide si puedes reservar/)
+    expect(t).toMatch(/no hay mensajes privados/)
+    expect(t).toMatch(/academia/)
+    expect(JSON.stringify(minorNotice(true))).toMatch(/Tú decides si tu perfil es público/)
   })
 })

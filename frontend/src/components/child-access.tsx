@@ -121,7 +121,7 @@ function GrantSheet({ child, ask, onClose }: { child: Child; ask: boolean; onClo
           onChange={setEmail}
           autoComplete="off"
           inputMode="email"
-          hint="Con él podrá recuperar su contraseña y recibir avisos."
+          hint="Le servirá para recibir avisos. La contraseña la sigues cambiando tú."
           error={errors.email}
         />
       )}
@@ -321,7 +321,7 @@ export function ChildVisibilitySection({ child }: { child: Child }) {
       queryClient.setQueryData<Child[]>(['me', 'children'], (list) => list?.map((c) => (c.id === child.id ? { ...c, is_public: p.is_public, visible_fields: p.visible_fields, social_links: p.social_links } : c))),
     onError: (err) => toastError(err),
   })
-  const own = !!child.can_publish
+  const canDecide = !!child.can_publish
   const field = (key: string, label: string) => (
     <label key={key} className="flex min-h-12 items-center justify-between gap-3 border-b last:border-b-0">
       <span className="text-[15px]">{label}</span>
@@ -334,9 +334,9 @@ export function ChildVisibilitySection({ child }: { child: Child }) {
         Perfil público
       </h2>
       <p className="text-[15px] text-muted-foreground">
-        {own
+        {canDecide
           ? `${child.access ? 'Él o ella también puede decidirlo desde su cuenta.' : 'Puedes decidirlo tú.'} Los demás alumnos lo verían en Comunidad.`
-          : 'Al tener menos de 14 años lo decides tú. Los demás alumnos lo verían en Comunidad.'}
+          : 'Hasta que tenga la edad de decidirlo, lo decides tú. Los demás alumnos lo verían en Comunidad.'}
       </p>
       <label className="flex min-h-14 items-center justify-between gap-3 rounded-xl border bg-card px-4">
         <span className="font-semibold">Perfil público</span>

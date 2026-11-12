@@ -196,10 +196,10 @@ En la lista de hijos, «Con acceso» marca a los que ya entran solos.
 
 Misma app del alumno, decidida por `minor` de `GET /me` (`lib/minor.ts`, `minorView`); sin `/me` cargado se ve como un adulto.
 
-- **Login**: el campo es «Email o usuario» (sin `@` es un usuario; con `@` se valida como siempre). «¿Has olvidado tu contraseña?» con un usuario no lleva a `/forgot-password`: dice que la restablece su tutor.
-- **Cuenta**: sin «Mis datos» (su nombre), «Mis hijos», «Ficha de salud», «Acuerdos» ni «Mi cuota». Sí: foto, contraseña, avisos push y, solo con `can_publish`, «Perfil público» (si no, la pantalla dice que lo decide su tutor).
+- **Login**: el campo es «Email o usuario» (sin `@` es un usuario; con `@` se valida como siempre). «¿Has olvidado tu contraseña?» con un usuario no lleva a `/forgot-password`: dice que la restablece su tutor. `/forgot-password` lleva una línea fija: «Si es la cuenta de un menor, su contraseña la cambia su tutor desde la app.»
+- **Cuenta**: arriba, la tarjeta «Tu cuenta» (`minorNotice`, en lenguaje sencillo: qué puede hacer, qué decide su tutor, que los avisos también llegan al tutor, que no hay mensajes privados y a quién acudir). Sin «Mis datos» (su nombre), «Mis hijos», «Ficha de salud», «Acuerdos» ni «Mi cuota». Sí: foto, contraseña, avisos push y, solo con `can_publish`, «Perfil público» (si no, la pantalla dice que lo decide su tutor).
 - **Inicio**: sin avisos de cuota ni de perfil; si falta algo del perfil, «Tu tutor tiene que completar tu perfil para que puedas reservar.» No hay selector de sujeto (no pide `/me/children`).
-- **Calendario, Reservas y Eventos**: con `can_book: false`, un aviso «Tu tutor no te ha dado permiso para reservar», «Sin permiso» en lugar de «Reservar» y sin botones de cancelar ni de inscribirse. Un evento de pago lo inscribe su tutor.
+- **Calendario, Reservas y Eventos**: con `can_book: false`, un aviso «Tu tutor no te ha dado permiso para reservar», «Sin permiso» en lugar de «Reservar» y en Reservas, el motivo en lugar de «Cancelar»; sin botón de inscribirse. Si falla `not_covered` o `profile_incomplete`, «Habla con tu tutor» en vez de «Ver cuota»/«Completar». Un evento de pago lo inscribe su tutor.
 - **Progreso, medallas, check-in y Comunidad**: igual que el alumno.
 - **Rutas directas**: Cuota, Acuerdos, Salud, Mis datos y Mis hijos redirigen a Inicio (`redirectForMinor`, en el router).
 - **Sesión**: `401 session_revoked` (el tutor le retiró el acceso o cambió su contraseña) lleva a `/login` con «Tu acceso ha cambiado. Vuelve a entrar.».

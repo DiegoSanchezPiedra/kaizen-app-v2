@@ -19,9 +19,29 @@ export const ACCESS_NOTICE = {
     items: ['Pagos y cuota, ni pausarla.', 'Firmar documentos.', 'Ver ni cambiar su ficha de salud.', 'Cambiar su nombre ni ver a sus tutores.'],
   },
   rest: [
+    'El perfil público, la foto pública y los rankings están desactivados por defecto. Los decides tú hasta que tenga la edad de decidirlo; después, también puede decidirlos él o ella desde su cuenta.',
+    'Solo recibirá avisos de reservas, sesiones y eventos, y esos avisos también te llegan a ti. En la app no hay mensajería privada.',
     'Puedes retirarle el acceso, cambiarle la contraseña o quitarle el permiso de reservar cuando quieras. Al retirarlo, su sesión se cierra al momento.',
     'Los demás tutores del menor reciben un aviso de cada cambio, incluida la foto que ponga.',
     'Guardamos el registro de tu consentimiento: quién lo da, cuándo, desde qué conexión y la versión de este texto.',
+    'La academia es la responsable de estos datos. Puedes pedir acceso, corrección o borrado escribiendo a la academia.',
   ],
   accept: 'He leído este texto y activo el acceso propio de mi hijo o hija.',
 } as const
+
+// Lo que lee el propio menor en su Cuenta, en lenguaje sencillo (art. 12 RGPD). Cambia solo la línea del perfil público.
+// TEXTO PROPUESTO: validar con el abogado.
+export const minorNotice = (canPublish: boolean) => ({
+  title: 'Tu cuenta',
+  intro: 'Tu tutor te ha abierto esta cuenta de Kaizen. Así funciona:',
+  items: [
+    'Puedes ver el calendario, tu progreso y tus medallas, hacer el check-in cuando llegas a clase y cambiar tu foto.',
+    'Tu tutor decide si puedes reservar sesiones y apuntarte a eventos.',
+    canPublish
+      ? 'Tú decides si tu perfil es público y qué se ve de él. Si no lo cambias, no lo ve nadie.'
+      : 'Tu tutor decide si tu perfil es público y qué se ve de él, hasta que tengas la edad de decidirlo tú.',
+    'Los avisos de tus reservas, sesiones y eventos también le llegan a tu tutor.',
+    'En la app no hay mensajes privados con nadie.',
+    'Si algo te preocupa o no lo entiendes, díselo a tu tutor o a la academia.',
+  ],
+})

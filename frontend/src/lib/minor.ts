@@ -26,10 +26,26 @@ export const joinBlock = (minor: MinorInfo, amountCents = 0): string | null => b
 // Perfil incompleto (nombre, ficha, acuerdos): lo completa el tutor, no el menor.
 export const MINOR_INCOMPLETE = 'Tu tutor tiene que completar tu perfil para que puedas reservar.'
 
-// Rutas que un menor no abre aunque escriba la URL (la API las cierra con 403): vuelve a Inicio. Mismas que oculta `minorView`.
-const MINOR_CLOSED = ['/billing', '/agreements', '/account/health', '/account/data', '/account/children']
-export const redirectForMinor = (minor: MinorInfo, pathname: string): string | null =>
-  minor && MINOR_CLOSED.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ? '/' : null
+// Rutas que un menor no abre aunque escriba la URL (la API las cierra con 403) y qué entrada de `minorView` las cierra.
+const CLOSED: [string, 'billing' | 'agreements' | 'health' | 'ownData' | 'children'][] = [
+  ['/billing', 'billing'],
+  ['/agreements', 'agreements'],
+  ['/account/health', 'health'],
+  ['/account/data', 'ownData'],
+  ['/account/children', 'children'],
+]
+const under = (pathname: string) => ([p]: [string, string]) => pathname === p || pathname.startsWith(`${p}/`)
+// Sin saber aún si es un menor: el router espera a /me antes de pintar estas rutas.
+export const isMinorClosedPath = (pathname: string): boolean => CLOSED.some(under(pathname))
+// Un menor en una ruta cerrada vuelve a Inicio.
+export const redirectForMinor = (minor: MinorInfo, pathname: string): string | null => {
+  const view = minorView(minor)
+  return CLOSED.some((c) => under(pathname)(c) && !view[c[1]]) ? '/' : null
+}
+
+// Reservar sin cuota o con el perfil incompleto lo arregla el tutor: al menor no se le ofrece «Ver cuota» ni «Completar».
+export const tutorHint = (minor: MinorInfo, code: string): string | null =>
+  minor && (code === 'not_covered' || code === 'profile_incomplete') ? 'Habla con tu tutor' : null
 
 // En el login, el campo vale para un email o para el usuario que dio el tutor (sin @).
 export const isUsername = (v: string): boolean => v.trim() !== '' && !v.includes('@')

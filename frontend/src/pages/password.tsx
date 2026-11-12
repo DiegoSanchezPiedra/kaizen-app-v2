@@ -61,6 +61,7 @@ export function ForgotPasswordPage() {
         <>
           <h1 className="font-heading text-[34px] font-bold leading-tight">Recuperar contraseña</h1>
           <p className="text-muted-foreground">Escribe tu email y te enviaremos un enlace para crear una contraseña nueva.</p>
+          <p className="text-sm text-muted-foreground">Si es la cuenta de un menor, su contraseña la cambia su tutor desde la app.</p>
           {notice && <StatusAlert notice={notice} />}
           <Form className="flex flex-col gap-4" onFormSubmit={submit}>
             <Field name="email" className="items-stretch">

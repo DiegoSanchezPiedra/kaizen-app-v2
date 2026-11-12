@@ -23,11 +23,28 @@ import { logout } from '@/lib/logout'
 import { agreementsFor } from '@/lib/profile'
 import { madridMonth } from '@/lib/dates'
 import { minorView } from '@/lib/minor'
+import { minorNotice } from '@/lib/minor-access'
 import { useClock, useMe, useProfileStatus } from '@/lib/queries'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
 import { setToken, useSession } from '@/lib/session'
 import type { Me } from '@/lib/types'
 import { useSubject } from '@/hooks/use-subject'
+
+// Lo que lee el propio menor sobre su cuenta, en lenguaje sencillo (lib/minor-access.ts).
+function MinorCard({ canPublish }: { canPublish: boolean }) {
+  const n = minorNotice(canPublish)
+  return (
+    <section aria-label={n.title} className="flex flex-col gap-2 rounded-2xl border bg-card p-4 text-[15px] leading-snug">
+      <h2 className="text-lg font-semibold">{n.title}</h2>
+      <p>{n.intro}</p>
+      <ul className="list-disc space-y-1 pl-5">
+        {n.items.map((i) => (
+          <li key={i}>{i}</li>
+        ))}
+      </ul>
+    </section>
+  )
+}
 
 function Row({ to, icon: Icon, label, hint }: { to: LinkProps['to']; icon: typeof IdCardIcon; label: string; hint?: string }) {
   return (
@@ -79,6 +96,7 @@ export function AccountPage() {
           </div>
         </AvatarEditor>
       </div>
+      {me.data?.minor && <MinorCard canPublish={me.data.minor.can_publish} />}
       <Group title="Tú">
         {view.ownData && <Row to="/account/data" icon={IdCardIcon} label="Mis datos" />}
         <Row to="/account/password" icon={KeyRoundIcon} label="Contraseña" />

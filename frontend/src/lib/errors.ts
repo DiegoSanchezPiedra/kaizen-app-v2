@@ -228,7 +228,7 @@ Object.assign(TEXTS, {
 // ve el tutor; `minor_restricted` y `session_revoked` los ve el menor.
 Object.assign(TEXTS, {
   invalid_username: 'El usuario debe tener de 3 a 30 caracteres: letras minúsculas, números, punto, guion o guion bajo.', // propuesto
-  email_requires_14: 'Solo puede tener email a partir de los 14 años.', // propuesto
+  email_requires_14: 'Aún no tiene la edad para tener email propio.', // propuesto
   access_exists: 'Ya tiene acceso propio.', // propuesto
   username_taken: 'Ese usuario ya está en uso. Prueba con otro.', // propuesto
   access_not_found: 'No tiene acceso propio.', // propuesto

@@ -3,10 +3,10 @@ import { useEffect } from 'react'
 import { useSearchParams } from 'react-router'
 import { api } from '@/lib/api'
 import { takeCheckoutSubject } from '@/lib/billing'
-import { useMeKey } from '@/components/my-data-form'
+import { minorView } from '@/lib/minor'
+import { useMe } from '@/lib/queries'
 import { useSession } from '@/lib/session'
 import { activeSubject, subjectOptions, type Child } from '@/lib/subject'
-import type { Me } from '@/lib/types'
 
 // El sujeto activo vive en ?para= y en la caché en memoria de /me/children; nunca en localStorage.
 export function useSubject() {
@@ -15,9 +15,9 @@ export function useSubject() {
   const enabled = session?.role === 'alumno' || session?.role === 'tutor'
   const alumno = session?.role === 'alumno'
   // La fecha propia (para la edad de las disciplinas) sale de /me: misma clave que my-data-form.
-  const me = useQuery({ queryKey: useMeKey, queryFn: () => api<Me>('/me'), enabled: alumno, staleTime: 30_000 })
+  const me = useMe(alumno)
   // B32: un menor con acceso propio actúa solo por sí mismo y /me/children le da 403: sin selector. Se espera a /me para saberlo.
-  const minor = !!me.data?.minor
+  const minor = minorView(me.data?.minor).isMinor
   const { data, isPending, error, refetch } = useQuery({
     // Misma clave y misma forma (la lista) que pages/children.tsx: si no, la que llega primero a la caché rompe a la otra.
     queryKey: ['me', 'children'],

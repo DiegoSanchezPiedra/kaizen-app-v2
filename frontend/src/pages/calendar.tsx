@@ -22,7 +22,8 @@ import { api } from '@/lib/api'
 import { addDays } from '@/lib/dates'
 import { toastManager } from '@/components/ui/toast'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
-import { bookBlock } from '@/lib/minor'
+import { errorText } from '@/lib/errors'
+import { bookBlock, tutorHint } from '@/lib/minor'
 import { NO_SUBSCRIPTION } from '@/lib/notices'
 import { path, refreshBookings, useMinor, useSubscription } from '@/lib/queries'
 import { canCancel, groupByDay, seatsOf, sessionState, type SessionState } from '@/lib/sessions'
@@ -40,7 +41,8 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
   const now = useNow()
   const noSub = useSubscription(profileId).data === null
   // B32: un menor sin permiso de reservar ve el motivo, no el botón (ni el de cancelar: la API también lo cierra).
-  const blocked = bookBlock(useMinor())
+  const minor = useMinor()
+  const blocked = bookBlock(minor)
 
   const disciplines = useQuery({ queryKey: ['disciplines'], queryFn: () => api<{ disciplines: Discipline[] }>('/disciplines').then((r) => r.disciplines) })
   const calendar = useQuery({
@@ -61,6 +63,12 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
       const code = errorCode(err)
       const start = Date.parse(calendar.data?.find((s) => s.id === id)?.starts_at ?? '')
       if (code === 'outside_booking_window' && start) setBlockedFrom((b) => Math.min(b ?? start, start))
+      // Un menor no puede arreglar la cuota ni el perfil: «Habla con tu tutor».
+      const hint = tutorHint(minor, code)
+      if (hint) {
+        toastManager.add({ type: 'error', title: errorText(code), description: hint, timeout: 5000 })
+        return
+      }
       const action =
         code === 'not_covered'
           ? { label: 'Ver cuota', onClick: () => void navigate(withSubject('/billing')) }
