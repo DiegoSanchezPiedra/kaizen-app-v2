@@ -78,7 +78,7 @@
 | B29 | Rango de edad por disciplina (kids 5–12) en contratar, reservar y al cumplir años | B28 | CERRADO |
 | B30 | Pausa con cuota de mantenimiento (Stripe, Subscription Schedule) | B28, B29 | CERRADO |
 | B31 | Registro de jornada (fichaje) de profesores empleados | B28 | CERRADO |
-| B32 | Acceso propio del menor con permisos limitados (sustituye ADR 0002) | B29, B30, B31 | B32.0 hecho (2026-11-12); B32.1 pendiente |
+| B32 | Acceso propio del menor con permisos limitados (sustituye ADR 0002) | B29, B30, B31 | CERRADO |
 | B33 | Auditoría de rendimiento de B28–B32 y de lo que tocan | B32 | Diseñado (antes de producción) |
 | B34 | Auditoría de seguridad de B28–B32 y de lo que tocan | B33 | Diseñado (antes de producción) |
 
@@ -2802,7 +2802,17 @@ desactivar el trigger; el aviso de jornada abierta llega con la nocturna (hasta 
 - **A validar fuera de la app**: convenio colectivo aplicable, información a los trabajadores sobre el tratamiento de sus
   datos y qué profesores son de verdad empleados (laboralista). Ver `docs/research/legal-fichaje-menores.md` §1.
 
-### B32 — Acceso propio del menor — B32.0 HECHO (2026-11-12), B32.1 pendiente
+### B32 — Acceso propio del menor — CERRADO
+
+Rama `b32-acceso-menor`, 2026-11-12. B32.0 (Opus, alto): `c9c75f4`, `1bb8cdd`; revisión `9a1f6bc`, `3bca964`. B32.1
+(Sonnet, alto): `a413e3f`, `b59c439`, `b69b526` (con `social_links` y `can_publish` en `GET /me/children`); revisión
+`d85f28c`. Migración `061`, ADR 0026 (sustituye a 0002). El acceso es la fila de `auth_credentials` con `username` y
+`can_book`; el consentimiento queda en `audit_log` (quién, cuándo, IP y versión `1.0` del texto). La edad de
+consentimiento vive solo en `minor_consent_age()` (hoy 14). `/me` está cerrado al menor salvo una lista blanca; su
+sesión dura 7 días aunque cambie la global; el login no enumera por tiempo. Textos informativos del tutor y del menor en
+`frontend/src/lib/minor-access.ts`, marcados «propuesto: validar con el abogado». Seed: Hugo (11) y Lara (15) con
+acceso. Límites: no se avisa a los tutores de los cambios de visibilidad pública; el test de tiempos del login compara
+medianas y podría fallar en una máquina muy cargada.
 
 - **Objetivo**: un tutor puede dar a su hijo, de **cualquier edad**, acceso propio a la app con funciones limitadas.
   Sustituye la decisión del ADR 0002 («el hijo no tiene acceso propio») por el ADR **0026**.
@@ -2852,6 +2862,7 @@ desactivar el trigger; el aviso de jornada abierta llega con la nocturna (hasta 
   - [x] Login por usuario y por email (14+), con rate limit; un usuario con forma de email se rechaza al crearlo.
   - [x] RLS: el menor no lee datos de salud, cobros, firmas, hermanos ni tutores.
   - [x] A los 18 reclama sin invitación y conserva su historial (backend; las pantallas, B32.1).
+  - [ ] Prueba en un iPhone real y validación legal (EIPD, textos informativos, foto pública de menores: LO 1/1996 art. 4.3).
 - **Verificación**: `test:minors` ampliado con la matriz, `test:rls` con el rol menor, `test:account`, `test:password`,
   `test:ratelimit`, `test:bookings`, Vitest; revisión manual a 375 px con tres cuentas (tutor, menor de 10, menor de 15).
 - **A validar fuera de la app**: evaluación de impacto (EIPD), texto informativo para menores, Delegado de protección
