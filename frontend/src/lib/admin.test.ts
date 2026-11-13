@@ -47,7 +47,7 @@ describe('a dónde va cada rol (B19)', () => {
     for (const p of ['/calendar', '/bookings', '/progress', '/account/health', '/agreements', '/billing/plan', '/events/5']) {
       expect(redirectFor('profesor', p)).toBe('/professor')
     }
-    for (const p of ['/profiles', '/rankings', '/account', '/account/profile', '/professor/sessions/1']) {
+    for (const p of ['/profiles/abc', '/rankings', '/account', '/account/profile', '/professor/sessions/1']) {
       expect(redirectFor('profesor', p)).toBeNull()
     }
   })

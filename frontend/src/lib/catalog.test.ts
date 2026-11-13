@@ -11,6 +11,7 @@ import {
   pauseBody,
   pdfProblem,
   perPeriodBody,
+  rankingTopBody,
   tabletState,
   type AgreementDoc,
 } from '@/lib/catalog'
@@ -58,6 +59,7 @@ describe('ajustes: qué grupos han cambiado', () => {
     expect(perPeriodBody('')).toBeNull()
     expect(changed({ per_period: 1 }, perPeriodBody('1'))).toBe(false)
     expect(changed({ per_period: 1 }, perPeriodBody('2'))).toBe(true)
+    expect([rankingTopBody('1'), rankingTopBody('100'), rankingTopBody('0'), rankingTopBody('101'), rankingTopBody('2,5')]).toEqual([{ top: 1 }, { top: 100 }, null, null, null])
   })
   it('pausa: precio en euros (> 0, o vacío = no cambia), meses 1–12, pausas al año 0–12', () => {
     expect(pauseBody({ price: '15', max_months: '3', per_year: '1' })).toEqual({ price_cents: 1500, max_months: 3, per_year: 1 })

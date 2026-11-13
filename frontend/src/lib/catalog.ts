@@ -27,7 +27,7 @@ export const catalogRedirect = (tab: string | null): string => (tab === 'plans' 
 // ── Ajustes: tres grupos con su «Guardar» ────────────────────────────────────
 
 export type CheckinSettings = { opens_minutes: number | null; closes_minutes: number | null; qr_seconds: number | null }
-export type Settings = { checkin: CheckinSettings; discipline_changes: { per_period: number }; pause: PauseSettings }
+export type Settings = { checkin: CheckinSettings; discipline_changes: { per_period: number }; pause: PauseSettings; rankings: { top: number } }
 
 const whole = (v: string): number | null => (/^\d{1,9}$/.test(v.trim()) ? Number(v) : null)
 export const minutesOf = (v: string): number | null => {
@@ -43,6 +43,10 @@ export function checkinBody(d: Record<keyof CheckinSettings, string>) {
 export const perPeriodBody = (v: string): { per_period: number } | null => {
   const n = whole(v)
   return n === null || n > 1000 ? null : { per_period: n }
+}
+export const rankingTopBody = (v: string): { top: number } | null => {
+  const n = whole(v)
+  return n === null || n < 1 || n > 100 ? null : { top: n }
 }
 
 // Pausa: precio de la cuota de mantenimiento en euros (vacío = no se manda: sin precio no hay pausas, y la API no lo quita),
