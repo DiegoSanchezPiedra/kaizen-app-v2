@@ -64,7 +64,7 @@ function Strip({ w, marked, top }: { w: Week; marked: ReadonlySet<string>; top: 
               d.selected ? 'bg-primary text-primary-foreground' : 'hover:bg-accent/60',
             )}
           >
-            <span className={cn('text-xs font-semibold', d.selected && 'text-primary-foreground/85')}>{d.letter}</span>
+            <span className="text-xs font-semibold">{d.letter}</span>
             <span className={cn('font-heading text-xl leading-none font-bold tabular-nums', !d.selected && !d.past && 'text-foreground')}>{d.number}</span>
             <span aria-hidden="true" className={cn('absolute bottom-1.5 size-1 rounded-full', d.marked ? (d.selected ? 'bg-primary-foreground' : 'bg-muted-foreground') : 'invisible')} />
           </button>
