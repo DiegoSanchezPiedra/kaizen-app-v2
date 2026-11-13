@@ -1,8 +1,8 @@
 // src/services/progress.js — racha, horas, badges y ranking mensual (B14; CONTEXT § Racha y logros).
-// Las reglas viven en SQL (019: student_progress, monthly_ranking); aquí solo se valida, pagina y da forma.
+// Las reglas viven en SQL (019: student_progress, monthly_ranking); aquí solo se valida, se corta al top y se da forma.
 // Siempre con el client RLS: las funciones se guardan solas.
 import { httpError } from '../lib/errors.js';
-import { invalid, parseId } from './catalog.js';
+import { audit, invalid, parseId } from './catalog.js';
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -34,13 +34,21 @@ export async function markMedalsSeen(client, { studentId, codes }) {
   return { codes: seen };
 }
 
-function parsePage(limit, offset) {
-  limit = Number(limit);
-  offset = Number(offset);
-  if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0) {
-    throw httpError(400, 'invalid_pagination', 'limit debe estar entre 1 y 100 y offset ser >= 0');
-  }
-  return { limit, offset };
+// Top de los dos rankings (ajuste del admin, 1–100); sin fila válida, 50.
+export async function getRankingSettings(client) {
+  const { rows: [r] } = await client.query(`SELECT value #>> '{}' AS v FROM academy_settings WHERE key = 'ranking_top'`);
+  const n = Number(r?.v);
+  return { top: Number.isInteger(n) && n >= 1 && n <= 100 ? n : 50 };
+}
+
+/** Solo admin (la ruta y la RLS de academy_settings). */
+export async function updateRankingSettings(client, body, actorId) {
+  const n = body.top;
+  if (!(Number.isInteger(n) && n >= 1 && n <= 100)) throw invalid('top', 'top debe ser un entero entre 1 y 100');
+  await client.query(`INSERT INTO academy_settings (key, value) VALUES ('ranking_top', to_jsonb($1::integer))
+                      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [n]);
+  await audit(client, actorId, 'settings.rankings', 'ranking_top', { top: n });
+  return { top: n };
 }
 
 // Las medallas por disciplina de cada fila (achievements.disciplines), solo de quien enseña sus logros
@@ -54,30 +62,30 @@ async function withBadges(client, rows) {
 }
 
 /** Ranking de medallas de una disciplina, de siempre (037): `{ discipline, rows: [{ rank, id, display_name, medals, hours,
- * achievements? }], total, limit, offset }`. 404 si no existe. */
-export async function getMedalRanking(client, { disciplineId, limit = 25, offset = 0 }) {
+ * achievements? }], total, limit }`: los puestos hasta `limit` (el top del ajuste; todos los empatados en el último). 404 si no existe. */
+export async function getMedalRanking(client, { disciplineId }) {
   const id = parseId(disciplineId);
-  ({ limit, offset } = parsePage(limit, offset));
+  const { top: limit } = await getRankingSettings(client);
   let r;
   try {
     ({ rows: [r] } = await client.query(
       `WITH r AS (SELECT * FROM medal_ranking($1))
        SELECT (SELECT discipline_name FROM r LIMIT 1) AS name, (SELECT count(id)::int FROM r) AS total,
               COALESCE((SELECT jsonb_agg(x ORDER BY x.rank, x.display_name, x.id)
-                          FROM (SELECT rank, id, display_name, medals, hours FROM r WHERE id IS NOT NULL
-                                 ORDER BY rank, display_name, id LIMIT $2 OFFSET $3) x), '[]') AS rows`,
-      [id, limit, offset]));
+                          FROM (SELECT rank, id, display_name, medals, hours FROM r WHERE id IS NOT NULL AND rank <= $2
+                                 ORDER BY rank, display_name, id) x), '[]') AS rows`,
+      [id, limit]));
   } catch (err) {
     if (err.message === 'ranking_not_found') throw httpError(404, 'ranking_not_found', 'Ranking no encontrado');
     throw err;
   }
-  return { discipline: { id, name: r.name }, rows: await withBadges(client, r.rows), total: r.total, limit, offset };
+  return { discipline: { id, name: r.name }, rows: await withBadges(client, r.rows), total: r.total, limit };
 }
 
-/** Ranking mensual: `{ discipline, month, rows, total, limit, offset }`. 404 si no existe o es abierta. */
-export async function getRanking(client, { disciplineId, month, limit = 25, offset = 0 }) {
+/** Ranking mensual: `{ discipline, month, rows, total, limit }`, con el mismo top y el mismo corte. 404 si no existe o es abierta. */
+export async function getRanking(client, { disciplineId, month }) {
   const id = parseId(disciplineId);
-  ({ limit, offset } = parsePage(limit, offset));
+  const { top: limit } = await getRankingSettings(client);
   const m = parseMonth(month);
   let r;
   try {
@@ -86,12 +94,12 @@ export async function getRanking(client, { disciplineId, month, limit = 25, offs
        SELECT (SELECT discipline_name FROM r LIMIT 1) AS name,
               to_char(COALESCE($2::date, now() AT TIME ZONE 'Europe/Madrid'), 'YYYY-MM') AS month,
               (SELECT count(id)::int FROM r) AS total,
-              COALESCE((SELECT jsonb_agg(x ORDER BY x.rank, x.display_name, x.id) FROM (SELECT rank, id, display_name, hours FROM r WHERE id IS NOT NULL
-                                                   ORDER BY rank, display_name, id LIMIT $3 OFFSET $4) x), '[]') AS rows`,
-      [id, m, limit, offset]));
+              COALESCE((SELECT jsonb_agg(x ORDER BY x.rank, x.display_name, x.id) FROM (SELECT rank, id, display_name, hours FROM r WHERE id IS NOT NULL AND rank <= $3
+                                                   ORDER BY rank, display_name, id) x), '[]') AS rows`,
+      [id, m, limit]));
   } catch (err) {
     if (err.message === 'ranking_not_found') throw httpError(404, 'ranking_not_found', 'Ranking no encontrado');
     throw err;
   }
-  return { discipline: { id, name: r.name }, month: r.month, rows: await withBadges(client, r.rows), total: r.total, limit, offset };
+  return { discipline: { id, name: r.name }, month: r.month, rows: await withBadges(client, r.rows), total: r.total, limit };
 }

@@ -16,7 +16,7 @@ import { BookingsPage } from '@/pages/bookings'
 import { CalendarPage } from '@/pages/calendar'
 import { EventPage } from '@/pages/events'
 import { ChildFormPage, ChildrenPage } from '@/pages/children'
-import { CommunityPage, ProfilePage, RankingsPage } from '@/pages/community'
+import { ProfilePage, RankingsPage } from '@/pages/community'
 import { HomePage } from '@/pages/home'
 import { OnboardingPage } from '@/pages/onboarding'
 import { ProfessorSessionPage, ProfessorSessionsPage } from '@/pages/professor'
@@ -126,7 +126,7 @@ export const router = createBrowserRouter([
       { path: '/professor/events/:id', element: <ProfessorEventPage /> },
       { path: '/professor/reports', element: <ProfessorReportsPage /> },
       { path: '/progress', element: <ProgressPage /> },
-      { path: '/profiles', element: <CommunityPage /> },
+      { path: '/profiles', element: <Navigate to="/rankings" replace /> }, // el directorio se quitó
       { path: '/profiles/:id', element: <ProfilePage /> },
       { path: '/rankings', element: <RankingsPage /> },
       { path: '/rankings/:id', element: <RankingsPage /> },

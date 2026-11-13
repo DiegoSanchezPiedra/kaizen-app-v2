@@ -1,5 +1,5 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { ChevronLeftIcon, ExternalLinkIcon, SearchIcon, TrophyIcon, UsersIcon } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { ChevronLeftIcon, ExternalLinkIcon, TrophyIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Page } from '@/components/page'
@@ -8,7 +8,6 @@ import { EmptyState, ErrorState, ListSkeleton, QueryView } from '@/components/sc
 import { SectionTabs } from '@/components/section-tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { api } from '@/lib/api'
 import { addMonths, formatMonth, madridMonth } from '@/lib/dates'
@@ -19,7 +18,6 @@ import { path } from '@/lib/queries'
 import { useSession } from '@/lib/session'
 import type { Discipline, MyProfile, PublicDisciplineMedals, PublicProfile } from '@/lib/types'
 
-const PAGE = 25
 const ROLE_LABEL: Record<string, string> = { alumno: 'Alumno', profesor: 'Profesor' }
 
 export function useDebounced(value: string, ms = 300) {
@@ -50,72 +48,9 @@ export function Filter({ label, value, onChange, items }: { label: string; value
   )
 }
 
-// Directorio: solo perfiles públicos (un hijo nunca sale: la vista no lo da).
-export function CommunityPage() {
-  const [q, setQ] = useState('')
-  const [role, setRole] = useState('all')
-  const [discipline, setDiscipline] = useState('all')
-  const search = useDebounced(q.trim())
-  const disciplines = useDisciplines()
-  const list = useInfiniteQuery({
-    queryKey: ['profiles', search, role, discipline],
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      api<{ profiles: PublicProfile[]; total: number }>(
-        path('/profiles', { q: search || undefined, role: role === 'all' ? undefined : role, discipline_id: discipline === 'all' ? undefined : discipline, limit: String(PAGE), offset: String(pageParam) }),
-      ),
-    getNextPageParam: (last, pages) => (pages.length * PAGE < last.total ? pages.length * PAGE : undefined),
-  })
-  const profiles = list.data?.pages.flatMap((p) => p.profiles) ?? []
-  return (
-    <Page title="Comunidad">
-      <SectionTabs />
-      <div className="flex flex-col gap-3">
-        <InputGroup>
-          <InputGroupAddon aria-hidden="true">
-            <SearchIcon />
-          </InputGroupAddon>
-          <InputGroupInput type="search" aria-label="Buscar por nombre" placeholder="Buscar por nombre" value={q} onChange={(e) => setQ(e.target.value)} />
-        </InputGroup>
-        <div className="grid grid-cols-2 gap-2">
-          <Filter label="Rol" value={role} onChange={setRole} items={[{ value: 'all', label: 'Todos' }, { value: 'alumno', label: 'Alumnos' }, { value: 'profesor', label: 'Profesores' }]} />
-          <Filter label="Disciplina" value={discipline} onChange={setDiscipline} items={[{ value: 'all', label: 'Todas' }, ...(disciplines.data ?? []).filter((d) => d.is_active).map((d) => ({ value: String(d.id), label: d.name }))]} />
-        </div>
-      </div>
-      {list.isPending ? (
-        <ListSkeleton rows={4} className="h-16" />
-      ) : list.isError ? (
-        <ErrorState error={list.error} onRetry={() => void list.refetch()} />
-      ) : profiles.length === 0 ? (
-        <EmptyState icon={<UsersIcon />} title="No hay perfiles" text={search || role !== 'all' || discipline !== 'all' ? 'Prueba con otra búsqueda o quita los filtros.' : 'Aún no hay perfiles públicos.'} />
-      ) : (
-        <>
-          <ul className="flex flex-col overflow-hidden rounded-xl border bg-card">
-            {profiles.map((p) => (
-              <li key={p.id} className="border-b last:border-b-0">
-                <Link to={`/profiles/${p.id}`} className="flex min-h-14 items-center gap-3 px-4 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
-                  <ProfileAvatar name={p.display_name} avatar={p.avatar} className="size-10" />
-                  <span className="min-w-0 flex-1 truncate font-semibold">{p.display_name}</span>
-                  <TopMedal disciplines={p.achievements?.disciplines} />
-                  <Badge variant="outline" size="lg">{ROLE_LABEL[p.role] ?? p.role}</Badge>
-                </Link>
-              </li>
-            ))}
-          </ul>
-          {list.hasNextPage && (
-            <Button size="xl" variant="outline" loading={list.isFetchingNextPage} onClick={() => void list.fetchNextPage()}>
-              Ver más
-            </Button>
-          )}
-        </>
-      )}
-    </Page>
-  )
-}
-
 const NETWORKS: Record<string, string> = { instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube', web: 'Web' }
 
-// La medalla más alta junto al nombre (Comunidad y rankings), con el arte de su disciplina, si enseña sus logros.
+// La medalla más alta junto al nombre en los rankings, con el arte de su disciplina, si enseña sus logros.
 function TopMedal({ disciplines }: { disciplines?: PublicDisciplineMedals[] }) {
   const top = topMedal(disciplines)
   if (!top) return null
@@ -133,9 +68,9 @@ export function ProfilePage() {
   const profile = useQuery({ queryKey: ['profile', id], queryFn: () => api<{ profile: PublicProfile }>(`/profiles/${id}`).then((r) => r.profile), retry: false })
   return (
     <Page title="Perfil">
-      <Link to="/profiles" className="-mt-3 inline-flex min-h-11 items-center gap-1 self-start font-semibold text-link">
+      <Link to="/rankings" className="-mt-3 inline-flex min-h-11 items-center gap-1 self-start font-semibold text-link">
         <ChevronLeftIcon className="size-4" aria-hidden="true" />
-        Comunidad
+        Rankings
       </Link>
       <QueryView query={profile} skeleton={<ListSkeleton rows={2} />}>
         {(p) => {
@@ -201,8 +136,8 @@ export function ProfilePage() {
   )
 }
 
-type Ranking = { discipline: { id: number; name: string }; month: string; rows: { rank: number; id: string; display_name: string; hours: number; achievements?: PublicDisciplineMedals[] }[]; total: number }
-type MedalRanking = { discipline: { id: string; name: string }; rows: { rank: number; id: string; display_name: string; medals: number; hours: number; achievements?: PublicDisciplineMedals[] }[]; total: number }
+type Ranking = { discipline: { id: number; name: string }; month: string; rows: { rank: number; id: string; display_name: string; hours: number; achievements?: PublicDisciplineMedals[] }[]; total: number; limit: number }
+type MedalRanking = { discipline: { id: string; name: string }; rows: { rank: number; id: string; display_name: string; medals: number; hours: number; achievements?: PublicDisciplineMedals[] }[]; total: number; limit: number }
 
 const hoursText = (h: number) => `${Number(h).toLocaleString('es-ES', { maximumFractionDigits: 1 })} h`
 
@@ -225,9 +160,9 @@ export function RankingsPage() {
   const ranking = useQuery({
     queryKey: ['ranking', chosen, month],
     enabled: !!chosen && !isMedals,
-    queryFn: () => api<Ranking>(path(`/rankings/${chosen}`, { month, limit: '50' })),
+    queryFn: () => api<Ranking>(path(`/rankings/${chosen}`, { month })),
   })
-  const medals = useQuery({ queryKey: ['ranking', chosen, 'medals'], enabled: !!chosen && isMedals, queryFn: () => api<MedalRanking>(path(`/rankings/${chosen}/medals`, { limit: '50' })) })
+  const medals = useQuery({ queryKey: ['ranking', chosen, 'medals'], enabled: !!chosen && isMedals, queryFn: () => api<MedalRanking>(`/rankings/${chosen}/medals`) })
   const mine = useQuery({ queryKey: ['my-profile'], queryFn: () => api<MyProfile>('/me/profile'), enabled: role === 'alumno' })
   const notShown = role === 'alumno' && mine.data && !(mine.data.is_public && mine.data.visible_fields.ranking)
   const list = isMedals ? medals : ranking
@@ -280,25 +215,28 @@ export function RankingsPage() {
               text={isMedals ? 'Aparece quien participa en los rankings y tiene alguna medalla.' : 'Aparece quien participa en los rankings y ha entrenado.'}
             />
           ) : (
-            <ol className="flex flex-col overflow-hidden rounded-xl border bg-card">
-              {list.data.rows.map((r) => (
-                <li key={r.id} className="flex min-h-14 items-center gap-3 border-b px-4 py-2 last:border-b-0">
-                  <span className="w-7 text-center font-heading text-xl font-bold tabular-nums">{r.rank}</span>
-                  <TopMedal disciplines={r.achievements?.filter((d) => d.id === chosen)} />
-                  <Link to={`/profiles/${r.id}`} className="min-w-0 flex-1 truncate font-semibold hover:underline">{r.display_name}</Link>
-                  <span className={`shrink-0 text-right text-sm tabular-nums ${'medals' in r ? '' : 'font-mono'}`}>
-                    {'medals' in r ? (
-                      <>
-                        {r.medals} {r.medals === 1 ? 'medalla' : 'medallas'}
-                        <span className="block text-xs text-muted-foreground">{hoursText(r.hours)}</span>
-                      </>
-                    ) : (
-                      hoursText(r.hours)
-                    )}
-                  </span>
-                </li>
-              ))}
-            </ol>
+            <section aria-labelledby="ranking-top" className="flex flex-col gap-2">
+              <h2 id="ranking-top" className="text-sm font-semibold text-muted-foreground">Top {list.data.limit}</h2>
+              <ol className="flex flex-col overflow-hidden rounded-xl border bg-card">
+                {list.data.rows.map((r) => (
+                  <li key={r.id} className="flex min-h-14 items-center gap-3 border-b px-4 py-2 last:border-b-0">
+                    <span className="w-7 text-center font-heading text-xl font-bold tabular-nums">{r.rank}</span>
+                    <TopMedal disciplines={r.achievements?.filter((d) => d.id === chosen)} />
+                    <Link to={`/profiles/${r.id}`} className="min-w-0 flex-1 truncate font-semibold hover:underline">{r.display_name}</Link>
+                    <span className={`shrink-0 text-right text-sm tabular-nums ${'medals' in r ? '' : 'font-mono'}`}>
+                      {'medals' in r ? (
+                        <>
+                          {r.medals} {r.medals === 1 ? 'medalla' : 'medallas'}
+                          <span className="block text-xs text-muted-foreground">{hoursText(r.hours)}</span>
+                        </>
+                      ) : (
+                        hoursText(r.hours)
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </section>
           )}
         </>
       )}
