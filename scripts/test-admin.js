@@ -261,7 +261,7 @@ try {
   await run('ajustes: GET igual a lo que devuelven los PUT, y ve un cambio', async () => {
     const get = async () => (await http('GET', '/admin/settings', 'admin')).body;
     const before = await get();
-    assert.deepEqual(Object.keys(before).sort(), ['checkin', 'discipline_changes', 'pause']);
+    assert.deepEqual(Object.keys(before).sort(), ['checkin', 'discipline_changes', 'pause', 'rankings']);
     assert.deepEqual(Object.keys(before.checkin).sort(), ['closes_minutes', 'opens_minutes', 'qr_seconds']);
     // Sin cambiar nada: los PUT devuelven lo mismo.
     assert.deepEqual((await http('PUT', '/admin/settings/checkin', 'admin', {})).body.settings, before.checkin);

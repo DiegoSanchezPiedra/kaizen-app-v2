@@ -6,6 +6,7 @@ import { dateParam } from './sessions.js';
 import { pagination, TRAINED_DAYS, TRAINED_IN } from './reports.js';
 import { getCheckinSettings } from './checkin.js';
 import { getDisciplineChangeSettings, getPauseSettings } from './billing.js';
+import { getRankingSettings } from './progress.js';
 import { getProfileStats } from './users.js';
 
 const TZ = 'Europe/Madrid';
@@ -19,12 +20,13 @@ const text = (v, field, max = 100) => {
   return v ?? null;
 };
 
-/** Los dos grupos de ajustes, tal cual los devuelven sus PUT. */
+/** Los grupos de ajustes, tal cual los devuelven sus PUT. */
 export async function getSettings(client) {
   return {
     checkin: await getCheckinSettings(client),
     discipline_changes: await getDisciplineChangeSettings(client),
     pause: await getPauseSettings(client),
+    rankings: await getRankingSettings(client),
   };
 }
 

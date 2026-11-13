@@ -1,13 +1,11 @@
-// src/services/profiles.js — perfil público y directorio (B13; CONTEXT § Perfil público y directorio, ADR 0010).
+// src/services/profiles.js — perfil público (B13; CONTEXT § Perfil público, ADR 0010).
 // Todo con el client RLS: lo ajeno se lee solo por la vista public_profiles, nunca por profiles ni servicePool.
 import { httpError } from '../lib/errors.js';
-import { invalid, audit } from './catalog.js';
+import { audit } from './catalog.js';
 
 // B14: ranking no es columna de la ficha (decide salir en los rankings); achievements, NULL si no se enseña.
 export const VISIBLE_FIELDS = ['bio', 'social_links', 'disciplines', 'member_since', 'ranking', 'achievements', 'photo'];
 export const SOCIAL_NETWORKS = ['instagram', 'tiktok', 'youtube', 'web'];
-const ROLES = ['alumno', 'profesor'];
-const ID_RE = /^\d{1,18}$/;
 const CARD = `SELECT id, display_name, role, bio, social_links, disciplines, member_since, achievements, avatar
                 FROM public_profiles`;
 
@@ -17,28 +15,6 @@ const card = (row) => {
   for (const k of [...VISIBLE_FIELDS, 'avatar']) if (row[k] === null) delete row[k]; // avatar: la columna del campo photo
   return row;
 };
-
-/** Directorio: `{ profiles, total, limit, offset }`, por nombre. Los filtros miran solo lo que cada perfil enseña. */
-export async function listPublicProfiles(client, { q, role, discipline_id: disciplineId, limit = 25, offset = 0 }) {
-  limit = Number(limit);
-  offset = Number(offset);
-  if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0) {
-    throw httpError(400, 'invalid_pagination', 'limit debe estar entre 1 y 100 y offset ser >= 0');
-  }
-  if (q !== undefined && (typeof q !== 'string' || q.length > 100)) throw invalid('q', 'q debe ser un texto');
-  if (role !== undefined && !ROLES.includes(role)) throw invalid('role', 'role debe ser alumno o profesor');
-  if (disciplineId !== undefined && !ID_RE.test(String(disciplineId))) {
-    throw invalid('discipline_id', 'discipline_id inválido');
-  }
-  const where = `WHERE ($1::text IS NULL OR display_name ILIKE '%' || $1 || '%')
-                   AND ($2::text IS NULL OR role::text = $2)
-                   AND ($3::bigint IS NULL OR disciplines @> jsonb_build_array(jsonb_build_object('id', $3::bigint)))`;
-  const params = [q ? q.replace(/[\\%_]/g, '\\$&') : null, role ?? null, disciplineId ?? null];
-  const { rows } = await client.query(`${CARD} ${where} ORDER BY display_name, id LIMIT $4 OFFSET $5`,
-    [...params, limit, offset]);
-  const { rows: [{ total }] } = await client.query(`SELECT count(*)::int AS total FROM public_profiles ${where}`, params);
-  return { profiles: rows.map(card), total, limit, offset };
-}
 
 /** Ficha pública. Uno que no existe y uno que no es público dan el mismo 404. */
 export async function getPublicProfile(client, id) {

@@ -13,10 +13,10 @@ await c.connect();
 let failed = 0;
 try {
   const [{ name }] = (await c.query(`SELECT name FROM pgmigrations ORDER BY id DESC LIMIT 1`)).rows;
-  // B31, B30 y B32: la 059 (registro de jornada), la 060 (pausas), la 061 (acceso del menor) y la 062 (permiso de crear hijos) no tienen datos que
-  // migrar; se bajan con la 058 y vuelven a subir (la 060 y la 061 deshacen y rehacen sus parches de funciones).
-  assert.equal(name, '062_can_create_children', 'el test baja las cinco últimas: actualízalo si hay otra después');
-  migrate('down', 5);
+  // B31, B30 y B32: la 059 (registro de jornada), la 060 (pausas), la 061 (acceso del menor), la 062 (permiso de crear hijos) y la 063 (JIT
+  // apagado) no tienen datos que migrar; se bajan con la 058 y vuelven a subir (la 060 y la 061 deshacen y rehacen sus parches de funciones).
+  assert.equal(name, '063_jit_off', 'el test baja las seis últimas: actualízalo si hay otra después');
+  migrate('down', 6);
   await c.query(`INSERT INTO disciplines (name, minors_only) VALUES ('T-Mig-Kids', true), ('T-Mig-BJJ', false)`);
   // 062: quien ya es tutor conserva el permiso de crear hijos; el resto empieza sin él.
   const { rows: [tutor, solo, kid] } = await c.query(
@@ -34,7 +34,11 @@ try {
   const { rowCount } = await c.query(
     `SELECT 1 FROM information_schema.columns WHERE table_name = 'disciplines' AND column_name = 'minors_only'`);
   assert.equal(rowCount, 0);
-  console.log('OK   058: minors_only → max_age = 17; 062: backfill de tutores (y down/up de ida y vuelta)');
+  // 063: la BD queda con jit = off (sin él, los rankings tardaban segundos); con la migración subida de nuevo.
+  const { rows: [{ cfg }] } = await c.query(
+    `SELECT COALESCE((SELECT setconfig FROM pg_db_role_setting WHERE setrole = 0 AND setdatabase = (SELECT oid FROM pg_database WHERE datname = current_database())), '{}') AS cfg`);
+  assert.ok(cfg.includes('jit=off'), '063: ALTER DATABASE SET jit = off');
+  console.log('OK   058: minors_only → max_age = 17; 062: backfill de tutores; 063: jit = off (y down/up de ida y vuelta)');
 } catch (e) {
   failed++;
   console.error('FAIL 058: minors_only → max_age = 17\n', e);
