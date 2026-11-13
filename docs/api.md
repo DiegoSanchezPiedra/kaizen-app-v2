@@ -187,14 +187,13 @@ Errores frecuentes: `409 subscription_exists`,
 verlo: no se revela que existe), `409 payer_change_expired|payer_change_paid`,
 `503 portal_not_configured`.
 
-## Comunidad
+## Rankings y fichas públicas
 
 | Método y ruta | Rol | Query | Respuesta |
 |---|---|---|---|
-| `GET /profiles?q&role&discipline_id&limit&offset` | cualquiera | — | `{ profiles: [ficha], total, limit, offset }` |
 | `GET /profiles/:id` | cualquiera | — | `{ profile: { id, display_name, role, bio?, social_links?, disciplines?, member_since?, achievements? } }` (solo lo visible; `404 profile_not_found` si no es público) |
-| `GET /rankings/:disciplineId/medals?limit&offset` | cualquiera | — | `{ discipline: { id, name }, rows: [{ rank, id, display_name, medals, hours, achievements? }], total, limit, offset }`: medallas de siempre en esa disciplina (037), por medallas y, empatadas, por sus horas en ella; también las abiertas y las desactivadas. `achievements` (sus `disciplines` como en `/me/progress`) solo de quien enseña sus logros. `404 ranking_not_found` |
-| `GET /rankings/:disciplineId?month&limit&offset` | cualquiera | — | `{ discipline: { id, name }, month, rows: [{ rank, id, display_name, hours, achievements? }], total, limit, offset }` (`achievements` solo de quien enseña sus logros) |
+| `GET /rankings/:disciplineId/medals` | cualquiera | — | `{ discipline: { id, name }, rows: [{ rank, id, display_name, medals, hours, achievements? }], total, limit }`: los puestos hasta `limit` (`limit` = el top de `PUT /admin/settings/rankings`, por defecto 50; si hay empate en el último puesto salen todos, así que pueden ser más filas que `limit`); medallas de siempre en esa disciplina (037), por medallas y, empatadas, por sus horas en ella; también las abiertas y las desactivadas. `achievements` (sus `disciplines` como en `/me/progress`) solo de quien enseña sus logros. `404 ranking_not_found` |
+| `GET /rankings/:disciplineId?month` | cualquiera | — | `{ discipline: { id, name }, month, rows: [{ rank, id, display_name, hours, achievements? }], total, limit }` (el mismo top; `achievements` solo de quien enseña sus logros) |
 
 ## Profesor
 
@@ -353,10 +352,11 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 
 | Método y ruta | Cuerpo |
 |---|---|
-| `GET /admin/settings` | — → `{ checkin: { opens_minutes, closes_minutes, qr_seconds }, discipline_changes: { per_period }, pause: { price_cents, max_months, per_year } }`: lo mismo que devuelve cada `PUT` en `settings` |
+| `GET /admin/settings` | — → `{ checkin: { opens_minutes, closes_minutes, qr_seconds }, discipline_changes: { per_period }, pause: { price_cents, max_months, per_year }, rankings: { top } }`: lo mismo que devuelve cada `PUT` en `settings` |
 | `PUT /admin/settings/checkin` | `{ opens_minutes?, closes_minutes?, qr_seconds? }` |
 | `PUT /admin/settings/discipline-changes` | `{ per_period }` |
 | `PUT /admin/settings/pause` | `{ price_cents? (1–10 000 000, la cuota de mantenimiento mensual), max_months? (1–12, por defecto 3), per_year? (0–12, por defecto 1) }`. Sin `price_cents` no hay pausas. Un precio nuevo no cambia las pausas ya pedidas. `400 invalid_field`. `audit_log` `settings.pause` |
+| `PUT /admin/settings/rankings` | `{ top }` (entero de 1 a 100; sin ajuste, 50): puestos de los dos rankings. `400 invalid_field`. `audit_log` `settings.rankings` |
 
 **Auditoría, avisos de la academia y entregas fallidas** (B19.1). Todas paginadas (`limit` 1–100, 25 por defecto; `offset`) y del más nuevo al más viejo; `from` y `to` son días de Madrid, ambos incluidos. `400 invalid_pagination`, `invalid_field`.
 
