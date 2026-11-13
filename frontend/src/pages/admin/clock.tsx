@@ -15,7 +15,7 @@ import { queryClient } from '@/lib/logout'
 import { toastError, toastOk } from '@/lib/notify'
 import { useAdminClock, useEmployees } from '@/lib/queries'
 import { path } from '@/lib/url'
-import { Filter } from '@/pages/community'
+import { Filter } from '@/components/filter'
 
 const refresh = () => void queryClient.invalidateQueries({ queryKey: ['admin', 'clock'] })
 

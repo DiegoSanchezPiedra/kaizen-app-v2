@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { addMonths, formatMonth, madridMonth } from '@/lib/dates'
 import { periodRange, validRange, type Period } from '@/lib/professor'
 import { useDisciplines } from '@/lib/queries'
-import { Filter } from '@/pages/community'
+import { Filter } from '@/components/filter'
 
 const PERIODS: { value: Period; label: string }[] = [
   { value: 'this', label: 'Este mes' },

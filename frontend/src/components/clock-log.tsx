@@ -27,7 +27,7 @@ import { formatDeadline, formatTime } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import { FormSheet, SelectField } from '@/pages/admin/schedule-bits'
 import { post, useConfirm } from '@/pages/admin/user-billing'
-import { Filter } from '@/pages/community'
+import { Filter } from '@/components/filter'
 
 const MAX_REASON = 500
 
