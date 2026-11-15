@@ -131,6 +131,23 @@ try {
     const r = await http('POST', '/me/password', t, { current_password: 'vieja-1234', new_password: 'nueva-1234' });
     assert.equal(r.status, 200, JSON.stringify(r.body));
   });
+
+  // ADR 0028: la invitación de un profesor usa la misma ruta y verifica el email; restablecer normal no.
+  await run('ADR 0028: aceptar una invitación verifica el email; un restablecer normal no, y un desactivado no restablece', async () => {
+    const hash1 = `h-inv-${tag}`;
+    await q(`INSERT INTO password_resets (profile_id, token_hash, expires_at, kind) VALUES ($1, $2, now() + interval '1 day', 'invite')`, [U.ana, hash1]);
+    assert.equal((await q(`SELECT consume_password_reset($1, 'nuevo-hash') AS ok`, [hash1])).rows[0].ok, true);
+    assert.equal((await q(`SELECT email_verified FROM auth_credentials WHERE profile_id = $1`, [U.ana])).rows[0].email_verified, true);
+    await q(`UPDATE auth_credentials SET email_verified = false WHERE profile_id = $1`, [U.ana]);
+    await q(`INSERT INTO password_resets (profile_id, token_hash, expires_at) VALUES ($1, $2, now() + interval '1 day')`, [U.ana, `h-rst-${tag}`]);
+    assert.equal((await q(`SELECT consume_password_reset($1, 'nuevo-hash') AS ok`, [`h-rst-${tag}`])).rows[0].ok, true);
+    assert.equal((await q(`SELECT email_verified FROM auth_credentials WHERE profile_id = $1`, [U.ana])).rows[0].email_verified, false);
+    await q(`UPDATE auth_credentials SET disabled_at = now() WHERE profile_id = $1`, [U.ana]);
+    assert.equal((await q(`SELECT create_password_reset($1, $2) AS ok`, [email('ana'), `h-dis-${tag}`])).rows[0].ok, false);
+    await q(`INSERT INTO password_resets (profile_id, token_hash, expires_at) VALUES ($1, $2, now() + interval '1 day')`, [U.ana, `h-dis2-${tag}`]);
+    assert.equal((await q(`SELECT consume_password_reset($1, 'x') AS ok`, [`h-dis2-${tag}`])).rows[0].ok, false);
+    await q(`UPDATE auth_credentials SET disabled_at = NULL WHERE profile_id = $1`, [U.ana]);
+  });
 } finally {
   console.error = realError;
   server.close();

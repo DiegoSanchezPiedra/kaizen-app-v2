@@ -8,6 +8,7 @@ import { signToken } from './jwt.js';
 import { verifyGoogleIdToken } from './google.js';
 import { send } from './email.js';
 import { mail } from './notices.js';
+import { isCorporateEmail } from '../config/corporate.js';
 
 // ---------------------------------------------------------------------------
 // Lectura de credenciales SOLO para login (sin JWT todavía).
@@ -15,7 +16,7 @@ import { mail } from './notices.js';
 // ---------------------------------------------------------------------------
 export async function findCredentialsByEmail(email) {
   const { rows } = await servicePool.query(
-    `SELECT profile_id, email, password_hash, google_sub, email_verified
+    `SELECT profile_id, email, password_hash, google_sub, email_verified, disabled_at
        FROM auth_credentials
       WHERE email = $1`,
     [email]
@@ -29,13 +30,13 @@ export const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 // B32: el menor entra con el usuario que eligió su tutor (en minúsculas y sin '@': no se confunde con un email).
 async function findCredentialsByUsername(username) {
   const { rows } = await servicePool.query(
-    `SELECT profile_id, email, password_hash FROM auth_credentials WHERE username = $1`, [username.trim().toLowerCase()]);
+    `SELECT profile_id, email, password_hash, disabled_at FROM auth_credentials WHERE username = $1`, [username.trim().toLowerCase()]);
   return rows[0] ?? null;
 }
 
 export async function findCredentialsByGoogleSub(googleSub) {
   const { rows } = await servicePool.query(
-    `SELECT profile_id, email, password_hash, google_sub, email_verified
+    `SELECT profile_id, email, password_hash, google_sub, email_verified, disabled_at
        FROM auth_credentials
       WHERE google_sub = $1`,
     [googleSub]
@@ -115,6 +116,8 @@ export async function registerLocal({ email, password, displayName, birthDate })
     throw httpError(400, 'minor_cannot_register', 'solo pueden registrarse mayores de 18');
   }
   assertStrongPassword(password);
+  // ADR 0028: el dominio corporativo es de los profesores, que los da de alta el admin.
+  if (isCorporateEmail(email)) throw httpError(409, 'email_domain_reserved', 'ese dominio de email está reservado');
   const existing = await findCredentialsByEmail(email);
   if (existing) {
     throw httpError(409, 'email_taken', 'email already registered');
@@ -138,7 +141,7 @@ export async function loginLocal({ email, password }) {
   const cred = email.includes('@') ? await findCredentialsByEmail(email) : await findCredentialsByUsername(email);
   // B32: sin cuenta también se verifica (contra un hash fijo): el tiempo no dice si el email o el usuario existen.
   const ok = await verifyPassword(cred?.password_hash ?? await dummyHash(), password);
-  if (!cred?.password_hash || !ok) {
+  if (!cred?.password_hash || !ok || cred.disabled_at) { // desactivado: el mismo error que una contraseña mala
     throw httpError(401, 'invalid_credentials', 'invalid credentials');
   }
   const { rows } = await servicePool.query(
@@ -152,16 +155,20 @@ export async function loginLocal({ email, password }) {
 // ---------------------------------------------------------------------------
 // loginGoogle — CAMBIO: no firma token. Devuelve { profileId, email, role }.
 // ---------------------------------------------------------------------------
-export async function loginGoogle({ idToken }) {
+export async function loginGoogle({ idToken, verify = verifyGoogleIdToken }) { // `verify`: los tests no llaman a Google
   if (!idToken) {
     throw httpError(400, 'invalid_payload', 'idToken required');
   }
-  const payload = await verifyGoogleIdToken(idToken);
+  const payload = await verify(idToken);
   const email = payload.email;
   const googleSub = payload.sub;
   if (!email || !googleSub) {
     throw httpError(400, 'invalid_google_token', 'token missing email/sub');
   }
+
+  // ADR 0028: los profesores entran solo con email y contraseña; su dominio no se vincula ni se da de alta por Google.
+  const notAllowed = () => httpError(403, 'google_login_not_allowed', 'los profesores entran con email y contraseña');
+  if (isCorporateEmail(email)) throw notAllowed();
 
   const bySub = await findCredentialsByGoogleSub(googleSub);
   if (bySub) {
@@ -170,11 +177,15 @@ export async function loginGoogle({ idToken }) {
       [bySub.profile_id]
     );
     const role = rows[0]?.role ?? 'alumno';
+    if (role === 'profesor') throw notAllowed();
+    if (bySub.disabled_at) throw httpError(401, 'invalid_credentials', 'invalid credentials');
     return { profileId: bySub.profile_id, email: bySub.email, role };
   }
 
   const byEmail = await findCredentialsByEmail(email);
   if (byEmail) {
+    const { rowCount } = await servicePool.query(`SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'profesor'`, [byEmail.profile_id]);
+    if (rowCount) throw notAllowed();
     // El email existe con password local y sin google_sub → no vincular automáticamente
     throw httpError(
       409,
@@ -202,7 +213,7 @@ export async function loginGoogle({ idToken }) {
 // Recuperar contraseña (B18.0, migración 025). Sin sesión: las funciones SQL son SECURITY DEFINER y el
 // appPool (app_user) solo puede llamarlas. En la BD, solo el SHA-256 del token.
 // ---------------------------------------------------------------------------
-const sha256 = (token) => crypto.createHash('sha256').update(token).digest('hex');
+export const sha256 = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
 /** Nunca revela si el email existe: no lanza por eso ni espera al envío (ni el tiempo ni un fallo lo delatan). */
 export async function requestPasswordReset(email) {

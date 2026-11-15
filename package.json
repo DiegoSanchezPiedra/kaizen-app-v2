@@ -40,6 +40,7 @@
     "test:user-stats": "dotenv -e .env -- node scripts/test-user-stats.js",
     "test:home": "dotenv -e .env -- node scripts/test-home.js",
     "test:password": "dotenv -e .env -- node scripts/test-password.js",
+    "test:trainers": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-trainers.js",
     "test:avatar": "dotenv -e .env -- node scripts/test-avatar.js",
     "test:clock": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-clock.js",
     "extend-horizon": "dotenv -e .env -- node scripts/extend-horizon.js",

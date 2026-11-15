@@ -31,13 +31,15 @@ export async function requireAuth(req, res, next) {
     const { rows: [u] } = await withRls({ uid: payload.sub, role: 'alumno' }, (client) => client.query(
       `SELECT (SELECT role FROM user_roles WHERE user_id = $1) AS role,
               extract(epoch FROM c.credentials_changed_at)::bigint AS changed, c.profile_id IS NOT NULL AS creds,
+              c.disabled_at IS NOT NULL AS disabled,
               COALESCE(c.can_book, false) AS can_book,
               EXISTS (SELECT 1 FROM guardianships WHERE minor_id = $1) AS ward,
               p.birth_date > CURRENT_DATE - interval '18 years' AS minor,
               p.birth_date <= CURRENT_DATE - make_interval(years => minor_consent_age()) AS can_publish
          FROM (SELECT 1) one LEFT JOIN profiles p ON p.id = $1 LEFT JOIN auth_credentials c ON c.profile_id = $1`,
       [payload.sub]));
-    if ((u.ward && !u.creds) || (u.changed !== null && !(payload.iat >= Number(u.changed)))) { // sin iat, también fuera
+    // ADR 0028: un profesor desactivado pierde la sesión viva en la siguiente petición.
+    if (u.disabled || (u.ward && !u.creds) || (u.changed !== null && !(payload.iat >= Number(u.changed)))) { // sin iat, también fuera
       return next(httpError(401, 'session_revoked', 'session revoked'));
     }
     req.user = { id: payload.sub, role: u.role ?? 'alumno', mfa: Array.isArray(payload.amr) && payload.amr.includes('mfa'),

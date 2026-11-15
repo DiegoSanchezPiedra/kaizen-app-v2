@@ -15,8 +15,8 @@ try {
   const [{ name }] = (await c.query(`SELECT name FROM pgmigrations ORDER BY id DESC LIMIT 1`)).rows;
   // B31, B30 y B32: la 059 (registro de jornada), la 060 (pausas), la 061 (acceso del menor), la 062 (permiso de crear hijos) y la 063 (JIT
   // apagado) no tienen datos que migrar; se bajan con la 058 y vuelven a subir (la 060 y la 061 deshacen y rehacen sus parches de funciones).
-  assert.equal(name, '063_jit_off', 'el test baja las seis últimas: actualízalo si hay otra después');
-  migrate('down', 6);
+  assert.equal(name, '064_trainer_invites', 'el test baja las siete últimas: actualízalo si hay otra después');
+  migrate('down', 7);
   await c.query(`INSERT INTO disciplines (name, minors_only) VALUES ('T-Mig-Kids', true), ('T-Mig-BJJ', false)`);
   // 062: quien ya es tutor conserva el permiso de crear hijos; el resto empieza sin él.
   const { rows: [tutor, solo, kid] } = await c.query(
@@ -38,7 +38,19 @@ try {
   const { rows: [{ cfg }] } = await c.query(
     `SELECT COALESCE((SELECT setconfig FROM pg_db_role_setting WHERE setrole = 0 AND setdatabase = (SELECT oid FROM pg_database WHERE datname = current_database())), '{}') AS cfg`);
   assert.ok(cfg.includes('jit=off'), '063: ALTER DATABASE SET jit = off');
-  console.log('OK   058: minors_only → max_age = 17; 062: backfill de tutores; 063: jit = off (y down/up de ida y vuelta)');
+  // 064: alta de profesores. Bajar borra las invitaciones (kind desaparece) y deja la contraseña restablecible; subir la vuelve a dejar.
+  await c.query(`INSERT INTO password_resets (profile_id, token_hash, expires_at, kind) VALUES ($1, 't-mig-inv', now() + interval '1 day', 'invite')`, [solo.id]);
+  await c.query(`INSERT INTO password_resets (profile_id, token_hash, expires_at) VALUES ($1, 't-mig-reset', now() + interval '1 day')`, [solo.id]);
+  migrate('down');
+  const cols = async () => (await c.query(
+    `SELECT table_name || '.' || column_name AS col FROM information_schema.columns
+      WHERE (table_name, column_name) IN (('password_resets', 'kind'), ('auth_credentials', 'disabled_at'))`)).rows.length;
+  assert.equal(await cols(), 0, '064 down: sin kind ni disabled_at');
+  assert.deepEqual((await c.query(`SELECT token_hash FROM password_resets WHERE token_hash LIKE 't-mig-%'`)).rows, [{ token_hash: 't-mig-reset' }]);
+  migrate('up');
+  assert.equal(await cols(), 2, '064 up: kind y disabled_at');
+  assert.equal((await c.query(`SELECT kind FROM password_resets WHERE token_hash = 't-mig-reset'`)).rows[0].kind, 'reset');
+  console.log('OK   058: minors_only → max_age = 17; 062: backfill de tutores; 063: jit = off; 064: down/up de las invitaciones (y down/up de ida y vuelta)');
 } catch (e) {
   failed++;
   console.error('FAIL 058: minors_only → max_age = 17\n', e);

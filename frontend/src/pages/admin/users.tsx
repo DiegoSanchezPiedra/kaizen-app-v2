@@ -18,6 +18,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
 import { OTPField, OTPFieldInput, OTPFieldSeparator } from '@/components/ui/otp-field'
 import {
   ageMarks,
+  ASSIGNABLE_ROLES,
   canChangeRole,
   ESTADO_TAG,
   hasFilters,
@@ -28,6 +29,8 @@ import {
   ROLE_LABEL,
   setFilter,
   toggleEstado,
+  TRAINER_STATE,
+  trainerState,
   userFilters,
   type Estado,
   type Paged,
@@ -51,6 +54,7 @@ import { Filter } from '@/components/filter'
 import { useDebounced } from '@/lib/use-debounced'
 import { PAGE_SIZE, Pager } from '@/pages/admin/shell'
 import { EmploymentChange } from '@/pages/admin/clock'
+import { NewTrainer, TrainerActions } from '@/pages/admin/trainers'
 import { BillingTab, del, useConfirm } from '@/pages/admin/user-billing'
 
 const name = (p: { display_name: string | null }) => p.display_name ?? 'Sin nombre'
@@ -87,7 +91,14 @@ const KPIS: [Estado, string, keyof ProfileStats][] = [
 ]
 const useAdminPlans = () => useQuery({ queryKey: ['admin', 'plans'], queryFn: () => api<{ plans: Plan[] }>('/admin/plans').then((r) => r.plans) })
 
-const EstadoTag = ({ estado }: { estado: Estado | null }) => (estado ? <Tag variant={ESTADO_TAG[estado][1]}>{ESTADO_TAG[estado][0]}</Tag> : null)
+// Alumno: su estado de cuota; profesor: el de su cuenta (activo, invitación pendiente, desactivado).
+const EstadoTag = ({ p }: { p: ProfileRow }) => {
+  if (p.role === 'profesor') {
+    const [label, variant] = TRAINER_STATE[trainerState(p)]
+    return <Tag variant={variant}>{label}</Tag>
+  }
+  return p.estado ? <Tag variant={ESTADO_TAG[p.estado][1]}>{ESTADO_TAG[p.estado][0]}</Tag> : null
+}
 const roleLine = (p: ProfileRow) => [ROLE_LABEL[p.role], ...ageMarks(p), p.role === 'alumno' && (p.plan_name ?? 'Sin plan')].filter(Boolean).join(' · ')
 
 // Activos, Impago e Inactivos de los alumnos de la disciplina elegida; pulsar una filtra la lista por ese estado.
@@ -169,6 +180,9 @@ export function UsersPage() {
         <Kpis params={params} setParams={(p) => setParams(p)} />
       </section>
       <div className="flex flex-col gap-2">
+        <div>
+          <NewTrainer />
+        </div>
         <InputGroup>
           <InputGroupAddon aria-hidden="true">
             <SearchIcon />
@@ -223,7 +237,7 @@ export function UsersPage() {
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="flex items-center justify-between gap-3">
                       <span className="truncate font-semibold">{name(p)}</span>
-                      <EstadoTag estado={p.estado} />
+                      <EstadoTag p={p} />
                     </span>
                     <span className="truncate text-sm text-muted-foreground">{roleLine(p)}</span>
                     {p.role === 'alumno' && <span className="text-sm text-muted-foreground">Última asistencia {lastSeen(p.last_attendance_at)}</span>}
@@ -255,7 +269,7 @@ export function UsersPage() {
                     </TableCell>
                     <TableCell>{ROLE_LABEL[p.role]}</TableCell>
                     <TableCell className={p.plan_name ? undefined : 'text-muted-foreground'}>{p.plan_name ?? '—'}</TableCell>
-                    <TableCell>{p.estado ? <EstadoTag estado={p.estado} /> : <span className="text-muted-foreground">—</span>}</TableCell>
+                    <TableCell>{p.estado || p.role === 'profesor' ? <EstadoTag p={p} /> : <span className="text-muted-foreground">—</span>}</TableCell>
                     <TableCell className="text-muted-foreground tabular-nums">{p.role === 'alumno' ? lastSeen(p.last_attendance_at) : '—'}</TableCell>
                   </TableRow>
                 ))}
@@ -287,7 +301,7 @@ const MISSING: Record<string, string> = {
   ...AGREEMENT_TITLE,
 }
 const access = (p: ProfileFile['profile']) =>
-  p.has_password && p.has_google ? 'Contraseña y Google' : p.has_password ? 'Contraseña' : p.has_google ? 'Google' : 'Sin acceso propio'
+  p.has_password && p.has_google ? 'Contraseña y Google' : p.has_password ? 'Contraseña' : p.has_google ? 'Google' : p.email ? 'Pendiente de aceptar la invitación' : 'Sin acceso propio'
 
 const OTP_SLOT = 'h-12 w-10 font-mono text-xl'
 
@@ -308,7 +322,7 @@ function RoleChange({ file, refresh }: { file: ProfileFile; refresh: () => void 
     onError: (err) => {
       const errCode = err instanceof ApiError ? err.code : null
       const go = (label: string, to: string) => ({ label, onClick: () => navigate(to) })
-      toastError(err, errCode === 'trainer_has_sessions' ? go('Ir a Clases', '/admin/classes') : errCode === 'mfa_required' ? go('Activar el doble factor', '/admin/mfa') : undefined)
+      toastError(err, errCode === 'mfa_required' ? go('Activar el doble factor', '/admin/mfa') : undefined)
     },
     onSettled: () => {
       setOpen(false)
@@ -316,7 +330,7 @@ function RoleChange({ file, refresh }: { file: ProfileFile; refresh: () => void 
       refresh()
     },
   })
-  const options = (['alumno', 'tutor', 'profesor', 'admin'] as const).filter((r) => r !== p.role)
+  const options = ASSIGNABLE_ROLES.filter((r) => r !== p.role)
   return (
     <div className="flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center">
       <div className="sm:w-52">
@@ -439,6 +453,7 @@ function Summary({ file, refresh }: { file: ProfileFile; refresh: () => void }) 
       <Kv rows={rows} />
       {!isChild(p) && !p.is_minor && <CanCreateChildren file={file} refresh={refresh} />}
       {canChangeRole(p) && <RoleChange file={file} refresh={refresh} />}
+      {p.role === 'profesor' && <TrainerActions file={file} refresh={refresh} />}
       {p.role === 'profesor' && <EmploymentChange id={p.id} />}
       {dialog}
     </section>

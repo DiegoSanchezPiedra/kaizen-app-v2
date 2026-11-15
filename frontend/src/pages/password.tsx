@@ -1,5 +1,5 @@
 import { ArrowLeftIcon, ClockIcon, MailCheckIcon } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { AuthLayout } from '@/components/auth-layout'
 import { PasswordInput } from '@/components/password-input'
@@ -79,12 +79,18 @@ export function ForgotPasswordPage() {
   )
 }
 
-// /reset-password?token= — POST /auth/password/reset (B18.0); al acabar, a /login.
+// /reset-password?token= — POST /auth/password/reset (B18.0); al acabar, a /login. Con &invite=1 es la bienvenida de un
+// profesor dado de alta por el admin (ADR 0028): la misma ruta, otro texto.
 export function ResetPasswordPage() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const token = params.get('token')
+  const invite = params.get('invite') === '1'
   const [invalid, setInvalid] = useState(!token)
+  // El token es una credencial de un solo uso: fuera de la URL (historial, logs de proxy) en cuanto se ha leído.
+  useEffect(() => {
+    if (token) window.history.replaceState(window.history.state, '', window.location.pathname + (invite ? '?invite=1' : ''))
+  }, [token])
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState<Notice | null>(null)
   const [loading, setLoading] = useState(false)
@@ -114,10 +120,16 @@ export function ResetPasswordPage() {
             <ClockIcon className="size-7.5" aria-hidden="true" />
           </div>
           <h1 className="font-heading text-[34px] font-bold leading-tight">El enlace ya no vale</h1>
-          <p>Ha caducado o ya se ha usado. Pide otro para cambiar tu contraseña.</p>
-          <Button size="xl" className="w-full" render={<Link to="/forgot-password" />}>
-            Pedir otro enlace
-          </Button>
+          {invite ? (
+            <p>Ha caducado o ya se ha usado. Pide a administración que te reenvíe la invitación.</p>
+          ) : (
+            <>
+              <p>Ha caducado o ya se ha usado. Pide otro para cambiar tu contraseña.</p>
+              <Button size="xl" className="w-full" render={<Link to="/forgot-password" />}>
+                Pedir otro enlace
+              </Button>
+            </>
+          )}
           <Link to="/login" className={linkClass}>
             Volver a entrar
           </Link>
@@ -128,8 +140,10 @@ export function ResetPasswordPage() {
 
   return (
     <AuthLayout>
-      <h1 className="font-heading text-[34px] font-bold leading-tight">Nueva contraseña</h1>
-      <p className="text-muted-foreground">Elige la contraseña con la que entrarás a partir de ahora.</p>
+      <h1 className="font-heading text-[34px] font-bold leading-tight">{invite ? 'Te damos la bienvenida' : 'Nueva contraseña'}</h1>
+      <p className="text-muted-foreground">
+        {invite ? 'La academia te ha dado de alta como profesor. Elige la contraseña con la que entrarás.' : 'Elige la contraseña con la que entrarás a partir de ahora.'}
+      </p>
       {notice && <StatusAlert notice={notice} />}
       <Form className="flex flex-col gap-4" errors={errors} onFormSubmit={submit}>
         <Field name="password" className="items-stretch">
@@ -139,7 +153,7 @@ export function ResetPasswordPage() {
           {errors.password ? <FieldMessage>{errors.password}</FieldMessage> : <FieldDescription>Mínimo 8 caracteres.</FieldDescription>}
         </Field>
         <Button type="submit" size="xl" className="w-full" loading={loading}>
-          Guardar contraseña
+          {invite ? 'Crear contraseña' : 'Guardar contraseña'}
         </Button>
       </Form>
     </AuthLayout>

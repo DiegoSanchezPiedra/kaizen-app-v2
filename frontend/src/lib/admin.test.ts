@@ -5,12 +5,14 @@ import {
   auditLabel,
   auditTarget,
   canCancelPayerChange,
+  ASSIGNABLE_ROLES,
   canChangeRole,
   categoryPrefixes,
   deliveryLabel,
   hasData,
   latestStat,
   nowFocus,
+  trainerState,
   trend,
   variation,
   type HomeSession,
@@ -116,10 +118,20 @@ describe('usuarios del panel (B19.3)', () => {
   const file = (profile: typeof adult | typeof child, payer?: string) =>
     ({ profile, status: null, guardians: profile.email ? [] : [tutor, { id: 't2', display_name: 'Otro', email: 'o@x.es' }], children: [], subscription: payer ? { payer: { id: payer, display_name: '' } } : null }) as unknown as ProfileFile
 
-  it('el rol no se cambia a un admin ni a un hijo', () => {
+  it('el rol no se cambia a un admin, a un profesor ni a un hijo', () => {
     expect(canChangeRole(adult)).toBe(true)
     expect(canChangeRole({ ...adult, role: 'admin' })).toBe(false)
+    expect(canChangeRole({ ...adult, role: 'profesor' })).toBe(false)
     expect(canChangeRole(child)).toBe(false)
+  })
+  it('profesor no es un rol asignable: se da de alta (ADR 0028)', () => {
+    expect(ASSIGNABLE_ROLES).toEqual(['alumno', 'tutor', 'admin'])
+  })
+  it('estado de la cuenta del profesor: desactivado gana a invitación pendiente, que gana a activo', () => {
+    expect(trainerState({ disabled: false, has_password: true })).toBe('active')
+    expect(trainerState({ disabled: false, has_password: false })).toBe('pending')
+    expect(trainerState({ disabled: true, has_password: false })).toBe('disabled')
+    expect(trainerState({ disabled: true, has_password: true })).toBe('disabled')
   })
   it('de la edad, solo las marcas', () => {
     expect(ageMarks(adult)).toEqual([])

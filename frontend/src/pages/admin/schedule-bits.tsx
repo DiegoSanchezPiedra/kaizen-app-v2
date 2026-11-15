@@ -18,7 +18,7 @@ export const useAdminDisciplines = () =>
 export const useTrainers = () =>
   useQuery({
     queryKey: ['admin', 'profiles', 'trainers'],
-    queryFn: () => api<Paged<'profiles', ProfileRow>>(path('/admin/profiles', { role: 'profesor', limit: '100' })).then((r) => r.profiles),
+    queryFn: () => api<Paged<'profiles', ProfileRow>>(path('/admin/profiles', { role: 'profesor', limit: '100' })).then((r) => r.profiles.filter((p) => !p.disabled)), // un desactivado no se asigna a clases
   })
 
 export function TextField({
