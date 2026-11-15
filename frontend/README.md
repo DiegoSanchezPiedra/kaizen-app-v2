@@ -25,6 +25,14 @@ npx tsc -b             # tipos
 npm run lint           # oxlint
 ```
 
+E2E (Playwright, contra una app ya levantada). Dejan datos de prueba en cada pasada: `alta-hijo` registra un adulto nuevo
+(`@example.com`) y `contratar-cuota` crea un hijo del tutor de `E2E_EMAIL`, que necesita el permiso de crear hijos (lo da el admin):
+
+```bash
+npx playwright install chromium   # una vez
+E2E_BASE_URL=<url> E2E_EMAIL=<tutor con permiso de crear hijos> E2E_PASSWORD=<…> npm run e2e
+```
+
 ## Producción
 
 `npm run build:frontend` desde la raíz (`ci` + `build`, reproducible) deja `frontend/dist`, que sirve

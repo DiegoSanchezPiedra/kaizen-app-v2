@@ -288,6 +288,15 @@ try {
       await rejects(c, () => requireCompleteProfile({ body: { profile_id: U.child }, user: { id: U.admin, role: 'admin' } }, c),
         403, 'profile_incomplete');
     });
+    await run('requireCompleteProfile: el 403 dice de quién es lo que falta (whose: subject | actor)', async () => {
+      // Por uno mismo, lo que falta es suyo.
+      await sp(c, () => assert.rejects(requireCompleteProfile({ body: {}, user: { id: U.alu4, role: 'alumno' } }, c),
+        (e) => e.code === 'profile_incomplete' && e.details.whose === 'actor'));
+      // Por un hijo incompleto, lo del hijo.
+      await as(c, U.admin, 'admin');
+      await sp(c, () => assert.rejects(requireCompleteProfile({ body: { profile_id: U.child }, user: { id: U.admin, role: 'admin' } }, c),
+        (e) => e.code === 'profile_incomplete' && e.details.whose === 'subject'));
+    });
     await run('B28: perfil completo y suscripción bastan para reservar, sin firmar nada más', async () => {
       const req = { body: {}, user: { id: U.alu1, role: 'alumno' } };
       await requireCompleteProfile(req, c);

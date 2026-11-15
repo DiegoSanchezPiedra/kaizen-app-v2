@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { CircleCheckIcon, UsersIcon } from 'lucide-react'
-import { Link } from 'react-router'
+import { Link, Navigate, useSearchParams } from 'react-router'
 import { AgreementsPanel } from '@/components/agreements-panel'
 import { HealthForm } from '@/components/health-form'
 import { MyDataForm, useMeKey } from '@/components/my-data-form'
@@ -8,6 +8,7 @@ import { Page } from '@/components/page'
 import { ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
+import { safeReturnPath } from '@/lib/paths'
 import { agreementsFor, onboardingSteps, type Step } from '@/lib/profile'
 import { useProfileStatus } from '@/lib/queries'
 import { useSession } from '@/lib/session'
@@ -21,6 +22,8 @@ export function OnboardingPage() {
   const session = useSession()
   const role = session?.role ?? 'alumno'
   const status = useProfileStatus()
+  const [params] = useSearchParams()
+  const volver = params.get('volver')
   const me = useQuery({ queryKey: useMeKey, queryFn: () => api<Me>('/me') })
   const query = status.isError ? status : me
   if (status.isPending || me.isPending) return <Page title="Completar perfil"><ListSkeleton rows={3} /></Page>
@@ -32,6 +35,8 @@ export function OnboardingPage() {
   const all: Step[] = role === 'tutor' ? ['datos', 'acuerdos'] : ['datos', 'ficha', 'acuerdos']
   const now = remaining[0]
 
+  // Lanzado desde otra pantalla (p. ej. contratar la cuota de un hijo): al terminar, de vuelta allí.
+  if (!now && volver) return <Navigate to={safeReturnPath(volver)} replace />
   if (!now) {
     return (
       <Page title="Completar perfil">

@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { InfoIcon } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Page } from '@/components/page'
 import { useCancelBooking } from '@/components/cancel-booking'
 import { StateBadge } from '@/components/session-card'
@@ -18,13 +18,15 @@ import { NoticeCard } from '@/pages/home'
 import { useNow } from '@/hooks/use-now'
 import { useWeek } from '@/hooks/use-week'
 import { useSubject } from '@/hooks/use-subject'
-import { api } from '@/lib/api'
+import { ApiError, api } from '@/lib/api'
 import { addDays } from '@/lib/dates'
 import { toastManager } from '@/components/ui/toast'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
 import { errorText } from '@/lib/errors'
 import { bookBlock, tutorHint } from '@/lib/minor'
 import { NO_SUBSCRIPTION } from '@/lib/notices'
+import { onboardingFrom } from '@/lib/paths'
+import { incompletePath } from '@/lib/profile'
 import { path, refreshBookings, useMinor, useSubscription } from '@/lib/queries'
 import { canCancel, groupByDay, seatsOf, sessionState, type SessionState } from '@/lib/sessions'
 import type { Subject } from '@/lib/subject'
@@ -32,6 +34,7 @@ import type { Booking, CalendarSession, Discipline } from '@/lib/types'
 
 function Calendar({ subject, profileId }: { subject: Subject | null; profileId?: string }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const { withSubject } = useSubject()
   const w = useWeek()
   const [discipline, setDiscipline] = useState('all')
@@ -73,7 +76,14 @@ function Calendar({ subject, profileId }: { subject: Subject | null; profileId?:
         code === 'not_covered'
           ? { label: 'Ver cuota', onClick: () => void navigate(withSubject('/billing')) }
           : code === 'profile_incomplete'
-            ? { label: 'Completar', onClick: () => void navigate(profileId ? withSubject('/account/health') : '/onboarding') }
+            ? {
+                label: 'Completar',
+                onClick: () => {
+                  const details = err instanceof ApiError ? err.details : {}
+                  const to = profileId ? incompletePath(Array.isArray(details.missing) ? (details.missing as string[]) : [], details.whose) : '/onboarding'
+                  void navigate(to === '/onboarding' ? onboardingFrom(location.pathname + location.search) : withSubject(to))
+                },
+              }
             : undefined
       toastError(err, action)
     },

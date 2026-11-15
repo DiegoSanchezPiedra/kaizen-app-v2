@@ -18,8 +18,10 @@ export function decode(token: string): Session | null {
 
 export const isExpired = (s: Session, now = Date.now()): boolean => s.exp * 1000 <= now
 
-// Solo rutas propias: nunca una URL externa que llegue en ?volver=.
-export const safeReturnPath = (p: string | null): string => (p && p.startsWith('/') && !p.startsWith('//') ? p : '/')
+// Solo rutas propias: nunca una URL externa que llegue en ?volver= (ni «/\», que el navegador lee como «//»).
+export const safeReturnPath = (p: string | null): string => (p && p.startsWith('/') && !p.startsWith('//') && !p.includes('\\') ? p : '/')
+// Al onboarding con vuelta: al terminar regresa a `back` (p. ej. a contratar la cuota de un hijo).
+export const onboardingFrom = (back: string): string => `/onboarding?${new URLSearchParams({ volver: back })}`
 
 // Cerrar sesión va a /login a secas; caducada o sin sesión, con la ruta para volver después.
 // Con el rol cambiado no se vuelve: la ruta era del rol viejo.
