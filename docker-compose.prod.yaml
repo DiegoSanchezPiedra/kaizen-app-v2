@@ -1,6 +1,6 @@
 # Producción en un VPS (ADR 0017). Uso: deploy/deploy.sh. Lee el .env de la raíz (copia de deploy/.env.prod.example).
 name: kaizen
-# Disco de 75 GB: sin límite los logs de Docker crecen sin parar.
+# Disco de 320 GB: sin límite los logs de Docker crecen sin parar.
 x-logging: &logging
   driver: json-file
   options: { max-size: "10m", max-file: "5" }
@@ -9,9 +9,9 @@ services:
     logging: *logging
     image: postgres:16
     restart: unless-stopped
-    # Ajuste para VPS de 8 GB con NVMe, compartido con la API y nginx.
+    # Ajuste para el VPS de 16 GB (netcup VPS Lite 3), compartido con la API y nginx.
     shm_size: 1g
-    command: postgres -c shared_buffers=2GB -c effective_cache_size=5GB -c work_mem=16MB -c maintenance_work_mem=256MB -c random_page_cost=1.1
+    command: postgres -c shared_buffers=4GB -c effective_cache_size=10GB -c work_mem=16MB -c maintenance_work_mem=256MB -c random_page_cost=1.1
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -65,6 +65,12 @@ services:
       - AGREEMENTS_STORAGE_PATH=/app/storage/agreements # las fotos (avatars) y los logs cuelgan del mismo storage/
     volumes:
       - storage:/app/storage
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   # Solo bajo demanda: docker compose run --rm migrate
   migrate:
@@ -84,9 +90,20 @@ services:
         VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
         VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY:-}
     restart: unless-stopped
-    depends_on: [api]
+    depends_on: { api: { condition: service_healthy } }
+    # TLS en este contenedor (un solo salto de proxy: TRUST_PROXY=1). Certificados: deploy/tls-init.sh.
+    # Sin registros AAAA en el DNS: Docker enmascara la IP de los clientes IPv6 (rompería el rate limit por IP).
     ports:
-      - "${WEB_BIND:-0.0.0.0:80}:80" # TLS pendiente (certbot): con TLS delante, WEB_BIND=127.0.0.1:8080
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /etc/kaizen/certs:/etc/nginx/certs:ro
+      - /var/www/certbot:/var/www/certbot:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/nginx-health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
 
 volumes:
   db:

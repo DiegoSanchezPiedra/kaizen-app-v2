@@ -10,7 +10,10 @@ worker de avisos) y `web` (nginx con `deploy/nginx.conf` y el frontend compilado
 2. `cp deploy/.env.prod.example .env` y rellénalo (más lo que falta de la API en `.env.example`). Claves de Stripe: la cuenta
    real es la de maat; no pongas claves `live` hasta B10.7.
 3. `deploy/deploy.sh`: `git pull`, build, arranca `db` (el primer arranque crea roles y base), migraciones y `up -d`.
-   Producción no se abre sin TLS (decidido: certbot en el host). Sin TLS publica el `:80`. Con TLS (certbot en el host) pon `WEB_BIND=127.0.0.1:8080` y proxy desde el nginx del host.
+   TLS (decidido el 2026-11-15, sustituye a «certbot con nginx en el host»): lo termina el propio contenedor `web` (443; el 80 solo
+   redirige y sirve el reto de certbot), así hay un solo salto de proxy y `TRUST_PROXY=1` es correcto. Orden: `sudo deploy/tls-init.sh <dominio> <email>`
+   (deja un certificado provisional; necesita certbot en el host), luego `deploy/deploy.sh` y otra vez `sudo deploy/tls-init.sh <dominio> <email>`
+   para emitir el real. Las renovaciones las hace el timer de certbot y su hook recarga nginx. Cloudflare, solo como DNS (nube gris) durante el piloto.
    `GOOGLE_CLIENT_ID` y `VITE_STRIPE_PUBLISHABLE_KEY` se compilan en la imagen `web`: deben estar en el `.env` antes del primer `deploy/deploy.sh`; si faltan, el pago con tarjeta no carga y hay que recompilar `web`.
 4. `deploy/check-gzip.sh https://<dominio>`: comprueba que el JS, el CSS y `sw.js` llegan con `content-encoding: gzip`. Si falla, el
    contenedor `web` comprime pero el nginx del host no lo deja pasar: que no quite `Accept-Encoding` y, si añade `Via`, `gzip_proxied any;`.
@@ -28,12 +31,28 @@ El worker de avisos va dentro de la API: no necesita cron. `npm run build:prod` 
 
 `deploy/deploy.sh` (se para si `git pull --ff-only` no puede avanzar). Las migraciones corren antes de levantar la API nueva. Si cambias el nginx, repite `deploy/check-gzip.sh`.
 
+## Host y DNS (antes del primer despliegue)
+
+- **Host:** Debian/Ubuntu con `ufw` (permitir solo 22, 80 y 443), SSH solo con clave y sin root, `fail2ban`, `unattended-upgrades`, Docker,
+  certbot y borg. El compose solo publica el 80 y el 443; si algún día publicas otro puerto, Docker se salta `ufw` (usa la cadena `DOCKER-USER`).
+- **DNS (Cloudflare, nube gris):** registro `A` al VPS y **sin `AAAA`** (con IPv6 Docker enmascara la IP del cliente y el rate limit por IP deja de servir).
+- **Email (Brevo + Zoho en el mismo dominio):** un solo registro SPF con ambos (`v=spf1 include:zoho.eu include:spf.brevo.com ~all`, ajusta la región de Zoho),
+  los DKIM de cada uno (Brevo y Zoho tienen selectores distintos), `_dmarc` en `p=none` con `rua=` a un buzón tuyo y, dos semanas después de ver los informes,
+  `quarantine`. Envía lo transaccional desde un subdominio (`mail.TU-DOMINIO`) y valida ese remitente en Brevo. Los MX son los de Zoho.
+- **Registros de logs del host:** `logrotate` para `/var/log/kaizen/*.log` (semanal, 8 copias, comprimido).
+- **Prueba antes de abrir:** `docker compose -f docker-compose.prod.yaml ps` (todo `healthy`), `deploy/check-gzip.sh https://<dominio>`, un email real
+  de verificación, un push real (también en iOS con la PWA instalada) y una restauración de backup en una base temporal.
+
 ## Backups
 
 `deploy/backup.sh` deja en `BACKUP_DIR` (por defecto `/var/backups/kaizen`, modo 600) `db-FECHA.dump` (`pg_dump -Fc`) y
 `storage-FECHA.tar.gz` (agreements, avatars y logs), y borra los de más de `KEEP_DAYS` (14). Un fallo deja el `.part` y sale con error.
 
-**Copia fuera del VPS (decidido el 2026-11-10, sin montar):** almacenamiento de objetos compatible con S3 y copia cifrada (`restic`, o `age` antes de subir), más un aviso si el cron falla. Hasta montarla, estas copias comparten disco y servidor con los datos: no protegen de perder el VPS. Los snapshots del proveedor ayudan, no sustituyen.
+**Copia fuera del VPS (decidido el 2026-11-15, sustituye a restic/S3):** BorgBase (región UE) con Borg. `backup.sh` la hace si existe
+`/etc/kaizen/backup.env` (plantilla: `deploy/backup.env.example`): sube el dump, el tar de `storage/` y el `.env` (sin él no se restaura),
+conserva 7 diarias, 4 semanales y 6 mensuales, y avisa a healthchecks.io al terminar (si el backup falla o no corre, el aviso deja de llegar).
+Usa una clave SSH solo de añadir (append-only) y guarda la passphrase y `borg key export` fuera del VPS. Sin `backup.env`, las copias comparten disco y
+servidor con los datos y no protegen de perder el VPS. Los snapshots del proveedor ayudan, no sustituyen. Ensaya la restauración antes del piloto (abajo).
 
 ## Restaurar
 
@@ -53,7 +72,7 @@ que son los roles del `init-roles.sh`. Para ensayar sin riesgo, restaura en un `
 
 Las de `.env.example` más `deploy/.env.prod.example`: contraseñas de los tres roles y `POSTGRES_PASSWORD`, `DB_NAME`,
 `DATABASE_URL*` (host `db`), `APP_URL` (https), `TRUST_PROXY=1`, `GOOGLE_CLIENT_ID` y `VITE_STRIPE_PUBLISHABLE_KEY` (entran
-en el frontend al compilar), `WEB_BIND`. `PORT` y `AGREEMENTS_STORAGE_PATH` los fija el compose.
+en el frontend al compilar). `PORT` y `AGREEMENTS_STORAGE_PATH` los fija el compose.
 
 El `.env` no se ejecuta como shell (admite `MFA_TOTP_ISSUER=Kaizen App` o `EMAIL_FROM=Kaizen <...>` sin comillas). La API recibe
 solo las variables que lista `docker-compose.prod.yaml` (sin `POSTGRES_*` ni la `DATABASE_URL` de migrator, que solo ve `migrate`):
