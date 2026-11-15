@@ -375,7 +375,7 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 | `GET /admin/audit?action&actor_id&resource_type&resource_id&from&to&limit&offset` | `{ rows: [{ id, created_at, action, actor: { id, display_name }, resource_type, resource_id, changes }], total, limit, offset }`. `action` son prefijos separados por comas (`session.,class.`). **Nunca** devuelve `notice.*` (ni filtrando por ellos). `400 invalid_range` si `to < from`. Las altas son `subscription.create` (las escribe el webhook al nacer la cuota, con el pagador de actor y `changes: { student_id, payer_id, plan_id }`; un traspaso de pagador no es un alta). La pausa (B30): `subscription.pause` (`{ pause_id, months, starts_at, ends_at }`), `subscription.pause_cancel`, `subscription.pause_end_early` (recurso: la suscripción), `pause.exempt` (recurso: la pausa; `{ reason, subscription_id }`) y `settings.pause` |
 | `GET /admin/home` | — | Inicio en vivo (B23): `{ trained: { last_30, previous_30, series } }` (B24.2, alumnos que entrenaron, ver CONTEXT § Informes: distintos en los días de Madrid [hoy-29, hoy] y [hoy-59, hoy-30]; `series`, 30 enteros del más viejo al de hoy, el i-ésimo los de los 30 días que acaban en hoy-29+i, así que `series[29] = last_30`), `students: { activos, impago, inactivos }` (como `/admin/profiles/stats`), `attendance: { today, last_week }` (entradas `present` de las sesiones no canceladas de hoy y del mismo día de hace 7 hasta esta misma hora, días de Madrid), `sessions: [{ id, starts_at, ends_at, discipline, trainer, location, capacity, status, booked, present }]` (las de hoy, también las canceladas), `next` (la próxima programada que no ha empezado, o `null`) } |
 | `GET /admin/notices?limit&offset` | `{ rows: [{ id, created_at, action, resource_type, resource_id, details }], total, limit, offset }`: los `notice.*` con algún admin entre sus destinatarios (`stripe_risk`, la carrera de Checkouts, `payer_change_expired`…); `details` es `changes` sin `recipients` |
-| `GET /admin/notice-deliveries?from&limit&offset` | `{ rows: [{ id, created_at, action, channel, recipient: { id, display_name }, attempts, last_error }], total, limit, offset }`: solo las `failed` (no se reintentan); `from` sobre `created_at` |
+| `GET /admin/notice-deliveries?from&limit&offset` | `{ rows: [{ id, created_at, action, channel, recipient: { id, display_name }, attempts, last_error }], total, limit, offset }`: las `failed` y las `skipped` con `last_error = 'email_suppressed'` (dirección suprimida, ADR 0029); no se reintentan; `from` sobre `created_at` |
 
 **Tablets, documentos y perfiles**
 
@@ -424,6 +424,12 @@ Errores: `400 invalid_range`, `400 invalid_field`, `400 invalid_pagination`.
 volver de Stripe: hasta que llega, la suscripción puede no existir aún (la UI de `/billing/success` debe esperar o
 reintentar `GET /billing/subscription`). Igual con un evento: la inscripción queda `pending` hasta `checkout.session.completed`
 (o se cancela con `checkout.session.expired`).
+
+`POST /webhooks/brevo`: solo Brevo (ADR 0029). Autenticación: cabecera `x-brevo-secret` = `BREVO_WEBHOOK_SECRET`, en tiempo
+constante; si falta o no coincide, `401 invalid_secret` sin tocar la BD (`500 webhook_not_configured` sin la variable). Cuerpo
+JSON de Brevo: `{ event, email, reason?, "message-id"? }`. `hard_bounce`, `blocked`, `spam` e `invalid_email` suprimen la dirección;
+`unsubscribed` suprime solo los avisos opcionales; `soft_bounce` solo se registra; cualquier otro evento se ignora. Respuesta
+`200 { received: true, result: 'suppressed' | 'ignored' }` (idempotente); `400 invalid_event` si falta `event` o `email` válido. Un email sin perfil también se guarda. nginx lo expone como `/api/webhooks/brevo`. El frontend no lo usa.
 
 Eventos de Stripe que hay que suscribir en el endpoint (sandbox, staging y producción): los de `HANDLED_EVENTS`
 (`src/services/stripeWebhook.js`), que desde B21.0 incluyen **`checkout.session.expired`** y **`refund.failed`** (un

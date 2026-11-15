@@ -494,7 +494,7 @@ async function main() {
 
     // B20 (riesgo de M2): sin privilegios por defecto, una migración que olvide su GRANT dejaría la tabla sin acceso.
     // Toda tabla o vista da algo a app_user, salvo las que solo usa el servicePool (añadir aquí las nuevas que lo sean).
-    const SERVICE_ONLY = ['cash_payments', 'medal_views', 'password_resets', 'pgmigrations', 'webhook_events'];
+    const SERVICE_ONLY = ['cash_payments', 'email_suppressions', 'medal_views', 'password_resets', 'pgmigrations', 'webhook_events'];
     await run('B20 — toda tabla o vista da permisos a app_user, salvo las solo del servicePool', async () => {
       const { rows } = await servicePool.query(
         `SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace

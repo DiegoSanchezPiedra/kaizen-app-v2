@@ -70,11 +70,14 @@ export async function listNotices(client, page) {
   return { rows, total, limit, offset };
 }
 
-/** Entregas fallidas (no se reintentan): `from` es un día de Madrid sobre created_at. */
+/**
+ * Entregas que no llegaron y no se reintentan: las fallidas y las saltadas por dirección suprimida (ADR 0029; el resto de
+ * saltadas, caducadas o sin email, no son un fallo). `from` es un día de Madrid sobre created_at.
+ */
 export async function listFailedDeliveries(client, { from, ...page }) {
   const { limit, offset } = pagination(page);
   const params = [from === undefined ? null : dateParam(from, 'from')];
-  const where = `WHERE d.status = 'failed'
+  const where = `WHERE (d.status = 'failed' OR (d.status = 'skipped' AND d.last_error = 'email_suppressed'))
     AND ($1::date IS NULL OR d.created_at >= $1::date::timestamp AT TIME ZONE '${TZ}')`;
   const { rows } = await client.query(
     `SELECT d.id, d.created_at, a.action, d.channel,

@@ -99,6 +99,12 @@ const DELIVERY_LABEL: Record<string, string> = {
 export const deliveryLabel = (action: string): string => DELIVERY_LABEL[action] ?? action
 export const CHANNEL_LABEL: Record<string, string> = { email: 'Email', push: 'Push' }
 
+// Motivos de last_error que escribe la API (no son texto del proveedor).
+export const DELIVERY_ERROR_LABEL: Record<string, string> = {
+  email_suppressed: 'Dirección suprimida: el email rebotó o se quejó, no se envió',
+}
+export const deliveryError = (e: string | null): string => (e ? DELIVERY_ERROR_LABEL[e] ?? e : '—')
+
 export type Delivery = { id: string; created_at: string; action: string; channel: string; recipient: { id: string; display_name: string | null }; attempts: number; last_error: string | null }
 
 // Auditoría (docs/pantallas-b19.md § Auditoría). Categoría → prefijos de `action` para `GET /admin/audit?action=`.

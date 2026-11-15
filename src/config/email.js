@@ -7,6 +7,8 @@ export const RESEND_API_KEY = process.env.RESEND_API_KEY;
 export const BREVO_API_KEY = process.env.BREVO_API_KEY;
 // Hasta verificar el dominio (paso de producción): el remitente de pruebas de Resend.
 export const EMAIL_FROM = process.env.EMAIL_FROM || 'Kaizen <onboarding@resend.dev>';
+// Secreto compartido con el webhook de Brevo (cabecera x-brevo-secret, ADR 0029). Sin él, el endpoint responde 500.
+export const BREVO_WEBHOOK_SECRET = process.env.BREVO_WEBHOOK_SECRET;
 export const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || null; // buzón de la academia
 export const EMAIL_LOG_PATH = path.resolve(process.env.EMAIL_LOG_PATH || './storage/emails.log');
 

@@ -8,6 +8,7 @@ import {
   ASSIGNABLE_ROLES,
   canChangeRole,
   categoryPrefixes,
+  deliveryError,
   deliveryLabel,
   hasData,
   latestStat,
@@ -159,6 +160,9 @@ describe('auditoría, avisos y cobros (B19.4)', () => {
     expect(noticeLabel('notice.otra')).toBe('notice.otra')
     expect(deliveryLabel('notice.payment_failed')).toBe('Cobro fallido')
     expect(deliveryLabel('notice.otra')).toBe('notice.otra')
+    expect(deliveryError('email_suppressed')).toMatch(/suprimida/)
+    expect(deliveryError('resend 422')).toBe('resend 422')
+    expect(deliveryError(null)).toBe('—')
   })
   it('el detalle: corrección, rol y precio; de la salud, nada', () => {
     expect(auditDetail({ action: 'attendance.correct', changes: { from: 'absent', to: 'present', reason: 'llegó tarde' } })).toBe('ausente → presente · llegó tarde')

@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { EMAIL_TRANSPORT, RESEND_API_KEY, BREVO_API_KEY, EMAIL_FROM, EMAIL_REPLY_TO, EMAIL_LOG_PATH } from '../config/email.js';
+import { isSuppressed } from './emailSuppressions.js';
 
 const fail = (message, transient) => Object.assign(new Error(message), { transient });
 
@@ -62,4 +63,13 @@ async function log({ to, subject, text, idempotencyKey }) {
   return { id: `log-${crypto.randomUUID()}` };
 }
 
-export const send = { resend, brevo, log }[EMAIL_TRANSPORT];
+/**
+ * Envía con el transporte dado, tras mirar la supresión (ADR 0029): una dirección suprimida no llega a Brevo. Lanza un error
+ * `suppressed` (no transitorio); `optional` marca los avisos que también calla una baja (unsubscribed).
+ */
+export const sendWith = (transport) => async (email) => {
+  if (await isSuppressed(email.to, { optional: email.optional })) throw Object.assign(new Error('email_suppressed'), { suppressed: true });
+  return transport(email);
+};
+
+export const send = sendWith({ resend, brevo, log }[EMAIL_TRANSPORT]);

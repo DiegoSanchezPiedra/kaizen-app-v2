@@ -54,6 +54,7 @@ services:
       - EMAIL_TRANSPORT
       - RESEND_API_KEY
       - BREVO_API_KEY
+      - BREVO_WEBHOOK_SECRET
       - CORPORATE_EMAIL_DOMAIN
       - EMAIL_FROM
       - EMAIL_REPLY_TO
