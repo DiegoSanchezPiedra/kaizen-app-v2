@@ -136,8 +136,9 @@ try {
                                     VALUES ($1, $2, $3, $4) RETURNING id`, [x.id, k0.id, k0.tutor, status])).rows[0].id);
     }
     const sweep = async () => (await c.query(`SELECT * FROM age_out_sweep()`)).rows[0];
-    const soon = (k) => c.query(`SELECT id, changes FROM audit_log WHERE action = 'notice.out_of_age_soon' AND resource_id = $1`,
-      [k.id]).then((r) => r.rows);
+    // Solo los avisos de R: la BD puede tener otras disciplinas con edad máxima (p. ej. las de local:seed) y el plan las cubre todas.
+    const soon = (k) => c.query(`SELECT id, changes FROM audit_log WHERE action = 'notice.out_of_age_soon' AND resource_id = $1
+                                    AND (changes->>'discipline_id')::bigint = $2`, [k.id, R]).then((r) => r.rows);
     const states = () => c.query(`SELECT b.status, b.cancel_reason, (SELECT count(*)::int FROM audit_log a
                                      WHERE a.action = 'notice.out_of_age' AND a.resource_id = b.id::text) AS notices
                                     FROM bookings b WHERE b.id = ANY($1::uuid[]) ORDER BY array_position($1::uuid[], b.id)`,

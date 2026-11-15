@@ -57,10 +57,10 @@ try {
   await sub('ana', 'active');
   await sub('leo', 'past_due');
 
-  const session = async (days, status = 'scheduled', at = noon(days)) => {
+  const session = async (days, status = 'scheduled', at = noon(days), min = 60) => {
     const { rows: [s] } = await q(
       `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status, cancelled_at)
-       VALUES ($1, $2, ${at}, ${at} + interval '60 min', 60, 12, $3::session_status,
+       VALUES ($1, $2, ${at}, ${at} + interval '${min} min', ${min}, 12, $3::session_status,
                CASE WHEN $3::session_status = 'cancelled' THEN now() END) RETURNING id`, [disc, U.prof, status]);
     sessions.push(s.id);
     return s.id;
@@ -79,10 +79,10 @@ try {
   await book(today, 'leo', false);
   const cancelled = await session(0, 'cancelled');
   await book(cancelled, 'leo', true); // sesión cancelada: no cuenta como asistencia
-  // Hace 7 días, una hora antes y un minuto después de esta hora (sin solaparse: mismo profesor): solo cuenta lo que ya
-  // había empezado a esta hora.
-  // shortcut: en la primera hora del día la de antes cae en el día anterior y el test fallaría; no lanzarlo de madrugada.
-  const lastWeek = await session(-7, 'scheduled', `now() - interval '7 days 61 minutes'`);
+  // Hace 7 días, justo antes y un minuto después de esta hora: solo cuenta lo que ya había empezado a esta hora.
+  // La de antes dura 1 min (mismo profesor: no pueden solaparse) y nunca antes de la medianoche de Madrid de ese día.
+  const lastWeek = await session(-7, 'scheduled',
+    `GREATEST(((now() AT TIME ZONE 'Europe/Madrid')::date - 7)::timestamp AT TIME ZONE 'Europe/Madrid', now() - interval '7 days 2 minutes')`, 1);
   await book(lastWeek, 'ana', true);
   await book(lastWeek, 'leo', true);
   const lastWeekLater = await session(-7, 'scheduled', `now() - interval '7 days' + interval '1 minute'`);

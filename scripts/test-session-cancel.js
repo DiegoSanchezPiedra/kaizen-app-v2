@@ -665,7 +665,8 @@ try {
     // y la encuentra retirada → 409 (no un 500), sin aplicar nada.
     const d2 = await discipline('Judo2');
     const k = await mkClass({ weeks: 2, d: d2 });
-    const r2 = await whileHeld(`SELECT retire_class($1, CURRENT_DATE)`, [k.id],
+    // Hoy de Madrid: CURRENT_DATE es el de la BD (UTC) y de madrugada aún es ayer → retire_class da invalid_date.
+    const r2 = await whileHeld(`SELECT retire_class($1, (now() AT TIME ZONE 'Europe/Madrid')::date)`, [k.id],
       (c) => updateDiscipline(c, { id: String(d2.id), body: { is_active: false }, actorId: admin }));
     assert.ok(r2.waited);
     assert.deepEqual([r2.e?.status, r2.e?.code], [409, 'already_retired']);
