@@ -171,7 +171,9 @@ Ensayo de punta a punta, con las cuentas del seed:
 
 Con el remitente de pruebas de Resend (`EMAIL_FROM=Kaizen <onboarding@resend.dev>`), **Resend solo entrega a la dirección de tu
 propia cuenta de Resend**. Para que le lleguen al cliente: verifica un dominio tuyo en Resend (Domains) y pon
-`EMAIL_FROM=Kaizen <avisos@tu-dominio>`. Reinicia la API.
+`EMAIL_FROM=Kaizen <avisos@tu-dominio>`. Reinicia la API. Con **Brevo** (`EMAIL_TRANSPORT=brevo`, `BREVO_API_KEY`): el remitente tiene que
+ser de un dominio autenticado en Brevo; con `onboarding@resend.dev` la API se niega a arrancar. Sin idempotencia en Brevo, un reintento tras
+una caída puede duplicar un email.
 
 ### Google
 
@@ -208,6 +210,69 @@ Y repite el paso 1.4. Los roles de la BD solo se crean cuando el volumen está v
 `.env.staging`, hace falta este reinicio (o el `ALTER ROLE` de arriba).
 
 ---
+
+## 7. Variables de entorno
+
+Se leen del `.env.staging` (la API, el seed y las migraciones; solo al arrancar) salvo las **de compilación**, que entran en el
+frontend al hacer `npm run staging:build` y viven en `frontend/.env.production` (copia `frontend/.env.example`). «Secreto» = no se
+sube nunca al repo ni se pega en chats o tickets. Con el `.env` de producción del VPS (`deploy/.env.prod.example`) valen las mismas
+variables; lo que cambia está en la columna «Staging local / VPS».
+
+| Variable | Para qué sirve | Quién la genera | Dónde | Secreto | Staging local / VPS |
+|---|---|---|---|---|---|
+| `POSTGRES_USER`, `DB_NAME` | superusuario y nombre de la base | tú | `.env.staging` / `.env` | no | `postgres`, `kaizen_staging` / `postgres`, `kaizen` |
+| `POSTGRES_PASSWORD`, `MIGRATOR_PASSWORD`, `APP_PASSWORD`, `SERVICE_PASSWORD` | contraseñas de los 4 roles de la BD | `openssl rand -hex 24` (sin `@ : / # %`) | `.env.staging` / `.env` | **sí** | igual |
+| `DATABASE_URL`, `DATABASE_URL_APP`, `DATABASE_URL_SERVICE` | conexión de migrator, API y worker; repiten las contraseñas de arriba | tú | `.env.staging` / `.env` | **sí** | host `localhost:5433` / host `db:5432` |
+| `NODE_ENV`, `PORT` | `production`; puerto de la API | fijo | `.env.staging`; en el VPS los fija el compose | no | `3100` / `3000` |
+| `TRUST_PROXY` | saltos de proxy para `req.ip` (el rate limit depende de ella) | tú | `.env.staging` / `.env` | no | `2` (Funnel + nginx) / `1` (nginx del contenedor `web`) |
+| `APP_URL` | URL https pública; salen de ella los enlaces de emails, Stripe y recuperar contraseña | tú | `.env.staging` / `.env` | no | URL de Funnel / `https://tu-dominio` |
+| `JWT_SECRET`, `QR_HMAC_SECRET`, `TOTP_ENCRYPTION_KEY` | firma de sesiones, del QR y cifrado de TOTP | `openssl rand -base64 32` | `.env.staging` / `.env` | **sí** | igual |
+| `MFA_ENCRYPTION_KEY` | cifra el secreto MFA de los admins; **si se pierde, los admins pierden el MFA** | `openssl rand -base64 32` | `.env.staging` / `.env` | **sí** | igual; en el VPS, también en el backup |
+| `MFA_TOKEN_EXPIRES_IN`, `MFA_TOTP_ISSUER`, `MFA_RECOVERY_CODE_COUNT` | ajustes del MFA | tú | `.env.staging` / `.env` | no | valores del ejemplo |
+| `AGREEMENTS_STORAGE_PATH` | dónde se guardan PDFs legales y fotos | tú | `.env.staging`; en el VPS lo fija el compose | no | `./storage-staging/agreements` |
+| `GOOGLE_CLIENT_ID` | id OAuth de Google; **obligatoria para arrancar** (vale `staging-sin-google`) | Google Cloud (§ Google) | `.env.staging` / `.env` **y** `frontend/.env.production` como `VITE_GOOGLE_CLIENT_ID` (compilación) | no (es público) | igual |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | clave publicable de Stripe para el formulario de tarjeta | Stripe (sandbox) | `frontend/.env.production` (compilación); en el VPS, `.env` (el compose la pasa al build) | no (es pública) | `pk_test_…` siempre |
+| `STRIPE_SECRET_KEY` | API de Stripe | Stripe › sandbox › claves restringidas | `.env.staging` / `.env` | **sí** | **solo `sk_test_` o `rk_test_`** (el seed se niega con otra) |
+| `STRIPE_WEBHOOK_SECRET` | firma de los webhooks | local: `stripe listen --print-secret`; VPS: Stripe › Webhooks › endpoint `https://tu-dominio/api/webhooks/stripe` | `.env.staging` / `.env` | **sí** | distinto en cada entorno |
+| `STRIPE_PORTAL_CONFIGURATION_ID` | portal «Gestionar pagos» (`bpc_…`) | `npm run stripe-portal-config` | `.env.staging` / `.env` | no | del mismo sandbox |
+| `STRIPE_STATEMENT_DESCRIPTOR` | texto en el extracto (5–22 caracteres) | tú | `.env.staging` / `.env` | no | `"KAI ZEN TRAINING CAMP"` |
+| `EMAIL_TRANSPORT` | `log` (a fichero), `resend` o `brevo` | tú | `.env.staging` / `.env` | no | `resend` o `log` / `brevo` |
+| `RESEND_API_KEY` o `BREVO_API_KEY` | clave del proveedor de email | panel de Resend o de Brevo (SMTP y API › claves API) | `.env.staging` / `.env` | **sí** | la del transporte elegido |
+| `EMAIL_FROM`, `EMAIL_REPLY_TO` | remitente y buzón de respuestas | tú | `.env.staging` / `.env` | no | Resend: `onboarding@resend.dev` solo entrega a tu cuenta (§ Emails). **Brevo: un remitente de un dominio autenticado; con el de Resend la API no arranca** |
+| `CORPORATE_EMAIL_DOMAIN` | dominio del correo de los profesores (ADR 0028); **obligatoria con `NODE_ENV=production`** | tú | `.env.staging` / `.env` | no | `academia.test` / el dominio real |
+| `PUSH_TRANSPORT`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Web Push (sin Firebase); necesita HTTPS | `npx web-push generate-vapid-keys`; el subject, `mailto:` de la academia | `.env.staging` / `.env` | privada: **sí**; pública: no | `webpush`. Rotar = cambiar las dos y vaciar `push_subscriptions` |
+| `EMAIL_LOG_PATH`, `PUSH_LOG_PATH` | ficheros de log del transporte `log` | tú | `.env.staging`; en el VPS los fija el compose | no | `./storage-staging/*.log` |
+| `SEED_PASSWORD`, `SEED_EMAIL_DOMAIN`, `SEED_TRAINER_EMAIL` | contraseña de las cuentas de demo (≥ 8), dominio de sus emails y el correo del profesor dado de alta | tú | `.env.staging` | `SEED_PASSWORD`: **sí** | `SEED_TRAINER_EMAIL` solo si el transporte entrega a ese buzón |
+
+`WEB_BIND` ya no existe: el contenedor `web` publica el 80 y el 443. Solo en el VPS, fuera del `.env`: `/etc/kaizen/backup.env`
+(Borg y healthchecks: `deploy/backup.env.example`) y `/etc/kaizen/certs` (certificado TLS, lo deja `deploy/tls-init.sh`).
+
+## 8. Cuentas externas y pasos manuales
+
+| Cuenta | Para qué | Cuándo | Qué haces tú |
+|---|---|---|---|
+| **Tailscale** | Funnel (staging local) | solo staging local | instalar, `sudo tailscale up`, activar Funnel (§ 1.2) |
+| **Stripe** (sandbox de maat) | pagos de prueba | siempre | claves `sk_test_`/`rk_test_`/`pk_test_`; `stripe listen` en local, o un endpoint de webhook en el VPS. **Nunca claves live** hasta B10.7 |
+| **Google Cloud** (OAuth) | botón «Entrar con Google» | opcional | cliente Web con la URL de staging como origen autorizado (§ Google) |
+| **Resend** o **Brevo** | emails | siempre | Resend: dominio verificado si el cliente debe recibirlos. Brevo: autenticar `mail.tu-dominio` (SPF, DKIM, DMARC) y validar el remitente |
+| **netcup, dominio y Cloudflare (solo DNS)** | VPS y nombre | solo VPS | contratar, registro `A` sin `AAAA`, nube gris; pasos en `deploy/README.md` § Host y DNS |
+| **BorgBase y healthchecks.io** | copia cifrada fuera del VPS y aviso de backup | solo VPS | repositorio UE con clave append-only, `/etc/kaizen/backup.env`, probar una restauración |
+| **UptimeRobot** | aviso si cae `https://tu-dominio/api/health` | solo VPS | una comprobación cada 5 min (plan gratis; uso comercial permitido en sus términos de 2026) |
+| **Zoho Mail** | buzones corporativos de profesores | solo si pruebas el alta de profesores con correo real | centro de datos UE; MX y SPF conjuntos con Brevo |
+
+## 9. Staging en el VPS de netcup
+
+Hoy el compose de producción (`docker-compose.prod.yaml`) tiene el proyecto `kaizen`, los puertos 80/443 y los volúmenes con
+nombre fijos: **no admite un segundo stack en el mismo VPS** sin cambiarlo. Mientras tanto, el VPS es el entorno de prueba antes
+de abrir: se despliega como producción (`deploy/README.md`), con claves de Stripe de **test**, `EMAIL_TRANSPORT=brevo` y un
+dominio o subdominio propio; el staging local por Funnel sigue siendo el de las demos. Orden:
+
+1. Host y DNS (`deploy/README.md` § Host y DNS).
+2. `.env` desde `deploy/.env.prod.example` con las variables de § 7 (columna VPS).
+3. `sudo deploy/tls-init.sh <dominio> <email>`, `deploy/deploy.sh` y otra vez `tls-init.sh`.
+4. Webhook de Stripe (sandbox) hacia `https://<dominio>/api/webhooks/stripe` y su `whsec_…` en `.env`; luego `docker compose -f docker-compose.prod.yaml up -d api`.
+5. Backup y restauración probados antes de dar acceso a nadie.
+6. La lista de § 4. `npm run staging:seed` apunta al staging local: en el VPS, crea las cuentas desde el panel de admin.
 
 ## Cuidado
 
