@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { ChevronLeftIcon, CameraOffIcon, CircleCheckIcon } from 'lucide-react'
+import { ChevronLeftIcon, CameraOffIcon, CircleCheckIcon, XIcon } from 'lucide-react'
 import QrScanner from 'qr-scanner'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import { Spinner } from '@/components/ui/spinner'
 import { api } from '@/lib/api'
+import { updateAndReload } from '@/lib/sw-update'
 import { formatDay, madridDay } from '@/lib/dates'
 import { formatTime } from '@/lib/format'
 import { errorText } from '@/lib/errors'
@@ -29,6 +30,8 @@ export function CheckinPage() {
   const [candidates, setCandidates] = useState<Candidate[] | null>(null)
   const [done, setDone] = useState<{ booking_id: string; student_id: string; picked?: Candidate } | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [stuck, setStuck] = useState(false) // cámara en marcha 8 s sin leer nada: quizá una versión vieja (iOS)
+  const [dismissed, setDismissed] = useState(false)
 
   const send = useMutation({
     mutationFn: (v: { code: string; booking_id?: string }) => api<Result>('/checkin', { method: 'POST', body: v }),
@@ -78,6 +81,12 @@ export function CheckinPage() {
     }
   }, [])
 
+  useEffect(() => {
+    if (camera !== 'on') return
+    const t = setTimeout(() => setStuck(true), 8000)
+    return () => clearTimeout(t)
+  }, [camera])
+
   const again = () => {
     setNotice(null)
     setDone(null)
@@ -110,6 +119,13 @@ export function CheckinPage() {
             {send.isPending && <Spinner className="size-8" />}
           </div>
           <p className="text-center text-base font-semibold">Apunta al código QR de la tablet</p>
+          {stuck && !dismissed && !send.isPending && (
+            <div className="pointer-events-auto flex items-center gap-2 rounded-2xl bg-card p-2 pl-4 text-sm text-card-foreground">
+              ¿No detecta el código?
+              <Button size="lg" onClick={() => void updateAndReload()}>Actualizar la app</Button>
+              <Button size="icon-lg" variant="ghost" aria-label="Ignorar" onClick={() => setDismissed(true)}><XIcon /></Button>
+            </div>
+          )}
         </div>
       )}
 
