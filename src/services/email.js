@@ -3,7 +3,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { EMAIL_TRANSPORT, RESEND_API_KEY, EMAIL_FROM, EMAIL_REPLY_TO, EMAIL_LOG_PATH } from '../config/email.js';
+import { EMAIL_TRANSPORT, RESEND_API_KEY, BREVO_API_KEY, EMAIL_FROM, EMAIL_REPLY_TO, EMAIL_LOG_PATH } from '../config/email.js';
 
 const fail = (message, transient) => Object.assign(new Error(message), { transient });
 
@@ -31,6 +31,29 @@ async function resend({ to, subject, text, html, idempotencyKey }) {
   return { id: body.id };
 }
 
+// Brevo (API transaccional v3). No tiene clave de idempotencia: un reintento tras una caída entre el envío y la marca puede duplicar.
+// El remitente (EMAIL_FROM) tiene que ser un sender validado en Brevo.
+async function brevo({ to, subject, text, html }) {
+  const from = /^\s*(.*?)\s*<([^>]+)>\s*$/.exec(EMAIL_FROM);
+  let res;
+  try {
+    res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': BREVO_API_KEY, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({
+        sender: from ? { name: from[1], email: from[2] } : { email: EMAIL_FROM.trim() }, to: [{ email: to }], subject, textContent: text, htmlContent: html,
+        ...(EMAIL_REPLY_TO && { replyTo: { email: EMAIL_REPLY_TO } }),
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (err) {
+    throw fail(`red: ${err.message}`, true);
+  }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw fail(`brevo ${res.status}: ${body.message ?? res.statusText}`, res.status === 429 || res.status >= 500);
+  return { id: body.messageId };
+}
+
 async function log({ to, subject, text, idempotencyKey }) {
   const entry = `--- ${new Date().toISOString()} [${idempotencyKey}]\nPara: ${to}\nAsunto: ${subject}\n\n${text}\n\n`;
   console.log(`[email] ${to}: ${subject}`);
@@ -39,4 +62,4 @@ async function log({ to, subject, text, idempotencyKey }) {
   return { id: `log-${crypto.randomUUID()}` };
 }
 
-export const send = EMAIL_TRANSPORT === 'resend' ? resend : log;
+export const send = { resend, brevo, log }[EMAIL_TRANSPORT];
