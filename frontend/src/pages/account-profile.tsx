@@ -61,7 +61,7 @@ function ProfileForm({ profile }: { profile: MyProfile }) {
       <label className="flex min-h-14 items-center justify-between gap-3 rounded-xl border bg-card px-4">
         <span>
           <span className="block font-semibold">Perfil público</span>
-          <span className="block text-sm text-muted-foreground">{role === 'profesor' ? 'Los alumnos' : 'Otros alumnos'} podrán encontrarte en Comunidad.</span>
+          <span className="block text-sm text-muted-foreground">{role === 'profesor' ? 'Los alumnos podrán ver tu ficha.' : 'Otros alumnos podrán ver tu ficha desde los rankings.'}</span>
         </span>
         <Switch checked={isPublic} onCheckedChange={setPublic} />
       </label>

@@ -335,8 +335,8 @@ export function ChildVisibilitySection({ child }: { child: Child }) {
       </h2>
       <p className="text-[15px] text-muted-foreground">
         {canDecide
-          ? `${child.access ? 'Él o ella también puede decidirlo desde su cuenta.' : 'Puedes decidirlo tú.'} Los demás alumnos lo verían en Comunidad.`
-          : 'Hasta que tenga la edad de decidirlo, lo decides tú. Los demás alumnos lo verían en Comunidad.'}
+          ? `${child.access ? 'Él o ella también puede decidirlo desde su cuenta.' : 'Puedes decidirlo tú.'} Los demás alumnos verían su ficha desde los rankings.`
+          : 'Hasta que tenga la edad de decidirlo, lo decides tú. Los demás alumnos verían su ficha desde los rankings.'}
       </p>
       <label className="flex min-h-14 items-center justify-between gap-3 rounded-xl border bg-card px-4">
         <span className="font-semibold">Perfil público</span>

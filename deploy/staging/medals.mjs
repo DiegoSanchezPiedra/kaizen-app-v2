@@ -97,7 +97,7 @@ try {
   present += await recent(mt, profe1, alu, alu, 13);
   present += await recent(kids, profe2, nico.id, tut, 5);
 
-  // El adulto, público y compitiendo (ranking y logros), para verse en los rankings de medallas y en Comunidad. Nico, nunca.
+  // El adulto, público y compitiendo (ranking y logros), para verse en los rankings de medallas y en su ficha. Nico, nunca.
   await db.query(`UPDATE profiles SET is_public = true, visible_fields = COALESCE(visible_fields, '{}') || '{"ranking": true, "achievements": true}' WHERE id = $1`, [alu]);
   await db.query(`UPDATE profiles SET is_public = false WHERE id = $1`, [nico.id]);
   // Rivales: los 8 alumnos adultos de staging:demo (prefijo de0a0000) con más horas, también públicos y compitiendo.

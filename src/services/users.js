@@ -8,7 +8,8 @@ import { getSubscription, affectedSql } from './billing.js';
 
 const LIVE = `('active', 'past_due', 'unpaid')`;
 const ROLES = ['alumno', 'tutor', 'profesor', 'admin'];
-const SETTABLE = ['alumno', 'tutor', 'profesor', 'admin'];
+// ADR 0028: profesor no se da por aquí; lo da de alta el admin (POST /admin/trainers).
+const SETTABLE = ['alumno', 'tutor', 'admin'];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ID_RE = /^\d{1,18}$/;
 const STATES = ['activo', 'impago', 'inactivo', 'sin_plan'];
@@ -47,7 +48,7 @@ const PEOPLE = `${affectedSql('true')},
           WHERE a.status = 'present' AND cs.status <> 'cancelled' GROUP BY 1),
   people AS (
     SELECT p.id, p.display_name, p.avatar, c.email, ${ROLE} AS role, ${MINOR} AS is_minor, ${PENDING_CLAIM} AS pending_claim,
-           p.created_at, ls.status AS subscription_status, ls.plan_id, ls.plan_name, la.at AS last_attendance_at,
+           c.disabled_at IS NOT NULL AS disabled, COALESCE(c.has_password, false) AS has_password, p.created_at, ls.status AS subscription_status, ls.plan_id, ls.plan_name, la.at AS last_attendance_at,
            CASE WHEN ${ROLE} <> 'alumno' THEN NULL
                 WHEN p.id IN (SELECT student_id FROM impago) THEN 'impago'
                 WHEN ls.status IN ('active', 'past_due')
@@ -88,7 +89,7 @@ export async function listProfiles(client, { q, role, discipline_id: disciplineI
     idParam('plan_id', planId), estado ?? null];
   const { rows } = await client.query(
     `WITH ${PEOPLE}
-     SELECT id, display_name, avatar, email, role, is_minor, pending_claim, created_at, subscription_status, plan_id, plan_name,
+     SELECT id, display_name, avatar, email, role, is_minor, pending_claim, disabled, has_password, created_at, subscription_status, plan_id, plan_name,
             estado, last_attendance_at, count(*) OVER ()::int AS total
        FROM people ${where}
       ORDER BY display_name, id LIMIT $6 OFFSET $7`, [...params, limit, offset]);
@@ -116,7 +117,8 @@ async function profileRow(client, id) {
             ${PENDING_CLAIM} AS pending_claim, COALESCE(p.is_public, false) AS is_public,
             COALESCE(c.has_password, false) AS has_password,
             COALESCE(c.google_sub IS NOT NULL, false) AS has_google,
-            COALESCE(c.can_create_children, false) AS can_create_children
+            COALESCE(c.can_create_children, false) AS can_create_children,
+            c.disabled_at IS NOT NULL AS disabled
        ${FROM} WHERE p.id = $1`, [id]);
   if (!row) throw notFound();
   return row;
@@ -160,26 +162,19 @@ export async function getProfile(client, { id }) {
 }
 
 /**
- * Cambiar el rol entre alumno, tutor y profesor, o dar el de admin (CONTEXT § Cambiar el rol). Vale al momento
+ * Cambiar el rol entre alumno y tutor, o dar el de admin (CONTEXT § Cambiar el rol; profesor, ADR 0028). Vale al momento
  * (requireAuth). Dar admin exige el doble factor del admin activado, una sesión que entró con él (mfaSession: un token
  * robado de antes de activarlo no basta) y su código en esta petición (B20, B3). Quitar admin no se hace desde la app.
  */
 export async function changeRole(client, { id, role, actorId, mfaSession, mfaCode }) {
-  if (!SETTABLE.includes(role)) throw invalid('role', 'role debe ser alumno, tutor, profesor o admin');
+  if (!SETTABLE.includes(role)) throw invalid('role', 'role debe ser alumno, tutor o admin');
   const { rows: [p] } = await client.query(
     `SELECT ${ROLE} AS role, c.profile_id IS NOT NULL AND NOT ${MINOR} AS has_access ${FROM} WHERE p.id = $1 FOR UPDATE OF p`, [id]);
   if (!p) throw notFound();
   if (p.role === 'admin') throw conflict('admin_role_locked', 'El rol admin no se quita desde la app');
   if (!p.has_access) throw conflict('child_role_locked', 'Un hijo siempre es alumno');
   if (p.role === role) throw conflict('same_role', 'El perfil ya tiene ese rol');
-  if (p.role === 'profesor') {
-    // Como la baja de un profesor: ni profesor habitual de una clase no retirada ni de una sesión futura.
-    const { rows: [busy] } = await client.query(
-      `SELECT EXISTS (SELECT 1 FROM classes WHERE trainer_id = $1 AND (ends_on IS NULL OR ends_on >= CURRENT_DATE))
-           OR EXISTS (SELECT 1 FROM class_sessions WHERE trainer_id = $1 AND starts_at > now() AND status <> 'cancelled')
-           AS busy`, [id]);
-    if (busy.busy) throw conflict('trainer_has_sessions', 'Es profesor de clases o sesiones futuras: reasígnalas antes');
-  }
+  if (p.role === 'profesor') throw conflict('trainer_role_locked', 'Un profesor se gestiona desde Profesores: desactívalo, no le cambies el rol');
   if (p.role === 'alumno') {
     const { rows: [live] } = await client.query(
       `SELECT EXISTS (SELECT 1 FROM subscriptions WHERE student_id = $1 AND status IN ${LIVE}) AS live`, [id]);

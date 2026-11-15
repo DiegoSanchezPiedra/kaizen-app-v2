@@ -5,12 +5,15 @@ import {
   auditLabel,
   auditTarget,
   canCancelPayerChange,
+  ASSIGNABLE_ROLES,
   canChangeRole,
   categoryPrefixes,
+  deliveryError,
   deliveryLabel,
   hasData,
   latestStat,
   nowFocus,
+  trainerState,
   trend,
   variation,
   type HomeSession,
@@ -47,7 +50,7 @@ describe('a dónde va cada rol (B19)', () => {
     for (const p of ['/calendar', '/bookings', '/progress', '/account/health', '/agreements', '/billing/plan', '/events/5']) {
       expect(redirectFor('profesor', p)).toBe('/professor')
     }
-    for (const p of ['/profiles', '/rankings', '/account', '/account/profile', '/professor/sessions/1']) {
+    for (const p of ['/profiles/abc', '/rankings', '/account', '/account/profile', '/professor/sessions/1']) {
       expect(redirectFor('profesor', p)).toBeNull()
     }
   })
@@ -116,10 +119,20 @@ describe('usuarios del panel (B19.3)', () => {
   const file = (profile: typeof adult | typeof child, payer?: string) =>
     ({ profile, status: null, guardians: profile.email ? [] : [tutor, { id: 't2', display_name: 'Otro', email: 'o@x.es' }], children: [], subscription: payer ? { payer: { id: payer, display_name: '' } } : null }) as unknown as ProfileFile
 
-  it('el rol no se cambia a un admin ni a un hijo', () => {
+  it('el rol no se cambia a un admin, a un profesor ni a un hijo', () => {
     expect(canChangeRole(adult)).toBe(true)
     expect(canChangeRole({ ...adult, role: 'admin' })).toBe(false)
+    expect(canChangeRole({ ...adult, role: 'profesor' })).toBe(false)
     expect(canChangeRole(child)).toBe(false)
+  })
+  it('profesor no es un rol asignable: se da de alta (ADR 0028)', () => {
+    expect(ASSIGNABLE_ROLES).toEqual(['alumno', 'tutor', 'admin'])
+  })
+  it('estado de la cuenta del profesor: desactivado gana a invitación pendiente, que gana a activo', () => {
+    expect(trainerState({ disabled: false, has_password: true })).toBe('active')
+    expect(trainerState({ disabled: false, has_password: false })).toBe('pending')
+    expect(trainerState({ disabled: true, has_password: false })).toBe('disabled')
+    expect(trainerState({ disabled: true, has_password: true })).toBe('disabled')
   })
   it('de la edad, solo las marcas', () => {
     expect(ageMarks(adult)).toEqual([])
@@ -147,6 +160,9 @@ describe('auditoría, avisos y cobros (B19.4)', () => {
     expect(noticeLabel('notice.otra')).toBe('notice.otra')
     expect(deliveryLabel('notice.payment_failed')).toBe('Cobro fallido')
     expect(deliveryLabel('notice.otra')).toBe('notice.otra')
+    expect(deliveryError('email_suppressed')).toMatch(/suprimida/)
+    expect(deliveryError('resend 422')).toBe('resend 422')
+    expect(deliveryError(null)).toBe('—')
   })
   it('el detalle: corrección, rol y precio; de la salud, nada', () => {
     expect(auditDetail({ action: 'attendance.correct', changes: { from: 'absent', to: 'present', reason: 'llegó tarde' } })).toBe('ausente → presente · llegó tarde')

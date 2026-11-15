@@ -8,5 +8,6 @@ git pull --ff-only
 $C build
 $C up -d db
 $C run --rm migrate
-$C up -d --remove-orphans
+# --wait: espera a los health checks de api y web; si alguno falla, sale con error.
+$C up -d --remove-orphans --wait
 $C ps

@@ -17,6 +17,7 @@ import { setToken } from '@/lib/session'
 // Qué campo señala cada code de POST /auth/register.
 const FIELD_OF: Record<string, string> = {
   email_taken: 'email',
+  email_domain_reserved: 'email',
   weak_password: 'password',
   invalid_birth_date: 'birthDate',
 }

@@ -10,7 +10,7 @@ import { AUDIT_CATEGORIES, auditDetail, auditLabel, auditTarget, categoryPrefixe
 import { api } from '@/lib/api'
 import { formatDeadline } from '@/lib/format'
 import { path } from '@/lib/url'
-import { Filter } from '@/pages/community'
+import { Filter } from '@/components/filter'
 import { PAGE_SIZE, Pager } from '@/pages/admin/shell'
 
 const ALL = 'all'

@@ -5,7 +5,7 @@ import { Page } from '@/components/page'
 import { ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
-import { centsToEuros, changed, checkinBody, eurosToCents, minutesOf, pauseBody, perPeriodBody, type Settings } from '@/lib/catalog'
+import { centsToEuros, changed, checkinBody, eurosToCents, minutesOf, pauseBody, perPeriodBody, rankingTopBody, type Settings } from '@/lib/catalog'
 import { queryClient } from '@/lib/logout'
 import { toastOk } from '@/lib/notify'
 import { TextField, useFieldError } from '@/pages/admin/schedule-bits'
@@ -13,7 +13,7 @@ import { TextField, useFieldError } from '@/pages/admin/schedule-bits'
 const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin'] })
 const text = (n: number | null) => (n === null ? '' : String(n))
 
-// docs/pantallas-b19.md § Ajustes: tres grupos, cada uno con su «Guardar».
+// docs/pantallas-b19.md § Ajustes: un grupo por PUT, cada uno con su «Guardar».
 export function AdminSettingsPage() {
   const q = useQuery({ queryKey: ['admin', 'settings'], queryFn: () => api<Settings>('/admin/settings') })
   return (
@@ -27,6 +27,7 @@ export function AdminSettingsPage() {
           <Checkin saved={q.data.checkin} />
           <DisciplineChanges saved={q.data.discipline_changes} />
           <PauseSettingsGroup saved={q.data.pause} />
+          <Rankings saved={q.data.rankings} />
         </div>
       )}
     </Page>
@@ -92,6 +93,17 @@ function DisciplineChanges({ saved }: { saved: Settings['discipline_changes'] })
   return (
     <Group title="Cambios de disciplina" description="Cuántas veces por periodo de cuota puede cambiar el alumno una disciplina de su plan." onSave={() => m.mutate()} disabled={disabled} loading={m.isPending}>
       <TextField label="Cambios por periodo" value={v} onChange={setV} inputMode="numeric" hint="0 o más. Con 0 no hay cambios, salvo los gratis (cuando ya no se cubría la disciplina)." error={fe.error('per_period') ?? (v && perPeriodBody(v) === null ? 'Escribe un número entero, 0 o más.' : undefined)} />
+    </Group>
+  )
+}
+
+function Rankings({ saved }: { saved: Settings['rankings'] }) {
+  const [v, setV] = useState(String(saved.top))
+  const fe = useFieldError()
+  const { m, disabled } = useSave('/admin/settings/rankings', rankingTopBody(v), saved, fe)
+  return (
+    <Group title="Rankings" description="Cuántos puestos se ven en los rankings de medallas y de horas del mes." onSave={() => m.mutate()} disabled={disabled} loading={m.isPending}>
+      <TextField label="Puestos (top)" value={v} onChange={setV} inputMode="numeric" hint="Entre 1 y 100. Vale para los dos rankings." error={fe.error('top') ?? (v && rankingTopBody(v) === null ? 'Escribe un número entero entre 1 y 100.' : undefined)} />
     </Group>
   )
 }

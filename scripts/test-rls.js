@@ -270,6 +270,19 @@ async function main() {
     const admin = { uid: ids.admin, role: 'admin' };
     const update = (ctx, id, set) => withCtx(ctx, (c) => c.query(`UPDATE profiles SET ${set} WHERE id = $1`, [id]));
 
+    // ADR 0028: disabled_at se lee con app_user (requireAuth) pero solo lo escriben las funciones del admin; password_resets sigue cerrada.
+    await run('ADR 0028 — disabled_at: todos lo leen de su fila, nadie lo escribe por SQL; password_resets y las funciones del profesor, cerradas', async () => {
+      for (const ctx of [alumno, tutor, profesor, admin]) {
+        await withCtx(ctx, (c) => c.query(`SELECT disabled_at FROM auth_credentials WHERE profile_id = $1`, [ctx.uid]));
+        await assert.rejects(withCtx(ctx, (c) => c.query(`UPDATE auth_credentials SET disabled_at = now() WHERE profile_id = $1`, [ctx.uid])), { code: '42501' });
+        await assert.rejects(withCtx(ctx, (c) => c.query(`SELECT * FROM password_resets`)), { code: '42501' });
+        await assert.rejects(withCtx(ctx, (c) => c.query(`SELECT trainer_admin_guard()`)), { code: '42501' });
+        if (ctx !== admin) {
+          await assert.rejects(withCtx(ctx, (c) => c.query(`SELECT admin_set_disabled($1, true)`, [ids.professor])), { code: '42501' });
+        }
+      }
+    });
+
     await run('B20 — alumno, tutor y profesor no cambian las columnas del sistema (stripe_customer_id…) de su perfil', async () => {
       for (const ctx of [alumno, tutor, profesor]) {
         for (const [col, value] of Object.entries(SYSTEM_COLUMNS)) {
@@ -481,7 +494,7 @@ async function main() {
 
     // B20 (riesgo de M2): sin privilegios por defecto, una migración que olvide su GRANT dejaría la tabla sin acceso.
     // Toda tabla o vista da algo a app_user, salvo las que solo usa el servicePool (añadir aquí las nuevas que lo sean).
-    const SERVICE_ONLY = ['cash_payments', 'medal_views', 'password_resets', 'pgmigrations', 'webhook_events'];
+    const SERVICE_ONLY = ['cash_payments', 'email_suppressions', 'medal_views', 'password_resets', 'pgmigrations', 'webhook_events'];
     await run('B20 — toda tabla o vista da permisos a app_user, salvo las solo del servicePool', async () => {
       const { rows } = await servicePool.query(
         `SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace

@@ -99,6 +99,12 @@ const DELIVERY_LABEL: Record<string, string> = {
 export const deliveryLabel = (action: string): string => DELIVERY_LABEL[action] ?? action
 export const CHANNEL_LABEL: Record<string, string> = { email: 'Email', push: 'Push' }
 
+// Motivos de last_error que escribe la API (no son texto del proveedor).
+export const DELIVERY_ERROR_LABEL: Record<string, string> = {
+  email_suppressed: 'Dirección suprimida: el email rebotó o se quejó, no se envió',
+}
+export const deliveryError = (e: string | null): string => (e ? DELIVERY_ERROR_LABEL[e] ?? e : '—')
+
 export type Delivery = { id: string; created_at: string; action: string; channel: string; recipient: { id: string; display_name: string | null }; attempts: number; last_error: string | null }
 
 // Auditoría (docs/pantallas-b19.md § Auditoría). Categoría → prefijos de `action` para `GET /admin/audit?action=`.
@@ -275,6 +281,8 @@ export type ProfileRow = {
   role: Role
   is_minor: boolean
   pending_claim: boolean
+  disabled: boolean
+  has_password: boolean
   created_at: string
   subscription_status: string | null
   plan_id: string | null
@@ -293,7 +301,19 @@ export type ProfileFile = {
 // Un hijo es un perfil sin acceso propio: sin credenciales, así que sin email.
 export const isChild = (p: { email: string | null }): boolean => p.email === null
 // El rol admin no se quita desde la app (admin_role_locked) y un hijo siempre es alumno (child_role_locked); dar admin sí (B20).
-export const canChangeRole = (p: { role: Role; email: string | null }): boolean => p.role !== 'admin' && !isChild(p)
+// Un profesor tampoco cambia de rol (trainer_role_locked, ADR 0028): se desactiva.
+export const canChangeRole = (p: { role: Role; email: string | null }): boolean => p.role !== 'admin' && p.role !== 'profesor' && !isChild(p)
+// El rol profesor ya no se da por aquí: se da de alta al profesor (POST /admin/trainers).
+export const ASSIGNABLE_ROLES = ['alumno', 'tutor', 'admin'] as const
+
+// Estado de la cuenta de un profesor: desactivado, con la invitación sin aceptar (aún sin contraseña) o activo.
+export type TrainerState = 'disabled' | 'pending' | 'active'
+export const trainerState = (p: { disabled: boolean; has_password: boolean }): TrainerState => (p.disabled ? 'disabled' : p.has_password ? 'active' : 'pending')
+export const TRAINER_STATE: Record<TrainerState, [string, 'success' | 'warning' | 'error' | 'outline']> = {
+  active: ['Activo', 'success'],
+  pending: ['Invitación pendiente', 'warning'],
+  disabled: ['Desactivado', 'error'],
+}
 
 export const ageMarks = (p: { is_minor: boolean; pending_claim: boolean }): string[] =>
   [p.is_minor && 'Menor', p.pending_claim && 'Mayor de edad sin reclamar'].filter((m): m is string => !!m)

@@ -11,7 +11,7 @@ export const ACCESS_NOTICE = {
       'Ver el calendario y su progreso: racha y medallas.',
       'Reservar y cancelar sesiones y apuntarse a eventos gratuitos, solo si tú le dejas.',
       'Hacer el check-in al llegar a clase.',
-      'Cambiar su foto y ver la comunidad.',
+      'Cambiar su foto y ver los rankings.',
     ],
   },
   cannot: {

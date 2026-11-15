@@ -14,6 +14,7 @@ import { errorHandler } from '../src/middleware/errorHandler.js';
 import meRouter from '../src/routes/me.js';
 import profilesRouter from '../src/routes/profiles.js';
 import rankingsRouter from '../src/routes/rankings.js';
+import panelRouter from '../src/routes/admin/panel.js';
 import { getRanking } from '../src/services/progress.js';
 import { updateDiscipline } from '../src/services/catalog.js';
 import { createCheckout } from '../src/services/billing.js';
@@ -306,6 +307,7 @@ try {
     await F.attend(P.zero, Y, local('2026-06-10 18:00'), 60);
     await F.attend(P.a, X, local('2026-05-10 18:00'), 60);
     await as(P.zero, 'alumno');
+    await c.query(`DELETE FROM academy_settings WHERE key = 'ranking_top'`); // la BD local puede traer uno; se deshace con el sp
     const june = await rankingOf(X, '2026-06');
     assert.deepEqual(june.rows, [
       { rank: 1, id: P.a, display_name: `${tag}-a`, hours: 4 },
@@ -314,21 +316,28 @@ try {
       { rank: 4, id: P.d, display_name: `${tag}-d`, hours: 1 },
     ]);
     assert.deepEqual([june.discipline, june.month, june.total], [{ id: X, name: `${tag}-X` }, '2026-06', 4]);
-    const page = await rankingOf(X, '2026-06', { limit: '2', offset: '1' });
-    assert.deepEqual([page.rows.map((r) => r.id), page.total, page.limit, page.offset], [[P.b, P.c], 4, 2, 1]);
+    assert.equal(june.limit, 50); // sin ajuste, top 50
+    // El top lo pone el ajuste del admin; limit y offset de la URL no cuentan.
+    await c.query(`INSERT INTO academy_settings (key, value) VALUES ('ranking_top', '2')
+                   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+    const top = await rankingOf(X, '2026-06', { limit: '100', offset: '1' });
+    // Puestos 1, 2, 2, 4: el corte es por puesto, así que el empate en el último (b y c) sale entero.
+    assert.deepEqual([top.rows.map((r) => r.id), top.total, top.limit, 'offset' in top], [[P.a, P.b, P.c], 4, 2, false]);
+    await c.query(`UPDATE academy_settings SET value = '1' WHERE key = 'ranking_top'`);
+    assert.deepEqual((await rankingOf(X, '2026-06')).rows.map((r) => r.id), [P.a]);
+    await c.query(`DELETE FROM academy_settings WHERE key = 'ranking_top'`);
     assert.deepEqual((await rankingOf(X, '2026-05')).rows.map((r) => r.id), [P.a]);
     await c.query(`UPDATE profiles SET visible_fields = visible_fields || '{"ranking": false}' WHERE id = $1`, [P.a]);
     assert.deepEqual((await rankingOf(X, '2026-05')).rows, []);
     assert.equal((await rankingOf(X, '2026-05')).discipline.name, `${tag}-X`); // sin filas, sigue el nombre
   }));
-  await run('ranking: abierta o inexistente → 404; month y paginación inválidos → 400; sin sesión, 0 filas', () => sp(async () => {
+  await run('ranking: abierta o inexistente → 404; month inválido → 400; sin sesión, 0 filas', () => sp(async () => {
     const reject = (args, status, code) =>
       sp(() => assert.rejects(rankingOf(...args), (e) => e.status === status && e.code === code));
     await as(admin, 'admin');
     await reject([O, '2026-06'], 404, 'ranking_not_found');
     await reject(['999999999', '2026-06'], 404, 'ranking_not_found');
     for (const m of ['2026-13', '2026-6', 'x', ['2026-06']]) await reject([X, m], 400, 'invalid_field');
-    await reject([X, undefined, { limit: '101' }], 400, 'invalid_pagination');
     await reject(['abc'], 400, 'invalid_id');
     assert.match((await rankingOf(X)).month, /^\d{4}-\d{2}$/);
     await c.query(`SELECT set_config('app.current_user_id', '', true)`);
@@ -383,6 +392,8 @@ try {
 
 // ======================= HTTP (fixtures confirmados) =======================
 const H = fixtures(servicePool);
+// La BD local puede traer un top guardado por el admin: se aparta durante las pruebas HTTP y se devuelve al final.
+const savedTop = (await servicePool.query(`DELETE FROM academy_settings WHERE key = 'ranking_top' RETURNING value`)).rows[0];
 const who = {};
 const role = {};
 const created = [];
@@ -402,7 +413,7 @@ created.push(...(await servicePool.query(`SELECT trainer_id FROM class_sessions 
   .rows.map((r) => r.trainer_id));
 
 const app = express().use(express.json()).use('/me', meRouter).use('/profiles', profilesRouter)
-  .use('/rankings', rankingsRouter).use(errorHandler);
+  .use('/rankings', rankingsRouter).use('/admin', panelRouter).use(errorHandler);
 const server = app.listen(0);
 const base = `http://127.0.0.1:${server.address().port}`;
 const http = async (path, k) => {
@@ -410,8 +421,8 @@ const http = async (path, k) => {
     { headers: k ? { authorization: `Bearer ${signToken({ sub: who[k], role: role[k] })}` } : {} });
   return { status: res.status, body: await res.json() };
 };
-const post = async (path, k, body) => {
-  const res = await fetch(base + path, { method: 'POST', body: JSON.stringify(body), headers: {
+const post = async (path, k, body, method = 'POST') => {
+  const res = await fetch(base + path, { method, body: JSON.stringify(body), headers: {
     'content-type': 'application/json', authorization: `Bearer ${signToken({ sub: who[k], role: role[k] })}` } });
   return { status: res.status, body: await res.json() };
 };
@@ -481,7 +492,7 @@ try {
   await run('ranking de medallas por disciplina: quien enseña su ranking y tiene alguna en ella; medallas solo con logros; un menor sin publicar no', async () => {
     // B32: el hijo con todo visible pero sin publicar (lo decide su tutor) no sale.
     await servicePool.query(`UPDATE profiles SET is_public = false, visible_fields = '{"ranking": true, "achievements": true}' WHERE id = $1`, [who.child]);
-    const r = await http(`/rankings/${Z}/medals?limit=100`, 'other');
+    const r = await http(`/rankings/${Z}/medals`, 'other');
     assert.equal(r.status, 200);
     assert.deepEqual(r.body.discipline, { id: Z, name: `${tag}-Z-off` });
     const mine = r.body.rows.find((x) => x.id === who.alu);
@@ -493,9 +504,8 @@ try {
     const extra = await H.attend(who.aluNoFlag, Z, local('2026-03-12 18:00')); // otro mes: el ranking de febrero no cambia
     sessions.push(extra);
     created.push((await servicePool.query(`SELECT trainer_id FROM class_sessions WHERE id = $1`, [extra])).rows[0].trainer_id);
-    const noFlag = (await http(`/rankings/${Z}/medals?limit=100`, 'other')).body.rows.find((x) => x.id === who.aluNoFlag);
+    const noFlag = (await http(`/rankings/${Z}/medals`, 'other')).body.rows.find((x) => x.id === who.aluNoFlag);
     assert.deepEqual([noFlag.medals, 'achievements' in noFlag], [1, false]);
-    assert.equal((await http(`/rankings/${Z}/medals?limit=0`, 'other')).body.code, 'invalid_pagination');
     assert.equal((await http('/rankings/999999999/medals', 'other')).body.code, 'ranking_not_found');
     await servicePool.query(`UPDATE profiles SET is_public = false, visible_fields = '{}' WHERE id = $1`, [who.child]);
   });
@@ -518,19 +528,43 @@ try {
       rows: [{ rank: 1, id: who.alu, display_name: (await servicePool.query(
         `SELECT display_name FROM profiles WHERE id = $1`, [who.alu])).rows[0].display_name, hours: 1.5,
       achievements: r.body.rows[0].achievements }],
-      total: 1, limit: 25, offset: 0,
+      total: 1, limit: 50,
     });
     assert.deepEqual(r.body.rows[0].achievements.map((d) => d.badges.map((b) => b.code)), [['first_day']]);
     assert.equal((await http(`/rankings/${Z}`)).status, 401);
     assert.equal((await http(`/rankings/x`, 'other')).body.code, 'invalid_id');
   });
+  await run('top de los rankings: el admin lo pone (entero de 1 a 100) y vale para los dos; nadie más puede', async () => {
+    const put = (k, body) => post('/admin/settings/rankings', k, body, 'PUT');
+    try {
+      for (const k of ['other', 'prof', 'tutor']) {
+        const r = await put(k, { top: 1 });
+        assert.deepEqual([r.status, r.body.code], [403, 'insufficient_role'], k);
+      }
+      for (const top of [0, 101, 2.5, '20', null, undefined]) {
+        const r = await put('admin', { top });
+        assert.deepEqual([r.status, r.body.code, r.body.field], [400, 'invalid_field', 'top'], String(top));
+      }
+      assert.equal((await http(`/rankings/${Z}/medals`, 'other')).body.limit, 50); // aún sin ajuste
+      assert.deepEqual((await put('admin', { top: 1 })).body.settings, { top: 1 });
+      assert.deepEqual((await http('/admin/settings', 'admin')).body.rankings, { top: 1 });
+      const medals = (await http(`/rankings/${Z}/medals`, 'other')).body;
+      assert.deepEqual([medals.rows.length, medals.total, medals.limit], [1, 2, 1]);
+      assert.equal((await http(`/rankings/${Z}?month=2026-02`, 'other')).body.limit, 1);
+      assert.deepEqual((await put('admin', { top: 100 })).body.settings, { top: 100 });
+    } finally {
+      await servicePool.query(`DELETE FROM academy_settings WHERE key = 'ranking_top'`);
+    }
+  });
 } finally {
   console.error = realError;
+  if (savedTop) await servicePool.query(`INSERT INTO academy_settings (key, value) VALUES ('ranking_top', $1)`, [savedTop.value]);
   server.close();
   await servicePool.query(`DELETE FROM attendance WHERE session_id = ANY($1::uuid[])`, [sessions]);
   await servicePool.query(`DELETE FROM bookings WHERE session_id = ANY($1::uuid[])`, [sessions]);
   await servicePool.query(`DELETE FROM class_sessions WHERE id = ANY($1::uuid[])`, [sessions]);
   await servicePool.query(`DELETE FROM disciplines WHERE id = $1`, [Z]);
+  await servicePool.query(`DELETE FROM audit_log WHERE actor_id = $1`, [who.admin]);
   await servicePool.query(`DELETE FROM profiles WHERE id = ANY($1::uuid[])`, [created]);
   await closePools();
 }

@@ -10,12 +10,12 @@ router.param('disciplineId', (req, res, next, v) => {
   try { parseId(v); next(); } catch (err) { next(err); }
 });
 
-// GET /rankings/:disciplineId/medals?limit=&offset= → { discipline, rows, total, limit, offset }: medallas de siempre.
+// GET /rankings/:disciplineId/medals → { discipline, rows, total, limit }: medallas de siempre; limit = top del ajuste.
 router.get('/:disciplineId/medals', withRlsContext(async (req, client) =>
-  getMedalRanking(client, { ...req.query, disciplineId: req.params.disciplineId })));
+  getMedalRanking(client, { disciplineId: req.params.disciplineId })));
 
-// GET /rankings/:disciplineId?month=&limit=&offset= → { discipline, month, rows, total, limit, offset }
+// GET /rankings/:disciplineId?month= → { discipline, month, rows, total, limit }
 router.get('/:disciplineId', withRlsContext(async (req, client) =>
-  getRanking(client, { ...req.query, disciplineId: req.params.disciplineId })));
+  getRanking(client, { disciplineId: req.params.disciplineId, month: req.query.month })));
 
 export default router;

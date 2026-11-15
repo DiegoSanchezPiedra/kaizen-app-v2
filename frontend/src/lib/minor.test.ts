@@ -53,7 +53,7 @@ describe('rutas directas de un menor', () => {
     }
   })
   it('lo demás, y un adulto o /me sin cargar, no se tocan', () => {
-    for (const p of ['/', '/calendar', '/bookings', '/progress', '/account', '/account/password', '/account/profile', '/events/1', '/profiles']) {
+    for (const p of ['/', '/calendar', '/bookings', '/progress', '/account', '/account/password', '/account/profile', '/events/1', '/rankings', '/profiles/abc']) {
       expect(redirectForMinor(can, p)).toBeNull()
     }
     expect(redirectForMinor(null, '/billing')).toBeNull()

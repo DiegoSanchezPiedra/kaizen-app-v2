@@ -5,7 +5,7 @@ import { cancelledText, pauseEnd, perMonth, shortDay } from '@/lib/billing'
 import { formatShortDate } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import type { Subscription } from '@/lib/types'
-import { Filter } from '@/pages/community'
+import { Filter } from '@/components/filter'
 import { FormSheet, SelectField } from '@/pages/admin/schedule-bits'
 
 // Pedir la pausa (B30): meses, lo que pasa y confirmación. Lo usan el pagador y el admin; `request` hace la llamada.

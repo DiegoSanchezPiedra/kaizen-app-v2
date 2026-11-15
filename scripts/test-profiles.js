@@ -1,4 +1,4 @@
-// B13: perfiles públicos, directorio y lectura de profiles (CONTEXT § Perfil público y directorio; ADR 0010).
+// B13: perfiles públicos y lectura de profiles (CONTEXT § Perfil público; ADR 0010).
 // Las rutas se prueban por HTTP con un express en memoria (sin la API levantada) y un JWT firmado.
 import 'dotenv/config';
 import assert from 'node:assert/strict';
@@ -13,7 +13,7 @@ import meRouter from '../src/routes/me.js';
 import profilesRouter from '../src/routes/profiles.js';
 import adminProfilesRouter from '../src/routes/admin/profiles.js';
 import {
-  listPublicProfiles, getPublicProfile, getMyProfile, updateMyProfile, unpublishProfile,
+  getPublicProfile, getMyProfile, updateMyProfile, unpublishProfile,
 } from '../src/services/profiles.js';
 
 let failed = 0;
@@ -242,34 +242,6 @@ try {
       });
     });
 
-    // ---------- Filtros ----------
-    const list = (o) => listPublicProfiles(c, { q: tag, ...o });
-    const keys = (r) => r.profiles.map((p) => p.display_name.slice(tag.length + 1));
-    await run('q y orden por nombre', async () => {
-      const r = await list({});
-      assert.deepEqual(keys(r), ['aluAll', 'aluHidden', 'aluNone', 'aluPub', 'prof1']);
-      assert.equal(r.total, 5);
-      assert.equal((await list({ q: `${tag}-ALUP` })).total, 1); // ILIKE
-      assert.equal((await list({ q: `${tag}%` })).total, 0); // % literal
-    });
-    await run('role y discipline_id (quien oculta sus disciplinas no aparece)', async () => {
-      assert.deepEqual(keys(await list({ role: 'profesor' })), ['prof1']);
-      assert.deepEqual(keys(await list({ discipline_id: String(D.A) })), ['aluAll', 'aluPub', 'prof1']);
-      assert.deepEqual(keys(await list({ discipline_id: String(D.B) })), ['aluAll']);
-    });
-    await run('paginación: total, límites y 400', async () => {
-      const r = await list({ limit: '2', offset: '4' });
-      assert.deepEqual([keys(r), r.total, r.limit, r.offset], [['prof1'], 5, 2, 4]);
-      assert.equal((await list({ offset: '10' })).total, 5);
-      assert.equal((await list({})).limit, 25);
-      for (const bad of [{ limit: '0' }, { limit: '101' }, { offset: '-1' }, { limit: 'x' }]) {
-        await rejects(c, () => list(bad), 400, 'invalid_pagination');
-      }
-      for (const bad of [{ role: 'admin' }, { role: 'tutor' }, { discipline_id: 'x' }, { q: ['a', 'b'] }]) {
-        await rejects(c, () => list(bad), 400, 'invalid_field');
-      }
-    });
-
     // ---------- 404 iguales ----------
     await run('un id inexistente y uno no público dan el mismo 404', async () => {
       const err = (id) => getPublicProfile(c, id).catch((e) => ({ status: e.status, code: e.code, message: e.message }));
@@ -399,17 +371,13 @@ try {
   });
 
   // ---------- HTTP ----------
-  await run('HTTP: GET /profiles y /profiles/:id; un campo oculto no está en el JSON', async () => {
-    const r = await http('GET', `/profiles?q=${tag}&role=alumno&limit=2`, 'tutor');
-    assert.equal(r.status, 200);
-    assert.deepEqual([r.body.total, r.body.limit, r.body.offset, r.body.profiles.length], [4, 2, 0, 2]);
+  await run('HTTP: GET /profiles/:id; un campo oculto no está en el JSON', async () => {
     const hidden = await http('GET', `/profiles/${U.aluHidden}`, 'aluOther');
     assert.equal(hidden.status, 200);
     assert.deepEqual(Object.keys(hidden.body.profile).sort(), ['bio', 'display_name', 'id', 'role']);
     assert.deepEqual((await http('GET', `/profiles/${U.aluPriv}`, 'aluOther')).body.code, 'profile_not_found');
     assert.equal((await http('GET', '/profiles/123', 'aluOther')).body.code, 'invalid_id');
-    assert.equal((await http('GET', '/profiles?limit=500', 'aluOther')).body.code, 'invalid_pagination');
-    assert.equal((await fetch(`${base}/profiles`)).status, 401);
+    assert.equal((await fetch(`${base}/profiles/${U.aluHidden}`)).status, 401);
   });
   await run('HTTP: validaciones de PATCH /me/profile (400 invalid_field)', async () => {
     const bad = [

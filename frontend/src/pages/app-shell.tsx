@@ -1,4 +1,4 @@
-import { CalendarCheckIcon, CalendarIcon, ChartColumnIcon, HouseIcon, LogOutIcon, UserIcon, UsersIcon, ZapIcon } from 'lucide-react'
+import { CalendarCheckIcon, CalendarIcon, ChartColumnIcon, HouseIcon, LogOutIcon, UserIcon, ZapIcon } from 'lucide-react'
 import { NavLink, Outlet, useLocation, useSearchParams } from 'react-router'
 import logo from '@/assets/logo.png'
 import { SubjectPicker } from '@/components/subject-picker'
@@ -25,7 +25,6 @@ const STUDENT: Item[] = [
 const PROFESSOR: Item[] = [
   { to: '/professor', label: 'Sesiones', icon: CalendarIcon, end: true },
   { to: '/professor/reports', label: 'Informes', icon: ChartColumnIcon },
-  { to: '/profiles', label: 'Comunidad', icon: UsersIcon },
   { to: '/account', label: 'Cuenta', icon: UserIcon },
 ]
 const navFor =(role: Role): Item[] => (role === 'profesor' ? PROFESSOR : STUDENT)
@@ -91,7 +90,6 @@ const TITLES: Record<string, string> = {
   '/account': 'Cuenta',
   '/billing': 'Cuota',
   '/agreements': 'Acuerdos',
-  '/profiles': 'Comunidad',
 }
 
 // Hueco de lo que aún no existe: el router y la sesión ya funcionan.

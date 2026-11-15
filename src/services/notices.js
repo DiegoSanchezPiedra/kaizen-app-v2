@@ -418,6 +418,10 @@ export async function compose(db, d) {
 // --- Worker ---
 
 const BATCH = 20;
+
+// Una baja (unsubscribed) solo calla los avisos informativos de SERVICE (reservas, eventos, re-firma, edad). Son obligatorios,
+// aunque estén en SERVICE, los del registro de jornada, el acceso del menor y la foto quitada; y todos los de facturación (ADR 0029).
+const isOptional = (action) => Boolean(SERVICE[action]) && !/^notice\.(clock_|minor_|avatar_removed)/.test(action);
 // Alquiler del lote: se reserva empujando next_attempt_at; si el proceso muere enviando, vuelve a salir al vencer
 // (se reenvía con la misma Idempotency-Key / Topic, sin duplicar y sin perder el aviso). Mayor que 20 × 15 s.
 const LEASE_MIN = 10;
@@ -504,9 +508,13 @@ export async function sendPending(db = servicePool, transport = send, pushTransp
         await mark(db, d.id, { status: 'skipped', attempts: d.attempts, error: 'no_email' });
         continue;
       }
-      const { id } = await transport({ ...email, idempotencyKey: d.id });
+      const { id } = await transport({ ...email, idempotencyKey: d.id, optional: isOptional(d.action) });
       await mark(db, d.id, { status: 'sent', attempts, messageId: id });
     } catch (err) {
+      if (err.suppressed) {
+        await mark(db, d.id, { status: 'skipped', attempts: d.attempts, error: 'email_suppressed' });
+        continue;
+      }
       if (err.stale) {
         await mark(db, d.id, { status: 'skipped', attempts: d.attempts, error: 'stale' });
         continue;

@@ -33,7 +33,7 @@ import { errorText } from '@/lib/errors'
 import { formatDeadline, formatShortDate } from '@/lib/format'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
 import { refreshBookings, useDisciplines, usePlans } from '@/lib/queries'
-import { Filter } from '@/pages/community'
+import { Filter } from '@/components/filter'
 import { FormSheet, TextField } from '@/pages/admin/schedule-bits'
 
 type Sub = NonNullable<ProfileFile['subscription']>

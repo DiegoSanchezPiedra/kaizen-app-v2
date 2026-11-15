@@ -15,7 +15,7 @@ import { plural } from '@/lib/professor'
 import type { Discipline, Plan } from '@/lib/types'
 import { CardList, CardRow, Head, refreshCatalog } from '@/pages/admin/catalog-bits'
 import { FormSheet, SelectField, SwitchRow, TextField, useAdminDisciplines, useFieldError } from '@/pages/admin/schedule-bits'
-import { Filter } from '@/pages/community'
+import { Filter } from '@/components/filter'
 
 const useAdminPlans = () => useQuery({ queryKey: ['admin', 'plans'], queryFn: () => api<{ plans: Plan[] }>('/admin/plans').then((r) => r.plans) })
 

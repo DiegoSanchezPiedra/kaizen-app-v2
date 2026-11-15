@@ -5,7 +5,7 @@ import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
-import { CHANNEL_LABEL, deliveryLabel, noticeClock, noticeEvent, noticeLabel, noticeStudent, pageHref, pageOf, type AcademyNotice, type Delivery, type Paged } from '@/lib/admin'
+import { CHANNEL_LABEL, deliveryError, deliveryLabel, noticeClock, noticeEvent, noticeLabel, noticeStudent, pageHref, pageOf, type AcademyNotice, type Delivery, type Paged } from '@/lib/admin'
 import { api } from '@/lib/api'
 import { formatDeadline } from '@/lib/format'
 import { path } from '@/lib/url'
@@ -127,7 +127,7 @@ function Failed() {
                       </Link>
                     </TableCell>
                     <TableCell className="tabular-nums">{d.attempts}</TableCell>
-                    <TableCell className="max-w-64 text-xs text-muted-foreground">{d.last_error ?? '—'}</TableCell>
+                    <TableCell className="max-w-64 text-xs text-muted-foreground">{deliveryError(d.last_error)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

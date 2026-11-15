@@ -18,7 +18,7 @@ import { plural } from '@/lib/professor'
 import { classErrors, classState, groupByWeekday, WEEKDAYS, type AdminClass } from '@/lib/schedule'
 import { path } from '@/lib/url'
 import { cn } from '@/lib/utils'
-import { Filter } from '@/pages/community'
+import { Filter } from '@/components/filter'
 import { FormSheet, SelectField, TextField, useAdminDisciplines, useTrainers } from '@/pages/admin/schedule-bits'
 
 const cap = (w: string) => w[0].toUpperCase() + w.slice(1)

@@ -84,6 +84,11 @@ for (const [name, cents, max, minors] of [['Una disciplina', 3500, 1, false], ['
   must(await call('/admin/plans', { method: 'POST', token: admin, body: { name, price_cents: cents, max_disciplines: max, minors_only: minors } }), `plan ${name}`, ['name_taken']);
 }
 
+// Profesor dado de alta por el admin (ADR 0028): correo del dominio corporativo (CORPORATE_EMAIL_DOMAIN, academia.test en staging)
+// e invitación de un solo uso. Queda «Invitación pendiente»: el enlace va a storage-staging/emails.log (EMAIL_TRANSPORT=log) o,
+// con resend, a su buzón (con onboarding@resend.dev solo llega a la dirección del dueño: fija SEED_TRAINER_EMAIL a una suya del dominio).
+must(await call('/admin/trainers', { method: 'POST', token: admin, body: { display_name: 'Nuria Nueva', email: process.env.SEED_TRAINER_EMAIL || 'profe3@academia.test' } }), 'profesor dado de alta', ['email_taken']);
+
 // Clases (por disciplina: si ya tiene, no se repiten). Dos a la semana; ningún profesor se solapa.
 const trainers = (await call('/admin/profiles?role=profesor&limit=100', { token: admin })).data.profiles;
 const t = (n) => trainers.find((p) => p.display_name === n)?.id;

@@ -115,8 +115,20 @@ Object.assign(TEXTS, {
   invalid_link_code: 'Este código no vale: ha caducado o ya se ha usado. Pide uno nuevo a la academia.', // propuesto
 })
 
+// ADR 0028: alta de profesores.
+const TRAINER_TEXTS = {
+  email_domain_not_allowed: 'Usa el correo corporativo de la academia.',
+  email_domain_reserved: 'Ese dominio es de la academia. Usa tu email personal.',
+  same_email: 'Ya tiene ese correo.',
+  same_state: 'Ya estaba así.',
+  trainer_disabled: 'Está desactivado: reactívalo antes.',
+  trainer_not_found: 'No lo encontramos.',
+  trainer_role_locked: 'Un profesor se desactiva desde su ficha; no cambia de rol.',
+  google_login_not_allowed: 'Los profesores entran con email y contraseña.',
+}
+
 // B19 (docs/pantallas-b19.md § Mapa de errores nuevos).
-Object.assign(TEXTS, {
+Object.assign(TEXTS, TRAINER_TEXTS, {
   insufficient_role: 'No tienes acceso a esto.',
   invalid_totp: 'El código no es correcto; revisa la hora del móvil.',
   same_role: 'Ya tiene ese rol.',

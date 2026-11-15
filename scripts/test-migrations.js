@@ -13,10 +13,10 @@ await c.connect();
 let failed = 0;
 try {
   const [{ name }] = (await c.query(`SELECT name FROM pgmigrations ORDER BY id DESC LIMIT 1`)).rows;
-  // B31, B30 y B32: la 059 (registro de jornada), la 060 (pausas), la 061 (acceso del menor) y la 062 (permiso de crear hijos) no tienen datos que
-  // migrar; se bajan con la 058 y vuelven a subir (la 060 y la 061 deshacen y rehacen sus parches de funciones).
-  assert.equal(name, '062_can_create_children', 'el test baja las cinco últimas: actualízalo si hay otra después');
-  migrate('down', 5);
+  // B31, B30 y B32: la 059 (registro de jornada), la 060 (pausas), la 061 (acceso del menor), la 062 (permiso de crear hijos), la 063 (JIT
+  // apagado) y la 065 (supresiones de email; su down/up se prueba abajo) no tienen datos que migrar; se bajan con la 058 y vuelven a subir (la 060 y la 061 deshacen y rehacen sus parches de funciones).
+  assert.equal(name, '065_email_suppressions', 'el test baja las ocho últimas: actualízalo si hay otra después');
+  migrate('down', 8);
   await c.query(`INSERT INTO disciplines (name, minors_only) VALUES ('T-Mig-Kids', true), ('T-Mig-BJJ', false)`);
   // 062: quien ya es tutor conserva el permiso de crear hijos; el resto empieza sin él.
   const { rows: [tutor, solo, kid] } = await c.query(
@@ -34,7 +34,25 @@ try {
   const { rowCount } = await c.query(
     `SELECT 1 FROM information_schema.columns WHERE table_name = 'disciplines' AND column_name = 'minors_only'`);
   assert.equal(rowCount, 0);
-  console.log('OK   058: minors_only → max_age = 17; 062: backfill de tutores (y down/up de ida y vuelta)');
+  // 063: la BD queda con jit = off (sin él, los rankings tardaban segundos); con la migración subida de nuevo.
+  const { rows: [{ cfg }] } = await c.query(
+    `SELECT COALESCE((SELECT setconfig FROM pg_db_role_setting WHERE setrole = 0 AND setdatabase = (SELECT oid FROM pg_database WHERE datname = current_database())), '{}') AS cfg`);
+  assert.ok(cfg.includes('jit=off'), '063: ALTER DATABASE SET jit = off');
+  // 064: alta de profesores. Bajar borra las invitaciones (kind desaparece) y deja la contraseña restablecible; subir la vuelve a dejar.
+  await c.query(`INSERT INTO password_resets (profile_id, token_hash, expires_at, kind) VALUES ($1, 't-mig-inv', now() + interval '1 day', 'invite')`, [solo.id]);
+  await c.query(`INSERT INTO password_resets (profile_id, token_hash, expires_at) VALUES ($1, 't-mig-reset', now() + interval '1 day')`, [solo.id]);
+  migrate('down', 2); // la 065 y la 064
+  assert.equal((await c.query(`SELECT to_regclass('email_suppressions') AS t`)).rows[0].t, null, '065 down: sin tabla de supresiones');
+  const cols = async () => (await c.query(
+    `SELECT table_name || '.' || column_name AS col FROM information_schema.columns
+      WHERE (table_name, column_name) IN (('password_resets', 'kind'), ('auth_credentials', 'disabled_at'))`)).rows.length;
+  assert.equal(await cols(), 0, '064 down: sin kind ni disabled_at');
+  assert.deepEqual((await c.query(`SELECT token_hash FROM password_resets WHERE token_hash LIKE 't-mig-%'`)).rows, [{ token_hash: 't-mig-reset' }]);
+  migrate('up');
+  assert.equal(await cols(), 2, '064 up: kind y disabled_at');
+  assert.equal((await c.query(`SELECT kind FROM password_resets WHERE token_hash = 't-mig-reset'`)).rows[0].kind, 'reset');
+  assert.equal((await c.query(`SELECT to_regclass('email_suppressions') AS t`)).rows[0].t, 'email_suppressions', '065 up: tabla de supresiones');
+  console.log('OK   058: minors_only → max_age = 17; 062: backfill de tutores; 063: jit = off; 064: down/up de las invitaciones; 065: down/up de la tabla de supresiones');
 } catch (e) {
   failed++;
   console.error('FAIL 058: minors_only → max_age = 17\n', e);

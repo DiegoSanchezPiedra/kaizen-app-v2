@@ -38,7 +38,7 @@ const entry = (d: PublicDisciplineMedals, code: string): DisciplineMedal =>
   ({ key: `${d.id}:${code}`, medal: medalOf(d.theme, code)!, discipline: { id: d.id, name: d.name } })
 const rank = (code: string) => LADDER.findIndex((x) => x.code === code)
 
-// La que se enseña junto al nombre (rankings, Comunidad): la de horas más alta, si no la racha más alta, si no la
+// La que se enseña junto al nombre (rankings): la de horas más alta, si no la racha más alta, si no la
 // primera; entre disciplinas empatadas, la de más horas.
 const TOP = ['hours_1000', 'hours_500', 'hours_250', 'hours_100', 'hours_50', 'hours_10', 'streak_52', 'streak_26', 'streak_12', 'streak_4', 'first_day']
 export function topMedal(disciplines: PublicDisciplineMedals[] | undefined): DisciplineMedal | undefined {

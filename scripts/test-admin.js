@@ -114,6 +114,7 @@ try {
     assert.deepEqual(byEmail.body.profiles.map((p) => p.id), [U.tutor2]);
     const profs = await http('GET', `/admin/profiles?q=${tag}&role=profesor`, 'admin');
     assert.deepEqual(profs.body.profiles.map((p) => p.id).sort(), [U.prof, U.prof2].sort());
+    assert.ok(profs.body.profiles.every((p) => p.disabled === false && typeof p.has_password === 'boolean'), 'ADR 0028: disabled y has_password en la lista');
     const page = await http('GET', `/admin/profiles?q=${tag}&limit=2&offset=2`, 'admin');
     assert.deepEqual([page.body.profiles.length, page.body.total, page.body.limit, page.body.offset], [2, ids.length, 2, 2]);
     expectError(await http('GET', '/admin/profiles?role=jefe', 'admin'), 400, 'invalid_field');
@@ -140,7 +141,7 @@ try {
     for (const k of ['birth_date', 'injuries', 'allergies', 'rodilla', 'polen', 'emergency_contact_name']) {
       assert.ok(!json.includes(k), `la ficha incluye ${k}`);
     }
-    assert.deepEqual(Object.keys(r.body.profile).sort(), ['avatar', 'can_create_children', 'created_at', 'display_name', 'email', 'has_google',
+    assert.deepEqual(Object.keys(r.body.profile).sort(), ['avatar', 'can_create_children', 'created_at', 'disabled', 'display_name', 'email', 'has_google',
       'has_password', 'id', 'is_minor', 'is_public', 'pending_claim', 'role']);
   });
   await run('ficha: el padre con sus hijos; status solo de un alumno; 404', async () => {
@@ -162,25 +163,21 @@ try {
     expectError(await put('stu2', 'alumno'), 409, 'same_role');
     expectError(await put('admin', 'alumno'), 409, 'admin_role_locked');
     expectError(await put('child', 'tutor'), 409, 'child_role_locked');
-    expectError(await put('prof', 'alumno'), 409, 'trainer_has_sessions');
-    expectError(await put('stu', 'profesor'), 409, 'student_has_subscription');
+    expectError(await put('prof', 'alumno'), 409, 'trainer_role_locked'); // ADR 0028: un profesor se desactiva, no cambia de rol
+    expectError(await put('stu', 'profesor'), 400, 'invalid_field'); // y el rol profesor ya no se da por aquí
     expectError(await put('stu', 'tutor'), 409, 'student_has_subscription');
     assert.equal(await lastAudit('profile.role_change', U.stu), undefined);
   });
-  await run('rol: un profesor degradado pierde /professor con el mismo token; queda en audit_log', async () => {
+  // ADR 0028: el rol profesor ya no se cambia por la API; el cambio lo hacemos por SQL para probar que requireAuth lee el rol de la base.
+  await run('rol: un profesor que deja de serlo pierde /professor con el mismo token; un alumno que lo es, lo gana', async () => {
     assert.equal((await http('GET', '/professor/reports/sessions?by=discipline', 'prof2')).status, 200);
-    const r = await http('PUT', `/admin/profiles/${U.prof2}/role`, 'admin', { role: 'alumno' });
-    assert.equal(r.status, 200);
-    assert.deepEqual([r.body.profile.id, r.body.profile.role], [U.prof2, 'alumno']);
+    await servicePool.query(`UPDATE user_roles SET role = 'alumno' WHERE user_id = $1`, [U.prof2]);
     expectError(await http('GET', '/professor/reports/sessions?by=discipline', 'prof2'), 403, 'insufficient_role');
     assert.equal((await http('GET', '/auth/me', 'prof2')).body.user.role, 'alumno');
-    assert.deepEqual(await lastAudit('profile.role_change', U.prof2),
-      { actor_id: U.admin, resource_type: 'profile', changes: { from: 'profesor', to: 'alumno' } });
-  });
-  await run('rol: un alumno ascendido entra en /professor con el mismo token', async () => {
     expectError(await http('GET', '/professor/sessions', 'stu2'), 403, 'insufficient_role');
-    assert.equal((await http('PUT', `/admin/profiles/${U.stu2}/role`, 'admin', { role: 'profesor' })).status, 200);
+    await servicePool.query(`UPDATE user_roles SET role = 'profesor' WHERE user_id = $1`, [U.stu2]);
     assert.equal((await http('GET', '/professor/sessions', 'stu2')).status, 200);
+    await servicePool.query(`UPDATE user_roles SET role = 'alumno' WHERE user_id = $1`, [U.stu2]);
   });
   await run('rol: sin fila en user_roles actúa como alumno aunque el token diga admin', async () => {
     assert.equal((await http('GET', '/auth/me', 'norole', undefined, 'admin')).body.user.role, 'alumno');
@@ -261,7 +258,7 @@ try {
   await run('ajustes: GET igual a lo que devuelven los PUT, y ve un cambio', async () => {
     const get = async () => (await http('GET', '/admin/settings', 'admin')).body;
     const before = await get();
-    assert.deepEqual(Object.keys(before).sort(), ['checkin', 'discipline_changes', 'pause']);
+    assert.deepEqual(Object.keys(before).sort(), ['checkin', 'discipline_changes', 'pause', 'rankings']);
     assert.deepEqual(Object.keys(before.checkin).sort(), ['closes_minutes', 'opens_minutes', 'qr_seconds']);
     // Sin cambiar nada: los PUT devuelven lo mismo.
     assert.deepEqual((await http('PUT', '/admin/settings/checkin', 'admin', {})).body.settings, before.checkin);

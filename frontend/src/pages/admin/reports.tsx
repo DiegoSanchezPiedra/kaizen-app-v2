@@ -14,7 +14,7 @@ import { addDays, addMonths, dayOfMonth, formatDay, formatMonth, madridDay, madr
 import { niceMax, shortMonth, type ReportRow } from '@/lib/professor'
 import { path } from '@/lib/url'
 import { cn } from '@/lib/utils'
-import { Filter } from '@/pages/community'
+import { Filter } from '@/components/filter'
 import { HATCH, Key, MonthBars, SERIES, SessionsReport, Tile } from '@/pages/professor-reports'
 import { PAGE_SIZE, Pager } from '@/pages/admin/shell'
 

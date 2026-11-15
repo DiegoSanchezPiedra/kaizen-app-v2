@@ -87,8 +87,19 @@ export async function extendHorizon(client) {
 }
 
 export async function assertTrainer(client, id) {
-  const { rowCount } = await client.query(`SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'profesor'`, [id]);
-  if (!rowCount) throw invalid('trainer_id', 'El perfil no es profesor');
+  const { rowCount } = await client.query(
+    `SELECT 1 FROM user_roles r LEFT JOIN auth_credentials c ON c.profile_id = r.user_id
+      WHERE r.user_id = $1 AND r.role = 'profesor' AND c.disabled_at IS NULL FOR SHARE OF r`, [id]);
+  if (!rowCount) throw invalid('trainer_id', 'El perfil no es profesor o está desactivado');
+}
+
+/** Un profesor con clases no retiradas o sesiones futuras no se da de baja ni se desactiva: antes, reasignarlas. */
+export async function assertNoTrainerDuties(client, id) {
+  const { rows: [busy] } = await client.query(
+    `SELECT EXISTS (SELECT 1 FROM classes WHERE trainer_id = $1 AND (ends_on IS NULL OR ends_on >= CURRENT_DATE))
+         OR EXISTS (SELECT 1 FROM class_sessions WHERE trainer_id = $1 AND starts_at > now() AND status <> 'cancelled')
+         AS busy`, [id]);
+  if (busy.busy) throw httpError(409, 'trainer_has_sessions', 'Es profesor de clases o sesiones futuras: reasígnalas antes');
 }
 
 // [status, mensaje, código HTTP si no es el de SQL, details]

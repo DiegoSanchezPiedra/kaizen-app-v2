@@ -220,7 +220,7 @@ async function matrix() {
   await run('B32 matriz: lo permitido funciona; con el profile_id del hermano, el 403 de siempre', async () => {
     const A = as('A');
     for (const url of ['/me', '/me/profile', '/me/progress', '/me/profile-status', `/sessions/calendar`, '/disciplines',
-      '/plans', '/profiles', `/rankings/${D}`, '/events', `/events/${E.free}`, '/bookings']) {
+      '/plans', `/rankings/${D}`, '/events', `/events/${E.free}`, '/bookings']) {
       const r = await A('GET', url);
       assert.equal(r.status, 200, `GET ${url}: ${r.status} ${JSON.stringify(r.body)}`);
     }

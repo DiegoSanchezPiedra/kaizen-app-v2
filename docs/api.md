@@ -66,12 +66,12 @@ El backend construye enlaces con `APP_URL`; el frontend **tiene** que servir est
 | Método y ruta | Rol | Cuerpo / query | Respuesta |
 |---|---|---|---|
 | `GET /health` | — | — | `{ status: ok\|degraded, uptime, db, timestamp }` |
-| `POST /auth/register` | — | `{ email, password, displayName, birthDate }` | `201 { token, user: { id, email, role: 'alumno' } }`. Errores: `email_taken`, `weak_password`, `invalid_birth_date`, `minor_cannot_register`, `invalid_payload` |
+| `POST /auth/register` | — | `{ email, password, displayName, birthDate }` | `201 { token, user: { id, email, role: 'alumno' } }`. Errores: `email_taken`, `email_domain_reserved` (el dominio corporativo de los profesores, ADR 0028), `weak_password`, `invalid_birth_date`, `minor_cannot_register`, `invalid_payload` |
 | `POST /auth/login` | — | `{ email, password }` (`email`: el email o el usuario de un menor, B32; sin `@` es usuario, sin distinguir mayúsculas) | `{ token, user }` (`user.email` puede ser `null`) o, con MFA, `{ mfa_required: true, mfa_token }`. `401 invalid_credentials` |
-| `POST /auth/google` | — | `{ id_token }` (Google Identity Services) | como `/auth/login`. `invalid_google_token` |
+| `POST /auth/google` | — | `{ id_token }` (Google Identity Services) | como `/auth/login`. `invalid_google_token`; `403 google_login_not_allowed` (perfil profesor o dominio corporativo: los profesores entran con email y contraseña) |
 | `POST /auth/mfa/verify` | — (con `mfa_token`) | `{ mfa_token, code }` | `{ token, user }`. `401 invalid_mfa_code` (también un TOTP ya usado o de un paso anterior al último usado: cada código vale una vez) |
 | `POST /auth/password/forgot` | — | `{ email }` | `204` **siempre** (no dice si el email existe). Si existe, email con el enlace a `/reset-password?token=…`, válido 1 h y una vez; pedir otro anula los anteriores |
-| `POST /auth/password/reset` | — | `{ token, password }` | `204`. `400 invalid_reset_token` (caducado, usado o inexistente), `weak_password`. Un perfil solo con Google se pone así contraseña |
+| `POST /auth/password/reset` | — | `{ token, password }` | `204`. `400 invalid_reset_token` (caducado, usado, inexistente o de un perfil desactivado), `weak_password`. Un perfil solo con Google se pone así contraseña. También acepta la invitación de un profesor (ADR 0028): fija su contraseña y marca `email_verified` |
 | `GET /auth/me` | cualquiera | — | `{ user: { id, role }, mfa_enabled, rls_context }` |
 | `POST /auth/mfa/setup` | admin | `{ password }` | `201 { otpauth_uri, recovery_codes }`: el secreto y el `otpauth://` para el QR. Pide la contraseña actual (B20); una cuenta solo con Google no la manda y necesita un token de un login de hace ≤ 10 min. `400 invalid_field`, `wrong_password`; `403 reauth_required` (solo Google, login antiguo: volver a entrar); `409 mfa_already_enabled`. Con el límite del login |
 | `POST /auth/mfa/activate` | admin | `{ code }` | `{ enabled: true, token }`: activa el MFA y, como `POST /me/password` (ADR 0020), da el token nuevo de esta sesión; los anteriores dan `401 session_revoked`. `invalid_totp`, `mfa_not_setup`. `audit_log` `auth.mfa_enable` |
@@ -187,14 +187,13 @@ Errores frecuentes: `409 subscription_exists`,
 verlo: no se revela que existe), `409 payer_change_expired|payer_change_paid`,
 `503 portal_not_configured`.
 
-## Comunidad
+## Rankings y fichas públicas
 
 | Método y ruta | Rol | Query | Respuesta |
 |---|---|---|---|
-| `GET /profiles?q&role&discipline_id&limit&offset` | cualquiera | — | `{ profiles: [ficha], total, limit, offset }` |
 | `GET /profiles/:id` | cualquiera | — | `{ profile: { id, display_name, role, bio?, social_links?, disciplines?, member_since?, achievements? } }` (solo lo visible; `404 profile_not_found` si no es público) |
-| `GET /rankings/:disciplineId/medals?limit&offset` | cualquiera | — | `{ discipline: { id, name }, rows: [{ rank, id, display_name, medals, hours, achievements? }], total, limit, offset }`: medallas de siempre en esa disciplina (037), por medallas y, empatadas, por sus horas en ella; también las abiertas y las desactivadas. `achievements` (sus `disciplines` como en `/me/progress`) solo de quien enseña sus logros. `404 ranking_not_found` |
-| `GET /rankings/:disciplineId?month&limit&offset` | cualquiera | — | `{ discipline: { id, name }, month, rows: [{ rank, id, display_name, hours, achievements? }], total, limit, offset }` (`achievements` solo de quien enseña sus logros) |
+| `GET /rankings/:disciplineId/medals` | cualquiera | — | `{ discipline: { id, name }, rows: [{ rank, id, display_name, medals, hours, achievements? }], total, limit }`: los puestos hasta `limit` (`limit` = el top de `PUT /admin/settings/rankings`, por defecto 50; si hay empate en el último puesto salen todos, así que pueden ser más filas que `limit`); medallas de siempre en esa disciplina (037), por medallas y, empatadas, por sus horas en ella; también las abiertas y las desactivadas. `achievements` (sus `disciplines` como en `/me/progress`) solo de quien enseña sus logros. `404 ranking_not_found` |
+| `GET /rankings/:disciplineId?month` | cualquiera | — | `{ discipline: { id, name }, month, rows: [{ rank, id, display_name, hours, achievements? }], total, limit }` (el mismo top; `achievements` solo de quien enseña sus logros) |
 
 ## Profesor
 
@@ -272,12 +271,22 @@ Todas exigen `role = admin` (y el admin entra con MFA si lo tiene activado). El 
 
 | Método y ruta | Cuerpo / query | Respuesta |
 |---|---|---|
-| `GET /admin/profiles?q&role&discipline_id&plan_id&estado&limit&offset` | `q` en nombre y email, sin distinguir mayúsculas; `role` `alumno\|tutor\|profesor\|admin`; `discipline_id` (alumnos cuya suscripción viva, también la impagada, cubre la disciplina: la regla de cubrir); `plan_id` (el de la viva); `estado` `activo\|impago\|inactivo\|sin_plan` (`activo` incluye los inactivos, como el KPI) | `{ profiles: [{ id, display_name, email, role, is_minor, pending_claim, created_at, subscription_status, plan_id, plan_name, estado, last_attendance_at }], total, limit, offset }` por nombre; `email` `null` en un hijo; `subscription_status`, `plan_id` y `plan_name` los de la viva o `null`; `estado` solo de un alumno (`null` en el resto), el más fuerte: `impago` (sale en Morosos) > `inactivo` (en vigor sin asistencia en 14 días) > `activo` > `sin_plan`; `last_attendance_at` inicio de la última sesión no cancelada con presente, o `null`. `400 invalid_field` (rol, ids, estado), `invalid_pagination` |
+| `GET /admin/profiles?q&role&discipline_id&plan_id&estado&limit&offset` | `q` en nombre y email, sin distinguir mayúsculas; `role` `alumno\|tutor\|profesor\|admin`; `discipline_id` (alumnos cuya suscripción viva, también la impagada, cubre la disciplina: la regla de cubrir); `plan_id` (el de la viva); `estado` `activo\|impago\|inactivo\|sin_plan` (`activo` incluye los inactivos, como el KPI) | `{ profiles: [{ id, display_name, email, role, is_minor, pending_claim, disabled, has_password, created_at, subscription_status, plan_id, plan_name, estado, last_attendance_at }], total, limit, offset }` por nombre; `email` `null` en un hijo; `subscription_status`, `plan_id` y `plan_name` los de la viva o `null`; `estado` solo de un alumno (`null` en el resto), el más fuerte: `impago` (sale en Morosos) > `inactivo` (en vigor sin asistencia en 14 días) > `activo` > `sin_plan`; `last_attendance_at` inicio de la última sesión no cancelada con presente, o `null`. `400 invalid_field` (rol, ids, estado), `invalid_pagination` |
 | `GET /admin/profiles/stats?discipline_id` | `discipline_id` como en la lista | `{ activos, impago, inactivos }`: solo alumnos (menores incluidos). `activos` con suscripción en vigor y sin impago; `impago` los alumnos distintos con algo en gracia o impagado de un pagador moroso (los de `GET /admin/billing/delinquents`; cuenta alumnos, no pagadores); `inactivos` los activos sin asistencia en 14 días. `400 invalid_field` |
 | `GET /admin/profiles/:id` | — | `{ profile: { id, display_name, email, role, created_at, is_minor, pending_claim, is_public, has_password, has_google }, status: { ok, missing? } \| null (solo de un alumno), guardians: [{ id, display_name, email }], children: [{ id, display_name, pending_claim }], subscription: { …como GET /billing/subscription, payer: { id, display_name } } \| null }`. `404 profile_not_found` |
-| `PUT /admin/profiles/:id/role` | `{ role, mfa_code? }` (`alumno`, `tutor`, `profesor` o `admin`; para `admin`, el código del doble factor de quien lo da) | `{ profile }` (como en la ficha). Vale en la siguiente petición del afectado. `audit_log` `profile.role_change` `{ from, to }`. `400 invalid_field`; `403 mfa_required` (dar `admin` sin el doble factor activado), `mfa_login_required` (la sesión no entró con el doble factor), `invalid_mfa_code`; `429 rate_limited` (10 intentos de dar `admin` cada 15 min por IP); `404 profile_not_found`; `409 same_role`, `admin_role_locked` (el perfil es admin: no se quita desde la app), `child_role_locked` (sin acceso propio), `trainer_has_sessions` (profesor habitual de una clase no retirada o de una sesión futura no cancelada), `student_has_subscription` (alumno con suscripción viva que pasaría a tutor o profesor) |
+| `PUT /admin/profiles/:id/role` | `{ role, mfa_code? }` (`alumno`, `tutor` o `admin`; `profesor` no: lo da de alta el admin, ver «Profesores»; para `admin`, el código del doble factor de quien lo da) | `{ profile }` (como en la ficha). Vale en la siguiente petición del afectado. `audit_log` `profile.role_change` `{ from, to }`. `400 invalid_field`; `403 mfa_required` (dar `admin` sin el doble factor activado), `mfa_login_required` (la sesión no entró con el doble factor), `invalid_mfa_code`; `429 rate_limited` (10 intentos de dar `admin` cada 15 min por IP); `404 profile_not_found`; `409 same_role`, `admin_role_locked` (el perfil es admin: no se quita desde la app), `child_role_locked` (sin acceso propio), `trainer_role_locked` (el perfil ya es profesor: se desactiva, no cambia de rol), `student_has_subscription` (alumno con suscripción viva que pasaría a tutor o profesor) |
 | `POST /admin/profiles/:id/guardians` | `{ tutor_id }` | `201 { guardians }`. `audit_log` `guardian.add`. `400 invalid_field`; `404 profile_not_found`; `409 not_a_child` (`:id` tiene acceso propio), `invalid_guardian` (el tutor no existe, no tiene acceso propio o es menor), `already_guardian` |
 | `DELETE /admin/profiles/:id/guardians/:tutorId` | — | `204`. `audit_log` `guardian.remove`. `404 profile_not_found` (también si no es su tutor); `409 not_a_child`, `last_guardian`, `guardian_is_payer` (paga su suscripción viva: antes, cambio de pagador) |
+
+**Profesores** (ADR 0028). Los da de alta el admin con el correo corporativo; sin contraseña temporal: la invitación es un enlace de un solo uso (72 h, `${APP_URL}/reset-password?token=…&invite=1`) que se acepta con `POST /auth/password/reset`. `audit_log` `trainer.create|invite|update|deactivate|reactivate` con ids, nunca el email ni el token. Los emails salen tras el COMMIT; un fallo de envío no deshace el cambio (se reenvía).
+
+| Método y ruta | Cuerpo | Respuesta |
+|---|---|---|
+| `POST /admin/trainers` | `{ email, display_name, employment? }` (`employee`\|`self_employed`, por defecto `self_employed`) | `201 { trainer: { id, display_name, email, email_verified, has_password, disabled, employment } }`. `400 invalid_field`, `email_domain_not_allowed` (no es de `CORPORATE_EMAIL_DOMAIN`: exacto, sin subdominios); `409 email_taken` |
+| `POST /admin/trainers/:id/invite` | — | `204`; invalida la invitación anterior. 5 por profesor y hora (`429 rate_limited`). `404 trainer_not_found`; `409 trainer_disabled` |
+| `PATCH /admin/trainers/:id` | `{ display_name?, employment?, email? }` | `200 { trainer }`. Un `email` nuevo conserva id e historial, anula contraseña y `google_sub`, cierra sus sesiones y envía una invitación al correo nuevo (también convierte a un profesor existente). Errores de alta más `409 same_email`, `trainer_disabled`, `404 trainer_not_found` |
+| `POST /admin/trainers/:id/deactivate` | — | `200 { trainer }`. No entra, no recibe restablecer y su sesión viva muere en la siguiente petición (`401 session_revoked`). `409 trainer_has_sessions` (profesor habitual de una clase no retirada o de una sesión futura no cancelada), `same_state` |
+| `POST /admin/trainers/:id/reactivate` | — | `200 { trainer }`. Conserva su contraseña; los tokens de antes siguen sin valer. `409 same_state` |
 
 **Catálogo**
 
@@ -353,10 +362,11 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 
 | Método y ruta | Cuerpo |
 |---|---|
-| `GET /admin/settings` | — → `{ checkin: { opens_minutes, closes_minutes, qr_seconds }, discipline_changes: { per_period }, pause: { price_cents, max_months, per_year } }`: lo mismo que devuelve cada `PUT` en `settings` |
+| `GET /admin/settings` | — → `{ checkin: { opens_minutes, closes_minutes, qr_seconds }, discipline_changes: { per_period }, pause: { price_cents, max_months, per_year }, rankings: { top } }`: lo mismo que devuelve cada `PUT` en `settings` |
 | `PUT /admin/settings/checkin` | `{ opens_minutes?, closes_minutes?, qr_seconds? }` |
 | `PUT /admin/settings/discipline-changes` | `{ per_period }` |
 | `PUT /admin/settings/pause` | `{ price_cents? (1–10 000 000, la cuota de mantenimiento mensual), max_months? (1–12, por defecto 3), per_year? (0–12, por defecto 1) }`. Sin `price_cents` no hay pausas. Un precio nuevo no cambia las pausas ya pedidas. `400 invalid_field`. `audit_log` `settings.pause` |
+| `PUT /admin/settings/rankings` | `{ top }` (entero de 1 a 100; sin ajuste, 50): puestos de los dos rankings. `400 invalid_field`. `audit_log` `settings.rankings` |
 
 **Auditoría, avisos de la academia y entregas fallidas** (B19.1). Todas paginadas (`limit` 1–100, 25 por defecto; `offset`) y del más nuevo al más viejo; `from` y `to` son días de Madrid, ambos incluidos. `400 invalid_pagination`, `invalid_field`.
 
@@ -365,7 +375,7 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 | `GET /admin/audit?action&actor_id&resource_type&resource_id&from&to&limit&offset` | `{ rows: [{ id, created_at, action, actor: { id, display_name }, resource_type, resource_id, changes }], total, limit, offset }`. `action` son prefijos separados por comas (`session.,class.`). **Nunca** devuelve `notice.*` (ni filtrando por ellos). `400 invalid_range` si `to < from`. Las altas son `subscription.create` (las escribe el webhook al nacer la cuota, con el pagador de actor y `changes: { student_id, payer_id, plan_id }`; un traspaso de pagador no es un alta). La pausa (B30): `subscription.pause` (`{ pause_id, months, starts_at, ends_at }`), `subscription.pause_cancel`, `subscription.pause_end_early` (recurso: la suscripción), `pause.exempt` (recurso: la pausa; `{ reason, subscription_id }`) y `settings.pause` |
 | `GET /admin/home` | — | Inicio en vivo (B23): `{ trained: { last_30, previous_30, series } }` (B24.2, alumnos que entrenaron, ver CONTEXT § Informes: distintos en los días de Madrid [hoy-29, hoy] y [hoy-59, hoy-30]; `series`, 30 enteros del más viejo al de hoy, el i-ésimo los de los 30 días que acaban en hoy-29+i, así que `series[29] = last_30`), `students: { activos, impago, inactivos }` (como `/admin/profiles/stats`), `attendance: { today, last_week }` (entradas `present` de las sesiones no canceladas de hoy y del mismo día de hace 7 hasta esta misma hora, días de Madrid), `sessions: [{ id, starts_at, ends_at, discipline, trainer, location, capacity, status, booked, present }]` (las de hoy, también las canceladas), `next` (la próxima programada que no ha empezado, o `null`) } |
 | `GET /admin/notices?limit&offset` | `{ rows: [{ id, created_at, action, resource_type, resource_id, details }], total, limit, offset }`: los `notice.*` con algún admin entre sus destinatarios (`stripe_risk`, la carrera de Checkouts, `payer_change_expired`…); `details` es `changes` sin `recipients` |
-| `GET /admin/notice-deliveries?from&limit&offset` | `{ rows: [{ id, created_at, action, channel, recipient: { id, display_name }, attempts, last_error }], total, limit, offset }`: solo las `failed` (no se reintentan); `from` sobre `created_at` |
+| `GET /admin/notice-deliveries?from&limit&offset` | `{ rows: [{ id, created_at, action, channel, recipient: { id, display_name }, attempts, last_error }], total, limit, offset }`: las `failed` y las `skipped` con `last_error = 'email_suppressed'` (dirección suprimida, ADR 0029); no se reintentan; `from` sobre `created_at` |
 
 **Tablets, documentos y perfiles**
 
@@ -414,6 +424,12 @@ Errores: `400 invalid_range`, `400 invalid_field`, `400 invalid_pagination`.
 volver de Stripe: hasta que llega, la suscripción puede no existir aún (la UI de `/billing/success` debe esperar o
 reintentar `GET /billing/subscription`). Igual con un evento: la inscripción queda `pending` hasta `checkout.session.completed`
 (o se cancela con `checkout.session.expired`).
+
+`POST /webhooks/brevo`: solo Brevo (ADR 0029). Autenticación: cabecera `x-brevo-secret` = `BREVO_WEBHOOK_SECRET`, en tiempo
+constante; si falta o no coincide, `401 invalid_secret` sin tocar la BD (`500 webhook_not_configured` sin la variable). Cuerpo
+JSON de Brevo: `{ event, email, reason?, "message-id"? }`. `hard_bounce`, `blocked`, `spam` e `invalid_email` suprimen la dirección;
+`unsubscribed` suprime solo los avisos opcionales; `soft_bounce` solo se registra; cualquier otro evento se ignora. Respuesta
+`200 { received: true, result: 'suppressed' | 'ignored' }` (idempotente); `400 invalid_event` si falta `event` o `email` válido. Un email sin perfil también se guarda. nginx lo expone como `/api/webhooks/brevo`. El frontend no lo usa.
 
 Eventos de Stripe que hay que suscribir en el endpoint (sandbox, staging y producción): los de `HANDLED_EVENTS`
 (`src/services/stripeWebhook.js`), que desde B21.0 incluyen **`checkout.session.expired`** y **`refund.failed`** (un

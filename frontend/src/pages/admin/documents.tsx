@@ -14,7 +14,7 @@ import { formatShortDate } from '@/lib/format'
 import { queryClient } from '@/lib/logout'
 import { toastError, toastOk } from '@/lib/notify'
 import { path } from '@/lib/url'
-import { Filter } from '@/pages/community'
+import { Filter } from '@/components/filter'
 import { SelectField, TextField } from '@/pages/admin/schedule-bits'
 import { post, useConfirm } from '@/pages/admin/user-billing'
 
