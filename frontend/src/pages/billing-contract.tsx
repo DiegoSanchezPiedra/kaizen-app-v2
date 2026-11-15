@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { LoaderCircleIcon, WalletIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router'
+import { Link, useLocation, useParams, useSearchParams } from 'react-router'
 import { Back, Kv, Note, OptionCard, StickyFooter, Tag } from '@/components/billing-bits'
 import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
@@ -15,6 +15,8 @@ import { ApiError, api } from '@/lib/api'
 import { eligibleDisciplines, isLive, perMonth, rememberCheckoutSubject, visiblePlans } from '@/lib/billing'
 import { formatDeadline, formatShortDate } from '@/lib/format'
 import { MISSING_TEXT } from '@/lib/notices'
+import { onboardingFrom } from '@/lib/paths'
+import { incompletePath, payBlocker } from '@/lib/profile'
 import { errorCode, toastError } from '@/lib/notify'
 import { path, refreshBilling, useDisciplines, usePlans, useProfileStatus, useSubscription } from '@/lib/queries'
 import { useSession } from '@/lib/session'
@@ -37,10 +39,13 @@ const CHECKOUT_ERRORS: Record<string, [string, string]> = {
 
 function Contract({ subject, profileId }: Props) {
   const { withSubject } = useSubject()
+  const location = useLocation()
   const self = !subject || subject.self
   const name = subjectName(subject)
   const subscription = useSubscription(profileId)
   const status = useProfileStatus(profileId)
+  // Por un hijo, también el del tutor: el pago exige los dos completos. Para uno mismo es la misma consulta.
+  const own = useProfileStatus(undefined)
   const plans = usePlans()
   const disciplines = useDisciplines()
   const [step, setStep] = useState<1 | 2 | 3>(1)
@@ -68,7 +73,7 @@ function Contract({ subject, profileId }: Props) {
     },
     onError: (err) => {
       const code = errorCode(err)
-      if (code === 'subscription_exists' || code === 'profile_incomplete') void Promise.all([subscription.refetch(), status.refetch()])
+      if (code === 'subscription_exists' || code === 'profile_incomplete') void Promise.all([subscription.refetch(), status.refetch(), own.refetch()])
       if (CHECKOUT_ERRORS[code]) {
         setProblem(code)
         if (['plan_minors_only', 'plan_not_purchasable', 'plan_not_found'].includes(code)) setStep(1)
@@ -77,10 +82,10 @@ function Contract({ subject, profileId }: Props) {
     },
   })
 
-  const loading = subscription.isPending || status.isPending || plans.isPending || disciplines.isPending
-  const failed = [subscription, status, plans, disciplines].find((q) => q.isError)
+  const loading = subscription.isPending || status.isPending || own.isPending || plans.isPending || disciplines.isPending
+  const failed = [subscription, status, own, plans, disciplines].find((q) => q.isError)
   if (loading) return <ListSkeleton rows={3} />
-  if (failed) return <ErrorState error={failed.error} onRetry={() => void Promise.all([subscription.refetch(), status.refetch(), plans.refetch(), disciplines.refetch()])} />
+  if (failed) return <ErrorState error={failed.error} onRetry={() => void Promise.all([subscription.refetch(), status.refetch(), own.refetch(), plans.refetch(), disciplines.refetch()])} />
 
   if (subscription.data && isLive(subscription.data.status)) {
     return (
@@ -97,19 +102,19 @@ function Contract({ subject, profileId }: Props) {
       </Note>
     )
   }
-  const missing = status.data?.missing ?? []
-  if (missing.length) {
+  const block = payBlocker(profileId ? (status.data?.missing ?? []) : null, own.data?.missing ?? [])
+  if (block) {
     return (
       <Note
         kind="warning"
-        title={name ? `Antes de pagar hay que completar el perfil de ${name}` : 'Antes de pagar hay que completar tu perfil'}
+        title={block.mine ? 'Antes de pagar hay que completar tu perfil' : `Antes de pagar hay que completar el perfil de ${name}`}
         action={
-          <Button size="lg" variant="outline" render={<Link to={withSubject(profileId ? '/account/health' : '/onboarding')} />}>
+          <Button size="lg" variant="outline" render={<Link to={block.mine ? onboardingFrom(location.pathname + location.search) : withSubject(block.to)} />}>
             Completar perfil
           </Button>
         }
       >
-        Falta {list(missing.map((m) => MISSING_TEXT[m]).filter(Boolean))}.
+        Falta {list(block.missing.map((m) => MISSING_TEXT[m]).filter(Boolean))}.
       </Note>
     )
   }
@@ -368,6 +373,7 @@ export function CancelPage() {
 // ── Cambio de pagador (enlace del email al nuevo pagador) ───────────────
 
 function PayerChangeView({ id }: { id: string }) {
+  const location = useLocation()
   const session = useSession()
   const [params] = useSearchParams()
   const back = !!params.get('session_id')
@@ -461,6 +467,7 @@ function PayerChangeView({ id }: { id: string }) {
     )
   }
   const missing = problem?.code === 'profile_incomplete' && Array.isArray(problem.details.missing) ? (problem.details.missing as string[]) : null
+  const fix = missing && student ? incompletePath(missing, problem!.details.whose) : '/onboarding'
   return (
     <>
       {back && poll.phase === 'stopped' && (
@@ -494,7 +501,7 @@ function PayerChangeView({ id }: { id: string }) {
           kind="warning"
           title="Antes de pagar hay que completar el perfil"
           action={
-            <Button size="lg" variant="outline" render={<Link to={student ? `/account/health?${new URLSearchParams({ para: student.id })}` : '/onboarding'} />}>
+            <Button size="lg" variant="outline" render={<Link to={fix === '/onboarding' ? onboardingFrom(location.pathname) : `${fix}?${new URLSearchParams({ para: student!.id })}`} />}>
               Completar
             </Button>
           }

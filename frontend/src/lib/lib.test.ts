@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { errorText } from '@/lib/errors'
 import { formatDate, formatEuros, formatTime, maskSpanishDate, parseSpanishDate } from '@/lib/format'
-import { decode, isExpired, loginPath, safeReturnPath } from '@/lib/paths'
+import { decode, isExpired, loginPath, onboardingFrom, safeReturnPath } from '@/lib/paths'
 import { cropRect, initials } from '@/lib/avatar'
 import { activeSubject, subjectOptions, usesSubject } from '@/lib/subject'
 
@@ -52,7 +52,14 @@ describe('sesión', () => {
     expect(safeReturnPath('/bookings?para=1')).toBe('/bookings?para=1')
     expect(safeReturnPath('//evil.example')).toBe('/')
     expect(safeReturnPath('https://evil.example')).toBe('/')
+    // El navegador lee «/\\» como «//»: otro origen.
+    expect(safeReturnPath('/\\evil.example')).toBe('/')
     expect(safeReturnPath(null)).toBe('/')
+  })
+  it('el onboarding vuelve a donde se lanzó, con su ?para= intacto', () => {
+    const url = new URL(onboardingFrom('/billing/contract?para=abc'), 'https://x')
+    expect(url.pathname).toBe('/onboarding')
+    expect(safeReturnPath(url.searchParams.get('volver'))).toBe('/billing/contract?para=abc')
   })
   it('a /login según por qué terminó la sesión', () => {
     expect(loginPath('logout', '/account')).toBe('/login')

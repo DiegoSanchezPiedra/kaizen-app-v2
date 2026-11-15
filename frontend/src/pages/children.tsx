@@ -86,6 +86,8 @@ export function ChildFormPage() {
   const child = id ? children.data?.find((c) => c.id === id) : undefined
   const [birth, setBirth] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  // Sin el permiso del admin: a la vista en el formulario, que un toast se va y parece que no pasó nada.
+  const [denied, setDenied] = useState(false)
   const value = birth ?? (child?.birth_date ? isoToSpanish(child.birth_date) : '')
 
   const save = useMutation({
@@ -99,6 +101,7 @@ export function ChildFormPage() {
     onError: (err) => {
       const code = errorCode(err)
       if (code === 'child_must_be_minor' || code === 'invalid_birth_date') setErrors({ birth_date: errorText(code) })
+      else if (code === 'child_creation_not_allowed') setDenied(true)
       else toastError(err)
     },
   })
@@ -144,6 +147,7 @@ export function ChildFormPage() {
           <FieldMessage match="valueMissing">Escribe su fecha de nacimiento.</FieldMessage>
           {errors.birth_date && <FieldMessage>{errors.birth_date}</FieldMessage>}
         </Field>
+        {denied && <StatusAlert notice={{ kind: 'error', title: errorText('child_creation_not_allowed') }} />}
         <Button type="submit" size="xl" loading={save.isPending}>
           {id ? 'Guardar' : 'Añadir'}
         </Button>

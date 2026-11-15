@@ -20,7 +20,8 @@
 - **Comunes**: `401 missing_token|invalid_token|session_revoked` (`session_revoked`: el token se emitió antes del último cambio o restablecimiento de la contraseña, ADR 0020, o es de un hijo cuyo acceso propio se ha revocado, ADR 0026), `403 insufficient_role` (rol no permitido), `400 invalid_id` (uuid o id
   numérico mal formado), `404 not_found` (ruta inexistente).
 - **Perfil completo** (`requireCompleteProfile`): reservar, contratar y el Checkout del cambio de pagador fallan con
-  `403 profile_incomplete { missing: [...] }` si al sujeto (y al tutor que actúa por un hijo) le falta algo.
+  `403 profile_incomplete { missing: [...], whose }` si al sujeto (y al tutor que actúa por un hijo) le falta algo.
+  `whose` es de quién es `missing`: `'subject'` (el hijo) o `'actor'` (quien actúa, o uno mismo); se comprueba primero el hijo.
   `missing` usa `display_name`, `health_info`, `emergency_contact`, `data_protection`, `rights_of_image` y `email` (B32: el
   adulto que entra con el usuario que le dio su tutor; `health_info` también si su ficha es de antes de cumplir 18). La UI lo evita mirando antes
   `GET /me/profile-status`.

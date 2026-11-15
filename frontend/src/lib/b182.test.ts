@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { addDays, addMonths, madridDay, madridMonth, mondayOf } from '@/lib/dates'
 import { isoToSpanish } from '@/lib/format'
 import { homeNotices } from '@/lib/notices'
-import { onboardingSteps, profileNotice } from '@/lib/profile'
+import { childProfilePath, incompletePath, onboardingSteps, payBlocker, profileNotice } from '@/lib/profile'
 import { isDark } from '@/lib/theme'
 import { path } from '@/lib/url'
 import { groupByDay, seatsOf, sessionState, splitBookings } from '@/lib/sessions'
@@ -92,6 +92,31 @@ describe('perfil y avisos', () => {
     expect(profileNotice(['rights_of_image'])).toBe('sign')
     expect(profileNotice(['data_protection', 'rights_of_image'])).toBe('sign')
     expect(profileNotice(['emergency_contact', 'rights_of_image'])).toBe('complete')
+  })
+  it('«Completar perfil» de un hijo lleva al siguiente paso pendiente, no siempre a la ficha', () => {
+    expect(childProfilePath(['health_info', 'emergency_contact', 'data_protection', 'rights_of_image'])).toBe('/account/health')
+    expect(childProfilePath(['data_protection', 'rights_of_image'])).toBe('/agreements')
+    expect(childProfilePath(['rights_of_image'])).toBe('/agreements')
+  })
+  it('para pagar por un hijo hacen falta los dos perfiles: primero el del hijo, luego el del tutor', () => {
+    expect(payBlocker(['health_info'], ['data_protection'])).toEqual({ mine: false, missing: ['health_info'], to: '/account/health' })
+    expect(payBlocker(['rights_of_image'], [])).toEqual({ mine: false, missing: ['rights_of_image'], to: '/agreements' })
+    // Hijo completo y a quien paga le falta firmar: a su onboarding, no a pagar.
+    expect(payBlocker([], ['data_protection'])).toEqual({ mine: true, missing: ['data_protection'], to: '/onboarding' })
+    expect(payBlocker([], ['display_name', 'data_protection'])).toEqual({ mine: true, missing: ['display_name', 'data_protection'], to: '/onboarding' })
+    expect(payBlocker([], [])).toBeNull()
+    // Por uno mismo: su onboarding.
+    expect(payBlocker(null, ['data_protection'])).toEqual({ mine: true, missing: ['data_protection'], to: '/onboarding' })
+    expect(payBlocker(null, [])).toBeNull()
+  })
+  it('el 403 profile_incomplete lleva a lo que falta según de quién es (whose)', () => {
+    expect(incompletePath(['health_info', 'emergency_contact'], 'subject')).toBe('/account/health')
+    expect(incompletePath(['rights_of_image'], 'subject')).toBe('/agreements')
+    // Lo de quien actúa (p. ej. le falta el nombre): su onboarding, nunca la ficha del hijo.
+    expect(incompletePath(['display_name'], 'actor')).toBe('/onboarding')
+    expect(incompletePath(['data_protection'], 'actor')).toBe('/onboarding')
+    // Sin `whose` (una API anterior), como antes: lo del hijo.
+    expect(incompletePath(['health_info'], undefined)).toBe('/account/health')
   })
   it('los pasos salen de lo que falta, en orden', () => {
     expect(onboardingSteps(['display_name', 'health_info', 'data_protection'], false)).toEqual(['datos', 'ficha', 'acuerdos'])

@@ -14,22 +14,24 @@ import { httpError } from '../lib/errors.js';
  *   router.post('/bookings', requireAuth,
  *     withRlsContext(handler, { guards: [requireCompleteProfile] }));
  *
- * Falla con 403 { error: 'forbidden', code: 'profile_incomplete', missing: [...] }
+ * Falla con 403 { error: 'forbidden', code: 'profile_incomplete', missing: [...], whose: 'subject' | 'actor' }
+ * `whose`: de quién es `missing` (el hijo o quien actúa), para que la app lleve al paso que de verdad falta.
  */
 export async function requireCompleteProfile(req, client) {
   const subject = req.body?.profile_id ?? req.user.id;
   if (subject !== req.user.id) {
     // El admin actúa por cualquier alumno con los mismos requisitos (CONTEXT § Reservas).
     if (req.user.role !== 'admin') await assertGuardianOf(client, subject);
-    assertComplete(await getProfileStatus(client, subject, 'alumno'));
+    assertComplete(await getProfileStatus(client, subject, 'alumno'), 'subject');
   }
-  assertComplete(await getProfileStatus(client, req.user.id, req.user.role));
+  assertComplete(await getProfileStatus(client, req.user.id, req.user.role), 'actor');
 }
 
-function assertComplete(result) {
+function assertComplete(result, whose) {
   if (!result.ok) {
     throw httpError(403, 'profile_incomplete', 'profile incomplete', {
       missing: result.missing,
+      whose,
     });
   }
 }

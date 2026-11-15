@@ -88,7 +88,8 @@ Se entra cuando `missing` no está vacío; se puede salir y volver. Los pasos sa
    versión en `X-Agreement-Version`) y firmar (`POST /me/agreements`). `404 no_current_document` → «la academia aún no
    ha publicado este documento».
 
-El tutor (rol) solo tiene nombre y `data_protection`, y al acabar «Añade a tus hijos» (`POST /me/children`). Para un
+El tutor (rol) solo tiene nombre y `data_protection`, y al acabar «Añade a tus hijos» (`POST /me/children`). Con `?volver=<ruta propia>`
+(p. ej. desde contratar la cuota de un hijo), al acabar vuelve allí en vez de enseñar el final. Para un
 hijo, los pasos 2 y 3 los hace el tutor desde Cuenta con el selector de sujeto.
 
 ## Alumno y tutor — barra inferior con 5 pestañas
