@@ -26,8 +26,9 @@ const PASADAS = [
 const EVENTO = { id: 'e1', title: 'Seminario de kata', description: null, starts_at: iso(11, 22, '10:00'), ends_at: iso(11, 22, '13:00'), location: 'Dojo central', discipline: { id: 1, name: 'Judo' }, trainer: null, capacity: 30, taken: 12, audience: 'all', price_cents: 2500, member_price_cents: 1500, registration_deadline: null, status: 'scheduled', cancel_note: null, registration: { id: 'r1', status: 'confirmed', amount_cents: 1500 } }
 
 // `ventana`: la de check-in de la academia (por defecto 30 min antes y 10 después); 'falla' = una API sin actualizar (404).
-type Opciones = { menor?: boolean; fallo?: 'bookings' | 'events'; cancelaciones?: string[]; ventana?: { opens_minutes: number; closes_minutes: number } | 'falla' }
-async function simular(page: Page, { menor = false, fallo, cancelaciones = [], ventana = { opens_minutes: 30, closes_minutes: 10 } }: Opciones = {}) {
+// `plazo`: el plazo de cancelación de la academia en minutos (por defecto 60); 'falla' = una API sin actualizar.
+type Opciones = { menor?: boolean; fallo?: 'bookings' | 'events'; cancelaciones?: string[]; ventana?: { opens_minutes: number; closes_minutes: number } | 'falla'; plazo?: number | 'falla' }
+async function simular(page: Page, { menor = false, fallo, cancelaciones = [], ventana = { opens_minutes: 30, closes_minutes: 10 }, plazo = 60 }: Opciones = {}) {
   await page.addInitScript((t) => localStorage.setItem('kz.token', t), TOKEN)
   await page.clock.install({ time: new Date('2026-11-18T12:00:00+01:00') })
   await page.route('**/api/**', async (r) => {
@@ -36,6 +37,7 @@ async function simular(page: Page, { menor = false, fallo, cancelaciones = [], v
     const json = (j: unknown, status = 200) => r.fulfill({ status, json: j })
     if (u === '/me') return json({ id: 'u-1', role: 'alumno', display_name: 'Prueba', email: 'p@example.invalid', username: null, birth_date: menor ? '2012-05-01' : '1990-01-01', has_password: true, avatar: null, can_create_children: false, minor: menor ? { can_book: false, can_publish: false } : null })
     if (u === '/me/children') return json({ children: [] })
+    if (u === '/bookings/rules') return plazo === 'falla' ? json({ code: 'not_found' }, 404) : json({ cancellation_notice_minutes: plazo })
     if (u === '/checkin/window') return ventana === 'falla' ? json({ code: 'not_found' }, 404) : json(ventana)
     if (u === '/events') return fallo === 'events' ? json({ code: 'internal_error' }, 500) : json({ events: [EVENTO] })
     const cancel = u.match(/^\/bookings\/([^/]+)\/cancel$/)
@@ -121,6 +123,34 @@ test('cancelar pide confirmación, avisa de la cancelación tardía y relega la 
   await expect(hueco).toContainText('Hoy · 19:00')
   await expect(hueco).toContainText('En espera')
   await expect(page.getByRole('listitem').filter({ hasText: 'Cancelada por ti' }).getByRole('heading', { name: 'Judo adultos' })).toHaveClass(/line-through/)
+})
+
+test('el diálogo de cancelar avisa del plazo de la academia antes de confirmar', async ({ page }) => {
+  await simular(page, { plazo: 60 })
+  await page.goto('/bookings')
+  const dialogo = page.getByRole('alertdialog')
+
+  // La de mañana a las 18:30: queda mucho más de una hora, no será tardía.
+  await page.getByRole('button', { name: /^Cancelar: Boxeo/ }).click()
+  await expect(dialogo).toContainText('Cancelas con más de 1 hora de antelación: no cuenta como cancelación tardía.')
+  await dialogo.getByRole('button', { name: 'Volver' }).click()
+
+  // La de las 12:20 (en 20 min): pasado el plazo, «puede» contar como tardía.
+  await page.getByRole('region', { name: 'Lo siguiente' }).getByRole('button', { name: /^Cancelar/ }).click()
+  await expect(dialogo).toContainText('Falta menos de 1 hora para empezar: puede contar como cancelación tardía.')
+  await dialogo.getByRole('button', { name: 'Volver' }).click()
+
+  // Salir de la espera nunca cuenta como tardía: no se habla de plazos.
+  await page.getByRole('button', { name: /^Salir de la espera/ }).click()
+  await expect(dialogo).toContainText('Perderás tu sitio en la lista.')
+  await expect(dialogo).not.toContainText('tardía')
+})
+
+test('si el plazo no llega (API sin actualizar), el diálogo usa su texto genérico', async ({ page }) => {
+  await simular(page, { plazo: 'falla' })
+  await page.goto('/bookings')
+  await page.getByRole('button', { name: /^Cancelar: Boxeo/ }).click()
+  await expect(page.getByRole('alertdialog')).toContainText('Si falta poco para empezar, puede contar como cancelación tardía.')
 })
 
 test('un menor sin permiso ve un solo aviso y ningún botón de cancelar', async ({ page }) => {

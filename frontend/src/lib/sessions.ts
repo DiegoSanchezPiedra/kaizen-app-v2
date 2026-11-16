@@ -68,5 +68,18 @@ export function checkinPhase(startsAt: string, now: number, win: CheckinWindow =
   return min > 0 && min <= win.opens_minutes ? 'soon' : min <= 0 && min >= -win.closes_minutes ? 'live' : null
 }
 
+// «1 hora», «2 horas», «90 minutos».
+const noticeLabel = (min: number) => (min % 60 === 0 ? `${min / 60} ${min === 60 ? 'hora' : 'horas'}` : `${min} minutos`)
+
+// Aviso del diálogo de cancelar según el plazo de la academia (GET /bookings/rules). Solo afirma lo seguro: antes del plazo
+// nunca es tardía; pasado el plazo «puede» serlo, porque el servidor exime a la reserva promovida desde la espera dentro del
+// plazo y a la de una sesión cambiada. Salir de la espera nunca cuenta, y su diálogo no usa esto.
+export function cancelNotice(startsAt: string, now: number, noticeMin: number): string {
+  const min = (Date.parse(startsAt) - now) / 60_000
+  return min < noticeMin
+    ? `Falta menos de ${noticeLabel(noticeMin)} para empezar: puede contar como cancelación tardía.`
+    : `Cancelas con más de ${noticeLabel(noticeMin)} de antelación: no cuenta como cancelación tardía.`
+}
+
 // La API limita los rangos a 92 días: las pasadas se piden por tramos hacia atrás, el último día incluido.
 export const PAST_CHUNK_DAYS = 92

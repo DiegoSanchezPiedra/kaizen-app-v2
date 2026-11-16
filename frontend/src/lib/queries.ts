@@ -78,6 +78,16 @@ export const useCheckinWindow = () =>
     retry: false,
   })
 
+// Plazo de cancelación de la academia (minutos antes del inicio). Si falta o falla, el diálogo de cancelar usa su texto genérico.
+export const useBookingRules = () =>
+  useQuery({
+    queryKey: ['booking-rules'],
+    queryFn: () => api<{ cancellation_notice_minutes: number }>('/bookings/rules'),
+    select: (r) => (Number.isFinite(r?.cancellation_notice_minutes) && r.cancellation_notice_minutes > 0 ? r : undefined),
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+
 // Tras reservar o cancelar cambia el calendario, las reservas y el estado de Inicio.
 export const refreshBookings = () => Promise.all(['calendar', 'bookings'].map((k) => queryClient.invalidateQueries({ queryKey: [k] })))
 

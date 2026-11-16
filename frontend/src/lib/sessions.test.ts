@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkinPhase } from '@/lib/sessions'
+import { cancelNotice, checkinPhase } from '@/lib/sessions'
 
 // Reloj fijo: 12:00 en Madrid. La sesión empieza a la hora que se indica el mismo día.
 const now = Date.parse('2026-11-18T12:00:00+01:00')
@@ -39,5 +39,24 @@ describe('checkinPhase (sin ventana: la holgada, 60 min antes y 30 después)', (
     expect(checkinPhase(at('19:00'), now)).toBeNull()
     expect(checkinPhase(at('09:00'), now)).toBeNull()
     expect(checkinPhase('2026-11-19T12:10:00+01:00', now)).toBeNull()
+  })
+})
+
+describe('cancelNotice (plazo de cancelación de la academia)', () => {
+  it('antes del plazo avisa de que no cuenta como tardía', () => {
+    expect(cancelNotice(at('14:00'), now, 60)).toBe('Cancelas con más de 1 hora de antelación: no cuenta como cancelación tardía.')
+    // Justo en el plazo (falta exactamente 1 h) aún no es tardía: lo es solo pasado el plazo.
+    expect(cancelNotice(at('13:00'), now, 60)).toContain('no cuenta')
+  })
+
+  it('pasado el plazo dice «puede», no «contará»: hay exenciones', () => {
+    expect(cancelNotice(at('12:20'), now, 60)).toBe('Falta menos de 1 hora para empezar: puede contar como cancelación tardía.')
+    expect(cancelNotice(at('12:59'), now, 60)).toContain('puede contar')
+  })
+
+  it('escribe el plazo en horas o en minutos', () => {
+    expect(cancelNotice(at('12:30'), now, 120)).toContain('2 horas')
+    expect(cancelNotice(at('12:30'), now, 90)).toContain('90 minutos')
+    expect(cancelNotice(at('12:30'), now, 45)).toContain('45 minutos')
   })
 })

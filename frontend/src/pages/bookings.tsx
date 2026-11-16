@@ -19,7 +19,7 @@ import { addDays, formatDay, formatMonth, madridDay, madridMonth } from '@/lib/d
 import { entryStart, isUpcomingRegistration, mergeByStart } from '@/lib/events'
 import { formatTime } from '@/lib/format'
 import { bookBlock } from '@/lib/minor'
-import { bookingsOf, useBookings, useCheckinWindow, useEvents, useMinor } from '@/lib/queries'
+import { bookingsOf, useBookingRules, useBookings, useCheckinWindow, useEvents, useMinor } from '@/lib/queries'
 import { PAST_CHUNK_DAYS, checkinPhase, groupBy, splitBookings, type SessionState } from '@/lib/sessions'
 import type { Booking } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -55,7 +55,8 @@ function Rise({ on, i, children }: { on: boolean; i: number; children: ReactNode
 
 function Bookings({ profileId }: { profileId?: string }) {
   const { withSubject } = useSubject()
-  const cancel = useCancelBooking()
+  // El plazo de cancelación de la academia: el diálogo avisa de antemano de si puede contar como tardía.
+  const cancel = useCancelBooking(useBookingRules().data?.cancellation_notice_minutes)
   // B32: un menor sin permiso de reservar tampoco cancela (la API lo cierra): en lugar de los botones, un aviso.
   const blocked = bookBlock(useMinor())
   const today = madridDay()
@@ -115,7 +116,7 @@ function Bookings({ profileId }: { profileId?: string }) {
         className={className}
         loading={cancel.pendingId === b.id}
         aria-label={`${label}: ${b.discipline_name}, ${formatDay(madridDay(b.starts_at))} a las ${formatTime(b.starts_at)}`}
-        onClick={() => cancel.ask(b.id, waiting)}
+        onClick={() => cancel.ask(b.id, waiting, b.starts_at)}
       >
         {label}
       </Button>
