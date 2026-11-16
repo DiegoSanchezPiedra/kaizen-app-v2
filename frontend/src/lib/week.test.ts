@@ -63,6 +63,11 @@ describe('stripDays', () => {
     expect(days.filter((d) => d.past).length).toBe(4)
     expect(days.filter((d) => d.marked).map((d) => d.day)).toEqual(['2026-11-03'])
   })
+  it('marca los días con reserva solo si se pasan', () => {
+    expect(days.some((d) => d.booked)).toBe(false)
+    const con = stripDays({ week: '2026-11-02', day: '2026-11-04' }, TODAY, new Set(['2026-11-03']), new Set(['2026-11-03']))
+    expect(con.filter((d) => d.booked).map((d) => d.day)).toEqual(['2026-11-03'])
+  })
 })
 
 describe('nextMarked', () => {

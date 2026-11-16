@@ -2,11 +2,32 @@ import { ChevronRightIcon, CircleAlertIcon, InfoIcon, TriangleAlertIcon } from '
 import { Link } from 'react-router'
 import type { StepRow } from '@/hooks/use-step-rows'
 import { useSubject } from '@/hooks/use-subject'
+import type { HomeNotice } from '@/lib/notices'
 import { cn } from '@/lib/utils'
 
 const ICON = { warning: TriangleAlertIcon, error: CircleAlertIcon, info: InfoIcon }
 // El color vive solo en el icono; el texto y la fila no cambian con la gravedad.
 const TONE = { warning: 'text-warning-foreground', error: 'text-destructive-foreground', info: 'text-info-foreground' }
+
+// Aviso suelto del Calendario: una fila entera pulsable con el mismo patrón que las de HomeSteps (el Inicio agrupa los suyos).
+export function NoticeCard({ n }: { n: HomeNotice }) {
+  const { withSubject } = useSubject()
+  const Icon = ICON[n.kind]
+  return (
+    <Link
+      to={withSubject(n.to)}
+      className="enter-soft flex min-h-14 items-center gap-3 rounded-2xl border bg-card px-4 py-3 shadow-xs/5 transition-colors duration-150 ease-(--ease-out) focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:bg-accent hover:bg-accent/60"
+    >
+      <Icon aria-hidden="true" className={`size-5 shrink-0 ${TONE[n.kind]}`} />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold">{n.title}</span>
+        <span className="block text-sm text-muted-foreground">{n.text}</span>
+      </span>
+      <span className="sr-only">{n.cta}</span>
+      <ChevronRightIcon aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
+    </Link>
+  )
+}
 // Plegado de salida: la altura baja de 1fr a 0fr y se funde, 200 ms ease-out (solo transform/opacity no valen para la altura).
 const FOLD = 'grid grid-rows-[1fr] transition-[grid-template-rows,opacity] duration-200 ease-(--ease-out) data-leaving:grid-rows-[0fr] data-leaving:opacity-0'
 

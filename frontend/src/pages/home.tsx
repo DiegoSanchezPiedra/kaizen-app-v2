@@ -1,4 +1,4 @@
-import { CalendarIcon, CircleAlertIcon, InfoIcon, TriangleAlertIcon } from 'lucide-react'
+import { CalendarIcon, InfoIcon } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { ErrorState, QueryView } from '@/components/screen-state'
@@ -12,7 +12,7 @@ import { MedalReveal } from '@/components/medal-reveal'
 import { streakTheme } from '@/lib/progress'
 import { StreakPanel } from '@/components/streak-panel'
 import { SubjectGate, subjectName } from '@/components/subject-gate'
-import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useNow } from '@/hooks/use-now'
@@ -21,30 +21,10 @@ import { useSubject } from '@/hooks/use-subject'
 import { addDays, formatDay, madridDay } from '@/lib/dates'
 import { isUpcomingRegistration, mergeByStart } from '@/lib/events'
 import { MINOR_INCOMPLETE, minorView } from '@/lib/minor'
-import { homeNotices, type HomeNotice } from '@/lib/notices'
+import { homeNotices } from '@/lib/notices'
 import { useBookings, useEvents, useMinor, useProfileStatus, useProgress, useSubscription } from '@/lib/queries'
 import type { Subject } from '@/lib/subject'
 import { cn } from '@/lib/utils'
-
-const ICON = { warning: TriangleAlertIcon, error: CircleAlertIcon, info: InfoIcon }
-
-// Alerta suelta con su botón; el Inicio ya no la usa (agrupa los avisos en HomeSteps), el Calendario sí.
-export function NoticeCard({ n }: { n: HomeNotice }) {
-  const { withSubject } = useSubject()
-  const Icon = ICON[n.kind]
-  return (
-    <Alert variant={n.kind} role="status">
-      <Icon />
-      <AlertTitle>{n.title}</AlertTitle>
-      <AlertDescription>{n.text}</AlertDescription>
-      <AlertAction>
-        <Button size="lg" variant="outline" render={<Link to={withSubject(n.to)} />}>
-          {n.cta}
-        </Button>
-      </AlertAction>
-    </Alert>
-  )
-}
 
 // ADR 0015: nada de la API se guarda en el dispositivo. La entrada escalonada se juega una vez por sesión de la app
 // (en memoria), igual que la de la racha: volver al Inicio no la repite.
