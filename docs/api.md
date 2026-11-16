@@ -158,6 +158,7 @@ mismo), `409 paid_registration` (pagada: «pídelo a la academia»), `409 event_
 
 | Método y ruta | Rol | Cuerpo | Respuesta |
 |---|---|---|---|
+| `GET /checkin/window` | alumno, tutor | — | `{ opens_minutes, closes_minutes }`: la ventana de check-in, minutos antes del inicio en que se abre y minutos después en que se cierra (por defecto 30 y 10; los ajusta el admin en `PUT /admin/settings/checkin`). Solo sirve a la app para saber cuándo ofrecer el check-in: quien decide si una reserva puede marcar es `POST /checkin` |
 | `POST /checkin` | alumno, tutor | `{ code, booking_ids? }` (`code` = el QR de la tablet; 1–20 reservas propias o de sus hijos, si no son candidatas → 404 y no se marca ninguna) | Idempotente. `{ status: 'done', results: [{ booking_id, student_id, display_name, discipline, starts_at, checked_in_at, already }] }` o, con varias candidatas y alguna pendiente, `{ status: 'choose', candidates: [{ …, checked_in_at \| null }] }` → repetir con `booking_ids` |
 
 Errores: `400 invalid_qr`, `404 no_candidates`, `409 attendance_closed`.

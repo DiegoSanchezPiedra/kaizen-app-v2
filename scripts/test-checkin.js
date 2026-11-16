@@ -270,6 +270,32 @@ try {
       await app.close();
     }
   });
+
+  await run('GET /checkin/window: alumno y tutor leen la ventana vigente; el profesor y sin sesión, no', async () => {
+    const { startApp } = await import('./lib/app-server.js');
+    const { signToken } = await import('../src/services/jwt.js');
+    const app = await startApp();
+    const keys = ['checkin_opens_minutes', 'checkin_closes_minutes'];
+    const { rows: before } = await servicePool.query(`SELECT key, value FROM academy_settings WHERE key = ANY($1)`, [keys]);
+    try {
+      await servicePool.query(
+        `INSERT INTO academy_settings (key, value) VALUES ('checkin_opens_minutes', to_jsonb(45)), ('checkin_closes_minutes', to_jsonb(20))
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+      for (const [uid, role] of [[U.alu1, 'alumno'], [U.tutor, 'tutor']]) {
+        const r = await app.http('GET', '/checkin/window', { token: signToken({ sub: uid, role }) });
+        assert.deepEqual([r.status, r.body], [200, { opens_minutes: 45, closes_minutes: 20 }], role);
+      }
+      assert.equal((await app.http('GET', '/checkin/window', { token: signToken({ sub: U.prof, role: 'profesor' }) })).status, 403);
+      assert.equal((await app.http('GET', '/checkin/window')).status, 401);
+    } finally {
+      for (const k of keys) {
+        const prev = before.find((r) => r.key === k);
+        await servicePool.query(prev ? `UPDATE academy_settings SET value = $2::jsonb WHERE key = $1` : `DELETE FROM academy_settings WHERE key = $1`,
+          prev ? [k, JSON.stringify(prev.value)] : [k]);
+      }
+      await app.close();
+    }
+  });
 } finally {
   const sessions = Object.values(S);
   await servicePool.query(`DELETE FROM bookings WHERE session_id = ANY($1::uuid[])`, [sessions]);
