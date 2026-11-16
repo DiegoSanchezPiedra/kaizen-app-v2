@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-16T15:10:55Z",
+  "title": "Design System: Kaizen",
+  "extensions": {
+    "colorMeta": {
+      "azul-kaizen": { "role": "primary", "displayName": "Azul Kaizen", "canonical": "#0B47F0", "tonalRamp": ["#061A5C", "#0A2A99", "#0B3CD1", "#0B47F0", "#4A7AF5", "#85A3F8", "#BDD0FB", "#E8EEFE"] },
+      "cian-ki": { "role": "secondary", "displayName": "Cian Ki", "canonical": "#0BB4F5", "tonalRamp": ["#03354A", "#05577B", "#0877A6", "#0B9AD6", "#0BB4F5", "#5DCBF8", "#A8E3FB", "#E3F6FE"] },
+      "naranja-poder": { "role": "tertiary", "displayName": "Naranja Poder", "canonical": "#FF6A00", "tonalRamp": ["#4A1F00", "#7A3300", "#B84D00", "#E85F00", "#FF6A00", "#FF9A4D", "#FFC9A0", "#FFEBDB"] },
+      "tinta-noche": { "role": "neutral", "displayName": "Tinta Noche", "canonical": "#050A2E", "tonalRamp": ["#050A2E", "#0A1033", "#111A4D", "#1E2A70", "#3A4690", "#6A74B5", "#A9AFD6", "#E3E6F4"] },
+      "fondo-papel": { "role": "neutral", "displayName": "Fondo Papel", "canonical": "#F6F7FB", "tonalRamp": ["#0A1033", "#2B3355", "#4F5778", "#7A819E", "#A9AEC4", "#CDD0DE", "#E6E8F0", "#F6F7FB"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "La hora de la próxima clase y números protagonistas, en Barlow Condensed." },
+      "headline": { "displayName": "Headline", "purpose": "El título de cada pantalla." },
+      "title": { "displayName": "Title", "purpose": "Títulos de sección y de tarjeta, en DM Sans semibold." },
+      "numeral": { "displayName": "Numeral", "purpose": "Horas en las tarjetas de sesión, en Geist Mono con cifras tabulares." },
+      "streak-numeral": { "displayName": "Streak numeral", "purpose": "Solo el número de la racha, 800 cursiva." }
+    },
+    "shadows": [
+      { "name": "tarjeta", "value": "0 1px 2px rgb(0 0 0 / 0.05)", "purpose": "Contenedores y campos; casi invisible, con reflejo interior de 1 px." },
+      { "name": "boton-principal", "value": "0 1px 2px color-mix(in srgb, #0B47F0 24%, transparent), inset 0 1px rgb(255 255 255 / 0.16)", "purpose": "Botón principal; se anula al pulsar o deshabilitar." },
+      { "name": "hueco-principal", "value": "0 1px 2px rgb(0 0 0 / 0.12), 0 10px 20px -10px color-mix(in srgb, #0B47F0 75%, transparent)", "purpose": "El hueco principal del Inicio, una vez por pantalla." },
+      { "name": "dura-de-logro", "value": "4px 4px 0 #000", "purpose": "Solo racha y medallas, con borde negro de 3 px." },
+      { "name": "resplandor-poder", "value": "0 0 0 1px rgb(255 106 0 / 0.4), 0 10px 36px -6px rgb(255 106 0 / 0.55)", "purpose": "Medallas de mayor nivel." }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(0.23, 1, 0.32, 1)", "purpose": "Entradas y respuestas a la interacción." },
+      { "name": "ease-in-out", "value": "cubic-bezier(0.77, 0, 0.175, 1)", "purpose": "Movimiento en pantalla." },
+      { "name": "ease-drawer", "value": "cubic-bezier(0.32, 0.72, 0, 1)", "purpose": "Hojas laterales e inferiores." },
+      { "name": "ease-power", "value": "cubic-bezier(0.34, 1.36, 0.64, 1)", "purpose": "Solo logros: racha y medallas, con rebote." },
+      { "name": "rise", "value": "320ms ease-out, 60ms entre bloques", "purpose": "Entrada escalonada del Inicio, solo en la primera visita de la sesión." },
+      { "name": "enter-soft", "value": "200ms ease-out", "purpose": "Fundido de esqueleto a contenido." },
+      { "name": "press", "value": "150ms ease-out, scale(0.97)", "purpose": "Respuesta al pulsar." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Acción principal de una pantalla; escala al pulsar.",
+      "html": "<button class=\"ds-btn-primary\">Contratar cuota</button>",
+      "css": ".ds-btn-primary { height: 36px; padding: 0 11px; border: 1px solid var(--primary); border-radius: 10px; background: var(--primary); color: var(--primary-foreground); font: 500 16px 'DM Sans Variable', system-ui, sans-serif; cursor: pointer; box-shadow: 0 1px 2px color-mix(in srgb, var(--primary) 24%, transparent), inset 0 1px rgb(255 255 255 / 0.16); transition: transform 150ms ease-out, box-shadow 150ms ease-out, background-color 150ms ease-out; } .ds-btn-primary:hover { background: color-mix(in srgb, var(--primary) 90%, transparent); } .ds-btn-primary:active { transform: scale(0.97); box-shadow: none; } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--background), 0 0 0 3px var(--ring); }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Acción secundaria; el botón de las tarjetas de aviso.",
+      "html": "<button class=\"ds-btn-outline\">Ver calendario</button>",
+      "css": ".ds-btn-outline { height: 40px; padding: 0 13px; border: 1px solid var(--input); border-radius: 10px; background: var(--popover); color: var(--foreground); font: 500 16px 'DM Sans Variable', system-ui, sans-serif; cursor: pointer; box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); transition: transform 150ms ease-out, background-color 150ms ease-out; } .ds-btn-outline:hover { background: color-mix(in srgb, var(--accent) 50%, transparent); } .ds-btn-outline:active { transform: scale(0.97); box-shadow: none; } .ds-btn-outline:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--background), 0 0 0 3px var(--ring); }"
+    },
+    {
+      "name": "State Badge",
+      "kind": "chip",
+      "refersTo": "badge-success",
+      "description": "Estado de una reserva con icono y texto, nunca solo color.",
+      "html": "<span class=\"ds-badge\"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20 6 9 17l-5-5\"/></svg>Reservada</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 5px; border-radius: 6px; background: color-mix(in srgb, var(--success) 8%, transparent); color: var(--success-foreground); font: 500 16px 'DM Sans Variable', system-ui, sans-serif; white-space: nowrap; } .ds-badge svg { opacity: 0.8; flex-shrink: 0; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Contenedor base: 18 px de radio, borde fino y sombra mínima.",
+      "html": "<article class=\"ds-card\"><h3 class=\"ds-card-title\">Tienes 1 cosa pendiente</h3><p class=\"ds-card-text\">Sin cuota no se puede reservar ninguna sesión.</p></article>",
+      "css": ".ds-card { padding: 16px; border: 1px solid var(--border); border-radius: 18px; background: var(--card); color: var(--card-foreground); box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); } .ds-card-title { margin: 0; font: 600 16px 'DM Sans Variable', system-ui, sans-serif; } .ds-card-text { margin: 2px 0 0; font: 400 14px/1.4 'DM Sans Variable', system-ui, sans-serif; color: var(--muted-foreground); }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Campo de texto con borde del 48 % de tinta para cumplir 3:1.",
+      "html": "<input class=\"ds-input\" placeholder=\"tu@email.com\" />",
+      "css": ".ds-input { box-sizing: border-box; width: 100%; height: 34px; padding: 0 11px; border: 1px solid var(--input); border-radius: 10px; background: var(--card); color: var(--foreground); font: 400 16px 'DM Sans Variable', system-ui, sans-serif; outline: none; box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); } .ds-input::placeholder { color: color-mix(in srgb, var(--muted-foreground) 72%, transparent); } .ds-input:focus-visible { box-shadow: 0 0 0 2px var(--ring); }"
+    },
+    {
+      "name": "NextUp (hueco principal)",
+      "kind": "custom",
+      "refersTo": "next-up",
+      "description": "La próxima sesión, elemento dominante del Inicio; se pulsa entero.",
+      "html": "<a class=\"ds-nextup\" href=\"#\"><span class=\"ds-nextup-when\">Hoy · 17:22</span><span class=\"ds-nextup-title\">Judo infantil</span><span class=\"ds-nextup-meta\">Hasta las 18:22 · Sala 2 · en 1 h 36 min</span></a>",
+      "css": ".ds-nextup { display: block; padding: 16px; border-radius: 18px; background: var(--primary); color: var(--primary-foreground); text-decoration: none; box-shadow: 0 1px 2px rgb(0 0 0 / 0.12), 0 10px 20px -10px color-mix(in srgb, var(--primary) 75%, transparent); transition: transform 150ms ease-out, filter 150ms ease-out; } .ds-nextup:hover { filter: brightness(1.1); } .ds-nextup:active { transform: scale(0.98); } .ds-nextup:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; } .ds-nextup-when { display: block; font: 700 36px/1 'Barlow Condensed', sans-serif; font-variant-numeric: tabular-nums; } .ds-nextup-title { display: block; margin-top: 12px; font: 600 18px/1.3 'DM Sans Variable', system-ui, sans-serif; } .ds-nextup-meta { display: block; margin-top: 2px; font: 400 14px/1.3 'DM Sans Variable', system-ui, sans-serif; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Streak Panel",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "La firma de la marca: viñeta manga con borde negro y sombra dura, solo para logros.",
+      "html": "<section class=\"ds-streak\"><p class=\"ds-streak-label\">Racha de Lara</p><p class=\"ds-streak-row\"><span class=\"ds-streak-num\">4</span><span class=\"ds-streak-unit\">semanas seguidas</span></p></section>",
+      "css": ".ds-streak { position: relative; padding: 16px; border: 3px solid #000; border-radius: 18px; background: #050A2E; color: #fff; box-shadow: 4px 4px 0 #000; } .ds-streak-label { margin: 0; font: 600 14px 'DM Sans Variable', system-ui, sans-serif; color: rgb(255 255 255 / 0.8); } .ds-streak-row { display: flex; align-items: center; gap: 12px; margin: 4px 0 0; } .ds-streak-num { padding: 2px 12px; border: 3px solid #000; background: #0BB4F5; color: #000; font: italic 800 48px/1 'Barlow Condensed', sans-serif; transform: rotate(-3deg); box-shadow: 3px 3px 0 #000; } .ds-streak-unit { font: 600 16px 'DM Sans Variable', system-ui, sans-serif; letter-spacing: 0.025em; text-transform: uppercase; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "El dojo en calma, con chispa",
+    "overview": "Kaizen es la aplicación diaria de una academia de artes marciales: se reserva una clase, se mira la cuota, se firma un documento, se ve la racha. La interfaz es serena y precisa, de azul noche sobre papel frío, con la tipografía condensada reservada a lo que merece titular (el título de pantalla, la hora de la próxima clase, las cifras). Lo cotidiano se lee de un vistazo; la emoción llega en los hitos.\n\nLa energía manga es la «chispa» y se gasta con cuentagotas: la viñeta de la racha, las medallas, el kanji 改, el aura que sube con el esfuerzo. Todo lo demás es tarjeta clara, borde fino y sombra mínima. Que la chispa sea rara es lo que la hace funcionar.",
+    "keyCharacteristics": [
+      "Tono sereno y preciso, con picos de energía en los logros.",
+      "Azul noche y papel frío; el cian y el naranja son acentos de significado, no decoración.",
+      "Una sola tipografía de titular (condensada) usada con parquedad; el resto en sans.",
+      "Tarjetas casi planas con borde fino; sombra dura solo en racha y medallas.",
+      "Componentes táctiles: objetivos de 44 px, escala al pulsar, foco con anillo.",
+      "Cada estado lleva icono y texto, nunca solo color."
+    ],
+    "rules": [
+      { "name": "The One Spark Rule", "body": "El naranja y el cian de energía viven en racha, medallas y marca. No se usan como color de botón, de fondo de sección ni de énfasis en pantallas de gestión.", "section": "colors" },
+      { "name": "The Contrast Floor Rule", "body": "Texto a 4,5:1 y gráficos a 3:1, medidos, no estimados. El borde de un campo es el 48 % de la tinta (34 % en oscuro) porque necesita 3:1; el borde de una tarjeta es el 10 % porque es decoración.", "section": "colors" },
+      { "name": "The Display-On-Numbers Rule", "body": "La condensada es para el título de pantalla, las horas y las cifras. Los títulos de sección, de tarjeta y de estado vacío van en sans semibold. (Recomendación.)", "section": "typography" },
+      { "name": "The Tabular Rule", "body": "Todo número que cambia (hora, cuenta atrás, racha, importes) usa cifras tabulares para que no salte el diseño.", "section": "typography" },
+      { "name": "The Soft-By-Default Rule", "body": "Las superficies están casi planas en reposo. La sombra dura desplazada (sin desenfoque) es exclusiva de racha y medallas. (Recomendación.)", "section": "elevation" }
+    ],
+    "dos": [
+      "Do poner un único elemento dominante por pantalla y que lo accionable quede por encima del pliegue de 812 px en móvil.",
+      "Do dar a cada estado icono y texto (Reservada, En espera, Cancelada) y usar la variante `-texto` del color para el texto y el icono.",
+      "Do usar `--link` (#7FA2FF) para enlaces en modo oscuro: el azul primario no llega a 4,5:1 como texto sobre fondo oscuro.",
+      "Do reservar naranja, cian y sombra dura para racha, medallas y marca.",
+      "Do usar cifras tabulares en todo número que cambie.",
+      "Do mantener el orden del HTML igual al visual y comprobar el orden de tabulación.",
+      "Do respetar `prefers-reduced-motion` en todo movimiento nuevo y reutilizar `--ease-out`, `animate-rise` y `enter-soft` antes de crear otras animaciones."
+    ],
+    "donts": [
+      "Don't animar a la vez todo el contenido en cada visita: la entrada escalonada es solo de la primera visita de la sesión.",
+      "Don't (recomendación) usar la sombra dura desplazada fuera de racha y medallas.",
+      "Don't (recomendación) poner un borde de color de más de 1 px en un solo lado de una tarjeta, fila o aviso.",
+      "Don't (recomendación) usar la tipografía condensada en títulos de sección ni en estados vacíos."
+    ]
+  }
+}
