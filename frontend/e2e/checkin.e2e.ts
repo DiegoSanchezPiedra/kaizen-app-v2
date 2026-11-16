@@ -208,3 +208,23 @@ test('fuera de /checkin el menú sigue activo (el shell no cambia)', async ({ pa
   await expect(page.locator('nav#menu')).not.toHaveAttribute('inert', /.*/)
   await expect(page.getByRole('link', { name: 'Ir al menú' })).not.toHaveAttribute('inert', /.*/)
 })
+
+test('el texto del visor (píldora y «Reservas») no queda bajo el velo del marco: píxel real, no estilo calculado', async ({ page }) => {
+  await abrir(page)
+  const textos = [page.getByText('Apunta al código QR de la tablet'), page.getByRole('main').getByRole('link', { name: 'Reservas' })]
+  await expect(textos[0]).toBeVisible()
+  await page.waitForTimeout(400) // la entrada dura 200 ms
+  for (const t of textos) {
+    const foto = (await t.screenshot()).toString('base64')
+    // El texto es blanco: su píxel más claro debe serlo (bajo el velo salía en ~117, un contraste de 3,5:1).
+    const masClaro = await page.evaluate(async (b64) => {
+      const img = new Image()
+      img.src = `data:image/png;base64,${b64}`
+      await img.decode()
+      const cv = new OffscreenCanvas(img.width, img.height).getContext('2d')!
+      cv.drawImage(img, 0, 0)
+      return Math.max(...cv.getImageData(0, 0, img.width, img.height).data.filter((_, i) => i % 4 === 0))
+    }, foto)
+    expect(masClaro).toBeGreaterThan(230)
+  }
+})

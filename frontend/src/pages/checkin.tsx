@@ -22,8 +22,8 @@ type Result = { status: 'done'; results: Done[] } | { status: 'choose'; candidat
 
 // Con estos errores volver a escanear no arregla nada: la salida es Reservas.
 const DEAD_END = ['no_candidates', 'attendance_closed']
-// Las cuatro esquinas del marco del visor.
-const CORNERS = ['top-0 left-0 rounded-tl-3xl border-t-4 border-l-4', 'top-0 right-0 rounded-tr-3xl border-t-4 border-r-4', 'bottom-0 left-0 rounded-bl-3xl border-b-4 border-l-4', 'bottom-0 right-0 rounded-br-3xl border-b-4 border-r-4']
+// Las cuatro esquinas del marco del visor (240 px, radio 24, trazo de 4 px hacia dentro), en un solo trazo.
+const CORNERS = 'M2 40V26A24 24 0 0 1 26 2H40M200 2H214A24 24 0 0 1 238 26V40M238 200V214A24 24 0 0 1 214 238H200M40 238H26A24 24 0 0 1 2 214V200'
 
 // El check-in se hace en la franja de la clase: casi siempre es hoy, y entonces basta la hora.
 function When({ iso }: { iso: string }) {
@@ -175,7 +175,7 @@ export function CheckinPage() {
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-brand-ink text-white">
       <video ref={video} muted playsInline className={`absolute inset-0 size-full object-cover transition-opacity duration-200 ${online ? '' : 'opacity-40'}`} aria-hidden="true" />
-      <div className="relative bg-linear-to-b from-brand-ink/80 to-transparent p-2 pt-[max(8px,env(safe-area-inset-top))] pb-6">
+      <div className="relative z-10 bg-linear-to-b from-brand-ink/80 to-transparent p-2 pt-[max(8px,env(safe-area-inset-top))] pb-6">
         <Button variant="ghost" size="xl" className="bg-brand-ink/60 text-white hover:bg-brand-ink/80 hover:text-white" render={<Link to="/bookings" />}>
           <ChevronLeftIcon />
           Reservas
@@ -185,14 +185,14 @@ export function CheckinPage() {
       <div className="pointer-events-none relative flex flex-1 flex-col items-center justify-center gap-6 p-6">
         {camera === 'on' && !result && (
           <div className="relative grid size-60 place-items-center rounded-3xl shadow-[0_0_0_999px_rgb(3_5_14/0.55)]" aria-hidden="true">
-            {CORNERS.map((c) => (
-              <span key={c} className={`absolute size-10 border-white ${c}`} />
-            ))}
+            <svg viewBox="0 0 240 240" className="absolute inset-0 size-full fill-none stroke-white" strokeWidth={4} strokeLinecap="round">
+              <path d={CORNERS} />
+            </svg>
             {send.isPending && <Spinner className="size-8" />}
           </div>
         )}
         {(scanning || camera === 'starting') && !result && (
-          <p role="status" className="enter-soft flex max-w-xs items-center gap-2 rounded-full bg-brand-ink/80 px-4 py-2 text-center text-sm font-semibold text-balance">
+          <p role="status" className="enter-soft relative flex max-w-xs items-center gap-2 rounded-full bg-brand-ink/80 px-4 py-2 text-center text-sm font-semibold text-balance">
             {camera === 'starting' ? (
               'Abriendo la cámara… Si el navegador te lo pide, permite el acceso.'
             ) : !online ? (
