@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  amountFor, audienceTag, audienceText, entryStart, eventHealthDay, eventWhen, isMember, isUpcomingRegistration, joinState, mergeByStart, priceView, spotsLabel,
+  amountFor, audienceTag, audienceText, entryStart, eventHeadline, eventHealthDay, eventWhen, isMember, isUpcomingRegistration, joinState, mergeByStart, priceView, spotsLabel,
   attendanceOpen, canRefund, canRetryRefund, cancelResult, cancelSummary, draftOf, emptyDraft, eventBody, eventErrors, eventPatch, notifiesOnPatch, refundLabel,
   type AdminEvent, type EventDraft, type EventInfo, type EventRegistration,
 } from '@/lib/events'
@@ -212,6 +212,10 @@ describe('plazas, fechas y listas', () => {
   it('cuándo: un día con horas; varios días con las dos fechas (Madrid)', () => {
     expect(eventWhen(saved)).toContain('10:00–14:00')
     expect(eventWhen({ starts_at: '2026-12-12T09:00:00Z', ends_at: '2026-12-13T17:00:00Z' })).toMatch(/12 dic a las 10:00 – 13 dic a las 18:00/)
+  })
+  it('cabecera del detalle: día corto, día y mes y hora de inicio en Madrid', () => {
+    expect(eventHeadline('2026-11-22T09:00:00Z')).toBe('dom 22 nov · 10:00')
+    expect(eventHeadline('2026-12-12T23:30:00Z')).toBe('dom 13 dic · 00:30') // pasada la medianoche de Madrid ya es otro día
   })
   it('Reservas e Inicio enseñan inscripciones vivas de eventos sin terminar', () => {
     expect(isUpcomingRegistration(ev({ registration: mine('confirmed') }), before)).toBe(true)

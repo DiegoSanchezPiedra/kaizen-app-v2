@@ -1,9 +1,10 @@
 import { ChevronLeftIcon, ChevronRightIcon, ZapIcon } from 'lucide-react'
-import { type ReactNode, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { Medal } from '@/components/medal'
 import { MedalDialog, MedalReveal } from '@/components/medal-reveal'
 import { Page } from '@/components/page'
+import { Rise } from '@/components/rise'
 import { EmptyState, ListSkeleton, QueryView } from '@/components/screen-state'
 import { SectionTabs } from '@/components/section-tabs'
 import { StreakPanel } from '@/components/streak-panel'
@@ -25,15 +26,6 @@ import { cn } from '@/lib/utils'
 // memoria), igual que en Inicio y Calendario; el anillo de la próxima medalla se dibuja una sola vez por sesión.
 let played = false
 let ringDrawn = false
-
-// Un bloque con su turno de entrada (60 ms por bloque). Es el ítem de la rejilla de escritorio. Sin `on` no anima nada.
-function Rise({ on, i, className, children }: { on: boolean; i: number; className?: string; children: ReactNode }) {
-  return (
-    <div className={cn('min-w-0', on && 'animate-rise', className)} style={on ? { animationDelay: `${i * 60}ms` } : undefined}>
-      {children}
-    </div>
-  )
-}
 
 function Progress({ subject, profileId }: { subject: Subject | null; profileId?: string }) {
   const { withSubject } = useSubject()
