@@ -168,14 +168,14 @@ function Bookings({ profileId }: { profileId?: string }) {
   const sessionAction = (b: Booking) => (!blocked && b.status !== 'cancelled' ? cancelButton(b) : undefined)
 
   const nextPanel = offline(upcoming) || offline(events) ? (
-    <ErrorState error={null} onRetry={() => void Promise.all([upcoming.refetch(), events.refetch()])} />
+    <ErrorState plainTitle error={null} onRetry={() => void Promise.all([upcoming.refetch(), events.refetch()])} />
   ) : loading ? (
     <div className="flex flex-col gap-5" aria-busy="true" aria-label="Cargando">
       <Skeleton className="h-36 w-full rounded-2xl" />
       <ListSkeleton rows={3} className="h-16" />
     </div>
   ) : upcoming.isError || (events.isError && next.length === 0) ? (
-    <ErrorState error={upcoming.error ?? events.error} onRetry={() => void Promise.all([upcoming.refetch(), events.refetch()])} />
+    <ErrorState plainTitle error={upcoming.error ?? events.error} onRetry={() => void Promise.all([upcoming.refetch(), events.refetch()])} />
   ) : (
     <>
       {blocked && (
@@ -198,7 +198,7 @@ function Bookings({ profileId }: { profileId?: string }) {
         </Alert>
       )}
       {!hero && days.length === 0 ? (
-        <EmptyState
+        <EmptyState plainTitle
           icon={<CalendarIcon />}
           title="Aún no tienes reservas"
           text="Cuando reserves una sesión o te inscribas a un evento aparecerá aquí."
@@ -228,7 +228,7 @@ function Bookings({ profileId }: { profileId?: string }) {
                   {list.map((it) =>
                     it.kind === 'event' ? (
                       <li key={it.e.id}>
-                        <EventCard e={it.e} to={withSubject(`/events/${it.e.id}`)} />
+                        <EventCard flat e={it.e} to={withSubject(`/events/${it.e.id}`)} />
                       </li>
                     ) : (
                       <BookingRow key={it.s.id} b={it.s} state={stateOf(it.s, false)} action={sessionAction(it.s)} />
@@ -244,14 +244,14 @@ function Bookings({ profileId }: { profileId?: string }) {
   )
 
   const pastPanel = offline(past) ? (
-    <ErrorState error={null} onRetry={() => void past.refetch()} />
+    <ErrorState plainTitle error={null} onRetry={() => void past.refetch()} />
   ) : past.isPending ? (
     <ListSkeleton rows={3} className="h-16" />
   ) : past.isError ? (
-    <ErrorState error={past.error} onRetry={() => void past.refetch()} />
+    <ErrorState plainTitle error={past.error} onRetry={() => void past.refetch()} />
   ) : (
     <>
-      {old.length === 0 && <EmptyState icon={<CalendarIcon />} title="Aún no tienes reservas pasadas" text="Tu historial de sesiones aparecerá aquí." />}
+      {old.length === 0 && <EmptyState plainTitle icon={<CalendarIcon />} title="Aún no tienes reservas pasadas" text="Tu historial de sesiones aparecerá aquí." />}
       {months.map(([month, list]) => (
         <section key={month} aria-labelledby={`month-${month}`} className="flex flex-col">
           {/* Pegajoso: con muchos meses se sabe en cuál se está. El fondo tapa lo que pasa por debajo. */}

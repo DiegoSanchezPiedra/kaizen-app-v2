@@ -137,6 +137,27 @@ test('si fallan las reservas hay error con reintento', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Reintentar' })).toBeVisible()
 })
 
+test('abrir la pantalla sin conexión muestra «Sin conexión» con reintento, no un esqueleto eterno', async ({ page }) => {
+  await simular(page)
+  // El evento `offline` desde el arranque deja las consultas de TanStack en pausa, como al abrir la app sin red.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'onLine', { get: () => false })
+    setInterval(() => window.dispatchEvent(new Event('offline')), 100)
+  })
+  await page.goto('/bookings')
+  await expect(page.getByText('Sin conexión')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reintentar' })).toBeVisible()
+})
+
+test('los eventos inscritos van sin la franja verde lateral de 3 px', async ({ page }) => {
+  await simular(page)
+  await page.goto('/bookings')
+  const evento = page.getByRole('link', { name: /Seminario de kata/ })
+  await expect(evento).toBeVisible()
+  // Un solo borde de 1 px de color: sin la sombra interior de 3 px del lado izquierdo.
+  expect(await evento.evaluate((e) => getComputedStyle(e).boxShadow)).not.toContain('inset')
+})
+
 test('si solo fallan los eventos, las sesiones siguen y hay un aviso con reintento', async ({ page }) => {
   await simular(page, { fallo: 'events' })
   await page.goto('/bookings')
