@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "frontend/src/pages/checkin.tsx"
+        ],
+        "createdAt": "2026-11-16T21:51:23.448Z",
+        "reason": "Esquinas del marco del visor QR (CORNERS), no un acento de tarjeta; el usuario aprobó el marco con esquinas en la crítica de /checkin"
+      },
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "frontend/src/pages/checkin.tsx"
+        ],
+        "createdAt": "2026-11-16T21:51:23.468Z",
+        "reason": "Esquinas del marco del visor QR (CORNERS), no un acento de tarjeta; el usuario aprobó el marco con esquinas en la crítica de /checkin"
+      }
+    ]
+  }
+}
