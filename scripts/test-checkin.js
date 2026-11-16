@@ -61,6 +61,7 @@ await booking('in29', 'tutor'); // el tutor también entrena
 await booking('ago5', 'alu2'); // reserva de alguien que no es hijo del tutor
 await booking('closed', 'alu3');
 await booking('now', 'alu3');
+await booking('now', 'alu2'); // para la carrera con la anulación
 // alu2 tenía check-in en ago11 con una reserva que luego anuló y rehízo: el presente cuelga de la anulada.
 const { rows: [old] } = await servicePool.query(
   `INSERT INTO bookings (session_id, student_id, booked_by, status, cancel_reason, cancelled_at)
@@ -233,6 +234,41 @@ try {
     assert.equal(twice[0].results[0].checked_in_at, twice[1].results[0].checked_in_at);
     const { rows } = await servicePool.query(`SELECT count(*)::int AS n FROM attendance WHERE booking_id = $1`, [B['now:alu3']]);
     assert.equal(rows[0].n, 1);
+  });
+
+  await run('anulación concurrente: espera al bloqueo de la sesión y, tras ella, no marca la reserva anulada', async () => {
+    const other = await servicePool.connect();
+    try {
+      await other.query('BEGIN'); // como cancel_booking: sesión bloqueada y luego la reserva anulada
+      await other.query(`SELECT 1 FROM class_sessions WHERE id = $1 FOR UPDATE`, [S.now]);
+      await other.query(`UPDATE bookings SET status = 'cancelled', cancel_reason = 'student', cancelled_at = now() WHERE id = $1`,
+        [B['now:alu2']]);
+      const pending = withRls({ uid: U.alu2, role: 'alumno' }, (c) => checkIn(c, { code: code(), bookingIds: [B['now:alu2']] }))
+        .then(() => 'ok', (e) => e.code);
+      await new Promise((r) => setTimeout(r, 300)); // que el check-in llegue a esperar el bloqueo
+      await other.query('COMMIT');
+      assert.equal(await pending, 'no_candidates');
+      const { rows } = await servicePool.query(`SELECT 1 FROM attendance WHERE booking_id = $1`, [B['now:alu2']]);
+      assert.equal(rows.length, 0);
+    } finally {
+      other.release();
+    }
+  });
+
+  await run('POST /checkin: booking_id (API anterior) → 400, booking_ids mal formado → 400', async () => {
+    const { startApp } = await import('./lib/app-server.js');
+    const { signToken } = await import('../src/services/jwt.js');
+    const app = await startApp();
+    try {
+      const token = signToken({ sub: U.alu1, role: 'alumno' });
+      for (const body of [{ code: code(), booking_id: B['in29:alu1'] }, { code: code(), booking_ids: [] },
+        { code: code(), booking_ids: ['x'] }, { code: code(), booking_ids: B['in29:alu1'] }]) {
+        const r = await app.http('POST', '/checkin', { token, body });
+        assert.deepEqual([r.status, r.body?.error?.code ?? r.body?.code], [400, 'invalid_field'], JSON.stringify(body));
+      }
+    } finally {
+      await app.close();
+    }
   });
 } finally {
   const sessions = Object.values(S);

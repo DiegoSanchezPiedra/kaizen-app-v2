@@ -17,7 +17,7 @@ import { errorCode } from '@/lib/notify'
 import { useSession } from '@/lib/session'
 
 type Candidate = { booking_id: string; student_id: string; display_name: string; discipline: string; starts_at: string; checked_in_at: string | null }
-type Done = Candidate & { checked_in_at: string; already: boolean }
+type Done = Candidate & { already: boolean }
 type Result = { status: 'done'; results: Done[] } | { status: 'choose'; candidates: Candidate[] }
 
 // Check-in a pantalla completa: la cámara lee el QR de la tablet (POST /checkin { code }). `qr-scanner` usa
@@ -182,7 +182,7 @@ export function CheckinPage() {
               <li key={d.booking_id} className="text-pretty">
                 {(done.length > 1 || d.student_id !== session?.id) && <span className="font-semibold">{who(d)} · </span>}
                 {d.discipline} · {formatDay(madridDay(d.starts_at))} a las <span className="tabular-nums">{formatTime(d.starts_at)}</span>
-                {d.already && <span className="block text-sm text-muted-foreground">Ya registrado a las <span className="tabular-nums">{formatTime(d.checked_in_at)}</span></span>}
+                {d.already && <span className="block text-sm text-muted-foreground">Ya registrado{d.checked_in_at && <> a las <span className="tabular-nums">{formatTime(d.checked_in_at)}</span></>}</span>}
               </li>
             ))}
           </ul>

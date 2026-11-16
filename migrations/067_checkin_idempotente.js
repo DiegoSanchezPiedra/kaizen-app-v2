@@ -64,6 +64,11 @@ export const up = (pgm) => {
           FROM (SELECT attendance_closed_at FROM class_sessions
                  WHERE id IN (SELECT session_id FROM bookings WHERE id = ANY(picked)) ORDER BY id FOR UPDATE) s;
         IF closed THEN RAISE EXCEPTION 'attendance_closed'; END IF;
+        -- Releídas y bloqueadas tras la sesión (mismo orden que cancel_booking): una anulada mientras tanto no entra.
+        IF (SELECT count(*) FROM (SELECT 1 FROM bookings WHERE id = ANY(picked) AND status = 'confirmed'
+                                    ORDER BY id FOR UPDATE) x) <> cardinality(picked) THEN
+          RAISE EXCEPTION 'no_candidates';
+        END IF;
 
         -- Una sentencia por reserva: tras esperar a un INSERT concurrente, el SELECT siguiente ya ve su fila.
         FOR c IN SELECT x FROM jsonb_array_elements(cands) x WHERE (x->>'booking_id')::uuid = ANY(picked) LOOP
@@ -76,6 +81,12 @@ export const up = (pgm) => {
             SELECT a.recorded_at INTO at FROM attendance a JOIN bookings b
                 ON b.session_id = a.session_id AND b.student_id = a.student_id
              WHERE b.id = (c->>'booking_id')::uuid;
+            IF at IS NULL THEN -- el profesor la desmarcó justo entre medias: se marca de nuevo
+              INSERT INTO attendance (session_id, student_id, booking_id, status, method, recorded_by)
+                SELECT session_id, student_id, id, 'present', 'qr', ${UID} FROM bookings WHERE id = (c->>'booking_id')::uuid
+              RETURNING recorded_at INTO at;
+              already := false;
+            END IF;
           END IF;
           results := results || jsonb_build_array(c || jsonb_build_object('checked_in_at', at, 'already', already));
         END LOOP;
