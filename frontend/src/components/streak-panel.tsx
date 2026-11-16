@@ -11,7 +11,9 @@ const AURA = ['33', '44', '55', '77', 'aa']
 // Viñeta manga de la racha general con la temática de la disciplina con más horas (streakTheme; null = Kaizen). El aura
 // sube con la racha actual (streakTier) y toma la paleta de la medalla de constancia de ese corte, sin nombrarla: esas
 // medallas son de la mejor racha de cada disciplina, no de esta.
-export function StreakPanel({ current, best, subject, theme = null, large }: { current: number; best: number; subject?: string; theme?: string | null; large?: boolean }) {
+// `compact`: con racha 0 no hay nada que celebrar, así que baja a una franja discreta (sin viñeta ni sombra dura).
+// `hint`: una línea bajo la franja compacta (solo se enseña ahí).
+export function StreakPanel({ current, best, subject, theme = null, large, compact, hint }: { current: number; best: number; subject?: string; theme?: string | null; large?: boolean; compact?: boolean; hint?: string }) {
   const [first] = useState(!played)
   useEffect(() => {
     played = true
@@ -19,6 +21,22 @@ export function StreakPanel({ current, best, subject, theme = null, large }: { c
   const tier = streakTier(current)
   const m = streakMedal(theme, current)
   const color = tier ? glowOf(m) : '#9AA0B8'
+  if (compact && current === 0) {
+    return (
+      <section aria-label="Racha" className="flex items-center gap-3 rounded-2xl border bg-card p-3 shadow-xs/5">
+        <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-md bg-brand-ink text-lg font-black text-white">
+          {m.kanji}
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold">Racha{subject ? ` de ${subject}` : ''}</p>
+          <p className="text-sm text-muted-foreground">
+            <span className="tabular-nums">0</span> semanas seguidas · {subject ? 'Su' : 'Tu'} mejor racha: <span className="tabular-nums">{best}</span>
+          </p>
+          {hint && <p className="text-sm text-muted-foreground">{hint}</p>}
+        </div>
+      </section>
+    )
+  }
   return (
     <section aria-label="Racha" className="relative isolate overflow-hidden rounded-2xl border-3 border-black bg-brand-ink p-4 text-white shadow-[4px_4px_0_#000]">
       {tier > 0 && (
