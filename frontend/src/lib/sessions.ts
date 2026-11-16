@@ -56,14 +56,16 @@ export function splitBookings(bookings: Booking[], now: number) {
   }
 }
 
-// El alumno no conoce la ventana de check-in (la fija el admin: por defecto 30 min antes y 10 después; solo la ve GET /admin/settings).
-// Se usa una holgada para saber cuándo ofrecerlo: 'soon' (falta ≤ 60 min) y 'live' (empezó hace ≤ 30 min). Si la academia la
-// cambia, /checkin explica el rechazo. shortcut: pedir la ventana a la API cuando el alumno pueda leerla.
-export const CHECKIN_SOON_MIN = 60
-export const CHECKIN_LIVE_MIN = 30
-export function checkinPhase(startsAt: string, now: number): 'soon' | 'live' | null {
+// Ventana de check-in (GET /checkin/window): minutos antes del inicio en que se abre y minutos después en que se cierra.
+// Mientras no llega (cargando o con error) se usa una holgada: mejor ofrecer el check-in un poco pronto, que /checkin explica
+// el rechazo, que esconderlo cuando sí se puede.
+export type CheckinWindow = { opens_minutes: number; closes_minutes: number }
+export const CHECKIN_FALLBACK: CheckinWindow = { opens_minutes: 60, closes_minutes: 30 }
+
+// 'soon': la ventana está abierta y la sesión aún no ha empezado; 'live': ha empezado y la ventana sigue abierta.
+export function checkinPhase(startsAt: string, now: number, win: CheckinWindow = CHECKIN_FALLBACK): 'soon' | 'live' | null {
   const min = (Date.parse(startsAt) - now) / 60_000
-  return min > 0 && min <= CHECKIN_SOON_MIN ? 'soon' : min <= 0 && min >= -CHECKIN_LIVE_MIN ? 'live' : null
+  return min > 0 && min <= win.opens_minutes ? 'soon' : min <= 0 && min >= -win.closes_minutes ? 'live' : null
 }
 
 // La API limita los rangos a 92 días: las pasadas se piden por tramos hacia atrás, el último día incluido.

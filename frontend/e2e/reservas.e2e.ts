@@ -25,8 +25,9 @@ const PASADAS = [
 ]
 const EVENTO = { id: 'e1', title: 'Seminario de kata', description: null, starts_at: iso(11, 22, '10:00'), ends_at: iso(11, 22, '13:00'), location: 'Dojo central', discipline: { id: 1, name: 'Judo' }, trainer: null, capacity: 30, taken: 12, audience: 'all', price_cents: 2500, member_price_cents: 1500, registration_deadline: null, status: 'scheduled', cancel_note: null, registration: { id: 'r1', status: 'confirmed', amount_cents: 1500 } }
 
-type Opciones = { menor?: boolean; fallo?: 'bookings' | 'events'; cancelaciones?: string[] }
-async function simular(page: Page, { menor = false, fallo, cancelaciones = [] }: Opciones = {}) {
+// `ventana`: la de check-in de la academia (por defecto 30 min antes y 10 después); 'falla' = una API sin actualizar (404).
+type Opciones = { menor?: boolean; fallo?: 'bookings' | 'events'; cancelaciones?: string[]; ventana?: { opens_minutes: number; closes_minutes: number } | 'falla' }
+async function simular(page: Page, { menor = false, fallo, cancelaciones = [], ventana = { opens_minutes: 30, closes_minutes: 10 } }: Opciones = {}) {
   await page.addInitScript((t) => localStorage.setItem('kz.token', t), TOKEN)
   await page.clock.install({ time: new Date('2026-11-18T12:00:00+01:00') })
   await page.route('**/api/**', async (r) => {
@@ -35,6 +36,7 @@ async function simular(page: Page, { menor = false, fallo, cancelaciones = [] }:
     const json = (j: unknown, status = 200) => r.fulfill({ status, json: j })
     if (u === '/me') return json({ id: 'u-1', role: 'alumno', display_name: 'Prueba', email: 'p@example.invalid', username: null, birth_date: menor ? '2012-05-01' : '1990-01-01', has_password: true, avatar: null, can_create_children: false, minor: menor ? { can_book: false, can_publish: false } : null })
     if (u === '/me/children') return json({ children: [] })
+    if (u === '/checkin/window') return ventana === 'falla' ? json({ code: 'not_found' }, 404) : json(ventana)
     if (u === '/events') return fallo === 'events' ? json({ code: 'internal_error' }, 500) : json({ events: [EVENTO] })
     const cancel = u.match(/^\/bookings\/([^/]+)\/cancel$/)
     if (cancel) {
@@ -79,6 +81,23 @@ test('la próxima reserva domina, el check-in está a mano y lo accionable queda
 
   // Los eventos inscritos van mezclados en su día.
   await expect(page.getByRole('link', { name: /Seminario de kata/ })).toBeVisible()
+})
+
+test('el check-in sigue la ventana de la academia: con una más corta, aún no es la acción principal', async ({ page }) => {
+  // La sesión de las 12:20 empieza en 20 min y la ventana abre 10 min antes: todavía no.
+  await simular(page, { ventana: { opens_minutes: 10, closes_minutes: 10 } })
+  await page.goto('/bookings')
+  const hueco = page.getByRole('region', { name: 'Lo siguiente' })
+  await expect(hueco).toContainText('Hoy · 12:20')
+  await expect(hueco.getByRole('link', { name: 'Hacer check-in' })).toHaveCount(0)
+  // El acceso de la cabecera sigue ahí.
+  await expect(page.getByRole('link', { name: 'Check-in', exact: true })).toBeVisible()
+})
+
+test('si la ventana no llega (API sin actualizar), se usa la holgada y el check-in se ofrece', async ({ page }) => {
+  await simular(page, { ventana: 'falla' })
+  await page.goto('/bookings')
+  await expect(page.getByRole('region', { name: 'Lo siguiente' }).getByRole('link', { name: 'Hacer check-in' })).toBeVisible()
 })
 
 test('cancelar pide confirmación, avisa de la cancelación tardía y relega la reserva al día, tachada', async ({ page }) => {

@@ -7,6 +7,7 @@ import { getSession } from '@/lib/session'
 import type { AuthMe } from '@/lib/admin'
 import type { ClockMonth } from '@/lib/clock'
 import type { EventInfo } from '@/lib/events'
+import type { CheckinWindow } from '@/lib/sessions'
 import type { Booking, Discipline, Me, Plan, ProfileStatus, Progress, Subscription } from '@/lib/types'
 
 // GET /bookings también devuelve las que el alumno hizo por sus hijos: cada pantalla enseña solo las del sujeto.
@@ -65,6 +66,17 @@ export const useProgress = (profileId: string | undefined, month?: string) =>
 export const markMedalsSeen = (profileId: string | undefined, codes: string[]) =>
   api('/me/progress/seen', { method: 'POST', body: { profile_id: profileId, codes } })
     .then(() => queryClient.invalidateQueries({ queryKey: ['progress', who(profileId)] }))
+
+// Ventana de check-in: la fija el admin y casi nunca cambia. Si falla (p. ej. una API sin actualizar) la pantalla usa la holgada.
+export const useCheckinWindow = () =>
+  useQuery({
+    queryKey: ['checkin-window'],
+    queryFn: () => api<CheckinWindow>('/checkin/window'),
+    // Una respuesta sin los dos números no vale: undefined = la holgada.
+    select: (w) => (Number.isFinite(w?.opens_minutes) && Number.isFinite(w?.closes_minutes) ? w : undefined),
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
 
 // Tras reservar o cancelar cambia el calendario, las reservas y el estado de Inicio.
 export const refreshBookings = () => Promise.all(['calendar', 'bookings'].map((k) => queryClient.invalidateQueries({ queryKey: [k] })))

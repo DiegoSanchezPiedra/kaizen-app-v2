@@ -19,7 +19,7 @@ import { addDays, formatDay, formatMonth, madridDay, madridMonth } from '@/lib/d
 import { entryStart, isUpcomingRegistration, mergeByStart } from '@/lib/events'
 import { formatTime } from '@/lib/format'
 import { bookBlock } from '@/lib/minor'
-import { bookingsOf, useBookings, useEvents, useMinor } from '@/lib/queries'
+import { bookingsOf, useBookings, useCheckinWindow, useEvents, useMinor } from '@/lib/queries'
 import { PAST_CHUNK_DAYS, checkinPhase, groupBy, splitBookings, type SessionState } from '@/lib/sessions'
 import type { Booking } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -70,12 +70,14 @@ function Bookings({ profileId }: { profileId?: string }) {
   })
 
   const now = useNow()
+  // La ventana exacta de la academia; mientras llega (o si falla) checkinPhase usa la holgada.
+  const win = useCheckinWindow().data
   // Sus inscripciones a eventos van mezcladas con las sesiones, por fecha.
   const events = useEvents(profileId, true)
   const loading = upcoming.isPending || events.isPending
   const mine = upcoming.data ?? []
   // «En curso»: la reserva que empezó hace poco sigue arriba (el check-in aún puede estar abierto), no salta a Pasadas.
-  const live = mine.filter((b) => b.status === 'confirmed' && checkinPhase(b.starts_at, now) === 'live')
+  const live = mine.filter((b) => b.status === 'confirmed' && checkinPhase(b.starts_at, now, win) === 'live')
   const next = mergeByStart(
     [...splitBookings(mine, now).upcoming, ...live],
     (events.data ?? []).filter((e) => isUpcomingRegistration(e, now)),
@@ -138,11 +140,11 @@ function Bookings({ profileId }: { profileId?: string }) {
         title={hero.s.discipline_name}
         location={hero.s.location}
         pending={hero.s.status === 'waitlisted' ? 'En espera' : undefined}
-        live={checkinPhase(hero.s.starts_at, now) === 'live'}
+        live={checkinPhase(hero.s.starts_at, now, win) === 'live'}
         now={now}
         action={
           <>
-            {hero.s.status === 'confirmed' && checkinPhase(hero.s.starts_at, now) && (
+            {hero.s.status === 'confirmed' && checkinPhase(hero.s.starts_at, now, win) && (
               <Button
                 size="xl"
                 variant="outline"
@@ -158,7 +160,7 @@ function Bookings({ profileId }: { profileId?: string }) {
               Date.parse(hero.s.starts_at) > now &&
               cancelButton(
                 hero.s,
-                cn('text-primary-foreground hover:bg-white/15 active:bg-white/20 focus-visible:ring-white focus-visible:ring-offset-0', !(hero.s.status === 'confirmed' && checkinPhase(hero.s.starts_at, now)) && '-ms-3'),
+                cn('text-primary-foreground hover:bg-white/15 active:bg-white/20 focus-visible:ring-white focus-visible:ring-offset-0', !(hero.s.status === 'confirmed' && checkinPhase(hero.s.starts_at, now, win)) && '-ms-3'),
               )}
           </>
         }
