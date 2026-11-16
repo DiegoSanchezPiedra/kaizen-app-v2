@@ -158,7 +158,7 @@ mismo), `409 paid_registration` (pagada: «pídelo a la academia»), `409 event_
 
 | Método y ruta | Rol | Cuerpo | Respuesta |
 |---|---|---|---|
-| `POST /checkin` | alumno, tutor | `{ code, booking_id? }` (`code` = el QR de la tablet) | `{ status: 'checked_in', booking_id, session_id, … }` o `{ status: 'choose', candidates: [{ booking_id, student_id, display_name, discipline, starts_at }] }` → repetir con `booking_id` |
+| `POST /checkin` | alumno, tutor | `{ code, booking_ids? }` (`code` = el QR de la tablet; 1–20 reservas propias o de sus hijos, si no son candidatas → 404 y no se marca ninguna) | Idempotente. `{ status: 'done', results: [{ booking_id, student_id, display_name, discipline, starts_at, checked_in_at, already }] }` o, con varias candidatas y alguna pendiente, `{ status: 'choose', candidates: [{ …, checked_in_at \| null }] }` → repetir con `booking_ids` |
 
 Errores: `400 invalid_qr`, `404 no_candidates`, `409 attendance_closed`.
 

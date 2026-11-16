@@ -1,10 +1,11 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { ChevronLeftIcon, CameraOffIcon, CircleCheckIcon, XIcon } from 'lucide-react'
 import QrScanner from 'qr-scanner'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { StatusAlert, type Notice } from '@/components/status-alert'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import { Spinner } from '@/components/ui/spinner'
 import { api } from '@/lib/api'
@@ -13,11 +14,11 @@ import { formatDay, madridDay } from '@/lib/dates'
 import { formatTime } from '@/lib/format'
 import { errorText } from '@/lib/errors'
 import { errorCode } from '@/lib/notify'
-import { bookingsOf } from '@/lib/queries'
 import { useSession } from '@/lib/session'
 
-type Candidate = { booking_id: string; student_id: string; display_name: string; discipline: string; starts_at: string }
-type Result = { status: 'checked_in'; booking_id: string; session_id: string; student_id: string } | { status: 'choose'; candidates: Candidate[] }
+type Candidate = { booking_id: string; student_id: string; display_name: string; discipline: string; starts_at: string; checked_in_at: string | null }
+type Done = Candidate & { checked_in_at: string; already: boolean }
+type Result = { status: 'done'; results: Done[] } | { status: 'choose'; candidates: Candidate[] }
 
 // Check-in a pantalla completa: la cámara lee el QR de la tablet (POST /checkin { code }). `qr-scanner` usa
 // BarcodeDetector si existe y, si no (Safari de iOS), su propio lector en un worker.
@@ -28,18 +29,26 @@ export function CheckinPage() {
   const code = useRef('')
   const [camera, setCamera] = useState<'starting' | 'on' | 'denied' | 'none'>('starting')
   const [candidates, setCandidates] = useState<Candidate[] | null>(null)
-  const [done, setDone] = useState<{ booking_id: string; student_id: string; picked?: Candidate } | null>(null)
+  const [picked, setPicked] = useState<string[]>([])
+  const [done, setDone] = useState<Done[] | null>(null)
+  const busy = useRef(false) // síncrono: el escáner puede leer otra vez antes de que React repinte isPending
   const [notice, setNotice] = useState<Notice | null>(null)
   const [stuck, setStuck] = useState(false) // cámara en marcha 8 s sin leer nada: quizá una versión vieja (iOS)
   const [dismissed, setDismissed] = useState(false)
 
   const send = useMutation({
-    mutationFn: (v: { code: string; booking_id?: string }) => api<Result>('/checkin', { method: 'POST', body: v }),
-    onSuccess: (res, v) => {
+    mutationFn: (v: { code: string; booking_ids?: string[] }) => api<Result>('/checkin', { method: 'POST', body: v }),
+    onSettled: () => {
+      busy.current = false
+    },
+    onSuccess: (res) => {
       setNotice(null)
-      if (res.status === 'choose') return setCandidates(res.candidates)
+      if (res.status === 'choose') {
+        setPicked(res.candidates.filter((c) => !c.checked_in_at).map((c) => c.booking_id))
+        return setCandidates(res.candidates)
+      }
       setCandidates(null)
-      setDone({ booking_id: res.booking_id, student_id: res.student_id, picked: candidates?.find((c) => c.booking_id === v.booking_id) })
+      setDone(res.results)
     },
     onError: (err) => {
       const c = errorCode(err)
@@ -48,12 +57,18 @@ export function CheckinPage() {
     },
   })
 
+  const submit = useCallback((v: { code: string; booking_ids?: string[] }) => {
+    if (busy.current) return
+    busy.current = true
+    send.mutate(v)
+  }, [send])
+
   const onCode = useCallback((data: string) => {
-    if (send.isPending) return
+    if (busy.current) return
     scanner.current?.pause()
     code.current = data
-    send.mutate({ code: data })
-  }, [send])
+    submit({ code: data })
+  }, [submit])
 
   const onCodeRef = useRef(onCode)
   useEffect(() => {
@@ -94,14 +109,8 @@ export function CheckinPage() {
     void scanner.current?.start()
   }
 
-  // Sin candidata elegida, la disciplina y la hora salen de las reservas de hoy.
-  const lookup = useQuery({
-    queryKey: ['bookings', 'checkin', done?.booking_id],
-    enabled: !!done && !done.picked,
-    queryFn: () =>
-      bookingsOf(done!.student_id === session?.id ? undefined : done!.student_id, madridDay(), madridDay()).then((l) => l.find((b) => b.id === done!.booking_id)),
-  })
-  const info = done?.picked ? { discipline: done.picked.discipline, starts_at: done.picked.starts_at, who: done.picked.display_name } : lookup.data ? { discipline: lookup.data.discipline_name, starts_at: lookup.data.starts_at } : null
+  const who = (c: Candidate) => (c.student_id === session?.id ? 'Tú' : c.display_name)
+  const allAlready = !!done?.every((d) => d.already)
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-brand-ink text-white">
@@ -164,15 +173,16 @@ export function CheckinPage() {
       {done && (
         <div className="relative m-4 mt-auto flex flex-col items-center gap-3 rounded-2xl bg-card p-6 text-center text-card-foreground" role="status">
           <CircleCheckIcon className="size-12 text-success" aria-hidden="true" />
-          <h1 className="font-heading text-3xl font-bold">Check-in hecho</h1>
-          {info ? (
-            <p className="text-base">
-              {info.who && <span className="font-semibold">{info.who} · </span>}
-              {info.discipline} · {formatDay(madridDay(info.starts_at))} a las {formatTime(info.starts_at)}
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">Ya estás en la lista de la sesión.</p>
-          )}
+          <h1 className="font-heading text-3xl font-bold text-balance">{allAlready ? 'Ya estaba registrado' : 'Check-in hecho'}</h1>
+          <ul className="flex w-full flex-col gap-2 text-base">
+            {done.map((d) => (
+              <li key={d.booking_id} className="text-pretty">
+                {(done.length > 1 || d.student_id !== session?.id) && <span className="font-semibold">{who(d)} · </span>}
+                {d.discipline} · {formatDay(madridDay(d.starts_at))} a las <span className="tabular-nums">{formatTime(d.starts_at)}</span>
+                {d.already && <span className="block text-sm text-muted-foreground">Ya registrado a las <span className="tabular-nums">{formatTime(d.checked_in_at)}</span></span>}
+              </li>
+            ))}
+          </ul>
           <Button size="xl" className="w-full" render={<Link to="/bookings" />}>
             Volver a mis reservas
           </Button>
@@ -195,21 +205,32 @@ export function CheckinPage() {
         </form>
       )}
 
-      <Sheet open={candidates !== null} onOpenChange={(o) => !o && setCandidates(null)}>
+      <Sheet open={candidates !== null} onOpenChange={(o) => !o && !send.isPending && again()}>
         <SheetPopup side="bottom">
           <SheetHeader>
-            <SheetTitle>Elige la reserva</SheetTitle>
-            <SheetDescription>Hay más de una con el check-in abierto.</SheetDescription>
+            <SheetTitle>¿A quién registras?</SheetTitle>
+            <SheetDescription>Hay más de una reserva con el check-in abierto.</SheetDescription>
           </SheetHeader>
           <SheetPanel className="flex flex-col gap-2">
             {candidates?.map((c) => (
-              <Button key={c.booking_id} variant="outline" size="xl" className="h-auto min-h-14 flex-col items-start gap-0 py-2 text-left" loading={send.isPending && send.variables?.booking_id === c.booking_id} onClick={() => send.mutate({ code: code.current, booking_id: c.booking_id })}>
-                <span className="font-semibold">{c.display_name}</span>
-                <span className="text-sm font-normal text-muted-foreground">
-                  {c.discipline} · {formatTime(c.starts_at)}
+              <label key={c.booking_id} className="flex min-h-14 items-center gap-3 rounded-xl border px-3 py-2 has-data-disabled:opacity-64">
+                <Checkbox
+                  checked={!!c.checked_in_at || picked.includes(c.booking_id)}
+                  disabled={!!c.checked_in_at || send.isPending}
+                  onCheckedChange={(on) => setPicked((p) => (on ? [...p, c.booking_id] : p.filter((id) => id !== c.booking_id)))}
+                />
+                <span className="flex flex-col">
+                  <span className="font-semibold">{who(c)}</span>
+                  <span className="text-sm text-muted-foreground">
+                    {c.discipline} · <span className="tabular-nums">{formatTime(c.starts_at)}</span>
+                    {c.checked_in_at && <> · Ya registrado a las <span className="tabular-nums">{formatTime(c.checked_in_at)}</span></>}
+                  </span>
                 </span>
-              </Button>
+              </label>
             ))}
+            <Button size="xl" className="mt-2" disabled={picked.length === 0} loading={send.isPending} onClick={() => submit({ code: code.current, booking_ids: picked })}>
+              {picked.length > 1 ? `Registrar a ${picked.length}` : 'Registrar'}
+            </Button>
           </SheetPanel>
         </SheetPopup>
       </Sheet>

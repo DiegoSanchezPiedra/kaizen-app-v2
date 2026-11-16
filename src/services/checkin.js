@@ -108,8 +108,8 @@ export const tabletFeed = (token) => callFn(appPool, `SELECT * FROM tablet_feed(
 
 // ── Check-in (alumno / tutor) ────────────────────────────────────────────────
 
-export async function checkIn(client, { code, bookingId }) {
+export async function checkIn(client, { code, bookingIds }) {
   if (!verifyQr(code, await qrPeriod(client))) throw httpError(400, 'invalid_qr', 'QR inválido o caducado');
-  const [r] = await callFn(client, `SELECT check_in($1) AS r`, [bookingId ?? null]);
+  const [r] = await callFn(client, `SELECT check_in($1::uuid[]) AS r`, [bookingIds ?? null]);
   return r.r;
 }
