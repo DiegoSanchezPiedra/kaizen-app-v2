@@ -26,6 +26,7 @@ export const up = (pgm) => {
         c jsonb;
         at timestamptz;
         already boolean;
+        closed boolean;
         results jsonb := '[]'::jsonb;
       BEGIN
         SELECT COALESCE(jsonb_agg(jsonb_build_object('booking_id', b.id, 'student_id', b.student_id,
@@ -36,7 +37,8 @@ export const up = (pgm) => {
           JOIN class_sessions s ON s.id = b.session_id
           JOIN disciplines d ON d.id = s.discipline_id
           JOIN profiles p ON p.id = b.student_id
-          LEFT JOIN attendance a ON a.booking_id = b.id
+          -- Por persona y sesión (como la UNIQUE): una reserva anulada y rehecha conserva su presente.
+          LEFT JOIN attendance a ON a.session_id = b.session_id AND a.student_id = b.student_id
          WHERE b.status = 'confirmed' AND (b.student_id = ${UID} OR is_guardian_of(b.student_id))
            AND s.status = 'scheduled' AND s.attendance_closed_at IS NULL AND checkin_window_open(s.starts_at);
         IF jsonb_array_length(cands) = 0 THEN RAISE EXCEPTION 'no_candidates'; END IF;
@@ -58,12 +60,10 @@ export const up = (pgm) => {
         END IF;
 
         -- Mismo bloqueo que close_attendance (en orden fijo): si la lista se cerró mientras tanto, se rechaza.
-        PERFORM 1 FROM class_sessions WHERE id IN (SELECT session_id FROM bookings WHERE id = ANY(picked))
-          ORDER BY id FOR UPDATE;
-        IF EXISTS (SELECT 1 FROM class_sessions s JOIN bookings b ON b.session_id = s.id
-                    WHERE b.id = ANY(picked) AND s.attendance_closed_at IS NOT NULL) THEN
-          RAISE EXCEPTION 'attendance_closed';
-        END IF;
+        SELECT bool_or(attendance_closed_at IS NOT NULL) INTO closed
+          FROM (SELECT attendance_closed_at FROM class_sessions
+                 WHERE id IN (SELECT session_id FROM bookings WHERE id = ANY(picked)) ORDER BY id FOR UPDATE) s;
+        IF closed THEN RAISE EXCEPTION 'attendance_closed'; END IF;
 
         -- Una sentencia por reserva: tras esperar a un INSERT concurrente, el SELECT siguiente ya ve su fila.
         FOR c IN SELECT x FROM jsonb_array_elements(cands) x WHERE (x->>'booking_id')::uuid = ANY(picked) LOOP

@@ -61,6 +61,13 @@ await booking('in29', 'tutor'); // el tutor también entrena
 await booking('ago5', 'alu2'); // reserva de alguien que no es hijo del tutor
 await booking('closed', 'alu3');
 await booking('now', 'alu3');
+// alu2 tenía check-in en ago11 con una reserva que luego anuló y rehízo: el presente cuelga de la anulada.
+const { rows: [old] } = await servicePool.query(
+  `INSERT INTO bookings (session_id, student_id, booked_by, status, cancel_reason, cancelled_at)
+   VALUES ($1, $2, $2, 'cancelled', 'student', now()) RETURNING id`, [S.ago11, U.alu2]);
+await servicePool.query(`INSERT INTO attendance (session_id, student_id, booking_id, status, method, recorded_by)
+  VALUES ($1, $2, $3, 'present', 'qr', $2)`, [S.ago11, U.alu2, old.id]);
+await booking('ago11', 'alu2');
 
 const code = () => qrCode(qrStep(30)); // checkin_qr_seconds por defecto
 const attendanceOf = async (c, bookingId) => {
@@ -184,6 +191,20 @@ try {
       await rejects(c, () => checkIn(c, { code: code(), bookingIds: [B['in29:child'], B['ago5:alu2']] }), 404, 'no_candidates');
       assert.equal(await attendanceOf(c, B['in29:child']), undefined);
       assert.equal(await attendanceOf(c, B['ago5:alu2']), undefined);
+    });
+
+    await run('reserva anulada y rehecha: el presente previo cuenta (ya registrado, no pendiente)', async () => {
+      await as(c, U.admin, 'admin');
+      await updateCheckinSettings(c, { closes_minutes: 12 }); // ago11 entra en la ventana
+      await as(c, U.alu2, 'alumno');
+      const r = await checkIn(c, { code: code() }); // ago5 pendiente + ago11 ya registrado → elegir
+      assert.equal(r.status, 'choose');
+      assert.ok(r.candidates.find((x) => x.booking_id === B['ago11:alu2']).checked_in_at);
+      await as(c, U.alu2, 'alumno');
+      const again = await checkIn(c, { code: code(), bookingIds: [B['ago11:alu2']] });
+      assert.deepEqual(again.results.map((x) => x.already), [true]);
+      await as(c, U.admin, 'admin');
+      await updateCheckinSettings(c, { closes_minutes: 10 });
     });
 
     await run('profesor ve el método en su lista', async () => {

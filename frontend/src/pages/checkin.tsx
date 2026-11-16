@@ -1,7 +1,7 @@
 import { useMutation } from '@tanstack/react-query'
 import { ChevronLeftIcon, CameraOffIcon, CircleCheckIcon, XIcon } from 'lucide-react'
 import QrScanner from 'qr-scanner'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { StatusAlert, type Notice } from '@/components/status-alert'
 import { Button } from '@/components/ui/button'
@@ -44,10 +44,13 @@ export function CheckinPage() {
     onSuccess: (res) => {
       setNotice(null)
       if (res.status === 'choose') {
-        setPicked(res.candidates.filter((c) => !c.checked_in_at).map((c) => c.booking_id))
+        // Nada marcado de entrada; si el QR caducó mientras elegía, se conserva lo que ya había marcado.
+        const pending = new Set(res.candidates.filter((c) => !c.checked_in_at).map((c) => c.booking_id))
+        setPicked((p) => p.filter((id) => pending.has(id)))
         return setCandidates(res.candidates)
       }
       setCandidates(null)
+      setPicked([])
       setDone(res.results)
     },
     onError: (err) => {
@@ -57,18 +60,18 @@ export function CheckinPage() {
     },
   })
 
-  const submit = useCallback((v: { code: string; booking_ids?: string[] }) => {
+  const submit = (v: { code: string; booking_ids?: string[] }) => {
     if (busy.current) return
     busy.current = true
     send.mutate(v)
-  }, [send])
+  }
 
-  const onCode = useCallback((data: string) => {
+  const onCode = (data: string) => {
     if (busy.current) return
     scanner.current?.pause()
     code.current = data
     submit({ code: data })
-  }, [submit])
+  }
 
   const onCodeRef = useRef(onCode)
   useEffect(() => {

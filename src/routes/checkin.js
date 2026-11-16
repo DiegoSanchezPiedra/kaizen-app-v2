@@ -13,6 +13,10 @@ router.use(requireAuth, requireRole('alumno', 'tutor'));
 // Idempotente: cada resultado lleva checked_in_at y already. Con varias candidatas se repite con las elegidas.
 router.post('/', withRlsContext(async (req, client) => {
   const { code, booking_ids: bookingIds } = req.body ?? {};
+  // booking_id (una sola) era la API anterior: se rechaza para que una app sin actualizar falle a la vista.
+  if (req.body?.booking_id !== undefined) {
+    throw httpError(400, 'invalid_field', 'booking_id ya no se admite; usa booking_ids', { field: 'booking_id' });
+  }
   if (bookingIds !== undefined && !(Array.isArray(bookingIds) && bookingIds.length > 0 && bookingIds.length <= 20
     && bookingIds.every((id) => typeof id === 'string' && UUID_RE.test(id)))) {
     throw httpError(400, 'invalid_field', 'booking_ids inválido', { field: 'booking_ids' });
