@@ -13,14 +13,25 @@ export const changesLeft = (n: number): string => (n <= 0 ? 'No quedan cambios' 
 
 const sameId = (a: number | string, b: number | string) => String(a) === String(b)
 
-// Para uno mismo se ocultan los planes «solo menores»; para un hijo se ven todos. La edad de las disciplinas va en eligibleDisciplines.
-// Un plan a 0 € no se contrata por la pasarela (plan_not_purchasable).
-export const visiblePlans = (plans: Plan[], self: boolean): Plan[] =>
-  plans.filter((p) => p.is_active && p.price_cents > 0 && !(self && p.minors_only)).sort((a, b) => a.price_cents - b.price_cents)
-
 // Edad de hoy (Madrid) del sujeto, como el backend: sin fecha de nacimiento, adulto.
 const ADULT_AGE = 18
 export const ageToday = (birthDate: string | null): number => (birthDate ? ageOn(birthDate, madridDay()) : ADULT_AGE)
+
+// El rango del plan admite la edad de hoy: mínima y máxima, inclusive. undefined = edad desconocida (la decide el backend).
+export function fitsPlan(p: Plan, birthDate: string | null | undefined): boolean {
+  if (birthDate === undefined) return true
+  const age = ageToday(birthDate)
+  return (p.min_age === null || age >= p.min_age) && (p.max_age === null || age <= p.max_age)
+}
+
+// Ya superó la máxima de su plan (como el backend, solo la máxima): cambiar de plan va ya, suba o baje (ver planChange).
+export const pastPlanMax = (p: Plan, birthDate: string | null | undefined): boolean =>
+  birthDate !== undefined && p.max_age !== null && ageToday(birthDate) > p.max_age
+
+// Los que admiten la edad de hoy del sujeto (la de las disciplinas va en eligibleDisciplines), por precio.
+// Un plan a 0 € no se contrata por la pasarela (plan_not_purchasable).
+export const visiblePlans = (plans: Plan[], birthDate: string | null | undefined): Plan[] =>
+  plans.filter((p) => p.is_active && p.price_cents > 0 && fitsPlan(p, birthDate)).sort((a, b) => a.price_cents - b.price_cents)
 // Cubre la disciplina hoy: sin máximo, o la edad de hoy no lo supera. La mínima no se mira al contratar.
 export const fitsAge = (d: Discipline, birthDate: string | null): boolean => d.max_age === null || ageToday(birthDate) <= d.max_age
 // Del plan (lista vacía = todas).
@@ -40,13 +51,14 @@ export function keepDisciplines(current: (number | string)[], eligible: Discipli
   return eligible.filter((d) => current.some((c) => sameId(c, d.id))).slice(0, max).map((d) => String(d.id))
 }
 
-export type PlanChange = 'up' | 'down' | 'same'
+export type PlanChange = 'up' | 'now' | 'down' | 'same'
 
 // Como el backend (B10.5): más caro = subida inmediata con prorrateo; igual o más barato = se programa para la renovación.
-// Un adulto en un plan solo menores cambia ya, suba o baje (`selfInMinors`).
+// Quien ya superó la máxima de su plan (`outOfPlan`) cambia ya: si sube, con prorrateo; si no, sin cobro ni devolución ('now').
 // El mismo precio también se programa: lo enseñamos como cambio sin coste, no como bajada.
-export function planChange(currentCents: number, target: Plan, selfInMinors: boolean): PlanChange {
-  if (selfInMinors || target.price_cents > currentCents) return 'up'
+export function planChange(currentCents: number, target: Plan, outOfPlan: boolean): PlanChange {
+  if (target.price_cents > currentCents) return 'up'
+  if (outOfPlan) return 'now'
   return target.price_cents === currentCents ? 'same' : 'down'
 }
 

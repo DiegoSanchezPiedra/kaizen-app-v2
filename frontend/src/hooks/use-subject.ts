@@ -39,6 +39,8 @@ export function useSubject() {
     options,
     withSubject,
     subject,
+    // Fecha de nacimiento del sujeto (sin selector, la propia de /me): la edad de hoy decide planes y disciplinas. null = adulto.
+    birthDate: subject ? subject.birth_date : (me.data?.birth_date ?? null),
     // Para uno mismo no se manda: el calendario solo acepta profile_id de un hijo (o del admin) y responde 403.
     profileId: subject && !subject.self ? subject.id : undefined,
     loading: enabled && !minor && (alumno ? me.isPending || (me.isSuccess && isPending) : isPending),

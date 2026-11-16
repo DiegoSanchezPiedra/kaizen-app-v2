@@ -81,7 +81,7 @@ for (const [name, min_age, max_age, medal_theme] of CATALOG) {
   must(await call(`/admin/disciplines/${D[name]}`, { method: 'PATCH', token: admin, body: { min_age, max_age, ...(d.medal_theme ? {} : { medal_theme }) } }), `rango y temática ${name}`, ['theme_taken']); // ocupada a mano: se deja
 }
 for (const [name, cents, max, minors] of [['Una disciplina', 3500, 1, false], ['Dos disciplinas', 5000, 2, false], ['Ilimitado', 7000, null, false], ['Infantil', 3000, 1, true]]) {
-  must(await call('/admin/plans', { method: 'POST', token: admin, body: { name, price_cents: cents, max_disciplines: max, minors_only: minors } }), `plan ${name}`, ['name_taken']);
+  must(await call('/admin/plans', { method: 'POST', token: admin, body: { name, price_cents: cents, max_disciplines: max, max_age: minors ? 17 : null } }), `plan ${name}`, ['name_taken']);
 }
 
 // Profesor dado de alta por el admin (ADR 0028): correo del dominio corporativo (CORPORATE_EMAIL_DOMAIN, academia.test en staging)

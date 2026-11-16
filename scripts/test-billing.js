@@ -29,6 +29,7 @@ const people = {
   pc: 'alumno', child3: 'alumno', tutor2: 'tutor', // B10.5
   child4: 'alumno', tutor3: 'tutor', tutor4: 'tutor', // B11: child4 lo paga tutor3; tutor4, también vinculado, lo pedirá
   kid4: 'alumno', kid13: 'alumno', // B29: hijos de tutor con 4 y 13 años cumplidos hoy
+  kid5: 'alumno', kid12: 'alumno', // rango del plan: los extremos de 5–12
   pz: 'alumno', // B30: pausa
 };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
@@ -40,7 +41,7 @@ for (const [k, role] of Object.entries(people)) {
 await servicePool.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2), ($1, $3), ($1, $4), ($5, $4), ($6, $7), ($8, $7)`,
   [U.tutor, U.child, U.child2, U.child3, U.tutor2, U.tutor3, U.child4, U.tutor4]);
 const yearsAgo = `((now() AT TIME ZONE 'Europe/Madrid')::date - $2 * interval '1 year')::date`;
-for (const [k, years] of [['kid4', 4], ['kid13', 13]]) {
+for (const [k, years] of [['kid4', 4], ['kid13', 13], ['kid5', 5], ['kid12', 12]]) {
   await servicePool.query(`UPDATE profiles SET birth_date = ${yearsAgo} WHERE id = $1`, [U[k], years]);
   await servicePool.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [U.tutor, U[k]]);
 }
@@ -81,10 +82,11 @@ const discR = await mkDisc('T-Bill-R', 5, 12);
 const mkPlan = (body) => withRls({ uid: U.admin, role: 'admin' }, (c) =>
   createPlan(c, { name: `T-Bill-${body.tag}-${Date.now()}`, max_disciplines: null, price_cents: 1500, ...body, tag: undefined }));
 const co = [
-  await mkPlan({ tag: 'one', max_disciplines: 1 }), await mkPlan({ tag: 'kids', minors_only: true }),
+  await mkPlan({ tag: 'one', max_disciplines: 1 }), await mkPlan({ tag: 'kids', max_age: 17 }),
   await mkPlan({ tag: 'free', price_cents: 0 }), await mkPlan({ tag: 'retired', is_active: false }),
 ];
 const [coOne, coKids, coFree, coRetired] = co;
+const co512 = await mkPlan({ tag: 'k512', min_age: 5, max_age: 12 }); // «Todas»: sin disciplinas que elegir
 await servicePool.query(`INSERT INTO plan_disciplines (plan_id, discipline_id) VALUES ($1, $2), ($1, $3), ($1, $4)`,
   [coOne.id, disc, discK, discR]);
 const customerOf = async (id) =>
@@ -155,13 +157,13 @@ try {
     assert.equal(rowCount, 1);
   });
 
-  await run('checkout: retirado, 0 €, solo menores, nº y elegibles, suscripción viva', async () => {
+  await run('checkout: retirado, 0 €, fuera de la edad del plan, nº y elegibles, suscripción viva', async () => {
     await withRls({ uid: U.other, role: 'alumno' }, async (c) => {
       const no = (body, status, code) => sp(c, () => assert.rejects(
         createCheckout(c, { payerId: U.other, studentId: U.other, ...body }), (e) => e.status === status && e.code === code));
       await no({ planId: coRetired.id }, 404, 'plan_not_found');
       await no({ planId: coFree.id }, 409, 'plan_not_purchasable');
-      await no({ planId: coKids.id }, 409, 'plan_minors_only');
+      await no({ planId: coKids.id }, 409, 'plan_out_of_age'); // adulto en un plan de máxima 17
       await no({ planId: coOne.id, disciplineIds: [] }, 400, 'invalid_field');
       await no({ planId: coOne.id, disciplineIds: [disc, discB] }, 400, 'invalid_field');
       await no({ planId: coOne.id, disciplineIds: [discB] }, 409, 'discipline_not_eligible');
@@ -188,6 +190,16 @@ try {
       const order = (k) => createCheckout(c, { payerId: U.tutor, studentId: U[k], planId: coOne.id, disciplineIds: [discR] });
       await sp(c, () => assert.rejects(order('kid13'), (e) => e.status === 409 && e.code === 'discipline_not_eligible'));
       assert.match((await order('kid4')).url, /^https:\/\/checkout\.stripe\.com\//);
+    }, { commit: false });
+  });
+  await run('checkout: rango del plan, mínima y máxima con la edad de hoy (5–12: 4 y 13 no; 5 y 12 sí)', async () => {
+    await withRls({ uid: U.tutor, role: 'tutor' }, async (c) => {
+      const order = (k) => createCheckout(c, { payerId: U.tutor, studentId: U[k], planId: co512.id });
+      for (const k of ['kid4', 'kid13']) {
+        await sp(c, () => assert.rejects(order(k), (e) => e.status === 409 && e.code === 'plan_out_of_age'
+          && e.details.min_age === 5 && e.details.max_age === 12, k));
+      }
+      for (const k of ['kid5', 'kid12']) assert.match((await order(k)).url, /^https:\/\/checkout\.stripe\.com\//, k);
     }, { commit: false });
   });
   await run('checkout: tutor paga el plan solo menores del hijo; el cliente es del tutor', async () => {
@@ -350,7 +362,7 @@ try {
       403, 'not_payer');
     await fails(plan$('pc', { planId: pc.one.id, disciplineIds: [disc] }), 409, 'same_plan');
     await fails(plan$('pc', { planId: coRetired.id }), 404, 'plan_not_found');
-    await fails(plan$('admin', { planId: coKids.id }), 409, 'plan_minors_only');
+    await fails(plan$('admin', { planId: coKids.id }), 409, 'plan_out_of_age');
     await fails(plan$('pc', { planId: pc.two.id, disciplineIds: [disc] }), 400, 'invalid_field');
     await fails(plan$('pc', { planId: pc.two.id, disciplineIds: [disc, discK] }), 409, 'discipline_not_eligible');
     await fails(plan$('pc', { planId: pc.two.id, disciplineIds: 'x' }), 400, 'invalid_field');

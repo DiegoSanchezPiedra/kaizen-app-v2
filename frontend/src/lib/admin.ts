@@ -145,6 +145,7 @@ const AUDIT_LABEL: Record<string, string> = {
   'subscription.cancel_at_period_end': 'Programó la baja de una suscripción',
   'subscription.upgrade': 'Subió de plan',
   'subscription.downgrade': 'Programó una bajada de plan',
+  'subscription.age_change': 'Cambió de plan por edad',
   'subscription.downgrade_cancel': 'Canceló una bajada de plan',
   'subscription.discipline_change': 'Cambió una disciplina de la cuota',
   'subscription.payer_change_request': 'Pidió un cambio de pagador',

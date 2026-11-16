@@ -10,7 +10,7 @@ const isAge = (v) => v === null || (Number.isInteger(v) && v >= 0 && v <= 99);
 const isName = (v) => typeof v === 'string' && v.trim().length > 0 && v.length <= 100;
 
 const PLAN_SELECT = `
-  SELECT p.id, p.name, p.price_cents, p.billing_period, p.max_disciplines, p.minors_only, p.is_active,
+  SELECT p.id, p.name, p.price_cents, p.billing_period, p.max_disciplines, p.min_age, p.max_age, p.is_active,
          ARRAY(SELECT discipline_id::text FROM plan_disciplines WHERE plan_id = p.id ORDER BY plan_disciplines.discipline_id)
            AS eligible_discipline_ids
     FROM plans p`;
@@ -52,7 +52,8 @@ const PLAN_SPEC = {
   price_cents: [(v) => Number.isInteger(v) && v >= 0 && v <= 2_147_483_647, 'price_cents entero ≥ 0', true],
   max_disciplines: [(v) => v === null || (Number.isInteger(v) && v >= 1), 'max_disciplines entero ≥ 1 o null (todas)', true],
   billing_period: [(v) => BILLING_PERIODS.includes(v), `billing_period debe ser uno de: ${BILLING_PERIODS.join(', ')}`],
-  minors_only: [isBool, 'minors_only debe ser booleano'],
+  min_age: [isAge, 'min_age: entero 0–99 o null'],
+  max_age: [isAge, 'max_age: entero 0–99 o null'],
   is_active: [isBool, 'is_active debe ser booleano'],
 };
 
@@ -63,7 +64,7 @@ async function guardUnique(fn) {
   } catch (err) {
     if (err.constraint === 'disciplines_medal_theme_active') throw httpError(409, 'theme_taken', 'Esa temática ya la tiene otra disciplina activa');
     if (err.constraint === 'disciplines_medal_theme_fkey') throw invalid('medal_theme', 'medal_theme: temática desconocida');
-    if (err.constraint === 'disciplines_age_range') throw invalid('min_age', 'min_age no puede ser mayor que max_age');
+    if (['disciplines_age_range', 'plans_age_range'].includes(err.constraint)) throw invalid('min_age', 'min_age no puede ser mayor que max_age');
     if (err.code === '23505') throw httpError(409, 'name_taken', 'Ya existe un registro con ese nombre');
     throw err;
   }
@@ -193,7 +194,7 @@ export async function updatePlan(client, { id, body, actorId }) {
   const data = validate(body, PLAN_SPEC, true);
   const before = await getPlan(client, id, { lock: true });
 
-  const structural = ['max_disciplines', 'minors_only'].filter(
+  const structural = ['max_disciplines', 'min_age', 'max_age'].filter(
     (f) => f in data && data[f] !== before[f]
   );
   if (structural.length) {

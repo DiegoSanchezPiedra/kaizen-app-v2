@@ -10,7 +10,7 @@ import { Radio, RadioGroup } from '@/components/ui/radio-group'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { toastManager } from '@/components/ui/toast'
 import { api } from '@/lib/api'
-import { ageRangeLabel } from '@/lib/catalog'
+import { ageOf, ageRangeLabel } from '@/lib/catalog'
 import { toastOk } from '@/lib/notify'
 import { plural } from '@/lib/professor'
 import { medalOf } from '@/lib/progress'
@@ -18,9 +18,6 @@ import { THEMES, themeOf } from '@/lib/themes'
 import type { Discipline } from '@/lib/types'
 import { CardList, CardRow, Head, refreshCatalog } from '@/pages/admin/catalog-bits'
 import { FormSheet, SwitchRow, TextField, useAdminDisciplines, useFieldError } from '@/pages/admin/schedule-bits'
-
-// Edad en el formulario: vacía = sin límite (null); 0–99 = número; otra cosa = undefined (no vale).
-const ageOf = (v: string): number | null | undefined => (v.trim() === '' ? null : /^\d{1,2}$/.test(v.trim()) ? Number(v) : undefined)
 
 // docs/pantallas-b22.md § Membresías y Disciplinas: una entrada propia del menú (antes, una pestaña de /admin/catalog).
 export function AdminDisciplinesPage() {

@@ -58,6 +58,7 @@ withRlsContext(async (req, client) => getSubscription(client, { studentId: req.q
 // POST /billing/subscriptions/:id/plan { plan_id, discipline_ids } →
 //   subida 200 { change: 'upgrade', status: 'applied' | 'requires_action', client_secret? } (stripe.handleNextAction)
 //   bajada 202 { change: 'downgrade', scheduled_at }
+//   fuera de la edad de su plan e igual o más barato: 200 { change: 'age_change', status: 'applied' } (sin cobro)
 router.post('/subscriptions/:id/plan', withRlsContext(async (req, client) => changePlan(client, {
   id: req.params.id, actorId: req.user.id, isAdmin: false, planId: req.body?.plan_id, disciplineIds: req.body?.discipline_ids,
 })));

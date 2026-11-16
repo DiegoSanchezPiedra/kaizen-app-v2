@@ -43,27 +43,28 @@ export async function ensureCustomer(client, payerId) {
 
 /**
  * Plan y disciplinas de un pedido, con las mismas reglas al contratar y al cambiar de plan (B10.5):
- * plan activo y de pago, edad, solo menores, número y disciplinas elegibles (y su rango de edad).
- * @returns {{ plan, ids: string[], adult: boolean }}
+ * plan activo y de pago, rango de edad del plan, número y disciplinas elegibles (y su rango de edad).
+ * @returns {{ plan, ids: string[] }}
  */
 async function validateOrder(client, { studentId, planId, disciplineIds = [] }) {
   if (!Array.isArray(disciplineIds)) throw invalid('discipline_ids', 'discipline_ids debe ser un array');
   const ids = [...new Set(disciplineIds.map(parseId))];
 
   const { rows: [plan] } = await client.query(
-    `SELECT p.id, p.price_cents, p.max_disciplines, p.minors_only, p.is_active, p.stripe_price_id,
-            ARRAY(SELECT discipline_id::text FROM plan_disciplines WHERE plan_id = p.id) AS eligible
-       FROM plans p WHERE p.id = $1`, [parseId(planId)]);
+    `SELECT p.id, p.price_cents, p.max_disciplines, p.min_age, p.max_age, p.is_active, p.stripe_price_id,
+            ARRAY(SELECT discipline_id::text FROM plan_disciplines WHERE plan_id = p.id) AS eligible,
+            (SELECT in_age_range(birth_date, p.min_age, p.max_age, now()) FROM profiles WHERE id = $2) AS fits
+       FROM plans p WHERE p.id = $1`, [parseId(planId), studentId]);
   // El suscriptor ve su plan retirado (012), pero no lo puede contratar ni cambiar a él.
   if (!plan?.is_active) throw httpError(404, 'plan_not_found', 'Plan no encontrado');
   if (plan.price_cents === 0 || !plan.stripe_price_id) {
     throw httpError(409, 'plan_not_purchasable', 'Este plan no se contrata por la pasarela');
   }
 
-  const { rows: [{ adult }] } = await client.query(
-    `SELECT birth_date IS NULL OR birth_date <= CURRENT_DATE - interval '18 years' AS adult
-       FROM profiles WHERE id = $1`, [studentId]);
-  if (adult && plan.minors_only) throw httpError(409, 'plan_minors_only', 'Plan solo para menores');
+  // Rango de edad del plan: mínima y máxima con la edad de hoy (sin fecha de nacimiento, 18).
+  if (!plan.fits) {
+    throw httpError(409, 'plan_out_of_age', 'El plan no es para la edad del alumno', { min_age: plan.min_age, max_age: plan.max_age });
+  }
 
   // «Todas»: no se eligen disciplinas. Si no, exactamente max_disciplines.
   const expected = plan.max_disciplines ?? 0;
@@ -81,7 +82,7 @@ async function validateOrder(client, { studentId, planId, disciplineIds = [] }) 
       || !ok.get(id).fits);
     if (bad.length) throw httpError(409, 'discipline_not_eligible', 'Disciplina no elegible', { ids: bad });
   }
-  return { plan, ids, adult };
+  return { plan, ids };
 }
 
 /**
@@ -195,7 +196,8 @@ const phaseItems = (phase) => phase.items.map((i) => ({ price: idOf(i.price), qu
 async function subscriptionFor(client, id) {
   const { rows: [s] } = await client.query(
     `SELECT s.id, s.student_id, s.payer_id, s.plan_id, s.status, s.cancel_at_period_end, s.stripe_subscription_id,
-            pl.price_cents, pl.minors_only, pl.max_disciplines
+            pl.price_cents, pl.max_disciplines,
+            in_age_range((SELECT birth_date FROM profiles WHERE id = s.student_id), NULL, pl.max_age, now()) AS fits
        FROM subscriptions s JOIN plans pl ON pl.id = s.plan_id WHERE s.id = $1`, [id]);
   if (!s) throw httpError(404, 'subscription_not_found', 'Suscripción no encontrada');
   return s;
@@ -209,7 +211,7 @@ const onlyPayer = (s, actorId, isAdmin) => {
 
 /**
  * Subir o bajar de plan (pagador actual o admin). Más caro = subida inmediata con prorrateo; igual o más
- * barato = bajada en la siguiente facturación. Un adulto en un plan solo menores cambia ya, suba o baje.
+ * barato = bajada en la siguiente facturación. Quien ya superó la máxima de su plan cambia ya, suba o baje.
  * @returns {{ status: 200 | 202, body }}
  */
 export async function changePlan(client, { id, actorId, isAdmin, planId, disciplineIds }) {
@@ -218,7 +220,7 @@ export async function changePlan(client, { id, actorId, isAdmin, planId, discipl
   if (s.status !== 'active') throw httpError(409, 'subscription_not_active', 'La suscripción no está activa');
   if (s.cancel_at_period_end) throw httpError(409, 'cancel_scheduled', 'La suscripción tiene la baja programada');
   if (parseId(planId) === s.plan_id) throw httpError(409, 'same_plan', 'Ya está en ese plan');
-  const { plan, ids, adult } = await validateOrder(client, { studentId: s.student_id, planId, disciplineIds });
+  const { plan, ids } = await validateOrder(client, { studentId: s.student_id, planId, disciplineIds });
   if (!plan.stripe_price_id) throw httpError(409, 'plan_not_purchasable', 'Este plan no se contrata por la pasarela');
 
   return serviceTx(async (db) => {
@@ -232,24 +234,26 @@ export async function changePlan(client, { id, actorId, isAdmin, planId, discipl
     if (current.cancel_at_period_end) throw httpError(409, 'cancel_scheduled', 'La suscripción tiene la baja programada');
 
     const metadata = { plan_id: plan.id, discipline_ids: ids.join(',') };
-    const now = plan.price_cents > s.price_cents || (adult && s.minors_only);
-    await audit(client, actorId, now ? 'subscription.upgrade' : 'subscription.downgrade', id,
-      { from: s.plan_id, to: plan.id, discipline_ids: ids });
-    return now
-      ? applyPlanNow(s, current, plan, metadata, isAdmin)
+    // Fuera de la edad de su plan, igual o más barato: va ya, sin cobro (age_change).
+    const change = plan.price_cents > s.price_cents ? 'upgrade' : s.fits ? 'downgrade' : 'age_change';
+    await audit(client, actorId, `subscription.${change}`, id, { from: s.plan_id, to: plan.id, discipline_ids: ids });
+    return change !== 'downgrade'
+      ? applyPlanNow(s, current, plan, metadata, isAdmin, change)
       : scheduleDowngrade(current, plan, metadata);
   });
 }
 
 // Pending update: Stripe cobra el prorrateo y solo aplica price y metadata si se paga.
-async function applyPlanNow(s, current, plan, metadata, isAdmin) {
+async function applyPlanNow(s, current, plan, metadata, isAdmin, change) {
   // Una subida anula la bajada programada (CONTEXT § Bajar de plan).
   if (current.schedule) await stripe.subscriptionSchedules.release(current.schedule.id);
   const sub = await stripe.subscriptions.update(current.id, {
     items: [{ id: current.items.data[0].id, price: plan.stripe_price_id }],
-    payment_behavior: 'pending_if_incomplete', proration_behavior: 'always_invoice', metadata,
+    payment_behavior: 'pending_if_incomplete', metadata,
+    // Bajar por edad (CONTEXT § Al cumplir 18): sin prorrateo, ni abono ni saldo; el periodo pagado se queda como está.
+    proration_behavior: change === 'upgrade' ? 'always_invoice' : 'none',
   });
-  if (!sub.pending_update) return { status: 200, body: { change: 'upgrade', status: 'applied' } };
+  if (!sub.pending_update) return { status: 200, body: { change, status: 'applied' } };
 
   const inv = await stripe.invoices.retrieve(idOf(sub.latest_invoice),
     { expand: ['confirmation_secret', 'payments.data.payment.payment_intent'] });

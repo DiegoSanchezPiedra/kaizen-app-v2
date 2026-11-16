@@ -180,6 +180,33 @@ try {
     assert.deepEqual([k31b.status, k31b.cancel_reason], ['cancelled', 'out_of_age']);
   }));
 
+  // Rango del plan: plan de máxima 12 y disciplina sin rango. k30 cumple 13 dentro de 30 días y k0 hoy.
+  await run('plan fuera de edad: el día del cumpleaños deja de cubrir; el barrido no toca sus reservas', () => sp(async () => {
+    const [{ id: D }] = (await c.query(`INSERT INTO disciplines (name) VALUES ($1) RETURNING id`, [`${tag}-open`])).rows;
+    const [{ id: P }] = (await c.query(`INSERT INTO plans (name, price_cents, max_age) VALUES ($1, 1000, 12) RETURNING id`,
+      [`${tag}-kidsplan`])).rows;
+    const kid = async (birthdayIn) => {
+      const [id, tutor] = [await person(), await person()];
+      await c.query(`UPDATE profiles SET birth_date = ($2::date - interval '13 years')::date WHERE id = $1`, [id, day(birthdayIn)]);
+      await c.query(`INSERT INTO guardianships (tutor_id, minor_id) VALUES ($1, $2)`, [tutor, id]);
+      await c.query(`INSERT INTO subscriptions (student_id, payer_id, plan_id, status, stripe_subscription_id)
+                     VALUES ($1, $2, $3, 'active', $4)`, [id, tutor, P, `sub_${tag}_${crypto.randomUUID()}`]);
+      return { id, tutor };
+    };
+    const [k30, k0] = [await kid(30), await kid(0)];
+    const covers = async (k) => (await c.query(`SELECT covers($1, $2) AS ok`, [k.id, D])).rows[0].ok;
+    assert.deepEqual([await covers(k30), await covers(k0)], [true, false]);
+
+    const { rows: [x] } = await c.query(
+      `INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status)
+       VALUES ($1, $2, now() + interval '2 days', now() + interval '2 days 1 hour', 60, 5, 'scheduled') RETURNING id`,
+      [D, await person()]);
+    const [{ id: b }] = (await c.query(`INSERT INTO bookings (session_id, student_id, booked_by, status)
+                                        VALUES ($1, $2, $3, 'confirmed') RETURNING id`, [x.id, k0.id, k0.tutor])).rows;
+    await c.query(`SELECT * FROM age_out_sweep()`);
+    assert.equal((await c.query(`SELECT status FROM bookings WHERE id = $1`, [b])).rows[0].status, 'confirmed');
+  }));
+
   await run('p_date distinta de ayer u hoy → invalid_date', async () => {
     for (const d of [day(-2), day(1), null]) {
       await sp(() => assert.rejects(snapshot(d), /invalid_date/, String(d)));

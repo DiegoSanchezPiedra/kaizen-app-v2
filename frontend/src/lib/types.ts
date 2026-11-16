@@ -63,7 +63,8 @@ export type Plan = {
   price_cents: number
   billing_period: string
   max_disciplines: number | null
-  minors_only: boolean
+  min_age: number | null
+  max_age: number | null
   is_active: boolean
   eligible_discipline_ids: (number | string)[]
 }
