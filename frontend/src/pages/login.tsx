@@ -120,6 +120,8 @@ export function LoginPage() {
             // No es type=email: el campo también admite el usuario que da el tutor a un menor.
             inputMode="email"
             enterKeyHint="next"
+            // Marcador al 100 %: al 72 % del Input no llega a 4,5:1 (excepción acotada a las pantallas de entrada).
+            className="**:placeholder:text-muted-foreground!"
             autoComplete="username"
             autoCapitalize="none"
             spellCheck={false}
