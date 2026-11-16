@@ -75,6 +75,50 @@ test.describe('móvil 375×667', () => {
     await expect(page.getByLabel('Email o usuario')).not.toHaveAttribute('aria-invalid', 'true')
   })
 
+  test('límite de intentos (429): aviso general y los campos sin marcar como inválidos', async ({ page }) => {
+    await page.route('**/api/auth/login', (route) =>
+      route.fulfill({ status: 429, contentType: 'application/json', body: JSON.stringify({ code: 'too_many_requests' }) }),
+    )
+    await page.goto('/login')
+    await page.getByLabel('Email o usuario').fill('alguien@example.com')
+    await page.getByLabel('Contraseña', { exact: true }).fill('clave-segura-1')
+    await page.getByRole('button', { name: 'Entrar' }).click()
+    await expect(page.getByRole('alert')).toContainText('Demasiados intentos. Espera unos minutos y vuelve a intentarlo.')
+    await expect(page.locator('[aria-invalid=true]')).toHaveCount(0) // no es un fallo de las credenciales
+  })
+
+  test('cargando: el formulario queda ocupado y el botón no deja enviar dos veces', async ({ page }) => {
+    let envios = 0
+    await page.route('**/api/auth/login', async (route) => {
+      envios++
+      await new Promise((r) => setTimeout(r, 700))
+      await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ code: 'invalid_credentials' }) })
+    })
+    await page.goto('/login')
+    await page.getByLabel('Email o usuario').fill('alguien@example.com')
+    await page.getByLabel('Contraseña', { exact: true }).fill('clave-segura-1')
+    const entrar = page.getByRole('button', { name: 'Entrar' })
+    await entrar.click()
+    await expect(page.locator('form[aria-busy=true]')).toHaveCount(1)
+    await expect(entrar).toBeDisabled()
+    await expect(page.getByRole('alert')).toBeVisible()
+    await expect(page.locator('form[aria-busy=true]')).toHaveCount(0)
+    expect(envios).toBe(1)
+  })
+
+  test('con Google (si la build lleva VITE_GOOGLE_CLIENT_ID) el login sigue cabiendo sin scroll', async ({ page }) => {
+    // Sustituto del script de Google con la altura del botón «large» de GSI (40 px).
+    const GSI = `window.google={accounts:{id:{initialize(){},renderButton(el,o){const d=document.createElement('div');d.style.cssText='width:'+o.width+'px;height:40px';el.appendChild(d)}}}};`
+    await page.route('https://accounts.google.com/gsi/client', (route) => route.fulfill({ contentType: 'text/javascript', body: GSI }))
+    await page.goto('/login')
+    const google = page.locator('main div[class*="min-h-10"]')
+    test.skip((await google.count()) === 0, 'esta build no lleva VITE_GOOGLE_CLIENT_ID')
+    await expect(google.locator('div')).toHaveCount(1)
+    const crear = (await page.getByRole('link', { name: 'Crear cuenta' }).boundingBox())!
+    expect(crear.y + crear.height).toBeLessThanOrEqual(667)
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(667)
+  })
+
   test('la entrada escalonada solo se juega en la primera pantalla de la sesión', async ({ page }) => {
     await page.goto('/login')
     await expect(page.locator('main .auth-rise')).toHaveCount(1)
@@ -238,7 +282,9 @@ test.describe('forgot-password móvil 375×667', () => {
     await expect(page.locator('main .enter-soft')).toHaveCount(1)
     await expect(page.locator('main .auth-rise')).toHaveCount(0) // la entrada de la página ya terminó: no se repite
     const icono = (await page.locator('main .grid.place-items-center').boundingBox())!
-    expect([icono.width, icono.height]).toEqual([52, 52])
+    // Se mide con el fundido en marcha: puede salir 51,99998 por subpíxel.
+    expect(icono.width).toBeCloseTo(52, 0)
+    expect(icono.height).toBeCloseTo(52, 0)
   })
 
   test('error del servidor y sin conexión: aviso general, se queda el formulario', async ({ page }) => {
@@ -313,7 +359,9 @@ test.describe('reset-password móvil 375×667', () => {
     await expect(page.getByText('Ha caducado o ya se ha usado. Pide otro para cambiar tu contraseña.')).toBeVisible()
     await expect(page.getByRole('alert')).toHaveCount(0)
     const icono = (await page.locator('main .grid.place-items-center').boundingBox())!
-    expect([icono.width, icono.height]).toEqual([52, 52])
+    // Se mide con el fundido en marcha: puede salir 51,99998 por subpíxel.
+    expect(icono.width).toBeCloseTo(52, 0)
+    expect(icono.height).toBeCloseTo(52, 0)
   })
 
   test('contraseña débil: el foco va al campo, inválido; y sin conexión: aviso general', async ({ page }) => {
