@@ -44,6 +44,10 @@ export function LoginPage() {
   const [login, setLogin] = useState('')
   const [loginError, setLoginError] = useState<string | null>(null)
   const [usernameHint, setUsernameHint] = useState(false)
+  // Credenciales erróneas: el aviso no dice qué campo falla (seguridad), así que se marcan los dos y se enlazan a él.
+  const [badCreds, setBadCreds] = useState(false)
+  // Teclado: con puntero táctil, el foco inicial abriría el teclado y taparía la pantalla.
+  const [fine] = useState(() => window.matchMedia('(pointer: fine)').matches)
   const [notice, setNotice] = useState<Notice | null>(() =>
     params.get('acceso')
       ? { kind: 'info', title: 'Tu acceso ha cambiado', text: 'Vuelve a entrar.' }
@@ -68,10 +72,13 @@ export function LoginPage() {
   async function run(path: string, body: unknown) {
     setLoading(true)
     setNotice(null)
+    setBadCreds(false)
     try {
       finish(await api<AuthResponse>(path, { method: 'POST', body, auth: false }))
     } catch (err) {
-      setNotice(loginNotice(err instanceof ApiError ? err.code : 'unknown'))
+      const code = err instanceof ApiError ? err.code : 'unknown'
+      setBadCreds(code === 'invalid_credentials')
+      setNotice(loginNotice(code))
     } finally {
       setLoading(false)
     }
@@ -92,9 +99,9 @@ export function LoginPage() {
   }
 
   return (
-    <AuthLayout hero="tall">
+    <AuthLayout>
       <h1 className="font-heading text-[34px] font-bold leading-tight">Entrar</h1>
-      {notice && <StatusAlert notice={notice} />}
+      {notice && <StatusAlert notice={notice} id={badCreds ? 'login-error' : undefined} />}
       <Form
         className="flex flex-col gap-4"
         aria-busy={loading}
@@ -107,9 +114,12 @@ export function LoginPage() {
           void run('/auth/login', { email: id, password: v.password })
         }}
       >
-        <Field name="email" className="items-stretch">
+        <Field name="email" className="items-stretch" invalid={badCreds || undefined}>
           <FieldLabel>Email o usuario</FieldLabel>
           <Input
+            // No es type=email: el campo también admite el usuario que da el tutor a un menor.
+            inputMode="email"
+            enterKeyHint="next"
             autoComplete="username"
             autoCapitalize="none"
             spellCheck={false}
@@ -119,16 +129,24 @@ export function LoginPage() {
               setLogin(e.target.value)
               setLoginError(null)
               setUsernameHint(false)
+              setBadCreds(false)
             }}
+            aria-describedby={badCreds ? 'login-error' : undefined}
             required
-            autoFocus
+            autoFocus={fine}
           />
           <NativeMessages />
           {loginError && <FieldMessage>{loginError}</FieldMessage>}
         </Field>
-        <Field name="password" className="items-stretch gap-1">
+        <Field name="password" className="items-stretch gap-1" invalid={badCreds || undefined}>
           <FieldLabel className="mb-1">Contraseña</FieldLabel>
-          <PasswordInput autoComplete="current-password" required />
+          <PasswordInput
+            enterKeyHint="go"
+            autoComplete="current-password"
+            aria-describedby={badCreds ? 'login-error' : undefined}
+            onChange={() => setBadCreds(false)}
+            required
+          />
           <NativeMessages />
           {isUsername(login) ? (
             <button
