@@ -1,5 +1,5 @@
 import { ChevronLeftIcon, ChevronRightIcon, ZapIcon } from 'lucide-react'
-import { useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { Medal } from '@/components/medal'
 import { MedalDialog, MedalReveal } from '@/components/medal-reveal'
@@ -19,9 +19,28 @@ import { themeOf } from '@/lib/themes'
 import { useProgress } from '@/lib/queries'
 import type { DisciplineMedals } from '@/lib/types'
 import type { Subject } from '@/lib/subject'
+import { cn } from '@/lib/utils'
+
+// ADR 0015: nada de la API se guarda en el dispositivo. La entrada escalonada se juega una vez por sesión de la app (en
+// memoria), igual que en Inicio y Calendario; el anillo de la próxima medalla se dibuja una sola vez por sesión.
+let played = false
+let ringDrawn = false
+
+// Un bloque con su turno de entrada (60 ms por bloque). Es el ítem de la rejilla de escritorio. Sin `on` no anima nada.
+function Rise({ on, i, className, children }: { on: boolean; i: number; className?: string; children: ReactNode }) {
+  return (
+    <div className={cn('min-w-0', on && 'animate-rise', className)} style={on ? { animationDelay: `${i * 60}ms` } : undefined}>
+      {children}
+    </div>
+  )
+}
 
 function Progress({ subject, profileId }: { subject: Subject | null; profileId?: string }) {
   const { withSubject } = useSubject()
+  const [first] = useState(!played)
+  useEffect(() => {
+    played = true
+  }, [])
   const current = madridMonth()
   const [month, setMonth] = useState(current)
   const progress = useProgress(profileId, month)
@@ -35,62 +54,89 @@ function Progress({ subject, profileId }: { subject: Subject | null; profileId?:
         const none = p.streak.best === 0 && p.disciplines.length === 0 && hours.length === 0
         // La elegida; si no, la de más horas.
         const d = p.disciplines.find((x) => x.id === chosen) ?? [...p.disciplines].sort((a, z) => z.hours - a.hours)[0]
+        const multi = p.disciplines.length > 1
+        const who = subject && !subject.self ? name : undefined
+        // Turno de entrada de cada bloque: el selector solo cuenta si se ve.
+        const o = multi ? 1 : 0
+        // Desde lg: izquierda selector (a todo el ancho), héroe y escaleras; derecha racha y horas apiladas arriba. El HTML va
+        // en orden móvil y la rejilla (denso, filas con una fr) coloca cada bloque; la fr absorbe la altura del héroe para que
+        // las horas queden pegadas a la racha sin hueco.
+        const rows = !d ? 'lg:grid-rows-[auto_1fr]' : multi ? 'lg:grid-rows-[auto_auto_1fr_auto]' : 'lg:grid-rows-[auto_1fr_auto]'
         return (
           <>
-            <MedalReveal progress={p} profileId={profileId} name={subject && !subject.self ? name : undefined} />
-            <StreakPanel current={p.streak.current} best={p.streak.best} subject={name} theme={streakTheme(p.disciplines)} large />
-            {d && (
-              <>
-                {p.disciplines.length > 1 && <DisciplinePicker disciplines={p.disciplines} value={d.id} onChange={setChosen} />}
-                <NextMedal key={d.id} d={d} name={subject && !subject.self ? name : undefined} />
-              </>
-            )}
-            {none && (
-              <EmptyState
-                icon={<ZapIcon />}
-                title="Tu primera sesión empieza la racha"
-                text="Cada semana con al menos una sesión suma a la racha."
-                action={
-                  <Button size="xl" render={<Link to={withSubject('/calendar')} />}>
-                    Ver calendario
-                  </Button>
-                }
-              />
-            )}
-            <section aria-labelledby="hours" className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
-              <div className="flex items-center justify-between gap-2">
-                <Button variant="ghost" size="icon-xl" aria-label="Mes anterior" onClick={() => setMonth(addMonths(month, -1))}>
-                  <ChevronLeftIcon />
-                </Button>
-                <h2 id="hours" className="text-base font-semibold" aria-live="polite">
-                  Horas · {formatMonth(month)}
-                </h2>
-                <Button variant="ghost" size="icon-xl" aria-label="Mes siguiente" disabled={month >= current} onClick={() => setMonth(addMonths(month, 1))}>
-                  <ChevronRightIcon />
-                </Button>
-              </div>
-              {hours.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Sin horas este mes.</p>
-              ) : (
-                hours.map((d) => (
-                  <Meter key={d.id} value={d.hours} max={max} aria-label={`${d.name}: ${formatHours(d.hours)}`}>
-                    <div className="flex items-baseline justify-between text-sm">
-                      <span className="font-medium">{d.name}</span>
-                      <span className="font-mono tabular-nums">{formatHours(d.hours)}</span>
-                    </div>
-                    <MeterTrack className="h-2.5 rounded-full">
-                      <MeterIndicator className="rounded-full" />
-                    </MeterTrack>
-                  </Meter>
-                ))
+            <MedalReveal progress={p} profileId={profileId} name={who} />
+            <div className={cn('flex flex-col gap-4 lg:grid lg:grid-flow-dense lg:grid-cols-[minmax(0,1fr)_21rem] lg:items-start lg:gap-x-8', rows)}>
+              {multi && d && (
+                <Rise on={first} i={0} className="lg:col-span-2">
+                  <DisciplinePicker disciplines={p.disciplines} value={d.id} onChange={setChosen} />
+                </Rise>
               )}
-            </section>
-            {d && (
-              <section aria-labelledby="medals" className="flex flex-col gap-3">
-                <h2 id="medals" className="sr-only">Medallas de {d.name}</h2>
-                <MedalLadders key={d.id} d={d} name={subject && !subject.self ? name : undefined} />
-              </section>
-            )}
+              {d && (
+                <Rise on={first} i={o} className="lg:col-start-1 lg:row-span-2">
+                  <NextMedal key={d.id} d={d} name={who} />
+                </Rise>
+              )}
+              <Rise on={first} i={o + 1} className="lg:col-start-2">
+                <StreakPanel current={p.streak.current} best={p.streak.best} subject={name} theme={streakTheme(p.disciplines)} compact />
+              </Rise>
+              {none && (
+                <Rise on={first} i={o + 2} className="lg:col-start-1 lg:row-span-2">
+                  <EmptyState
+                    icon={<ZapIcon />}
+                    title="Tu primera sesión empieza la racha"
+                    text="Cada semana con al menos una sesión suma a la racha."
+                    action={
+                      <Button size="xl" render={<Link to={withSubject('/calendar')} />}>
+                        Ver calendario
+                      </Button>
+                    }
+                  />
+                </Rise>
+              )}
+              {d && (
+                <Rise on={first} i={o + 2} className="lg:col-start-1">
+                  <section aria-labelledby="medals" className="flex flex-col gap-3">
+                    <h2 id="medals" className="text-lg font-semibold">
+                      Medallas de {d.name}
+                    </h2>
+                    <MedalLadders key={d.id} d={d} name={who} />
+                  </section>
+                </Rise>
+              )}
+              <Rise on={first} i={o + 3} className={cn('lg:col-start-2', d && 'lg:row-span-2')}>
+                <section aria-labelledby="hours" aria-busy={progress.isPlaceholderData} className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <Button variant="ghost" size="icon-xl" aria-label="Mes anterior" onClick={() => setMonth(addMonths(month, -1))}>
+                      <ChevronLeftIcon />
+                    </Button>
+                    <h2 id="hours" className="text-base font-semibold" aria-live="polite">
+                      Horas · {formatMonth(month)}
+                    </h2>
+                    <Button variant="ghost" size="icon-xl" aria-label="Mes siguiente" disabled={month >= current} onClick={() => setMonth(addMonths(month, 1))}>
+                      <ChevronRightIcon />
+                    </Button>
+                  </div>
+                  {/* Al cambiar de mes se ven las horas del anterior, atenuadas, hasta que llegan las nuevas. */}
+                  <div className={cn('flex flex-col gap-3 transition-opacity duration-200 ease-(--ease-out)', progress.isPlaceholderData && 'opacity-60')}>
+                    {hours.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Sin horas este mes.</p>
+                    ) : (
+                      hours.map((h) => (
+                        <Meter key={h.id} value={h.hours} max={max} aria-label={`${h.name}: ${formatHours(h.hours)}`}>
+                          <div className="flex items-baseline justify-between text-sm">
+                            <span className="font-medium">{h.name}</span>
+                            <span className="font-mono tabular-nums">{formatHours(h.hours)}</span>
+                          </div>
+                          <MeterTrack className="h-2.5 rounded-full">
+                            <MeterIndicator className="rounded-full transition-[width] duration-200 ease-(--ease-out)" />
+                          </MeterTrack>
+                        </Meter>
+                      ))
+                    )}
+                  </div>
+                </section>
+              </Rise>
+            </div>
           </>
         )
       }}
@@ -105,7 +151,7 @@ function DisciplinePicker({ disciplines, value, onChange }: { disciplines: Disci
   return (
     <div role="group" aria-label="Medallas de la disciplina" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
       {disciplines.map((x) => (
-        <Button key={x.id} size="lg" variant={x.id === value ? 'default' : 'outline'} aria-pressed={x.id === value} onClick={() => onChange(x.id)} className="shrink-0">
+        <Button key={x.id} size="lg" variant={x.id === value ? 'default' : 'outline'} aria-pressed={x.id === value} onClick={() => onChange(x.id)} className="h-11 shrink-0">
           {x.name} · {x.badges.length}/11
         </Button>
       ))}
@@ -122,39 +168,59 @@ function NextMedal({ d, name }: { d: DisciplineMedals; name?: string }) {
   const pct = hours && hours.at > 0 ? Math.min(1, d.hours / hours.at) : 0
   const R = 72
   const C = 2 * Math.PI * R
+  // Solo la primera vez de la sesión el arco se dibuja de 0 al real; al cambiar de disciplina (remonta) sale ya lleno.
+  const [draw] = useState(!ringDrawn)
+  const [lit, setLit] = useState(!draw)
+  useEffect(() => {
+    ringDrawn = true
+    if (lit) return
+    // Dos fotogramas: el primero pinta el arco vacío y el segundo lanza la transición.
+    let b = 0
+    const a = requestAnimationFrame(() => {
+      b = requestAnimationFrame(() => setLit(true))
+    })
+    return () => {
+      cancelAnimationFrame(a)
+      cancelAnimationFrame(b)
+    }
+  }, [lit])
   return (
-    <section aria-labelledby="next-medal" className="flex flex-col items-center gap-2.5 rounded-2xl border-3 border-black bg-brand-ink bg-[repeating-conic-gradient(from_0deg_at_50%_40%,rgb(255_255_255/0.07)_0deg_3deg,transparent_3deg_12deg)] p-4 pt-5 text-center text-white shadow-[4px_4px_0_#000]">
-      <p className="text-sm font-bold tracking-wider text-white/80 uppercase">
-        {d.name} · {themeOf(d.theme).series}
+    <section aria-labelledby="next-medal" className="enter-soft flex flex-col items-center gap-2.5 rounded-2xl border-3 border-black bg-brand-ink bg-[repeating-conic-gradient(from_0deg_at_50%_40%,rgb(255_255_255/0.07)_0deg_3deg,transparent_3deg_12deg)] p-4 pt-5 text-center text-white shadow-[4px_4px_0_#000]">
+      <p className="text-[13px] text-white/75">
+        <span className="font-bold tracking-wider text-white/90 uppercase">
+          {d.name} · {themeOf(d.theme).series}
+        </span>
+        {' · '}
+        {hours ? (name ? `Próxima medalla de ${name}` : 'Tu próxima medalla') : 'Medallas de horas'}
       </p>
-      <p className="-mt-1.5 text-xs text-white/70">{hours ? (name ? `Próxima medalla de ${name}` : 'Tu próxima medalla') : 'Medallas de horas'}</p>
       {hours ? (
         <>
           <div className="relative grid size-40 place-items-center">
             <svg viewBox="0 0 156 156" className="absolute inset-0 -rotate-90" aria-hidden="true">
               <circle cx="78" cy="78" r={R} fill="none" stroke="rgb(255 255 255 / 0.14)" strokeWidth="8" />
-              <circle cx="78" cy="78" r={R} fill="none" stroke={ring} strokeWidth="8" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - pct)} className="transition-[stroke-dashoffset] duration-700 ease-out" />
+              {/* Sin movimiento (prefers-reduced-motion) el CSS global no transiciona stroke-dashoffset: sale ya lleno. */}
+              <circle cx="78" cy="78" r={R} fill="none" stroke={ring} strokeWidth="8" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={lit ? C * (1 - pct) : C} className="transition-[stroke-dashoffset] delay-120 duration-720 ease-(--ease-out) motion-reduce:transition-none" />
             </svg>
             <Medal medal={hours} earned={false} className="size-28" />
           </div>
-          <h3 id="next-medal" style={{ color: ring }} className="font-heading text-4xl leading-none font-extrabold uppercase italic [text-shadow:3px_3px_0_var(--power)]">
+          <h2 id="next-medal" style={{ color: ring }} className="font-heading text-4xl leading-none font-extrabold uppercase italic [text-shadow:3px_3px_0_var(--power)]">
             {hours.name}
-          </h3>
+          </h2>
           {hours.at === 0 ? (
             <p className="text-[15px]">Se consigue con {name ? 'su' : 'tu'} primera sesión</p>
           ) : (
             <Meter value={d.hours} max={hours.at} aria-label={`Horas hacia ${hours.name}`} className="w-full max-w-64 gap-1">
-              <p className="text-[15px]">
-                <span className="font-mono tabular-nums">
+              <p className="text-[15px] text-white/80">
+                <span className="font-mono font-semibold text-white tabular-nums">
                   {formatHours(d.hours).replace(' h', '')} / {formatHours(hours.at)}
                 </span>{' '}
-                · te faltan {formatHours(Math.max(0, hours.at - d.hours))}
+                · te faltan <span className="font-mono tabular-nums">{formatHours(Math.max(0, hours.at - d.hours))}</span>
               </p>
             </Meter>
           )}
         </>
       ) : (
-        <h3 id="next-medal" style={{ color: ring }} className="font-heading text-4xl font-extrabold uppercase italic">Todas conseguidas</h3>
+        <h2 id="next-medal" style={{ color: ring }} className="font-heading text-4xl font-extrabold uppercase italic">Todas conseguidas</h2>
       )}
       <div className="mt-1 w-full border-t border-white/15 pt-3">
         {streak ? (
@@ -246,7 +312,7 @@ function MedalLadders({ d, name }: { d: DisciplineMedals; name?: string }) {
 
 export function ProgressPage() {
   return (
-    <Page title="Progreso">
+    <Page title="Progreso" lgWide>
       <SectionTabs />
       <SubjectGate>{(s) => <Progress {...s} />}</SubjectGate>
     </Page>

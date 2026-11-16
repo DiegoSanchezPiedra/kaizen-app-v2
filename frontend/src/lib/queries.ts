@@ -60,6 +60,8 @@ export const useProgress = (profileId: string | undefined, month?: string) =>
   useQuery({
     queryKey: ['progress', who(profileId), month ?? 'now'],
     queryFn: () => api<Progress>(path('/me/progress', { profile_id: profileId, month })),
+    // Al cambiar de mes se ve el anterior (sin esqueleto); al cambiar de perfil, nunca datos de otro.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === who(profileId) ? prev : undefined),
   })
 
 // Quien mira ya celebró las medallas de ese perfil; recarga su progreso (Inicio y Progreso).
