@@ -21,10 +21,11 @@ const ICONS = {
 const DEFAULT_ICON = { error: 'alert', warning: 'triangle', info: 'info', success: 'check' } as const
 
 // Error general (o aviso) encima del formulario: icono + título, nunca solo color.
-export function StatusAlert({ notice }: { notice: Notice }) {
+// `id` (opcional): para que los campos del formulario lo enlacen con aria-describedby.
+export function StatusAlert({ notice, id }: { notice: Notice; id?: string }) {
   const Icon = ICONS[notice.icon ?? DEFAULT_ICON[notice.kind]]
   return (
-    <Alert variant={notice.kind} role={notice.kind === 'error' ? 'alert' : 'status'} className="enter-soft" tabIndex={-1}>
+    <Alert id={id} variant={notice.kind} role={notice.kind === 'error' ? 'alert' : 'status'} className="enter-soft" tabIndex={-1}>
       <Icon />
       <AlertTitle>{notice.title}</AlertTitle>
       {notice.text && <AlertDescription>{notice.text}</AlertDescription>}

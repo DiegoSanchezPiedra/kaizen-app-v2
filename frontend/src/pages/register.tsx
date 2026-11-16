@@ -1,5 +1,4 @@
-import { CalendarIcon } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { AuthLayout } from '@/components/auth-layout'
 import { PasswordInput } from '@/components/password-input'
@@ -8,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Form } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import { InputGroup, InputGroupInput } from '@/components/ui/input-group'
 import { ApiError, api } from '@/lib/api'
 import { errorText } from '@/lib/errors'
 import { maskSpanishDate, parseSpanishDate } from '@/lib/format'
@@ -26,12 +25,23 @@ export function RegisterPage() {
   const [birth, setBirth] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState<Notice | null>(null)
+  // Menor: el aviso va arriba pero habla de la fecha de nacimiento, así que se enlaza con ese campo.
+  const [minor, setMinor] = useState(false)
   const [loading, setLoading] = useState(false)
+  // Teclado: con puntero táctil, el foco inicial abriría el teclado y taparía la pantalla.
+  const [fine] = useState(() => window.matchMedia('(pointer: fine)').matches)
+  const form = useRef<HTMLFormElement>(null)
+  // Con un error en un campo, el foco va a él: el lector lo anuncia y el teclado queda donde hay que corregir.
+  const focus = (field: string) => form.current?.querySelector<HTMLElement>(`[name="${field}"]`)?.focus()
 
   async function submit(v: Record<string, unknown>) {
     setNotice(null)
+    setMinor(false)
     const birthDate = parseSpanishDate(birth)
-    if (!birthDate) return setErrors({ birthDate: errorText('invalid_birth_date') })
+    if (!birthDate) {
+      setErrors({ birthDate: errorText('invalid_birth_date') })
+      return focus('birthDate')
+    }
     setErrors({})
     setLoading(true)
     try {
@@ -44,14 +54,17 @@ export function RegisterPage() {
     } catch (err) {
       const code = err instanceof ApiError ? err.code : 'unknown'
       const field = FIELD_OF[code] ?? (err instanceof ApiError ? err.field : undefined)
-      if (field) setErrors({ [field]: errorText(code) })
-      else if (code === 'minor_cannot_register')
+      if (field) {
+        setErrors({ [field]: errorText(code) })
+        focus(field)
+      } else if (code === 'minor_cannot_register') {
+        setMinor(true)
         setNotice({
           kind: 'warning',
           title: 'Un menor lo da de alta su padre, madre o tutor',
           text: 'Si lo eres, crea tu cuenta y añade después a tu hijo o hija.',
         })
-      else setNotice({ kind: code === 'network' ? 'warning' : 'error', icon: code === 'network' ? 'wifi' : undefined, title: errorText(code) })
+      } else setNotice({ kind: code === 'network' ? 'warning' : 'error', icon: code === 'network' ? 'wifi' : undefined, title: errorText(code) })
     } finally {
       setLoading(false)
     }
@@ -65,16 +78,16 @@ export function RegisterPage() {
           Para mayores de edad. A un menor lo da de alta su padre, madre o tutor desde su propia cuenta.
         </p>
       </div>
-      {notice && <StatusAlert notice={notice} />}
-      <Form className="flex flex-col gap-4" errors={errors} onFormSubmit={submit}>
+      {notice && <StatusAlert notice={notice} id={minor ? 'register-notice' : undefined} />}
+      <Form ref={form} className="flex flex-col gap-4" errors={errors} onFormSubmit={submit}>
         <Field name="displayName" className="items-stretch">
           <FieldLabel>Nombre y apellidos</FieldLabel>
-          <Input autoComplete="name" required autoFocus />
+          <Input autoComplete="name" autoCapitalize="words" enterKeyHint="next" required autoFocus={fine} />
           <NativeMessages />
         </Field>
         <Field name="email" className="items-stretch">
           <FieldLabel>Email</FieldLabel>
-          <Input type="email" autoComplete="email" inputMode="email" required />
+          <Input type="email" autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} enterKeyHint="next" required />
           <NativeMessages email />
           {errors.email && (
             <FieldMessage>
@@ -87,25 +100,29 @@ export function RegisterPage() {
         </Field>
         <Field name="password" className="items-stretch">
           <FieldLabel>Contraseña</FieldLabel>
-          <PasswordInput autoComplete="new-password" required minLength={8} />
+          <PasswordInput autoComplete="new-password" enterKeyHint="next" required minLength={8} />
           <NativeMessages minLength />
           {errors.password ? <FieldMessage>{errors.password}</FieldMessage> : <FieldDescription>Mínimo 8 caracteres.</FieldDescription>}
         </Field>
-        <Field name="birthDate" className="items-stretch">
+        <Field name="birthDate" className="items-stretch" invalid={minor || undefined}>
           <FieldLabel>Fecha de nacimiento</FieldLabel>
           <InputGroup>
             <InputGroupInput
               inputMode="numeric"
               autoComplete="bday"
+              enterKeyHint="go"
+              // Marcador al 100 %: al 72 % del Input no llega a 4,5:1 (excepción acotada a las pantallas de entrada).
+              className="**:placeholder:text-muted-foreground!"
               placeholder="dd/mm/aaaa"
               maxLength={10}
               value={birth}
-              onChange={(e) => setBirth(maskSpanishDate(e.target.value))}
+              onChange={(e) => {
+                setBirth(maskSpanishDate(e.target.value))
+                setMinor(false)
+              }}
+              aria-describedby={minor ? 'register-notice' : undefined}
               required
             />
-            <InputGroupAddon align="inline-end" aria-hidden="true">
-              <CalendarIcon />
-            </InputGroupAddon>
           </InputGroup>
           <NativeMessages />
           {errors.birthDate && <FieldMessage>{errors.birthDate}</FieldMessage>}
