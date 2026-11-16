@@ -228,7 +228,7 @@ function MfaStep({
 
   return (
     <AuthLayout>
-      <Button variant="ghost" className="-ml-3 self-start" onClick={onBack}>
+      <Button variant="ghost" className="-ml-3 min-h-11 self-start" onClick={onBack}>
         <ArrowLeftIcon />
         Volver
       </Button>

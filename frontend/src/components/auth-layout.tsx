@@ -27,6 +27,14 @@ function useFirstVisit() {
 // Pantallas sin sesión: en móvil, cabecera de marca y hoja encima; en escritorio, panel de marca a la izquierda.
 export function AuthLayout({ children }: { children: React.ReactNode }) {
   const first = useFirstVisit()
+  // La clase solo vale mientras dura la entrada (~620 ms): un bloque que aparece después (p. ej. «enlace enviado»)
+  // no debe repetirla.
+  const [rising, setRising] = useState(first)
+  useEffect(() => {
+    if (!first) return
+    const t = setTimeout(() => setRising(false), 900)
+    return () => clearTimeout(t)
+  }, [first])
   return (
     <div className="relative flex min-h-dvh flex-col lg:flex-row">
       {/* Esquina superior derecha: sobre la marca en móvil, sobre el formulario en lg. */}
@@ -43,7 +51,7 @@ export function AuthLayout({ children }: { children: React.ReactNode }) {
       </aside>
       {/* En oscuro la hoja sube a la superficie para que su borde se lea contra la cabecera. */}
       <main className="relative -mt-6 flex flex-1 justify-center rounded-t-3xl bg-background px-5 pt-7 pb-6 shadow-[0_-1px_0_var(--border)] dark:bg-card lg:mt-0 lg:items-center lg:rounded-none lg:p-12 lg:shadow-none lg:dark:bg-background">
-        <div className={first ? 'auth-rise flex w-full max-w-100 flex-col gap-4' : 'flex w-full max-w-100 flex-col gap-4'}>
+        <div className={rising ? 'auth-rise flex w-full max-w-100 flex-col gap-4' : 'flex w-full max-w-100 flex-col gap-4'}>
           {children}
         </div>
       </main>
