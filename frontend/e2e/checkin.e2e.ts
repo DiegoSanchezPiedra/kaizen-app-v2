@@ -13,6 +13,7 @@ test.use({
 
 const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url')
 const TOKEN = `${b64({ alg: 'none' })}.${b64({ sub: 'u-1', role: 'alumno', exp: 4102444800 })}.x`
+const TOKEN_TUTOR = `${b64({ alg: 'none' })}.${b64({ sub: 'u-1', role: 'tutor', exp: 4102444800 })}.x`
 
 const cand = (id: string, student: string, name: string, disc: string, checked: string | null = null) => ({ booking_id: id, student_id: student, display_name: name, discipline: disc, starts_at: '2026-11-18T11:30:00.000Z', checked_in_at: checked })
 const YO = cand('b1', 'u-1', 'Prueba', 'Judo adultos')
@@ -22,8 +23,9 @@ const YA = cand('b4', 'k-3', 'Alejandro Fernández-Valdés', 'Boxeo juvenil', '2
 type Respuesta = { status?: number; json: unknown }
 type Camara = 'on' | 'denied' | 'none'
 
-async function abrir(page: Page, { camara = 'on', respuesta, enviados = [] }: { camara?: Camara; respuesta?: Respuesta; enviados?: unknown[] } = {}) {
-  await page.addInitScript((t) => localStorage.setItem('kz.token', t), TOKEN)
+type Sujeto = { rol?: 'alumno' | 'tutor'; menor?: boolean }
+async function abrir(page: Page, { camara = 'on', respuesta, enviados = [], rol = 'alumno', menor = false }: { camara?: Camara; respuesta?: Respuesta; enviados?: unknown[] } & Sujeto = {}) {
+  await page.addInitScript((t) => localStorage.setItem('kz.token', t), rol === 'tutor' ? TOKEN_TUTOR : TOKEN)
   if (camara !== 'on') {
     await page.addInitScript((c) => {
       const md = navigator.mediaDevices
@@ -35,8 +37,8 @@ async function abrir(page: Page, { camara = 'on', respuesta, enviados = [] }: { 
   await page.route('**/api/**', async (r) => {
     const u = new URL(r.request().url()).pathname.replace(/^\/api/, '')
     const json = (j: unknown, status = 200) => r.fulfill({ status, json: j })
-    if (u === '/me') return json({ id: 'u-1', role: 'alumno', display_name: 'Prueba', email: 'p@example.invalid', username: null, birth_date: '1990-01-01', has_password: true, avatar: null, can_create_children: false, minor: null })
-    if (u === '/me/children') return json({ children: [] })
+    if (u === '/me') return json({ id: 'u-1', role: rol, display_name: 'Prueba', email: 'p@example.invalid', username: null, birth_date: menor ? '2012-05-01' : '1990-01-01', has_password: true, avatar: null, can_create_children: rol === 'tutor', minor: menor ? { can_book: false, can_publish: false } : null })
+    if (u === '/me/children') return json({ children: rol === 'tutor' ? HIJOS.map((h) => ({ id: h.student_id, display_name: h.display_name, birth_date: '2015-01-01', pending_claim: false })) : [] })
     if (u === '/checkin' && r.request().method() === 'POST') {
       enviados.push(r.request().postDataJSON())
       return json(respuesta?.json, respuesta?.status ?? 200)
@@ -48,6 +50,9 @@ async function abrir(page: Page, { camara = 'on', respuesta, enviados = [] }: { 
 
 const escanear = async (page: Page) => {
   const campo = page.getByLabel('Código (solo en desarrollo)')
+  // Primero la pantalla (la ruta es diferida); el campo solo existe en un servidor de desarrollo, no en una build.
+  await page.getByRole('main').getByRole('link', { name: 'Reservas' }).waitFor()
+  test.skip((await campo.count()) === 0, 'Sin el campo «solo en desarrollo» (build): hace falta un servidor de desarrollo')
   await campo.fill('CODIGO')
   await campo.press('Enter')
 }
@@ -160,4 +165,46 @@ test('el foco entra en el resultado y el orden del DOM es el visual', async ({ p
     return [!!(back.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING), back.getBoundingClientRect().y < card.getBoundingClientRect().y]
   })
   expect(dom && y).toBe(true)
+})
+
+test('el menú queda inerte bajo el visor: Tab nunca entra en él', async ({ page }) => {
+  await abrir(page, { respuesta: { json: { status: 'done', results: [{ ...YO, already: false }] } } })
+  await escanear(page)
+  await expect(page.getByRole('status').filter({ hasText: 'Check-in hecho' })).toBeFocused()
+  await expect(page.locator('nav#menu')).toHaveAttribute('inert', '')
+  const dentro: boolean[] = []
+  for (let i = 0; i < 6; i++) {
+    await page.keyboard.press('Tab')
+    dentro.push(await page.evaluate(() => !!document.activeElement?.closest('nav#menu')))
+  }
+  expect(dentro).not.toContain(true)
+})
+
+test('tutor con hijos: nadie es «Tú» y se registra a los hijos marcados', async ({ page }) => {
+  const enviados: unknown[] = []
+  const hijos = HIJOS.slice(0, 3)
+  await abrir(page, { rol: 'tutor', enviados, respuesta: { json: { status: 'choose', candidates: hijos } } })
+  await escanear(page)
+  const hoja = page.getByRole('dialog')
+  await expect(hoja.getByText('Tú', { exact: true })).toHaveCount(0)
+  for (const h of hijos) await expect(hoja.getByText(h.display_name, { exact: true })).toBeVisible()
+  await hoja.getByRole('button', { name: 'Marcar todos' }).click()
+  await expect(hoja.getByRole('button', { name: 'Registrar a 3' })).toBeEnabled()
+})
+
+test('menor con acceso propio: su check-in sale sin nombre y sin cuota ni pasos de perfil', async ({ page }) => {
+  await abrir(page, { menor: true, respuesta: { json: { status: 'done', results: [{ ...YO, already: false }] } } })
+  await escanear(page)
+  await expect(page.getByRole('heading', { name: 'Check-in hecho' })).toBeVisible()
+  await expect(page.getByText('Judo adultos · Hoy · 12:30')).toBeVisible()
+  await expect(page.getByText('Tú', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Volver a mis reservas' })).toHaveAttribute('href', '/bookings')
+})
+
+test('fuera de /checkin el menú sigue activo (el shell no cambia)', async ({ page }) => {
+  await abrir(page)
+  await page.goto('/bookings')
+  await expect(page.locator('nav#menu')).toBeVisible()
+  await expect(page.locator('nav#menu')).not.toHaveAttribute('inert', /.*/)
+  await expect(page.getByRole('link', { name: 'Ir al menú' })).not.toHaveAttribute('inert', /.*/)
 })

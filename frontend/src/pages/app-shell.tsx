@@ -41,6 +41,8 @@ export function AppShell() {
   // El sujeto sigue al cambiar de pestaña.
   const para = useSearchParams()[0].get('para')
   const search = para ? `?${new URLSearchParams({ para })}` : ''
+  // El visor de check-in cubre la pantalla entera: el menú y su enlace de salto quedan inertes (sin foco bajo el visor).
+  const covered = pathname.startsWith('/checkin')
   return (
     // El HTML va en el orden visual móvil (DESIGN.md): primero el contenido y, al final, la barra inferior; el Tab lo sigue.
     // Desde lg el menú pasa a la izquierda con la rejilla (no con `order`), y «Ir al menú» evita al teclado recorrer toda
@@ -48,6 +50,7 @@ export function AppShell() {
     <div className="flex min-h-dvh flex-col lg:grid lg:grid-cols-[16rem_minmax(0,1fr)]">
       <a
         href="#menu"
+        inert={covered}
         onClick={(e) => {
           e.preventDefault()
           document.querySelector<HTMLElement>('#menu a')?.focus()
@@ -62,6 +65,7 @@ export function AppShell() {
       </main>
       <nav
         id="menu"
+        inert={covered}
         aria-label="Principal"
         className="print:hidden fixed inset-x-0 bottom-0 z-10 grid border-t bg-card px-1 pt-1.5 pb-[calc(6px+env(safe-area-inset-bottom))] lg:static lg:col-start-1 lg:row-start-1 lg:flex lg:flex-col lg:gap-1 lg:border-t-0 lg:border-r lg:px-3 lg:py-4"
         style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}

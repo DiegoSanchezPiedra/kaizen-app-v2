@@ -268,7 +268,7 @@ export function CheckinPage() {
           <Panel role="status">
             <div className="flex items-center gap-3">
               <CircleCheckIcon
-                className={`size-9 shrink-0 transition-[opacity,scale] duration-300 ease-(--ease-out) starting:scale-80 starting:opacity-0 ${allAlready ? 'text-muted-foreground' : 'text-success'}`}
+                className={`size-9 shrink-0 transition-[opacity,scale] duration-200 ease-(--ease-out) starting:scale-90 starting:opacity-0 ${allAlready ? 'text-muted-foreground' : 'text-success'}`}
                 aria-hidden="true"
               />
               <Title>{allAlready ? 'Ya estaba registrado' : 'Check-in hecho'}</Title>
