@@ -30,7 +30,7 @@ const PLANS = [
 const DISCIPLINAS = ['Judo', 'Jiu-jitsu', 'Kárate'].map((name, i) => ({ id: i + 1, name, min_age: null, max_age: null, is_active: true, is_open: false }))
 
 // children: el alumno adulto con hijos también ve el selector «Para» (va por sí mismo por defecto).
-async function abrir(page: Page, o: { role?: 'alumno' | 'tutor'; subscription?: object | null; path?: string; children?: boolean } = {}) {
+async function abrir(page: Page, o: { role?: 'alumno' | 'tutor'; subscription?: object | null; path?: string; children?: boolean; disciplines?: object[] } = {}) {
   const role = o.role ?? 'alumno'
   const posts: unknown[] = []
   await page.addInitScript((t) => localStorage.setItem('kz.token', t), token(role))
@@ -46,13 +46,18 @@ async function abrir(page: Page, o: { role?: 'alumno' | 'tutor'; subscription?: 
       posts.push(r.request().postDataJSON())
       return
     }
+    // Cambio de disciplina: igual, apuntado y sin responder.
+    if (r.request().method() === 'POST' && /^\/billing\/subscriptions\/[^/]+\/disciplines$/.test(u)) {
+      posts.push(r.request().postDataJSON())
+      return
+    }
     if (r.request().method() !== 'GET') return json({})
     if (u === '/me') return json({ ...ME, role })
     if (u === '/me/children') return json({ children: role === 'tutor' || o.children ? [LARA] : [] })
     if (u === '/me/profile-status') return json({ ok: true, missing: [] })
     if (u === '/billing/subscription') return o.subscription === null ? json({ code: 'subscription_not_found' }, 404) : json(o.subscription ?? CUOTA)
     if (u === '/plans') return json({ plans: PLANS })
-    if (u === '/disciplines') return json({ disciplines: DISCIPLINAS })
+    if (u === '/disciplines') return json({ disciplines: o.disciplines ?? DISCIPLINAS })
     return json({})
   })
   // Nunca se sigue la redirección a Stripe.
@@ -160,6 +165,15 @@ test('cambiar de plan, subida: diferencia en la opción, el diálogo dice import
   await expect.poll(() => posts).toEqual([{ plan_id: 2, discipline_ids: [] }])
 })
 
+test('cambiar de plan, el banco rechaza el pago: el aviso sale una sola vez', async ({ page }) => {
+  await abrir(page, { path: '/billing/plan' })
+  await page.route('**/api/billing/subscriptions/*/plan', (r) => r.fulfill({ status: 402, json: { code: 'payment_failed' } }))
+  await page.getByText('Plan ilimitado', { exact: true }).click()
+  await page.getByRole('button', { name: 'Revisar el cambio' }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Pasar a Plan ilimitado' }).click()
+  await expect(page.getByText('El banco ha rechazado el pago')).toHaveCount(1)
+})
+
 test('cambiar de plan con una bajada programada: aviso, opción marcada y el diálogo dice que la anula', async ({ page }) => {
   await abrir(page, {
     path: '/billing/plan',
@@ -186,5 +200,56 @@ test('cambiar de plan por un hijo: nombre de pila, nunca el completo fuera del s
 test('cambiar de plan con el cobro pendiente: el motivo y la salida a la cuota', async ({ page }) => {
   await abrir(page, { path: '/billing/plan', subscription: { ...CUOTA, status: 'past_due' } })
   await expect(page.getByText('El plan se podrá cambiar cuando el cobro esté al día.')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Ver la cuota' })).toHaveAttribute('href', '/billing')
+})
+
+// ── Cambiar de disciplina (/billing/discipline) ──
+
+test('cambiar de disciplina: lo actual arriba, filas de radio y el diálogo dice qué cambia, cuándo, cuánto cuesta y qué queda', async ({ page }) => {
+  const posts = await abrir(page, { path: '/billing/discipline' })
+  await expect(page.getByRole('heading', { name: 'Tus disciplinas ahora' })).toBeVisible()
+  await expect(page.getByRole('radiogroup', { name: '¿Cuál dejas?' }).getByRole('radio', { name: 'Judo' })).toBeChecked()
+  await expect(page.getByRole('button', { name: 'Revisar el cambio' })).toBeDisabled()
+  await page.getByRole('radiogroup', { name: '¿A cuál pasas?' }).getByRole('radio', { name: 'Kárate' }).click()
+  await expect(page.getByText('Se aplica hoy y cancela las reservas de Judo.')).toBeVisible()
+  await page.getByRole('button', { name: 'Revisar el cambio' }).click()
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog).toContainText('¿Cambiar Judo por Kárate?')
+  await expect(dialog).toContainText('CuestaNada')
+  await expect(dialog).toContainText('Gasta 1 · no quedan cambios')
+  await dialog.getByRole('button', { name: 'Cambiar a Kárate' }).click()
+  // Pendiente: sin spinner, texto y botón deshabilitado; el diálogo no se cierra.
+  await expect(dialog.getByRole('button', { name: 'Cambiando…' })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeVisible()
+  await expect.poll(() => posts).toEqual([{ from_id: '1', to_id: '3' }])
+})
+
+test('cambiar de disciplina sin cambios: el aviso dice hasta cuándo y no deja elegir', async ({ page }) => {
+  await abrir(page, { path: '/billing/discipline', subscription: { ...CUOTA, discipline_changes_left: 0 } })
+  await expect(page.getByText('No quedan cambios hasta el 5 dic 2026')).toBeVisible()
+  await expect(page.getByRole('radio')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Ver la cuota' })).toHaveAttribute('href', '/billing')
+})
+
+test('cambiar de disciplina por un hijo con una que ya no se cubre: nombre de pila y no gasta cambios', async ({ page }) => {
+  await abrir(page, {
+    role: 'tutor',
+    path: '/billing/discipline',
+    subscription: { ...CUOTA, plan: { id: 3, name: 'Kids', price_cents: 3500, max_disciplines: 1 }, disciplines: [{ id: 1, name: 'Judo' }] },
+    disciplines: DISCIPLINAS.map((d) => (d.id === 1 ? { ...d, max_age: 10 } : d)),
+  })
+  await expect(page.getByRole('heading', { name: 'Disciplinas de Lara ahora' })).toBeVisible()
+  await expect(page.getByText('Ya no se cubre', { exact: true })).toBeVisible()
+  await page.getByRole('radiogroup', { name: '¿A cuál pasa Lara?' }).getByRole('radio', { name: 'Kárate' }).click()
+  await page.getByRole('button', { name: 'Revisar el cambio' }).click()
+  await expect(page.getByRole('alertdialog')).toContainText('¿Cambiar Judo por Kárate para Lara?')
+  await expect(page.getByRole('alertdialog')).toContainText('No gasta ninguno')
+  await expect(page.locator('main section').getByText('Lara Pérez')).toHaveCount(0)
+})
+
+test('cambiar de disciplina con la cuota impagada: el motivo y la salida a la cuota', async ({ page }) => {
+  await abrir(page, { path: '/billing/discipline', subscription: { ...CUOTA, status: 'unpaid' } })
+  await expect(page.getByText('Ahora no se pueden cambiar las disciplinas')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Ver la cuota' })).toHaveAttribute('href', '/billing')
 })

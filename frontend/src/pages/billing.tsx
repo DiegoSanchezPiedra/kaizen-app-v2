@@ -14,7 +14,7 @@ import { EmptyState, ErrorState, ListSkeleton, QueryView } from '@/components/sc
 import { SubjectGate, subjectName } from '@/components/subject-gate'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { RadioGroup } from '@/components/ui/radio-group'
+import { Radio, RadioGroup } from '@/components/ui/radio-group'
 import { Sheet, SheetDescription, SheetFooter, SheetHeader, SheetPanel, SheetPopup, SheetTitle, SheetClose, SheetTrigger } from '@/components/ui/sheet'
 import { useSubject } from '@/hooks/use-subject'
 import { ApiError, api } from '@/lib/api'
@@ -604,11 +604,6 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
 
   return (
     <>
-      {problem && (
-        <Note kind={problem.code === 'not_payer' ? 'info' : 'error'} title={PROBLEM[problem.code][0]}>
-          {PROBLEM[problem.code][1]}
-        </Note>
-      )}
       <section aria-labelledby="plan-now" className={cn('enter-soft', CARD)}>
         <h2 id="plan-now" className="text-lg font-semibold">
           {name ? `Plan de ${name} ahora` : 'Tu plan ahora'}
@@ -760,16 +755,44 @@ export function PlanPage() {
 
 // ── Cambiar de disciplina ────────────────────────────────────────────────
 
+// Fila de 56 px con radio dentro de una tarjeta, como las filas con casilla de PlanChange.
+const PICK_ROW =
+  'flex min-h-14 cursor-pointer items-center gap-3 px-4 py-2 transition-colors duration-150 ease-(--ease-out) hover:bg-accent has-data-checked:bg-primary/6 has-data-disabled:cursor-default has-data-disabled:text-muted-foreground has-data-disabled:hover:bg-transparent'
+
+type PickItem = { id: string; name: string; note?: string; free?: boolean; disabled?: boolean }
+
+function PickRows({ id, title, items, value, onChange, empty }: { id: string; title: string; items: PickItem[]; value: string; onChange: (v: string) => void; empty?: string }) {
+  return (
+    <section aria-labelledby={id} className={cn('enter-soft overflow-hidden', CARD)}>
+      <h2 id={id} className="font-semibold">
+        {title}
+      </h2>
+      {items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{empty}</p>
+      ) : (
+        <RadioGroup value={value} onValueChange={(v) => onChange(String(v))} aria-labelledby={id} className={cn(ROWS, 'gap-0')}>
+          {items.map((d) => (
+            <label key={d.id} className={PICK_ROW}>
+              <Radio value={d.id} disabled={d.disabled} aria-label={d.note ? `${d.name}, ${d.note}` : d.name} />
+              <span className="flex-1 font-medium">{d.name}</span>
+              {d.note && <Tag variant={d.free ? 'success' : 'secondary'}>{d.note}</Tag>}
+            </label>
+          ))}
+        </RadioGroup>
+      )}
+    </section>
+  )
+}
+
 function DisciplineChange({ s, subject }: Props & { s: Subscription }) {
   const navigate = useNavigate()
   const { withSubject, birthDate: birth } = useSubject() // la edad de hoy del sujeto decide qué disciplinas cubre
   const plans = usePlans()
   const disciplines = useDisciplines()
-  const [from, setFrom] = useState(String(s.disciplines[0]?.id ?? ''))
+  const [picked, setFrom] = useState<string | null>(null)
   const [to, setTo] = useState('')
   const [open, setOpen] = useState(false)
-  const [limit, setLimit] = useState<string | null>(null)
-  const name = subjectName(subject)
+  const name = subjectName(subject)?.split(' ')[0]
 
   const change = useMutation({
     mutationFn: () =>
@@ -780,25 +803,37 @@ function DisciplineChange({ s, subject }: Props & { s: Subscription }) {
     onSuccess: (r) => {
       setOpen(false)
       const now = (disciplines.data ?? []).filter((d) => r.disciplines.includes(String(d.id)))
-      toastOk(`Hecho: ahora ${name ? 'tiene' : 'tienes'} ${names(now)}.`, r.free ? 'No ha gastado ningún cambio.' : `${changesLeft(r.changes_left)}.`)
+      toastOk(`Hecho: ahora ${name ? `${name} tiene` : 'tienes'} ${names(now)}.`, r.free ? 'No ha gastado ningún cambio.' : `${changesLeft(r.changes_left)}.`)
       void refreshBilling()
       void refreshBookings()
       navigate(withSubject('/billing'))
     },
     onError: (err) => {
       setOpen(false)
-      if (err instanceof ApiError && err.code === 'discipline_change_limit') {
-        const at = typeof err.details.resets_at === 'string' ? err.details.resets_at : null
-        setLimit(at)
-        return
-      }
       toastError(err)
-      if (['payer_change_pending', 'subscription_not_in_force', 'discipline_not_chosen'].includes(errorCode(err))) void refreshBilling()
+      // Sin cambios (o la cuota cambió por debajo): al refrescar, la pantalla enseña el motivo y la fecha.
+      if (['discipline_change_limit', 'payer_change_pending', 'subscription_not_in_force', 'discipline_not_chosen'].includes(errorCode(err))) void refreshBilling()
     },
   })
+  const busy = change.isPending
 
-  if (disciplineLocked(s)) return <Note kind="info" title="Ahora no se pueden cambiar las disciplinas">{planLock(s)}</Note>
-  if (s.plan.max_disciplines === null) return <Note kind="info" title={errorText('plan_all_disciplines')} />
+  const toBilling = (
+    <Button variant="outline" size="lg" render={<Link to={withSubject('/billing')} />}>
+      Ver la cuota
+    </Button>
+  )
+  if (disciplineLocked(s))
+    return (
+      <Note kind="info" title="Ahora no se pueden cambiar las disciplinas" action={toBilling}>
+        {planLock(s)}
+      </Note>
+    )
+  if (s.plan.max_disciplines === null)
+    return (
+      <Note kind="info" title={errorText('plan_all_disciplines')} action={toBilling}>
+        Con este plan no hay cambios de disciplina.
+      </Note>
+    )
   if (plans.isPending || disciplines.isPending) return <ListSkeleton rows={3} />
   if (plans.isError || disciplines.isError) return <ErrorState error={plans.error ?? disciplines.error} onRetry={() => void Promise.all([plans.refetch(), disciplines.refetch()])} />
 
@@ -808,73 +843,104 @@ function DisciplineChange({ s, subject }: Props & { s: Subscription }) {
   const options = (plan ? eligibleDisciplines(plan, disciplines.data, birth) : disciplines.data.filter((d) => d.is_active && !d.is_open && fitsAge(d, birth))).filter(
     (d) => !chosen.includes(String(d.id)),
   )
-  const fromD = disciplines.data.find((d) => String(d.id) === from)
-  const fromName = s.disciplines.find((d) => String(d.id) === from)?.name ?? ''
-  const toName = options.find((d) => String(d.id) === to)?.name ?? ''
-  const free = freeChange(fromD, birth)
   const left = s.discipline_changes_left ?? 0
-  const out = left === 0 && !free
+  const current = s.disciplines.map((d) => ({ id: String(d.id), name: d.name, free: freeChange(disciplines.data.find((x) => String(x.id) === String(d.id)), birth) }))
+  // Por defecto, la que ya no se cubre: ese cambio es gratis.
+  const from = picked ?? (current.find((d) => d.free) ?? current[0])?.id ?? ''
+  const fromD = current.find((d) => d.id === from)
+  const fromName = fromD?.name ?? ''
+  const free = !!fromD?.free
+  const toName = options.find((d) => String(d.id) === to)?.name ?? ''
+  const out = left === 0 && !current.some((d) => d.free)
+  const renews = s.current_period_end ? formatShortDate(s.current_period_end) : null
+  const nowValue =
+    current.length === 1 && free ? (
+      <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
+        {fromName} <Tag variant="success">Ya no se cubre</Tag>
+      </span>
+    ) : (
+      names(current)
+    )
 
   return (
     <>
-      {limit && (
-        <Note kind="warning" title="No te quedan cambios">
-          Vuelves a tener cambios el {formatShortDate(limit)}. Si una de las disciplinas deja de cubrirse, ese cambio es gratis y se puede hacer igualmente.
+      <section aria-labelledby="disc-now" className={cn('enter-soft', CARD)}>
+        <h2 id="disc-now" className="text-lg font-semibold">
+          {name ? `Disciplinas de ${name} ahora` : 'Tus disciplinas ahora'}
+        </h2>
+        <div className="flex flex-col gap-1">
+          <p className="text-[17px] leading-snug font-semibold">{s.plan.name}</p>
+          <p className="flex flex-wrap items-baseline gap-x-2">
+            <span className="font-heading text-[32px] leading-none font-bold tabular-nums">{left}</span>
+            <span className="text-sm text-muted-foreground">{left === 1 ? 'cambio disponible' : 'cambios disponibles'} este periodo</span>
+          </p>
+        </div>
+        <Kv
+          rows={[
+            [current.length === 1 ? 'Disciplina' : 'Disciplinas', nowValue],
+            ...(renews ? [['Se renueva', renews] as [string, string]] : []),
+          ]}
+        />
+      </section>
+      {out ? (
+        <Note kind="warning" title={`No quedan cambios hasta el ${renews ?? 'próximo periodo'}`} action={toBilling}>
+          Si una disciplina deja de cubrirse, ese cambio es gratis y se puede hacer igualmente.
         </Note>
+      ) : (
+        <>
+          {current.length > 1 && (
+            <PickRows
+              id="disc-from"
+              title={name ? `¿Cuál deja ${name}?` : '¿Cuál dejas?'}
+              value={from}
+              onChange={setFrom}
+              items={current.map((d) => ({ ...d, note: d.free ? 'Ya no se cubre · gratis' : undefined, disabled: left === 0 && !d.free }))}
+            />
+          )}
+          <PickRows
+            id="disc-to"
+            title={name ? `¿A cuál pasa ${name}?` : '¿A cuál pasas?'}
+            value={to}
+            onChange={setTo}
+            empty="No hay otras disciplinas en este plan."
+            items={options.map((d) => ({ id: String(d.id), name: d.name, note: ageRangeLabel(d.min_age, d.max_age) || undefined }))}
+          />
+          {options.length > 0 && (
+            <StickyFooter>
+              <Button size="xl" disabled={!toName || busy} onClick={() => setOpen(true)}>
+                {busy ? 'Cambiando…' : 'Revisar el cambio'}
+              </Button>
+              <p className="text-center text-sm text-pretty text-muted-foreground">
+                {toName ? `Se aplica hoy y cancela las reservas de ${fromName}.` : `Elige a qué disciplina ${name ? `pasa ${name}` : 'pasas'}.`}
+              </p>
+            </StickyFooter>
+          )}
+        </>
       )}
-      <p className="font-semibold" aria-live="polite">
-        {changesLeft(left)} en este periodo
-      </p>
-      {out && <p className="text-sm text-muted-foreground">Si una de las disciplinas deja de cubrirse, ese cambio es gratis y se puede hacer igualmente.</p>}
-      <fieldset className="flex flex-col gap-2">
-        <legend className="mb-1 font-semibold">Dejas</legend>
-        <RadioGroup value={from} onValueChange={(v) => setFrom(String(v))} className="flex flex-col gap-2">
-          {s.disciplines.map((d) => {
-            const dd = disciplines.data.find((x) => String(x.id) === String(d.id))
-            return (
-              <OptionCard
-                key={d.id}
-                value={String(d.id)}
-                title={d.name}
-                tags={freeChange(dd, birth) ? <Tag variant="success">Ya no se cubre: el cambio es gratis</Tag> : undefined}
-              />
-            )
-          })}
-        </RadioGroup>
-      </fieldset>
-      <fieldset className="flex flex-col gap-2">
-        <legend className="mb-1 font-semibold">Pasas a</legend>
-        {options.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No hay otras disciplinas en este plan.</p>
-        ) : (
-          <RadioGroup value={to} onValueChange={(v) => setTo(String(v))} className="flex flex-col gap-2">
-            {options.map((d) => (
-              <OptionCard key={d.id} value={String(d.id)} title={d.name} tags={ageRangeLabel(d.min_age, d.max_age) ? <Tag variant="secondary">{ageRangeLabel(d.min_age, d.max_age)}</Tag> : undefined} />
-            ))}
-          </RadioGroup>
-        )}
-      </fieldset>
-      <Note kind={free ? 'success' : 'warning'} title={free ? 'Este cambio no gasta ninguno de los cambios' : 'Es inmediato'}>
-        {free ? `${fromName} ya no entra en la cuota. ` : ''}Se cancelan las reservas y esperas de {fromName || 'la disciplina que dejas'} desde hoy.
-      </Note>
-      <StickyFooter>
-        <Button size="xl" className="w-full" disabled={!to || out} loading={change.isPending} onClick={() => setOpen(true)}>
-          {to ? `Cambiar ${fromName} por ${toName}` : 'Elige a qué disciplina pasas'}
-        </Button>
-      </StickyFooter>
-      <ConfirmDialog
-        open={open}
-        onOpenChange={setOpen}
-        variant="default"
-        title={`¿Cambiar ${fromName} por ${toName}?`}
-        description={`Es inmediato. Se cancelan las reservas y esperas de ${fromName} desde hoy.`}
-        confirmLabel="Cambiar"
-        cancelLabel="Cancelar"
-        loading={change.isPending}
-        onConfirm={() => change.mutate()}
-      >
-        {!free && <p>Después: {changesLeft(left - 1).toLowerCase()} en este periodo.</p>}
-      </ConfirmDialog>
+      {toName && (
+        <ConfirmDialog
+          open={open}
+          onOpenChange={(o) => !busy && setOpen(o)}
+          variant="default"
+          title={`¿Cambiar ${fromName} por ${toName}${name ? ` para ${name}` : ''}?`}
+          description="Se aplica hoy."
+          confirmLabel={busy ? 'Cambiando…' : `Cambiar a ${toName}`}
+          cancelLabel="Cancelar"
+          disabled={busy}
+          onConfirm={() => change.mutate()}
+        >
+          <Kv
+            rows={[
+              [name ? 'Deja' : 'Dejas', fromName],
+              [name ? 'Pasa a' : 'Pasas a', toName],
+              ['Se aplica', 'Hoy'],
+              ['Cuesta', 'Nada'],
+              ['Cambios', free ? 'No gasta ninguno' : `Gasta 1 · ${changesLeft(left - 1).toLowerCase()}`],
+            ]}
+          />
+          <p className="text-muted-foreground">Se cancelan las reservas y esperas de {fromName} desde hoy.</p>
+        </ConfirmDialog>
+      )}
     </>
   )
 }
