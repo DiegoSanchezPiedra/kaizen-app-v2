@@ -123,8 +123,13 @@ function EventLink({ e, now }: { e: EventInfo; now: number }) {
 const ON_FACE = 'w-full border-transparent bg-white text-primary hover:bg-white/90 focus-visible:ring-white focus-visible:ring-offset-0 dark:bg-white dark:hover:bg-white/90'
 
 // La sesión o el evento en curso: el único caso con un elemento dominante. Lleva a pasar lista.
-function LiveNow({ it, now }: { it: Entry<TrainerSession>; now: number }) {
-  const x = it.kind === 'session' ? { ...it.s, title: it.s.discipline_name, to: `/professor/sessions/${it.s.id}` } : { ...it.e, to: `/professor/events/${it.e.id}` }
+const liveOf = (it: Entry<TrainerSession>) =>
+  it.kind === 'session' ? { ...it.s, title: it.s.discipline_name, to: `/professor/sessions/${it.s.id}` } : { ...it.e, to: `/professor/events/${it.e.id}` }
+
+// Lo que está en curso: el único caso con un elemento dominante. La primera ocupa el hueco; si coincide otra
+// (dos tatamis, una sesión y un evento), su botón va debajo con su nombre, en el mismo hueco.
+function LiveNow({ items, now }: { items: Entry<TrainerSession>[]; now: number }) {
+  const [x, ...more] = items.map(liveOf)
   return (
     <NextUp
       startsAt={x.starts_at}
@@ -133,12 +138,12 @@ function LiveNow({ it, now }: { it: Entry<TrainerSession>; now: number }) {
       location={x.location}
       live
       now={now}
-      action={
-        <Button size="xl" variant="outline" className={ON_FACE} render={<Link to={x.to} />}>
+      action={[x, ...more].map((y, i) => (
+        <Button key={y.to} size="xl" variant="outline" className={ON_FACE} render={<Link to={y.to} />}>
           <UsersIcon />
-          Pasar lista
+          {i === 0 ? 'Pasar lista' : `Pasar lista de ${y.title}`}
         </Button>
-      }
+      ))}
     />
   )
 }
@@ -157,19 +162,19 @@ export function ProfessorSessionsPage() {
   // La semana de hoy, con la misma clave: en la semana actual no pide nada más y, al ir a otra, el hueco se queda.
   const thisWeek = pickDay(w.today).week
   const today = useQuery({ queryKey: ['prof-sessions', thisWeek], queryFn: () => range(thisWeek, addDays(thisWeek, 6)) })
-  const live = today.data?.find((it) => phaseOf(it.kind === 'session' ? it.s : it.e, now) === 'now')
+  const live = (today.data ?? []).filter((it) => phaseOf(it.kind === 'session' ? it.s : it.e, now) === 'now')
   const byDay = new Map(groupByDay(query.data ?? [], (it) => (it.kind === 'session' ? it.s : it.e).starts_at))
 
   return (
     <Page title="Sesiones" wide>
       {/* En `lg`, el hueco y la Jornada lado a lado; si solo hay uno, ocupa todo el ancho. */}
-      <div className="flex flex-col gap-4 not-has-[>:not(:empty)]:hidden lg:grid lg:auto-cols-fr lg:grid-flow-col">
-        {live && (
+      <div className="flex flex-col gap-4 not-has-[>:not(:empty)]:hidden lg:grid lg:auto-cols-fr lg:grid-flow-col lg:items-start">
+        {live.length > 0 && (
           <Rise on={first} i={0} className={first ? undefined : 'enter-soft'}>
-            <LiveNow it={live} now={now} />
+            <LiveNow items={live} now={now} />
           </Rise>
         )}
-        <Rise on={first} i={1} className="empty:hidden lg:*:h-full">
+        <Rise on={first} i={1} className="empty:hidden">
           <ClockCard />
         </Rise>
       </div>
@@ -179,6 +184,7 @@ export function ProfessorSessionsPage() {
           query={query}
           marked={new Set(byDay.keys())}
           noun="sesiones"
+          plainTitle
           renderDay={(day) => (
             <SessionRows>
               {(byDay.get(day) ?? []).map((it) => (it.kind === 'session' ? <SessionLink key={it.s.id} s={it.s} now={now} /> : <EventLink key={it.e.id} e={it.e} now={now} />))}

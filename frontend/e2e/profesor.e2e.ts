@@ -45,7 +45,7 @@ async function abrir(page: Page, o: { now?: string; sessions?: object[]; events?
   await expect(page.getByRole('heading', { name: 'Sesiones', level: 1 })).toBeVisible()
 }
 
-const pasarLista = (page: Page) => page.getByRole('link', { name: 'Pasar lista' })
+const pasarLista = (page: Page) => page.getByRole('link', { name: 'Pasar lista', exact: true })
 
 test('sesión en curso: un solo hueco arriba, que lleva a pasar lista', async ({ page }) => {
   await abrir(page)
@@ -82,9 +82,18 @@ test('cambio de semana: el hueco de la sesión en curso se queda', async ({ page
   await expect(pasarLista(page)).toBeVisible()
 })
 
-test('semana vacía: sin hueco', async ({ page }) => {
+test('dos en curso a la vez: un solo hueco con un botón por cada una', async ({ page }) => {
+  await abrir(page, { sessions: [...SESSIONS, S('s5', 17, '18:15', '19:15', 'Kárate')] })
+  await expect(page.getByText('Hoy · 18:00')).toHaveCount(1)
+  await expect(pasarLista(page)).toHaveAttribute('href', '/professor/sessions/s2')
+  await expect(page.getByRole('link', { name: 'Pasar lista de Kárate' })).toHaveAttribute('href', '/professor/sessions/s5')
+})
+
+test('semana vacía: sin hueco; título del vacío en sans, no en la condensada', async ({ page }) => {
   await abrir(page, { sessions: [] })
-  await expect(page.getByText('No hay sesiones esta semana')).toBeVisible()
+  const title = page.getByText('No hay sesiones esta semana')
+  await expect(title).toBeVisible()
+  await expect(title).not.toHaveCSS('font-family', /Barlow/)
   await expect(pasarLista(page)).toHaveCount(0)
 })
 
