@@ -1,8 +1,10 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { LoaderCircleIcon, WalletIcon } from 'lucide-react'
+import { LoaderCircleIcon, LockIcon, WalletIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router'
 import { Back, Kv, Note, OptionCard, StickyFooter, Tag } from '@/components/billing-bits'
+import { CARD } from '@/components/child-access'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { SubjectGate, subjectName } from '@/components/subject-gate'
@@ -13,7 +15,7 @@ import { usePoll } from '@/hooks/use-poll'
 import { useCheckoutSubject, useSubject } from '@/hooks/use-subject'
 import { ApiError, api } from '@/lib/api'
 import { eligibleDisciplines, isLive, perMonth, rememberCheckoutSubject, visiblePlans } from '@/lib/billing'
-import { formatDeadline, formatShortDate } from '@/lib/format'
+import { formatDeadline, formatEuros, formatShortDate } from '@/lib/format'
 import { MISSING_TEXT } from '@/lib/notices'
 import { onboardingFrom } from '@/lib/paths'
 import { incompletePath, payBlocker } from '@/lib/profile'
@@ -40,7 +42,8 @@ const CHECKOUT_ERRORS: Record<string, [string, string]> = {
 function Contract({ subject, profileId }: Props) {
   const { withSubject, birthDate: birth } = useSubject()
   const location = useLocation()
-  const name = subjectName(subject)
+  // Por un hijo, siempre con su nombre de pila.
+  const name = subjectName(subject)?.split(' ')[0]
   const subscription = useSubscription(profileId)
   const status = useProfileStatus(profileId)
   // Por un hijo, también el del tutor: el pago exige los dos completos. Para uno mismo es la misma consulta.
@@ -51,6 +54,7 @@ function Contract({ subject, profileId }: Props) {
   const [planId, setPlanId] = useState('')
   const [picked, setPicked] = useState<string[]>([])
   const [problem, setProblem] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
   const title = useRef<HTMLHeadingElement>(null)
 
   // El paso a paso no desliza: el foco va al título del paso (canvas, nota b183n2).
@@ -71,6 +75,7 @@ function Contract({ subject, profileId }: Props) {
       window.location.assign(url)
     },
     onError: (err) => {
+      setConfirming(false)
       const code = errorCode(err)
       if (code === 'subscription_exists' || code === 'profile_incomplete') void Promise.all([subscription.refetch(), status.refetch(), own.refetch()])
       if (CHECKOUT_ERRORS[code]) {
@@ -163,79 +168,119 @@ function Contract({ subject, profileId }: Props) {
         </Note>
       )}
 
-      {step === 1 && (
-        <>
-          <p className="text-sm text-muted-foreground">Precios al mes, impuestos incluidos. La cuota se renueva cada mes.</p>
-          <RadioGroup value={planId} onValueChange={(v) => pickPlan(String(v))} aria-label="Plan" className="flex flex-col gap-2.5">
-            {options.map((p) => (
-              <OptionCard
-                key={p.id}
-                value={String(p.id)}
-                title={p.name}
-                price={perMonth(p.price_cents).replace(' al mes', '')}
-                priceNote="al mes"
-                description={p.max_disciplines === null ? 'Todas las disciplinas' : `${p.max_disciplines} ${p.max_disciplines === 1 ? 'disciplina' : 'disciplinas'} a elegir`}
-                tags={ageRangeLabel(p.min_age, p.max_age) ? <Tag variant="secondary">{ageRangeLabel(p.min_age, p.max_age)}</Tag> : undefined}
-              />
-            ))}
-          </RadioGroup>
-          {options.length === 0 && <EmptyState icon={<WalletIcon />} title="Ahora no hay planes que contratar" text="Pregunta en la academia." />}
-        </>
-      )}
-
-      {step === 2 && plan && (
-        <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 flex w-full items-center justify-between gap-2 text-sm">
-            <span>
-              Plan <strong>{plan.name}</strong> · {perMonth(plan.price_cents)}
-            </span>
-            <Button variant="link" size="sm" onClick={prev}>
-              Cambiar
-            </Button>
-          </legend>
-          <p className="font-semibold" aria-live="polite">
-            {eligible.length === max ? `Este plan solo incluye ${list(eligible.map((d) => d.name))}: ${max === 1 ? 'va elegida' : 'van elegidas'}.` : `${picked.length} de ${max} elegidas`}
-          </p>
-          {eligible.map((d) => {
-            const on = picked.includes(String(d.id))
-            const range = ageRangeLabel(d.min_age, d.max_age)
-            return (
-              <label key={d.id} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border bg-card px-4 has-data-checked:border-primary has-data-disabled:cursor-default">
-                <Checkbox
-                  aria-label={d.name}
-                  checked={on}
-                  disabled={eligible.length === max || (!on && picked.length >= max!)}
-                  onCheckedChange={(c) => setPicked((xs) => (c ? [...xs, String(d.id)] : xs.filter((x) => x !== String(d.id))))}
+      {/* Cada paso entra suave (enter-soft): la clave lo vuelve a montar. */}
+      <div key={step} className="enter-soft flex flex-col gap-4">
+        {step === 1 && (
+          <>
+            <p className="text-sm text-muted-foreground">Impuestos incluidos. La cuota se renueva cada mes.</p>
+            <RadioGroup value={planId} onValueChange={(v) => pickPlan(String(v))} aria-label="Plan" className="flex flex-col gap-2.5">
+              {options.map((p) => (
+                <OptionCard
+                  key={p.id}
+                  value={String(p.id)}
+                  title={p.name}
+                  price={formatEuros(p.price_cents)}
+                  priceNote="al mes"
+                  stackPrice
+                  flag={p.is_featured ? 'Recomendado' : undefined}
+                  description={p.max_disciplines === null ? 'Todas las disciplinas' : `${p.max_disciplines} ${p.max_disciplines === 1 ? 'disciplina' : 'disciplinas'} a elegir`}
+                  tags={ageRangeLabel(p.min_age, p.max_age) ? <Tag variant="secondary">{ageRangeLabel(p.min_age, p.max_age)}</Tag> : undefined}
                 />
-                <span className="flex-1 font-medium">{d.name}</span>
-                {range && <Tag variant="secondary">{range}</Tag>}
-              </label>
-            )
-          })}
-          {eligible.length > max! && picked.length >= max! && <p className="text-sm text-muted-foreground">Ya has elegido {max}. Quita una para elegir otra.</p>}
-          {eligible.length < max! && <Note kind="info" title="Este plan no tiene disciplinas suficientes ahora">Elige otro plan o pregunta en la academia.</Note>}
-        </fieldset>
-      )}
+              ))}
+            </RadioGroup>
+            {options.length === 0 && <EmptyState icon={<WalletIcon />} title="Ahora no hay planes que contratar" text="Pregunta en la academia." />}
+          </>
+        )}
 
-      {step === 3 && plan && (
-        <>
-          <section aria-label="Resumen" className="rounded-2xl border bg-card px-4 py-1">
-            <Kv
-              rows={[
-                ['Para', name ?? 'Ti'],
-                ['Plan', plan.name],
-                ['Disciplinas', max === null ? 'Todas' : list(discNames)],
-                [
-                  'Al mes',
-                  <>
-                    {perMonth(plan.price_cents).replace(' al mes', '')} <small className="font-normal text-muted-foreground">impuestos incluidos</small>
-                  </>,
-                ],
-              ]}
-            />
+        {step === 2 && plan && (
+          <>
+            <section aria-label="Disciplinas del plan" className={`${CARD} overflow-hidden`}>
+              <div className="flex items-center gap-3">
+                <span className="min-w-0 flex-1">
+                  <span className="block font-semibold">{plan.name}</span>
+                  <span className="block text-sm text-muted-foreground tabular-nums">{perMonth(plan.price_cents)}</span>
+                </span>
+                <Button variant="outline" size="lg" onClick={prev}>
+                  Cambiar
+                </Button>
+              </div>
+              <div role="group" aria-labelledby="disc-title" className="-mx-4 -mb-4 border-t">
+                <div className="flex items-baseline justify-between gap-3 px-4 pt-3 pb-1">
+                  <h3 id="disc-title" className="font-semibold">
+                    Disciplinas
+                  </h3>
+                  {eligible.length !== max && (
+                    <span className="text-sm text-muted-foreground tabular-nums" aria-live="polite">
+                      {picked.length} de {max} elegidas
+                    </span>
+                  )}
+                </div>
+                {eligible.length === max && (
+                  <p className="px-4 pb-1 text-sm text-muted-foreground">
+                    Este plan solo incluye {list(eligible.map((d) => d.name))}: {max === 1 ? 'va elegida' : 'van elegidas'}.
+                  </p>
+                )}
+                <ul className="divide-y">
+                  {eligible.map((d) => {
+                    const on = picked.includes(String(d.id))
+                    const range = ageRangeLabel(d.min_age, d.max_age)
+                    return (
+                      <li key={d.id}>
+                        <label className="flex min-h-14 cursor-pointer items-center gap-3 px-4 py-2 transition-colors duration-150 ease-(--ease-out) hover:bg-accent has-data-disabled:cursor-default has-data-disabled:hover:bg-transparent">
+                          <Checkbox
+                            aria-label={d.name}
+                            checked={on}
+                            disabled={eligible.length === max || (!on && picked.length >= max!)}
+                            onCheckedChange={(c) => setPicked((xs) => (c ? [...xs, String(d.id)] : xs.filter((x) => x !== String(d.id))))}
+                          />
+                          <span className="flex-1 font-medium">{d.name}</span>
+                          {range && <Tag variant="secondary">{range}</Tag>}
+                        </label>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            </section>
+            {eligible.length > max! && picked.length >= max! && <p className="text-sm text-muted-foreground">Ya has elegido {max}. Quita una para elegir otra.</p>}
+            {eligible.length < max! && <Note kind="info" title="Este plan no tiene disciplinas suficientes ahora">Elige otro plan o pregunta en la academia.</Note>}
+          </>
+        )}
+
+        {step === 3 && plan && (
+          <section aria-label="Resumen del pago" className={CARD}>
+            <div>
+              <p className="font-heading text-4xl leading-none font-bold tabular-nums">{formatEuros(plan.price_cents)}</p>
+              <p className="mt-1.5 text-sm text-muted-foreground">al mes · impuestos incluidos</p>
+            </div>
+            <div className="border-t">
+              <Kv
+                rows={[
+                  ...(name ? [['Para', name] as [string, string]] : []),
+                  ['Plan', plan.name],
+                  ['Disciplinas', max === null ? 'Todas' : list(discNames)],
+                ]}
+              />
+            </div>
+            <p className="-mx-4 -mb-4 flex items-start gap-2 rounded-b-2xl border-t bg-muted/50 px-4 py-3 text-sm text-pretty text-muted-foreground">
+              <LockIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              Se paga con tarjeta en Stripe. Kaizen no ve los datos de la tarjeta.
+            </p>
           </section>
-          <p className="text-sm text-muted-foreground">Se abre Stripe para pagar con tarjeta. Kaizen no ve los datos de la tarjeta.</p>
-        </>
+        )}
+      </div>
+
+      {plan && (
+        <ConfirmDialog
+          open={confirming}
+          onOpenChange={(o) => !checkout.isPending && !checkout.isSuccess && setConfirming(o)}
+          title={name ? `¿Pagar la cuota de ${name}?` : '¿Pagar tu cuota?'}
+          description={`${perMonth(plan.price_cents)}, impuestos incluidos. Se renueva cada mes. Ahora se abre Stripe para pagar con tarjeta.`}
+          confirmLabel={checkout.isPending || checkout.isSuccess ? 'Abriendo Stripe…' : 'Pagar en Stripe'}
+          disabled={checkout.isPending || checkout.isSuccess}
+          variant="default"
+          onConfirm={() => checkout.mutate()}
+        />
       )}
 
       <StickyFooter>
@@ -244,8 +289,8 @@ function Contract({ subject, profileId }: Props) {
             Continuar
           </Button>
         ) : (
-          <Button size="xl" loading={checkout.isPending || checkout.isSuccess} onClick={() => checkout.mutate()}>
-            {checkout.isPending || checkout.isSuccess ? 'Abriendo Stripe…' : 'Ir al pago'}
+          <Button size="xl" onClick={() => setConfirming(true)}>
+            Ir al pago
           </Button>
         )}
         {step === 1 && !plan && <p className="text-center text-sm text-muted-foreground">Elige un plan para seguir.</p>}

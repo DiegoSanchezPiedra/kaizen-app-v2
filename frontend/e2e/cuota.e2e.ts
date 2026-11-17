@@ -19,20 +19,39 @@ const CUOTA = {
   pause_settings: { price_cents: 1500, max_months: 3, per_year: 1 },
 }
 
-async function abrir(page: Page, o: { role?: 'alumno' | 'tutor'; subscription?: object | null } = {}) {
+const P = (o: object) => ({ billing_period: 'monthly', min_age: null, max_age: null, is_active: true, is_featured: false, eligible_discipline_ids: [], ...o })
+const PLANS = [
+  P({ id: 1, name: 'Plan 2 disciplinas', price_cents: 5900, max_disciplines: 2, min_age: 14, is_featured: true }),
+  P({ id: 2, name: 'Plan ilimitado', price_cents: 7900, max_disciplines: null, min_age: 14 }),
+  P({ id: 3, name: 'Kids', price_cents: 3500, max_disciplines: 1, min_age: 4, max_age: 13, eligible_discipline_ids: [1, 3] }),
+]
+const DISCIPLINAS = ['Judo', 'Jiu-jitsu', 'Kárate'].map((name, i) => ({ id: i + 1, name, min_age: null, max_age: null, is_active: true, is_open: false }))
+
+// children: el alumno adulto con hijos también ve el selector «Para» (va por sí mismo por defecto).
+async function abrir(page: Page, o: { role?: 'alumno' | 'tutor'; subscription?: object | null; path?: string; children?: boolean } = {}) {
   const role = o.role ?? 'alumno'
+  const posts: unknown[] = []
   await page.addInitScript((t) => localStorage.setItem('kz.token', t), token(role))
   await page.route('**/api/**', (r) => {
     const u = new URL(r.request().url()).pathname.replace(/^\/api/, '')
     const json = (j: unknown, status = 200) => r.fulfill({ status, json: j })
+    if (r.request().method() === 'POST' && u === '/billing/checkout') {
+      posts.push(r.request().postDataJSON())
+      return json({ url: 'https://checkout.stripe.invalid/x' })
+    }
     if (r.request().method() !== 'GET') return json({})
     if (u === '/me') return json({ ...ME, role })
-    if (u === '/me/children') return json({ children: role === 'tutor' ? [LARA] : [] })
+    if (u === '/me/children') return json({ children: role === 'tutor' || o.children ? [LARA] : [] })
     if (u === '/me/profile-status') return json({ ok: true, missing: [] })
     if (u === '/billing/subscription') return o.subscription === null ? json({ code: 'subscription_not_found' }, 404) : json(o.subscription ?? CUOTA)
+    if (u === '/plans') return json({ plans: PLANS })
+    if (u === '/disciplines') return json({ disciplines: DISCIPLINAS })
     return json({})
   })
-  await page.goto('/billing')
+  // Nunca se sigue la redirección a Stripe.
+  await page.route('https://checkout.stripe.invalid/**', (r) => r.abort())
+  await page.goto(o.path ?? '/billing')
+  return posts
 }
 
 test('alumno: el importe manda y las filas llevan a cambiar plan y disciplina', async ({ page }) => {
@@ -70,4 +89,46 @@ test('tutor sin cuota del hijo: invita a contratarla', async ({ page }) => {
   await abrir(page, { role: 'tutor', subscription: null })
   await expect(page.getByText('Lara aún no tiene cuota', { exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Contratar una cuota' })).toBeVisible()
+})
+
+// ── Contratar (/billing/contract) ──
+
+test('contratar: plan recomendado, el importe manda y el pago pide confirmación antes de Stripe', async ({ page }) => {
+  const posts = await abrir(page, { subscription: null, path: '/billing/contract' })
+  await expect(page.getByRole('radio', { name: 'Plan 2 disciplinas' })).toHaveAccessibleDescription('Recomendado')
+  await page.getByText('Plan 2 disciplinas', { exact: true }).click()
+  await page.getByRole('button', { name: 'Continuar' }).click()
+  await expect(page.getByText('0 de 2 elegidas')).toBeVisible()
+  await page.getByRole('checkbox', { name: 'Judo' }).click()
+  await page.getByRole('checkbox', { name: 'Kárate' }).click()
+  await page.getByRole('button', { name: 'Continuar' }).click()
+  await expect(page.getByRole('heading', { name: 'Paso 3 de 3 · Pago' })).toBeVisible()
+  await expect(page.locator('main section').getByText('59,00 €', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Ir al pago' }).click()
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog).toContainText('¿Pagar tu cuota?')
+  await expect(dialog).toContainText('59,00 € al mes')
+  await dialog.getByRole('button', { name: 'Volver' }).click()
+  expect(posts).toHaveLength(0)
+  await page.getByRole('button', { name: 'Ir al pago' }).click()
+  await page.getByRole('button', { name: 'Pagar en Stripe' }).click()
+  await expect.poll(() => posts).toEqual([{ plan_id: '1', discipline_ids: ['1', '3'] }])
+})
+
+test('contratar por un hijo: nombre de pila, nunca el completo fuera del selector «Para»', async ({ page }) => {
+  await abrir(page, { role: 'tutor', subscription: null, path: '/billing/contract' })
+  await page.getByText('Kids', { exact: true }).click()
+  await page.getByRole('button', { name: 'Continuar' }).click()
+  await page.getByRole('checkbox', { name: 'Judo' }).click()
+  await page.getByRole('button', { name: 'Continuar' }).click()
+  await expect(page.locator('main section').getByText('Lara', { exact: true })).toBeVisible()
+  await expect(page.locator('main section').getByText('Lara Pérez')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Ir al pago' }).click()
+  await expect(page.getByRole('alertdialog')).toContainText('¿Pagar la cuota de Lara?')
+})
+
+test('contratar, alumno con hijos: el selector «Para» va por él mismo', async ({ page }) => {
+  await abrir(page, { children: true, subscription: null, path: '/billing/contract' })
+  await expect(page.getByRole('main').getByRole('combobox')).toHaveText('Tú')
+  await expect(page.getByRole('heading', { name: 'Paso 1 de 3 · Plan' })).toBeVisible()
 })

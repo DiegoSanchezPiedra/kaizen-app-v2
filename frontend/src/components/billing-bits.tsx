@@ -1,4 +1,4 @@
-import { ChevronLeftIcon, CircleAlertIcon, CircleCheckIcon, InfoIcon, TriangleAlertIcon } from 'lucide-react'
+import { ChevronLeftIcon, CircleAlertIcon, CircleCheckIcon, InfoIcon, StarIcon, TriangleAlertIcon } from 'lucide-react'
 import { useId } from 'react'
 import type React from 'react'
 import { Link, type LinkProps } from 'react-router'
@@ -65,6 +65,8 @@ export function OptionCard({
   description,
   tags,
   disabled,
+  stackPrice,
+  flag,
 }: {
   value: string
   title: string
@@ -73,6 +75,10 @@ export function OptionCard({
   description?: string
   tags?: React.ReactNode
   disabled?: boolean
+  // El precio ocupa dos filas: la descripción sube junto al nombre sin el hueco de la nota del precio.
+  stackPrice?: boolean
+  // Etiqueta sobre el borde superior («Recomendado»); se lee con la opción.
+  flag?: string
 }) {
   const id = useId()
   return (
@@ -81,21 +87,31 @@ export function OptionCard({
         'grid cursor-pointer grid-cols-[20px_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-0.5 rounded-xl border bg-card px-4 py-3.5 shadow-xs transition-[border-color,background-color] duration-150 ease-out',
         'focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring has-data-checked:border-primary has-data-checked:bg-primary/6 has-data-checked:ring-1 has-data-checked:ring-primary',
         disabled && 'cursor-default bg-transparent shadow-none',
+        flag && 'relative mt-2.5 pt-5',
       )}
     >
-      <Radio value={value} disabled={disabled} className="mt-0.5" aria-labelledby={id} />
+      {flag && (
+        <span
+          id={`${id}-flag`}
+          className="absolute -top-2.5 left-11 inline-flex h-5 items-center gap-1 rounded-full bg-primary px-2 text-xs font-semibold text-primary-foreground"
+        >
+          <StarIcon className="size-3 fill-current" aria-hidden="true" />
+          {flag}
+        </span>
+      )}
+      <Radio value={value} disabled={disabled} className="mt-0.5" aria-labelledby={id} aria-describedby={flag ? `${id}-flag` : undefined} />
       <span id={id} className="text-[17px] leading-snug font-bold">
         {title}
       </span>
       {price ? (
-        <span className="text-right font-heading text-[22px] leading-none font-bold whitespace-nowrap tabular-nums">
+        <span className={cn('text-right font-heading text-[22px] leading-none font-bold whitespace-nowrap tabular-nums', stackPrice && 'row-span-2')}>
           {price}
           {priceNote && <small className="mt-1 block font-sans text-xs font-medium text-muted-foreground">{priceNote}</small>}
         </span>
       ) : (
         <span />
       )}
-      {description && <span className="col-span-2 col-start-2 text-sm text-muted-foreground">{description}</span>}
+      {description && <span className={cn('col-start-2 text-sm text-muted-foreground', !stackPrice && 'col-span-2')}>{description}</span>}
       {tags && <span className="col-span-2 col-start-2 mt-1.5 flex flex-wrap gap-1.5">{tags}</span>}
     </label>
   )
