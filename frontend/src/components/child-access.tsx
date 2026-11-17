@@ -14,8 +14,11 @@ import { ACCESS_NOTICE, ACCESS_NOTICE_VERSION } from '@/lib/minor-access'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
 import type { Child, ChildAccess } from '@/lib/subject'
 import { NETWORKS, isHttps } from '@/lib/profile'
+import { cn } from '@/lib/utils'
 
 const refresh = () => queryClient.invalidateQueries({ queryKey: ['me', 'children'] })
+// Tarjeta de sección de la ficha del hijo (pages/children.tsx), como las de Cuenta.
+export const CARD = 'flex flex-col gap-3 rounded-2xl border bg-card p-4'
 // Un fallo de campo se queda en la hoja (junto al campo); el resto, en un aviso.
 const fieldOf = (code: string): 'username' | 'password' | 'email' | null =>
   code === 'invalid_username' || code === 'username_taken' ? 'username' : code === 'weak_password' ? 'password' : code === 'email_requires_14' || code === 'email_taken' ? 'email' : null
@@ -200,22 +203,22 @@ export function ChildAccessSection({ child }: { child: Child }) {
     },
   })
   return (
-    <section aria-labelledby="own-access" className="flex flex-col gap-3">
+    <section aria-labelledby="own-access" className={CARD}>
       <h2 id="own-access" className="text-lg font-semibold">
         Acceso propio
       </h2>
       {access ? (
         <>
-          <div className="rounded-xl border bg-card px-3.5 py-1">
+          <div className="flex flex-col">
             <Kv rows={[['Usuario', access.username], ...(access.email ? ([['Email', access.email]] as [string, string][]) : [])]} />
+            <label className="flex min-h-14 items-center justify-between gap-3 border-t py-2">
+              <span>
+                <span className="block font-semibold">Puede reservar</span>
+                <span className="block text-sm text-muted-foreground">Reservar y cancelar sesiones y apuntarse a eventos gratuitos.</span>
+              </span>
+              <Switch checked={access.can_book} disabled={toggle.isPending} onCheckedChange={(c) => toggle.mutate(c)} />
+            </label>
           </div>
-          <label className="flex min-h-14 items-center justify-between gap-3 rounded-xl border bg-card px-4">
-            <span>
-              <span className="block font-semibold">Puede reservar</span>
-              <span className="block text-sm text-muted-foreground">Reservar y cancelar sesiones y apuntarse a eventos gratuitos.</span>
-            </span>
-            <Switch checked={access.can_book} disabled={toggle.isPending} onCheckedChange={(c) => toggle.mutate(c)} />
-          </label>
           <Button variant="outline" size="xl" onClick={() => setSheet('password')}>
             Cambiar contraseña
           </Button>
@@ -224,9 +227,12 @@ export function ChildAccessSection({ child }: { child: Child }) {
               {access.email ? 'Cambiar email' : 'Añadir email'}
             </Button>
           )}
-          <Button variant="outline" size="xl" className="text-destructive-foreground" onClick={() => setRevoking(true)}>
-            Retirar el acceso
-          </Button>
+          {/* Lo destructivo, aparte y sin el peso de los demás botones: lleva confirmación. */}
+          <div className="-mx-4 mt-1 border-t px-4 pt-3">
+            <Button variant="ghost" size="xl" className="w-full text-destructive-foreground hover:bg-destructive/4 data-pressed:bg-destructive/4" onClick={() => setRevoking(true)}>
+              Retirar el acceso
+            </Button>
+          </div>
         </>
       ) : (
         <>
@@ -322,14 +328,15 @@ export function ChildVisibilitySection({ child }: { child: Child }) {
     onError: (err) => toastError(err),
   })
   const canDecide = !!child.can_publish
+  const on = child.is_public ?? false
   const field = (key: string, label: string) => (
-    <label key={key} className="flex min-h-12 items-center justify-between gap-3 border-b last:border-b-0">
+    <label key={key} className="flex min-h-12 items-center justify-between gap-3 border-t">
       <span className="text-[15px]">{label}</span>
       <Switch checked={visible[key] ?? false} disabled={set.isPending} aria-label={label} onCheckedChange={(c) => set.mutate({ visible_fields: { [key]: c } })} />
     </label>
   )
   return (
-    <section aria-labelledby="child-public" className="flex flex-col gap-3">
+    <section aria-labelledby="child-public" className={CARD}>
       <h2 id="child-public" className="text-lg font-semibold">
         Perfil público
       </h2>
@@ -338,18 +345,32 @@ export function ChildVisibilitySection({ child }: { child: Child }) {
           ? `${child.access ? 'Él o ella también puede decidirlo desde su cuenta.' : 'Puedes decidirlo tú.'} Los demás alumnos verían su ficha desde los rankings.`
           : 'Hasta que tenga la edad de decidirlo, lo decides tú. Los demás alumnos verían su ficha desde los rankings.'}
       </p>
-      <label className="flex min-h-14 items-center justify-between gap-3 rounded-xl border bg-card px-4">
-        <span className="font-semibold">Perfil público</span>
-        <Switch checked={child.is_public ?? false} disabled={set.isPending} onCheckedChange={(c) => set.mutate({ is_public: c })} />
-      </label>
-      <div className="flex flex-col rounded-xl border bg-card px-4 py-1">{field('photo', 'Foto pública')}</div>
-      <fieldset className="flex flex-col rounded-xl border bg-card px-4 py-1">
-        <legend className="px-1 text-sm font-semibold">Qué se ve</legend>
-        {FIELDS.map(([k, l]) => field(k, l))}
-      </fieldset>
-      <Button variant="outline" size="xl" onClick={() => setSocial(true)}>
-        Cambiar sus redes
-      </Button>
+      <div className="flex flex-col">
+        <label className="flex min-h-14 items-center justify-between gap-3 border-t py-2">
+          <span className="font-semibold">Visible para otros alumnos</span>
+          <Switch checked={on} disabled={set.isPending} onCheckedChange={(c) => set.mutate({ is_public: c })} />
+        </label>
+        {/* Apagado, lo que se ve no cuenta: se pliega (sin perder los valores) y el Tab lo salta. */}
+        <div
+          data-testid="child-public-fields"
+          inert={!on}
+          className={cn('grid transition-[grid-template-rows,opacity] duration-200 ease-(--ease-out) motion-reduce:transition-opacity', on ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0')}
+        >
+          {/* -mx/px: que el anillo de foco no quede recortado por overflow-hidden. */}
+          <div className="-mx-1 flex min-h-0 flex-col overflow-hidden px-1">
+            {field('photo', 'Foto pública')}
+            <fieldset aria-labelledby="child-public-what" className="flex flex-col">
+              <p id="child-public-what" className="border-t pt-4 pb-1 text-sm font-semibold text-muted-foreground">
+                Qué se ve
+              </p>
+              {FIELDS.map(([k, l]) => field(k, l))}
+            </fieldset>
+            <Button variant="outline" size="xl" className="mt-3 mb-1" onClick={() => setSocial(true)}>
+              Cambiar sus redes
+            </Button>
+          </div>
+        </div>
+      </div>
       {social && <SocialSheet child={child} onClose={() => setSocial(false)} />}
     </section>
   )
