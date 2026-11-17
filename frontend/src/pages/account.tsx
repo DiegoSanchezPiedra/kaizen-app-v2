@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { ChevronLeftIcon, ChevronRightIcon, ClockIcon, FileSignatureIcon, GlobeIcon, HeartPulseIcon, IdCardIcon, KeyRoundIcon, LogOutIcon, UsersIcon, WalletIcon } from 'lucide-react'
-import { useState } from 'react'
+import { ChevronLeftIcon, ChevronRightIcon, CircleAlertIcon, ClockIcon, FileSignatureIcon, GlobeIcon, HeartPulseIcon, IdCardIcon, InfoIcon, KeyRoundIcon, LogOutIcon, UsersIcon, WalletIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import type React from 'react'
 import { Link, useNavigate, type LinkProps } from 'react-router'
 import { PasswordInput } from '@/components/password-input'
@@ -13,6 +13,7 @@ import { PushCard } from '@/components/push-card'
 import { ErrorState, ListSkeleton } from '@/components/screen-state'
 import { FieldMessage } from '@/components/status-alert'
 import { SubjectGate, subjectName } from '@/components/subject-gate'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Form } from '@/components/ui/form'
@@ -24,10 +25,12 @@ import { agreementsFor } from '@/lib/profile'
 import { madridMonth } from '@/lib/dates'
 import { minorView } from '@/lib/minor'
 import { minorNotice } from '@/lib/minor-access'
-import { useClock, useMe, useProfileStatus } from '@/lib/queries'
+import { accountBadges, list, type AccountBadge } from '@/lib/notices'
+import { useClock, useMe, useProfileStatus, useSubscription } from '@/lib/queries'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
 import { setToken, useSession } from '@/lib/session'
 import type { Me } from '@/lib/types'
+import { cn } from '@/lib/utils'
 import { useSubject } from '@/hooks/use-subject'
 
 // Lo que lee el propio menor sobre su cuenta, en lenguaje sencillo (lib/minor-access.ts).
@@ -46,15 +49,30 @@ function MinorCard({ canPublish }: { canPublish: boolean }) {
   )
 }
 
-function Row({ to, icon: Icon, label, hint }: { to: LinkProps['to']; icon: typeof IdCardIcon; label: string; hint?: string }) {
+// La insignia mantiene 14 px también desde sm (el tamaño por defecto baja a 12).
+const BADGE_ICON = { warning: CircleAlertIcon, error: CircleAlertIcon, info: InfoIcon }
+
+function Row({ to, icon: Icon, label, hint, badge }: { to: LinkProps['to']; icon: typeof IdCardIcon; label: string; hint?: string; badge?: AccountBadge }) {
+  const BadgeIcon = badge && BADGE_ICON[badge.variant]
   return (
     <li className="border-b last:border-b-0">
-      <Link to={to} className="flex min-h-14 items-center gap-3 px-4 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
-        <Icon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <Link
+        to={to}
+        className="flex min-h-14 items-center gap-3 px-4 py-2.5 outline-none transition-colors duration-150 ease-(--ease-out) hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset active:bg-accent"
+      >
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/8 text-link dark:bg-primary/16" aria-hidden="true">
+          <Icon className="size-5" />
+        </span>
         <span className="min-w-0 flex-1">
           <span className="block font-semibold">{label}</span>
           {hint && <span className="block text-[13px] text-muted-foreground">{hint}</span>}
         </span>
+        {badge && BadgeIcon && (
+          <Badge variant={badge.variant} className="sm:h-5.5 sm:text-sm">
+            <BadgeIcon className="size-3.5" aria-hidden="true" />
+            {badge.label}
+          </Badge>
+        )}
         <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       </Link>
     </li>
@@ -68,58 +86,120 @@ const Group = ({ title, children }: { title: string; children: React.ReactNode }
   </section>
 )
 
-// «Mi registro» solo para el profesor empleado; comparte la consulta de la tarjeta de Inicio.
-function ClockGroup() {
-  const clock = useClock(madridMonth())
-  if (clock.data?.profile.employment !== 'employee') return null
+// ADR 0015: nada de la API se guarda en el dispositivo. La entrada escalonada se juega una vez por sesión de la app
+// (en memoria), como la del Inicio: volver a Cuenta no la repite.
+let played = false
+
+// Un bloque de Cuenta con su turno de entrada (60 ms por bloque). `empty:hidden`: un bloque que se queda sin contenido (push) no deja hueco.
+function Rise({ on, i, className, children }: { on: boolean; i: number; className?: string; children: React.ReactNode }) {
   return (
-    <Group title="Trabajo">
-      <Row to="/clock" icon={ClockIcon} label="Mi registro" hint="Tus fichajes y correcciones" />
-    </Group>
+    <div className={cn('empty:hidden', on && 'animate-rise', className)} style={on ? { animationDelay: `${i * 60}ms` } : undefined}>
+      {children}
+    </div>
   )
 }
 
+// «Mi registro» solo para el profesor empleado; comparte la consulta de la tarjeta de Inicio.
+function ClockGroup({ on, i }: { on: boolean; i: number }) {
+  const clock = useClock(madridMonth())
+  if (clock.data?.profile.employment !== 'employee') return null
+  return (
+    <Rise on={on} i={i}>
+      <Group title="Trabajo">
+        <Row to="/clock" icon={ClockIcon} label="Mi registro" hint="Tus fichajes y correcciones" />
+      </Group>
+    </Rise>
+  )
+}
+
+// Salud, acuerdos y cuota, con una palabra de aviso si algo falta. Solo se monta para alumno y tutor adultos.
+function FamilyGroups({ on, i }: { on: boolean; i: number }) {
+  const { withSubject, subject, profileId } = useSubject()
+  const status = useProfileStatus(profileId)
+  const subscription = useSubscription(profileId)
+  // Con un hijo, además el estado del propio tutor (su protección de datos).
+  const selfStatus = useProfileStatus(undefined)
+  const badges = accountBadges({ status: status.data, subscription: subscription.data, self: profileId ? selfStatus.data : undefined })
+  const kid = subjectName(subject)
+  return (
+    <>
+      <Rise on={on} i={i}>
+        <Group title={kid ? `Salud y documentos de ${kid}` : 'Salud y documentos'}>
+          <Row to={withSubject('/account/health')} icon={HeartPulseIcon} label="Ficha de salud" badge={badges.health} />
+          <Row to={withSubject('/agreements')} icon={FileSignatureIcon} label="Acuerdos" badge={badges.agreements} />
+        </Group>
+      </Rise>
+      <Rise on={on} i={i + 1}>
+        <Group title={kid ? `Cuota de ${kid}` : 'Cuota'}>
+          <Row to={withSubject('/billing')} icon={WalletIcon} label={kid ? 'Su cuota' : 'Mi cuota'} badge={badges.billing} />
+        </Group>
+      </Rise>
+    </>
+  )
+}
+
+const ROLE = { alumno: 'Alumno', profesor: 'Profesor', tutor: 'Tutor' } as const
+
 export function AccountPage() {
   const role = useSession()?.role
-  const { withSubject } = useSubject()
+  const { options } = useSubject()
   const me = useMe()
+  const [first] = useState(!played)
+  useEffect(() => {
+    played = true
+  }, [])
   const family = role === 'alumno' || role === 'tutor'
   // B32: un menor con acceso propio no ve lo que su tutor lleva (cuota, acuerdos, salud, hijos, su nombre).
   const view = minorView(me.data?.minor)
+  const kids = options.filter((o) => !o.self).map((o) => o.label)
+  const base = me.data?.minor ? 'Alumno' : role === 'alumno' || role === 'profesor' || role === 'tutor' ? ROLE[role] : ''
+  const roleLine = !kids.length ? base : role === 'tutor' ? `Tutor de ${list(kids)}` : `${base} y tutor de ${list(kids)}`
+  // Cada bloque lleva su turno; los que no se pintan no lo gastan.
+  let i = 0
   return (
     <Page title="Cuenta">
-      <div className="rounded-2xl border bg-card p-4">
-        <AvatarEditor name={me.data?.display_name ?? null} avatar={me.data?.avatar}>
-          <div className="min-w-0">
-            {me.isPending ? <Skeleton className="h-10 w-40" /> : <p className="truncate font-semibold">{me.data?.display_name ?? 'Sin nombre'}</p>}
-            {me.data && <p className="truncate text-sm text-muted-foreground">{me.data.email ?? me.data.username}</p>}
-          </div>
-        </AvatarEditor>
-      </div>
-      {me.data?.minor && <MinorCard canPublish={me.data.minor.can_publish} />}
-      <Group title="Tú">
-        {view.ownData && <Row to="/account/data" icon={IdCardIcon} label="Mis datos" />}
-        <Row to="/account/password" icon={KeyRoundIcon} label="Contraseña" />
-        {role !== 'tutor' && view.publicProfile && <Row to="/account/profile" icon={GlobeIcon} label="Perfil público" hint="Qué ven los demás de ti" />}
-        {family && view.children && <Row to="/account/children" icon={UsersIcon} label="Mis hijos" />}
-      </Group>
-      {role === 'profesor' && <ClockGroup />}
-      {family && view.health && (
-        <Group title="Salud y documentos">
-          <Row to={withSubject('/account/health')} icon={HeartPulseIcon} label="Ficha de salud" />
-          <Row to={withSubject('/agreements')} icon={FileSignatureIcon} label="Acuerdos" />
-        </Group>
+      <Rise on={first} i={i++}>
+        <div className="rounded-2xl border bg-card p-4">
+          <AvatarEditor name={me.data?.display_name ?? null} avatar={me.data?.avatar}>
+            {/* Alto fijo del texto (28 + 20 + 20 px): el esqueleto no hace saltar la ficha al cargar. */}
+            {me.data ? (
+              <div className="min-w-0">
+                <p className="truncate text-lg font-semibold">{me.data.display_name ?? 'Sin nombre'}</p>
+                <p className="truncate text-sm text-muted-foreground">{me.data.email ?? me.data.username}</p>
+                <p className="truncate text-sm font-medium text-muted-foreground">{roleLine}</p>
+              </div>
+            ) : (
+              <Skeleton className="h-17 w-40" />
+            )}
+          </AvatarEditor>
+        </div>
+      </Rise>
+      {me.data?.minor && (
+        <Rise on={first} i={i++}>
+          <MinorCard canPublish={me.data.minor.can_publish} />
+        </Rise>
       )}
-      {family && view.billing && (
-        <Group title="Cuota">
-          <Row to={withSubject('/billing')} icon={WalletIcon} label="Mi cuota" />
+      <Rise on={first} i={i++}>
+        <Group title="Tú">
+          {view.ownData && <Row to="/account/data" icon={IdCardIcon} label="Mis datos" hint="Tu nombre y tu email" />}
+          <Row to="/account/password" icon={KeyRoundIcon} label="Contraseña" />
+          {role !== 'tutor' && view.publicProfile && <Row to="/account/profile" icon={GlobeIcon} label="Perfil público" hint="Qué ven los demás de ti" />}
+          {family && view.children && <Row to="/account/children" icon={UsersIcon} label="Mis hijos" hint="Sus datos y su acceso" />}
         </Group>
+      </Rise>
+      {role === 'profesor' && <ClockGroup on={first} i={i++} />}
+      {family && view.health && <FamilyGroups on={first} i={(i += 2) - 2} />}
+      {family && (
+        <Rise on={first} i={i++}>
+          <PushCard place="cuenta" />
+        </Rise>
       )}
-      {family && <PushCard place="cuenta" />}
-      <Button variant="outline" size="xl" onClick={() => logout()}>
-        <LogOutIcon />
-        Cerrar sesión
-      </Button>
+      <Rise on={first} i={i++} className="mt-2">
+        <Button variant="outline" size="xl" className="w-full" onClick={() => logout()}>
+          <LogOutIcon />
+          Cerrar sesión
+        </Button>
+      </Rise>
     </Page>
   )
 }
