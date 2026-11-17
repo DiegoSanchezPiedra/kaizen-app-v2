@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { LoaderCircleIcon, LockIcon, WalletIcon } from 'lucide-react'
+import { CircleCheckIcon, InfoIcon, LoaderCircleIcon, LockIcon, TriangleAlertIcon, WalletIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router'
 import { Back, Kv, Note, OptionCard, StickyFooter, Tag } from '@/components/billing-bits'
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { RadioGroup } from '@/components/ui/radio-group'
 import { usePoll } from '@/hooks/use-poll'
+import { cn } from '@/lib/utils'
 import { useCheckoutSubject, useSubject } from '@/hooks/use-subject'
 import { ApiError, api } from '@/lib/api'
 import { eligibleDisciplines, isLive, perMonth, rememberCheckoutSubject, visiblePlans } from '@/lib/billing'
@@ -316,9 +317,33 @@ export function ContractPage() {
 
 // ── Vuelta del Checkout ──────────────────────────────────────────────────
 
+// Una sola tarjeta para la vuelta de Stripe: cambia de contenido en su sitio (esperando → hecho / parado / cancelado).
+const TONE = {
+  wait: 'bg-primary/8 text-primary',
+  success: 'bg-success/8 text-success-foreground',
+  warning: 'bg-warning/8 text-warning-foreground',
+  info: 'bg-info/8 text-info-foreground',
+}
+function ResultCard({ icon: Icon, tone, title, className, children }: { icon: typeof InfoIcon; tone: keyof typeof TONE; title: string; className?: string; children: React.ReactNode }) {
+  return (
+    <section aria-labelledby="result-title" className={cn('enter-soft', CARD, className)}>
+      <div className="flex items-center gap-3">
+        <span className={cn('flex size-10 flex-none items-center justify-center rounded-full', TONE[tone])} aria-hidden="true">
+          <Icon className={cn('size-5', tone === 'wait' && 'animate-spin motion-reduce:animate-none')} />
+        </span>
+        <h2 id="result-title" className="text-lg leading-snug font-semibold text-balance">
+          {title}
+        </h2>
+      </div>
+      {children}
+    </section>
+  )
+}
+const Actions = ({ children }: { children: React.ReactNode }) => <div className="flex flex-col gap-2 sm:flex-row">{children}</div>
+
 function Returning({ subject, profileId }: Props) {
   const { withSubject } = useSubject()
-  const name = subjectName(subject)
+  const name = subjectName(subject)?.split(' ')[0]
   const poll = usePoll(
     ['subscription', profileId ?? 'self'],
     () =>
@@ -332,54 +357,93 @@ function Returning({ subject, profileId }: Props) {
     if (poll.phase === 'done') void refreshBilling()
   }, [poll.phase])
 
-  if (poll.phase === 'done' && poll.data) {
-    const s = poll.data
-    return (
+  const done = poll.phase === 'done' && poll.data ? poll.data : null
+  // Un solo aviso vivo que no se desmonta; frases cortas, y el tic de cada segundo no las cambia (no repite).
+  const said = done
+    ? `Pago confirmado: ${name ? `${name} ya tiene` : 'ya tienes'} cuota.`
+    : poll.phase === 'stopped'
+      ? 'No podemos comprobarlo ahora.'
+      : poll.phase === 'slow'
+        ? 'Puede tardar unos minutos. Lo seguimos comprobando.'
+        : 'Confirmando el pago.'
+
+  let body: React.ReactNode
+  if (done) {
+    const s = done
+    body = (
       <>
-        <Note kind="success" title={name ? `${name} ya tiene cuota` : 'Ya tienes cuota'}>
-          {s.plan.name}
-          {s.plan.max_disciplines !== null && s.disciplines.length ? ` · ${list(s.disciplines.map((d) => d.name))}` : ''}
-          {s.current_period_end ? ` · se renueva el ${formatShortDate(s.current_period_end)}` : ''}
-        </Note>
-        <div className="flex flex-col gap-2 sm:flex-row">
+        <ResultCard key="done" icon={CircleCheckIcon} tone="success" title={name ? `${name} ya tiene cuota` : 'Ya tienes cuota'}>
+          <div className="flex flex-col gap-1">
+            <p className="text-[17px] leading-snug font-semibold">{s.plan.name}</p>
+            <p className="flex flex-wrap items-baseline gap-x-2">
+              <span className="font-heading text-[32px] leading-none font-bold tabular-nums">{formatEuros(s.plan.price_cents)}</span>
+              <span className="text-sm text-muted-foreground">al mes · impuestos incluidos</span>
+            </p>
+          </div>
+          <Kv
+            rows={[
+              [s.plan.max_disciplines !== null && s.disciplines.length === 1 ? 'Disciplina' : 'Disciplinas', s.plan.max_disciplines === null ? 'Todas' : list(s.disciplines.map((d) => d.name))],
+              ...(s.current_period_end ? [['Se renueva', formatShortDate(s.current_period_end)] as [string, string]] : []),
+            ]}
+          />
+        </ResultCard>
+        <Actions>
           <Button size="xl" render={<Link to={withSubject('/calendar')} />}>
             Reservar una sesión
           </Button>
           <Button size="xl" variant="outline" render={<Link to={withSubject('/billing')} />}>
             Ver la cuota
           </Button>
-        </div>
+        </Actions>
       </>
     )
-  }
-  if (poll.phase === 'stopped') {
-    return (
+  } else if (poll.phase === 'stopped') {
+    body = (
       <>
-        <Note kind="warning" title="No podemos comprobarlo ahora">
-          El pago no se repite. Reintenta o mira la cuota en un rato.
-        </Note>
-        <Button size="xl" onClick={poll.restart}>
-          Reintentar
-        </Button>
+        <ResultCard key="stopped" icon={TriangleAlertIcon} tone="warning" title="No podemos comprobarlo ahora">
+          <p className="text-sm text-pretty text-muted-foreground">El pago no se repite. Reintenta o mira la cuota en un rato.</p>
+        </ResultCard>
+        <Actions>
+          <Button size="xl" onClick={poll.restart}>
+            Reintentar
+          </Button>
+          <Button size="xl" variant="outline" render={<Link to={withSubject('/billing')} />}>
+            Ver la cuota
+          </Button>
+        </Actions>
+      </>
+    )
+  } else {
+    // Aparece con 300 ms de retraso: si la cuota ya está activa al primer sondeo, no se ve «Confirmando…».
+    body = (
+      <>
+        <ResultCard
+          key="wait"
+          icon={LoaderCircleIcon}
+          tone="wait"
+          className="delay-300"
+          title={poll.phase === 'slow' ? 'Puede tardar unos minutos' : name ? `Confirmando el pago de la cuota de ${name}…` : 'Confirmando el pago…'}
+        >
+          <p className="text-sm text-pretty text-muted-foreground">
+            {poll.phase === 'slow'
+              ? 'El pago está hecho en Stripe. Puedes esperar aquí o salir: la cuota aparecerá en Cuenta › Cuota. Lo seguimos comprobando.'
+              : 'Stripe ya lo ha cobrado. Falta que nos llegue el aviso; suele tardar unos segundos.'}
+          </p>
+        </ResultCard>
+        {poll.phase === 'slow' && (
+          <Button size="xl" variant="outline" render={<Link to={withSubject('/')} />}>
+            Ir a Inicio
+          </Button>
+        )}
       </>
     )
   }
   return (
     <>
-      <div role="status" className="flex flex-col items-center gap-3 rounded-2xl border bg-card px-5 py-8 text-center">
-        <LoaderCircleIcon className="size-8 animate-spin text-primary motion-reduce:animate-none" aria-hidden="true" />
-        <p className="text-lg font-semibold">{poll.phase === 'slow' ? 'Puede tardar unos minutos' : 'Confirmando el pago…'}</p>
-        <p className="text-sm text-muted-foreground">
-          {poll.phase === 'slow'
-            ? 'El pago está hecho en Stripe. Puedes esperar aquí o salir: la cuota aparecerá en Cuenta › Cuota. Lo seguimos comprobando.'
-            : 'Stripe ya lo ha cobrado. Falta que nos llegue el aviso; suele tardar unos segundos.'}
-        </p>
-      </div>
-      {poll.phase === 'slow' && (
-        <Button size="xl" variant="outline" render={<Link to={withSubject('/')} />}>
-          Ir a Inicio
-        </Button>
-      )}
+      <p role="status" className="sr-only">
+        {said}
+      </p>
+      {body}
     </>
   )
 }
@@ -393,22 +457,45 @@ export function SuccessPage() {
   )
 }
 
+function Cancelled({ subject, profileId }: Props) {
+  const { withSubject } = useSubject()
+  const name = subjectName(subject)?.split(' ')[0]
+  // Con una cuota viva (pagó en otra pestaña o ya la tenía), reintentar lleva a «Ya tienes una cuota»: solo la salida a la cuota.
+  const current = useSubscription(profileId).data
+  const live = !!current && isLive(current.status)
+  return (
+    <>
+      <ResultCard icon={InfoIcon} tone="info" title="No se ha cobrado nada">
+        <p className="text-sm text-pretty text-muted-foreground">
+          Has salido del pago {name ? `de la cuota de ${name} ` : ''}antes de terminar.{' '}
+          {live ? 'La cuota sigue como estaba.' : 'Puedes volver a intentarlo cuando quieras.'}
+        </p>
+      </ResultCard>
+      <Actions>
+        {live ? (
+          <Button size="xl" render={<Link to={withSubject('/billing')} />}>
+            Ver la cuota
+          </Button>
+        ) : (
+          <>
+            <Button size="xl" render={<Link to={withSubject('/billing/contract')} />}>
+              Volver a intentarlo
+            </Button>
+            <Button size="xl" variant="outline" render={<Link to={withSubject('/billing')} />}>
+              Ir a la cuota
+            </Button>
+          </>
+        )}
+      </Actions>
+    </>
+  )
+}
+
 export function CancelPage() {
   useCheckoutSubject()
-  const { withSubject } = useSubject()
   return (
     <Page title="Pago">
-      <Note kind="info" title="No se ha cobrado nada">
-        Has salido del pago antes de terminar. Puedes volver a intentarlo cuando quieras.
-      </Note>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <Button size="xl" render={<Link to={withSubject('/billing/contract')} />}>
-          Volver a intentarlo
-        </Button>
-        <Button size="xl" variant="outline" render={<Link to={withSubject('/billing')} />}>
-          Ir a la cuota
-        </Button>
-      </div>
+      <SubjectGate>{(p) => <Cancelled key={p.profileId ?? 'self'} {...p} />}</SubjectGate>
     </Page>
   )
 }
