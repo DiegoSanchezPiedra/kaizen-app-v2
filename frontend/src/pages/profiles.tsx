@@ -73,7 +73,7 @@ export function ProfilePage() {
           return (
             <div className="flex flex-col gap-4">
               <Rise on={first} i={0} className="flex flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
-                <ProfileAvatar name={p.display_name} avatar={p.avatar} className="size-24" />
+                <ProfileAvatar name={p.display_name} avatar={p.avatar} className="[--avatar-size:--spacing(24)] font-semibold" />
                 <div className="flex min-w-0 flex-col items-center gap-1 sm:items-start">
                   <h2 className="text-[1.375rem] font-bold text-balance [overflow-wrap:anywhere]">{p.display_name}</h2>
                   <p className="text-muted-foreground">
@@ -96,10 +96,10 @@ export function ProfilePage() {
               </Rise>
               {links.length > 0 && (
                 <Rise on={first} i={1}>
-                  <ul aria-label="Redes" className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                  <ul aria-label="Redes" className="flex flex-wrap justify-center gap-2 sm:justify-start">
                     {links.map(([k, url]) => (
                       <li key={k}>
-                        <Button variant="outline" size="xl" className="w-full sm:w-auto" render={<a href={url} target="_blank" rel="noopener noreferrer" />}>
+                        <Button variant="outline" size="lg" render={<a href={url} target="_blank" rel="noopener noreferrer" />}>
                           {NETWORKS.find(([key]) => key === k)?.[1] ?? k}
                           <ExternalLinkIcon />
                           <span className="sr-only">(se abre en otra pestaña)</span>

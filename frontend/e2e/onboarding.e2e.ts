@@ -59,6 +59,8 @@ test('alumno con todo pendiente: tres pasos y, al guardar «Datos», entra la fi
   // Contacto de emergencia primero; el resto, opcional.
   await expect(page.locator('form input, form textarea').first()).toHaveAttribute('name', 'emergency_contact_name')
   await expect(page.getByRole('button', { name: 'Continuar' })).toBeVisible()
+  // Pie fijo: «Continuar» cabe en la ventana sin bajar por los campos opcionales.
+  await expect(page.getByRole('button', { name: 'Continuar' })).toBeInViewport({ ratio: 1 })
   await expect(page.getByText('(opcional)').first()).toBeVisible()
 })
 
@@ -74,6 +76,10 @@ test('sin pendientes: «Perfil completo» con «Ver calendario»', async ({ page
   await abrir(page, { missing: [] })
   await expect(page.getByRole('heading', { level: 2, name: 'Perfil completo' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Ver calendario' })).toHaveAttribute('href', '/calendar')
+  // Botones a todo el ancho de la tarjeta, como el resto de acciones principales en móvil.
+  const anchos = await Promise.all(['Ver calendario', 'Ir al inicio'].map(async (n) => (await page.getByRole('link', { name: n }).boundingBox())!.width))
+  expect(Math.abs(anchos[0] - anchos[1])).toBeLessThan(1)
+  expect(anchos[0]).toBeGreaterThan(250)
   await expect(page.getByRole('link', { name: 'Ir al inicio' })).toBeVisible()
 })
 
