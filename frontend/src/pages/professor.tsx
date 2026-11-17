@@ -351,9 +351,10 @@ function Detail({ session }: { session: TrainerSession }) {
       <div className={cn('grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:items-start lg:gap-x-7 lg:gap-y-3', open && 'pb-28 lg:pb-0')}>
         <div className="flex flex-col gap-3">
           <Rise on={first} i={0}>
-            {/* En curso y con la lista abierta, el hueco azul es lo dominante (la disciplina ya es el título). */}
+            {/* En curso y con la lista abierta, el hueco azul es lo dominante (la disciplina ya es el título). key: sin ella
+                React reutiliza el div de la tarjeta (mismo sitio) y @starting-style no se dispara. */}
             {phase === 'now' && !closed ? (
-              <div className={liveAtStart ? undefined : 'enter-soft'}>
+              <div key="live" className={liveAtStart ? undefined : 'enter-soft'}>
                 <NextUp startsAt={session.starts_at} endsAt={session.ends_at} title={seats} location={session.location} live now={now} />
               </div>
             ) : (

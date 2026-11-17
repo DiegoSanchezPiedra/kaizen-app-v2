@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  amountFor, audienceTag, audienceText, entryStart, eventHeadline, eventSpan, eventHealthDay, eventWhen, isMember, isUpcomingRegistration, joinState, mergeByStart, priceView, spotsLabel,
+  amountFor, audienceTag, audienceText, entryStart, eventHeadline, eventSpan, eventDayOf, eventHealthDay, eventWhen, isMember, isUpcomingRegistration, joinState, mergeByStart, priceView, spotsLabel,
   attendanceOpen, canRefund, canRetryRefund, cancelResult, cancelSummary, draftOf, emptyDraft, eventBody, eventErrors, eventPatch, notifiesOnPatch, refundLabel,
   type AdminEvent, type EventDraft, type EventInfo, type EventRegistration,
 } from '@/lib/events'
@@ -230,6 +230,13 @@ describe('plazas, fechas y listas', () => {
     expect(isUpcomingRegistration(ev(), before)).toBe(false)
     expect(isUpcomingRegistration(ev({ registration: mine('confirmed') }), Date.parse('2026-12-13T00:00:00Z'))).toBe(false)
     expect(isUpcomingRegistration(ev({ status: 'cancelled', registration: mine('confirmed') }), before)).toBe(false)
+  })
+  it('día n de m: días de calendario en Madrid; null si es de un día', () => {
+    const multi = ev({ starts_at: '2026-12-12T09:00:00Z', ends_at: '2026-12-14T17:00:00Z' })
+    expect(eventDayOf(multi, Date.parse('2026-12-12T10:00:00Z'))).toEqual({ n: 1, of: 3 })
+    expect(eventDayOf(multi, Date.parse('2026-12-12T23:30:00Z'))).toEqual({ n: 2, of: 3 }) // 00:30 del 13 en Madrid
+    expect(eventDayOf(multi, Date.parse('2026-12-14T16:00:00Z'))).toEqual({ n: 3, of: 3 })
+    expect(eventDayOf(ev({ starts_at: '2026-12-12T09:00:00Z', ends_at: '2026-12-12T13:00:00Z' }), Date.parse('2026-12-12T10:00:00Z'))).toBeNull()
   })
   it('fichas de salud: cualquier día del evento, en Madrid, y si no está cancelado', () => {
     const multi = ev({ starts_at: '2026-12-12T09:00:00Z', ends_at: '2026-12-13T17:00:00Z' })

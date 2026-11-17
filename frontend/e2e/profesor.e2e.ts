@@ -298,3 +298,135 @@ test('fichas: el «atrás» del navegador vuelve a la lista; al recargar en ella
   await page.getByRole('button', { name: /Jiu-jitsu · 18:00/ }).click()
   await expect(page.getByRole('heading', { name: 'Jiu-jitsu', level: 1 })).toBeVisible()
 })
+
+// ── Detalle de un evento (/professor/events/:id): asistencia desde el inicio, sin cerrar ──────────────────────
+// Misma API simulada; los PUT se apuntan en `calls` y se responden simulados (nunca llegan a la BD).
+const ST = (i: number, name: string, attended: boolean | null = null) => ({ profile_id: `st${i}`, display_name: name, attended })
+const STUDENTS = [ST(1, 'Lucía Fernández', true), ST(2, 'Mateo García', true), ST(3, 'Alejandro Martínez-Ruiz de la Torre'), ST(4, 'Sofía López'), ST(5, 'Hugo Sánchez', true), ST(6, 'Valeria Gómez')]
+const LONG = 'Seminario intensivo de tres días.\n\nViernes: suelo.\nSábado: proyecciones.\nDomingo: randori.\n\nTrae judogi blanco, chanclas y agua. Las puertas se abren 15 minutos antes.'
+
+type EvOpts = { now?: string; today?: number; event?: object; students?: object[]; put?: 'ok' | 'offline'; status?: number }
+async function abrirEvento(page: Page, o: EvOpts = {}) {
+  const calls: string[] = []
+  const gets: string[] = []
+  const ev = { ...EVENT, description: 'Técnicas de suelo. Trae judogi blanco.', ...o.event }
+  await page.clock.setFixedTime(new Date(`2026-11-${o.today ?? 17}T${o.now ?? '11:00'}:00+01:00`))
+  await page.addInitScript((t) => localStorage.setItem('kz.token', t), TOKEN)
+  await page.route('**/api/**', (r) => {
+    const req = r.request()
+    const u = new URL(req.url()).pathname.replace(/^\/api/, '')
+    if (req.method() !== 'GET') {
+      calls.push(`${req.method()} ${u} ${req.postData() ?? ''}`)
+      return o.put === 'offline' ? r.abort('internetdisconnected') : r.fulfill({ json: { ok: true } })
+    }
+    gets.push(u)
+    if (u === '/me') return r.fulfill({ json: ME })
+    if (u === '/professor/events/e1') {
+      if (o.status) return r.fulfill({ status: o.status, json: { code: 'event_not_found' } })
+      return r.fulfill({ json: { event: ev, students: o.students ?? STUDENTS } })
+    }
+    if (u === '/professor/events/e1/health') return r.fulfill({ json: { students: HEALTH } })
+    return r.fulfill({ json: {} })
+  })
+  await page.goto('/professor/events/e1')
+  if (!o.status) await expect(page.getByRole('heading', { name: (ev as { title: string }).title, level: 1 })).toBeVisible()
+  return { calls, gets }
+}
+
+test('evento en curso: hueco, contador único y la marca cambia el contador al momento', async ({ page }) => {
+  const { calls } = await abrirEvento(page)
+  await expect(page.getByText('Hoy · 10:00')).toBeVisible()
+  await expect(page.getByText('Hasta las 13:00 · Tatami 1 · en curso')).toBeVisible()
+  await expect(page.getByText('Evento', { exact: true })).toBeVisible()
+  await expect(contador(page)).toContainText('3 de 6 presentes')
+  await expect(page.locator('main [aria-live]')).toHaveCount(1)
+  // Estado sin color solo: el texto (y el icono) junto al interruptor.
+  await expect(page.getByText('Presente', { exact: true })).toHaveCount(3)
+  const box = await sw(page, 'Sofía López').boundingBox()
+  expect(Math.round(box!.height)).toBeGreaterThanOrEqual(44)
+  await sw(page, 'Sofía López').click()
+  await expect(sw(page, 'Sofía López')).toBeChecked()
+  await expect(contador(page)).toContainText('4 de 6 presentes')
+  await sw(page, 'Lucía Fernández').click()
+  await expect(contador(page)).toContainText('3 de 6 presentes')
+  expect(calls).toEqual(['PUT /events/e1/attendance/st4 {"present":true}', 'PUT /events/e1/attendance/st1 {"present":false}'])
+  await expect(page.getByRole('button', { name: 'Cerrar lista' })).toHaveCount(0)
+})
+
+test('evento sin conexión al marcar: aviso, el interruptor vuelve y el contador también', async ({ page }) => {
+  await abrirEvento(page, { put: 'offline' })
+  await sw(page, 'Sofía López').click()
+  await expect(page.getByText('Sin conexión: no se ha guardado. Vuelve a intentarlo.')).toBeVisible()
+  await expect(sw(page, 'Sofía López')).not.toBeChecked()
+  await expect(contador(page)).toContainText('3 de 6 presentes')
+})
+
+test('evento antes del inicio: aviso primero, solo lectura y sin contador', async ({ page }) => {
+  await abrirEvento(page, { now: '09:30' })
+  await expect(page.getByText('La lista se abre a las 10:00')).toBeVisible()
+  await expect(page.getByRole('switch')).toHaveCount(0)
+  await expect(page.getByText('Inscrito', { exact: true })).toHaveCount(6)
+  await expect(page.locator('main [aria-live]')).toHaveCount(0)
+  const alert = await page.getByText('La lista se abre a las 10:00').boundingBox()
+  const list = await page.getByText('Lucía Fernández').boundingBox()
+  expect(alert!.y).toBeLessThan(list!.y)
+})
+
+test('evento terminado: se puede seguir marcando y se dice', async ({ page }) => {
+  const { calls } = await abrirEvento(page, { now: '14:00' })
+  await expect(page.getByText('Terminado', { exact: true })).toBeVisible()
+  await expect(page.getByText('Puedes seguir marcando la asistencia.')).toBeVisible()
+  await sw(page, 'Valeria Gómez').click()
+  await expect(contador(page)).toContainText('4 de 6 presentes')
+  expect(calls).toEqual(['PUT /events/e1/attendance/st6 {"present":true}'])
+})
+
+test('evento de varios días: el segundo día dice «Día 2 de 3» y hasta cuándo; descripción larga plegada', async ({ page }) => {
+  await abrirEvento(page, { event: { starts_at: at(16, '10:00'), ends_at: at(18, '18:00'), description: LONG } })
+  await expect(page.getByText('Día 2 de 3')).toBeVisible()
+  await expect(page.getByText(/Hasta el 18 nov a las 18:00/)).toBeVisible()
+  await expect(page.getByRole('button', { name: /Ver fichas de salud/ })).toBeVisible()
+  const more = page.getByRole('button', { name: 'Ver más' })
+  await expect(more).toHaveAttribute('aria-expanded', 'false')
+  expect(Math.round((await more.boundingBox())!.height)).toBeGreaterThanOrEqual(44)
+  await more.click()
+  await expect(page.getByRole('button', { name: 'Ver menos' })).toHaveAttribute('aria-expanded', 'true')
+})
+
+test('evento: fichas solo al tocar, sin edad; fuera de los días del evento, ni botón ni petición', async ({ page }) => {
+  const { gets } = await abrirEvento(page)
+  expect(gets.filter((u) => u.endsWith('/health'))).toHaveLength(0)
+  await page.getByRole('button', { name: /Ver fichas de salud/ }).click()
+  await expect(page.getByRole('heading', { name: 'Fichas de salud', level: 1 })).toBeVisible()
+  await expect(page.getByText('Hombro derecho')).toBeVisible()
+  expect(gets.filter((u) => u.endsWith('/health'))).toHaveLength(1)
+  await expect(page.getByText(/edad|nacimiento|años/i)).toHaveCount(0)
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: 'Seminario de judo', level: 1 })).toBeVisible()
+})
+
+test('evento de otro día: las fichas no se ofrecen y se explica por qué', async ({ page }) => {
+  const { gets } = await abrirEvento(page, { today: 18 })
+  await expect(page.getByText('Las fichas de salud se pueden ver los días del evento.')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Ver fichas de salud/ })).toHaveCount(0)
+  expect(gets.filter((u) => u.endsWith('/health'))).toHaveLength(0)
+})
+
+test('evento cancelado: sin lista ni contador', async ({ page }) => {
+  await abrirEvento(page, { event: { status: 'cancelled' } })
+  await expect(page.getByText('Evento cancelado')).toBeVisible()
+  await expect(page.getByRole('switch')).toHaveCount(0)
+  await expect(page.locator('main [aria-live]')).toHaveCount(0)
+})
+
+test('evento sin inscritos: vacío y sin contador', async ({ page }) => {
+  await abrirEvento(page, { students: [] })
+  await expect(page.getByText('Aún no hay inscritos')).toBeVisible()
+  await expect(page.locator('main [aria-live]')).toHaveCount(0)
+})
+
+test('evento que no existe: «No lo encontramos», sin reintentar', async ({ page }) => {
+  await abrirEvento(page, { status: 404 })
+  await expect(page.getByText('No lo encontramos')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reintentar' })).toHaveCount(0)
+})
