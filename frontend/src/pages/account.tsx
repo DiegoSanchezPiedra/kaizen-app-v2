@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { ChevronLeftIcon, ChevronRightIcon, CircleAlertIcon, ClockIcon, FileSignatureIcon, GlobeIcon, HeartPulseIcon, IdCardIcon, InfoIcon, KeyRoundIcon, LogOutIcon, UsersIcon, WalletIcon } from 'lucide-react'
+import { ChevronLeftIcon, ChevronRightIcon, CircleAlertIcon, ClockIcon, FileSignatureIcon, GlobeIcon, HeartPulseIcon, IdCardIcon, InfoIcon, KeyRoundIcon, LogOutIcon, MailCheckIcon, UsersIcon, WalletIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type React from 'react'
 import { Link, useNavigate, type LinkProps } from 'react-router'
@@ -248,23 +248,24 @@ function PasswordForm() {
       className="flex flex-col gap-4"
       errors={errors}
       onFormSubmit={(v) => {
-        setErrors({})
+        setErrors((e) => (Object.keys(e).length ? {} : e)) // misma referencia si ya está vacío: el Form sigue esperando para enfocar el error del servidor
         change.mutate({ current_password: String(v.current_password), new_password: String(v.new_password) })
       }}
     >
       <Field name="current_password" className="items-stretch">
         <FieldLabel>Contraseña actual</FieldLabel>
-        <PasswordInput autoComplete="current-password" required />
+        <PasswordInput autoComplete="current-password" enterKeyHint="next" required />
         <FieldMessage match="valueMissing">Escribe tu contraseña actual.</FieldMessage>
         {errors.current_password && <FieldMessage>{errors.current_password}</FieldMessage>}
       </Field>
       <Field name="new_password" className="items-stretch">
         <FieldLabel>Contraseña nueva</FieldLabel>
-        <PasswordInput autoComplete="new-password" required minLength={8} />
+        <PasswordInput autoComplete="new-password" enterKeyHint="go" required minLength={8} />
         <FieldMessage match="valueMissing">Escribe la contraseña nueva.</FieldMessage>
         <FieldMessage match="tooShort">Usa al menos 8 caracteres.</FieldMessage>
         {errors.new_password ? <FieldMessage>{errors.new_password}</FieldMessage> : <FieldDescription>Mínimo 8 caracteres.</FieldDescription>}
       </Field>
+      <p className="text-sm text-muted-foreground">Al cambiarla se cerrará tu sesión en los demás dispositivos.</p>
       <Button type="submit" size="xl" loading={change.isPending}>
         Cambiar contraseña
       </Button>
@@ -276,9 +277,22 @@ function PasswordForm() {
 function CreatePassword({ email }: { email: string }) {
   const create = useMutation({
     mutationFn: () => api('/auth/password/forgot', { method: 'POST', auth: false, body: { email } }),
-    onSuccess: () => toastOk('Te hemos enviado un email para crearla'),
     onError: (err) => toastError(err),
   })
+  if (create.isSuccess)
+    return (
+      <div className="enter-soft flex flex-col gap-4">
+        <div className="flex items-start gap-3">
+          <MailCheckIcon className="mt-0.5 size-5 shrink-0 text-success-foreground" aria-hidden="true" />
+          <p role="status">
+            Te hemos enviado un email a <span className="font-medium break-words">{email}</span>. Ábrelo para crear tu contraseña; si no lo ves, mira en spam.
+          </p>
+        </div>
+        <Button variant="outline" size="xl" loading={create.isPending} onClick={() => create.mutate()}>
+          Reenviar email
+        </Button>
+      </div>
+    )
   return (
     <div className="flex flex-col gap-4">
       <p className="text-muted-foreground">Entras con Google y aún no tienes contraseña. Te enviamos un email a {email} para que la crees.</p>
@@ -301,7 +315,9 @@ export function PasswordPage() {
   return (
     <Page title="Contraseña">
       <Back />
-      <PasswordSection />
+      <div className="enter-soft rounded-2xl border bg-card p-4">
+        <PasswordSection />
+      </div>
     </Page>
   )
 }
