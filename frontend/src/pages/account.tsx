@@ -324,17 +324,14 @@ export function PasswordPage() {
 
 export function HealthPage() {
   const navigate = useNavigate()
+  // Nombre de pila del hijo elegido: «Salud de Lara».
+  const kid = subjectName(useSubject().subject)?.split(' ')[0]
   return (
-    <Page title="Ficha de salud">
+    <Page title={kid ? `Salud de ${kid}` : 'Ficha de salud'}>
       <Back />
       <SubjectGate>
-        {({ subject, profileId }) => (
-          <>
-            {subjectName(subject) && <p className="text-sm font-semibold">Ficha de {subjectName(subject)}</p>}
-            {/* key: al cambiar de sujeto el formulario parte de cero con la ficha del nuevo */}
-            <HealthForm key={profileId ?? 'self'} profileId={profileId} onSaved={() => void navigate(-1)} />
-          </>
-        )}
+        {/* key: al cambiar de sujeto el formulario parte de cero con la ficha del nuevo */}
+        {({ profileId }) => <HealthForm key={profileId ?? 'self'} profileId={profileId} onSaved={() => void navigate(-1)} cards name={kid} />}
       </SubjectGate>
     </Page>
   )

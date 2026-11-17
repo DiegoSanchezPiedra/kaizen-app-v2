@@ -27,8 +27,9 @@ async function abrir(page: Page, url: string, o: Opciones = {}) {
     }
     if (r.request().method() !== 'GET') return json({})
     if (u === '/me') return json(o.me ?? ME)
-    if (u === '/me/children') return o.role === 'alumno' ? json({ code: 'insufficient_role' }, 403) : json({ children: o.hijos ?? [LARA] })
+    if (u === '/me/children') return o.role === 'alumno' && !o.hijos ? json({ code: 'insufficient_role' }, 403) : json({ children: o.hijos ?? [LARA] })
     if (u === '/me/profile-status') return json({ ok: !o.missing?.length, missing: o.missing ?? [] })
+    if (u === '/me/health') return json({ health: null })
     if (u === '/billing/subscription') return o.subscription === null ? json({ code: 'subscription_not_found' }, 404) : json(o.subscription ?? CUOTA_AL_DIA)
     return json({})
   })
@@ -153,6 +154,23 @@ test('Mis datos: el servidor rechaza el nombre y el error queda en el campo con 
 test('Mis datos: un alumno sin fecha de nacimiento la ve', async ({ page }) => {
   await abrir(page, '/account/data', { role: 'alumno', me: { ...ME, role: 'alumno', birth_date: null, can_create_children: false } })
   await expect(page.getByRole('textbox', { name: 'Fecha de nacimiento' })).toBeVisible()
+})
+
+test('ficha de salud: contacto y opcionales en dos tarjetas; el contacto es obligatorio', async ({ page }) => {
+  await abrir(page, '/account/health', { role: 'alumno', me: { ...ME, role: 'alumno' }, hijos: [] }) // alumno adulto: /me/children vacía, no 403
+  await expect(page.getByRole('heading', { level: 1, name: 'Ficha de salud' })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Contacto de emergencia' })).toContainText('Tu ficha solo la ven quienes te cuidan en la sesión.')
+  await expect(page.getByRole('region', { name: /^Para cuidarte mejor/ })).toBeVisible()
+  await page.getByRole('button', { name: 'Guardar ficha' }).click()
+  await expect(page.getByText('Pon a quién llamamos si pasa algo.')).toBeVisible()
+  await expect(page.getByLabel('Nombre')).toBeFocused()
+})
+
+test('ficha de salud con ?para=: el título y los textos nombran al hijo', async ({ page }) => {
+  await abrir(page, `/account/health?para=${NICO.id}`, { hijos: [LARA, NICO] })
+  await expect(page.getByRole('heading', { level: 1, name: 'Salud de Nico' })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Contacto de emergencia' })).toContainText('quienes cuidan de Nico')
+  await expect(page.getByRole('region', { name: /^Para cuidar mejor a Nico/ })).toBeVisible()
 })
 
 test('Contraseña: avisa antes de enviar de que se cierran las demás sesiones', async ({ page }) => {
