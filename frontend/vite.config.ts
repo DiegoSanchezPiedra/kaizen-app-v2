@@ -20,7 +20,8 @@ export default defineConfig({
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,woff2,png,svg,ico}'],
         // Fuentes de alfabetos que la app no usa (se bajan si hicieran falta).
-        globIgnores: ['**/*-{vietnamese,cyrillic,cyrillic-ext,symbols2}-*.woff2'],
+        // Y jspdf: el PDF solo lo usa el profesor en la app de iOS (se baja al abrir la hoja), y sus extras HTML/SVG, nunca.
+        globIgnores: ['**/*-{vietnamese,cyrillic,cyrillic-ext,symbols2}-*.woff2', '**/assets/{html2canvas,purify.es,index.es,clock-pdf}-*.js'],
       },
       manifest: {
         name: 'Kaizen',

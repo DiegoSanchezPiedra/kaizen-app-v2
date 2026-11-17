@@ -1,5 +1,5 @@
-import { madridMonth } from '@/lib/dates'
-import { formatTime } from '@/lib/format'
+import { dayOfMonth, formatMonth, madridMonth, shortWeekday } from '@/lib/dates'
+import { formatShortDate, formatTime } from '@/lib/format'
 
 // Registro de jornada (B31, docs/api.md § Registro de jornada). La hora de un fichaje la pone el servidor.
 export type ClockState = 'out' | 'in' | 'paused'
@@ -90,4 +90,28 @@ export function pausesOf(events: ClockEvent[]): [ClockEvent, ClockEvent | undefi
     else if (e.kind === 'pause_end' && last && last[1] === undefined) last[1] = e
   }
   return out
+}
+
+// Textos de la hoja de jornada, iguales en pantalla y en el PDF. Un fichaje corregido lleva «*» (su hora es la de la corrección).
+export const stamp = (e: ClockEvent): string => `${formatTime(e.at)}${e.corrected ? '*' : ''}`
+export const listOf = (events: ClockEvent[], kind: ClockKind): string => events.filter((e) => e.kind === kind).map(stamp).join(', ') || '—'
+// En las pausas, el «*» de cualquiera de sus dos extremos; la que sigue abierta acaba en «…».
+export const pausesText = (events: ClockEvent[]): string =>
+  pausesOf(events)
+    .map(([from, to]) => `${stamp(from)}–${to ? stamp(to) : '…'}`)
+    .join(', ') || '—'
+export const when = (iso: string): string => `${formatShortDate(iso)}, ${formatTime(iso)}`
+export const dayLabel = (day: string): string => `${shortWeekday(day).replace(/^./, (c) => c.toUpperCase())} ${dayOfMonth(day)}`
+export const hasCorrected = (m: ClockMonth): boolean => m.days.some((d) => d.events.some((e) => e.corrected))
+// El día al que afecta una corrección: el de la hora nueva o, si la anula, el del fichaje original.
+export const correctionAt = (c: Correction, m: ClockMonth): string | undefined => c.at ?? originalOf(m, c.event_id)?.at
+export const sheetFooter = (m: ClockMonth, month: string): string => `Kaizen · Registro de jornada · ${m.profile.display_name ?? 'Sin nombre'} · ${formatMonth(month)}`
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+// Qué deja el mes sin cerrar («1 jornada abierta · 2 correcciones pendientes»), o null si está cerrado.
+export function draftOf(m: ClockMonth): string | null {
+  const open = m.days.filter((d) => d.open).length
+  const pending = m.corrections.filter((c) => c.status === 'pending').length
+  const parts = [open && plural(open, 'jornada abierta', 'jornadas abiertas'), pending && plural(pending, 'corrección pendiente', 'correcciones pendientes')].filter(Boolean)
+  return parts.length ? parts.join(' · ') : null
 }

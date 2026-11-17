@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { actionsFor, formatDuration, hasPending, monthParam, originalOf, pausesOf, stateLine, sinceOf, whatOf, type ClockEvent, type ClockMonth, type Correction } from '@/lib/clock'
+import { actionsFor, draftOf, formatDuration, hasPending, monthParam, originalOf, pausesOf, pausesText, stateLine, sinceOf, whatOf, type ClockEvent, type ClockMonth, type Correction } from '@/lib/clock'
 import { madridMonth } from '@/lib/dates'
 
 describe('registro de jornada (B31.1)', () => {
@@ -74,5 +74,19 @@ describe('pausas del día (impresión)', () => {
       ['d', undefined],
     ])
     expect(pausesOf([ev('a', 'in'), ev('b', 'out')])).toEqual([])
+  })
+
+  it('texto de las pausas: «*» en un extremo corregido, «…» si sigue abierta, «—» sin pausas', () => {
+    expect(pausesText([ev('a', 'in'), { ...ev('b', 'pause_start'), corrected: true }, ev('c', 'pause_end'), ev('d', 'pause_start')])).toMatch(/^\d\d:\d\d\*–\d\d:\d\d, \d\d:\d\d–…$/)
+    expect(pausesText([ev('a', 'in'), ev('b', 'out')])).toBe('—')
+  })
+})
+
+describe('mes sin cerrar (hoja de jornada)', () => {
+  const m = (open: boolean[], status: Correction['status'][]) => ({ days: open.map((o) => ({ open: o })), corrections: status.map((s) => ({ status: s })) }) as unknown as ClockMonth
+  it('cuenta jornadas abiertas y correcciones pendientes; cerrado da null', () => {
+    expect(draftOf(m([false, true], ['pending', 'applied']))).toBe('1 jornada abierta · 1 corrección pendiente')
+    expect(draftOf(m([true, true], ['pending', 'pending', 'rejected']))).toBe('2 jornadas abiertas · 2 correcciones pendientes')
+    expect(draftOf(m([false], ['applied', 'rejected']))).toBeNull()
   })
 })
