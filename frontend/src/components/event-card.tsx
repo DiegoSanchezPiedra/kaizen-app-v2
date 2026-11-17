@@ -42,7 +42,8 @@ export function EventBadge({ e }: { e: EventInfo }) {
 }
 
 // Tarjeta de evento del Calendario, Reservas e Inicio: fecha, título, cuándo y dónde, precio y estado. Lleva al detalle.
-export function EventCard({ e, to, member }: { e: EventInfo; to: LinkProps['to']; member?: boolean }) {
+// `flat`: sin la franja verde de 3 px de «Inscrito» (DESIGN.md: no más de 1 px de color en un solo lado); el estado ya lo dice la insignia.
+export function EventCard({ e, to, member, flat }: { e: EventInfo; to: LinkProps['to']; member?: boolean; flat?: boolean }) {
   const day = madridDay(e.starts_at)
   const price = priceView(e, member)
   const off = e.status === 'cancelled'
@@ -53,7 +54,7 @@ export function EventCard({ e, to, member }: { e: EventInfo; to: LinkProps['to']
       to={to}
       className={cn(
         'grid grid-cols-[52px_minmax(0,1fr)] gap-x-3 rounded-xl border bg-card p-3 shadow-xs/5 outline-none transition-transform duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98] motion-reduce:active:scale-100',
-        e.registration?.status === 'confirmed' && !off && 'border-success/55 shadow-[inset_3px_0_0_var(--success)]',
+        e.registration?.status === 'confirmed' && !off && ['border-success/55', !flat && 'shadow-[inset_3px_0_0_var(--success)]'],
         e.registration?.status === 'pending' && !off && 'border-warning/60',
         off && 'bg-transparent shadow-none',
       )}

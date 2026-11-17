@@ -2,12 +2,15 @@
 import { Router } from 'express';
 import { requireAuth, requireRole, withRlsContext } from '../middleware/auth.js';
 import { httpError } from '../lib/errors.js';
-import { checkIn } from '../services/checkin.js';
+import { checkIn, checkinWindow } from '../services/checkin.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const router = Router();
 router.use(requireAuth, requireRole('alumno', 'tutor'));
+
+// GET /checkin/window → { opens_minutes, closes_minutes }: la ventana de check-in (minutos antes y después del inicio).
+router.get('/window', withRlsContext(async (req, client) => checkinWindow(client)));
 
 // POST /checkin { code, booking_ids? } → { status: 'done', results } | { status: 'choose', candidates }
 // Idempotente: cada resultado lleva checked_in_at y already. Con varias candidatas se repite con las elegidas.

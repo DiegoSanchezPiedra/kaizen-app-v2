@@ -43,6 +43,13 @@ export function cancelBooking(client, id) {
   return callFn(client, `SELECT * FROM cancel_booking($1)`, [id]);
 }
 
+// Reglas que la app muestra al alumno: hoy, el plazo de cancelación (minutos antes del inicio hasta los que se cancela sin que
+// sea tardía; migración 069). Solo informa: cancel_booking es quien decide, con sus exenciones.
+export async function bookingRules(client) {
+  const { rows: [r] } = await client.query(`SELECT booking_rules() AS rules`);
+  return r.rules;
+}
+
 // Reservas visibles (propias y de los hijos; la RLS decide). `from`/`to`: días de Madrid, ambos inclusive.
 export async function listBookings(client, { profile_id, from, to } = {}) {
   const f = from ? dateParam(from, 'from') : null;

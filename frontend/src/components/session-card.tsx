@@ -39,6 +39,7 @@ export function SessionCard({
   state,
   badgeText,
   compact,
+  hideBadge,
   children,
 }: {
   startsAt: string
@@ -49,6 +50,8 @@ export function SessionCard({
   state: SessionState
   badgeText?: string
   compact?: boolean
+  // En una lista donde todas comparten estado (p. ej. «Próximas reservas») el badge solo repite el título.
+  hideBadge?: boolean
   children?: React.ReactNode
 }) {
   const off = state === 'cancelled'
@@ -58,7 +61,7 @@ export function SessionCard({
         'grid gap-x-3 gap-y-0.5 rounded-xl border bg-card p-3 shadow-xs/5',
         compact ? 'grid-cols-1' : 'grid-cols-[52px_minmax(0,1fr)]',
         off && 'bg-transparent shadow-none',
-        state === 'booked' && 'border-success/55 shadow-[inset_3px_0_0_var(--success)]',
+        state === 'booked' && 'border-success/55',
         state === 'waitlisted' && 'border-warning/60',
       )}
     >
@@ -71,10 +74,12 @@ export function SessionCard({
         {meta && <p className="text-[13px] leading-snug text-muted-foreground">{meta}</p>}
         {note && <p className="mt-1 text-[13px] leading-snug text-muted-foreground">{note}</p>}
       </div>
-      <div className={cn('mt-2 flex flex-wrap items-center justify-between gap-2', !compact && 'col-start-2')}>
-        <StateBadge state={state} text={badgeText} />
-        {children}
-      </div>
+      {(!hideBadge || children) && (
+        <div className={cn('mt-2 flex flex-wrap items-center justify-between gap-2', !compact && 'col-start-2')}>
+          {!hideBadge && <StateBadge state={state} text={badgeText} />}
+          {children}
+        </div>
+      )}
     </article>
   )
 }

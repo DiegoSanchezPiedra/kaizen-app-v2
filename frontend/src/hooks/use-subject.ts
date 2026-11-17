@@ -18,7 +18,7 @@ export function useSubject() {
   const me = useMe(alumno)
   // B32: un menor con acceso propio actúa solo por sí mismo y /me/children le da 403: sin selector. Se espera a /me para saberlo.
   const minor = minorView(me.data?.minor).isMinor
-  const { data, isPending, error, refetch } = useQuery({
+  const { data, isPending, error, refetch, fetchStatus } = useQuery({
     // Misma clave y misma forma (la lista) que pages/children.tsx: si no, la que llega primero a la caché rompe a la otra.
     queryKey: ['me', 'children'],
     queryFn: () => api<{ children: Child[] }>('/me/children').then((r) => r.children),
@@ -44,6 +44,8 @@ export function useSubject() {
     // Para uno mismo no se manda: el calendario solo acepta profile_id de un hijo (o del admin) y responde 403.
     profileId: subject && !subject.self ? subject.id : undefined,
     loading: enabled && !minor && (alumno ? me.isPending || (me.isSuccess && isPending) : isPending),
+    // Sin red y sin nada en caché TanStack pausa las consultas: sin esto la pantalla se quedaría en el esqueleto para siempre.
+    offline: (alumno && me.isPending && me.fetchStatus === 'paused') || (isPending && fetchStatus === 'paused'),
     error: error ?? me.error,
     retry: () => void Promise.all([!minor && refetch(), alumno && me.refetch()]),
     select,

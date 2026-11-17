@@ -417,6 +417,25 @@ try {
       await servicePool.query(`DELETE FROM auth_credentials WHERE profile_id = $1`, [U.child]);
     }
   });
+
+  await run('GET /bookings/rules: alumno, tutor y admin leen el plazo de cancelación vigente; el profesor y sin sesión, no', async () => {
+    const { startApp } = await import('./lib/app-server.js');
+    const { signToken } = await import('../src/services/jwt.js');
+    const app = await startApp();
+    const { rows: [before] } = await servicePool.query(`SELECT value FROM academy_settings WHERE key = 'cancellation_notice_minutes'`);
+    try {
+      await servicePool.query(`UPDATE academy_settings SET value = to_jsonb(90) WHERE key = 'cancellation_notice_minutes'`);
+      for (const [uid, role] of [[U.alu1, 'alumno'], [U.tutor1, 'tutor'], [U.admin, 'admin']]) {
+        const r = await app.http('GET', '/bookings/rules', { token: signToken({ sub: uid, role }) });
+        assert.deepEqual([r.status, r.body], [200, { cancellation_notice_minutes: 90 }], role);
+      }
+      assert.equal((await app.http('GET', '/bookings/rules', { token: signToken({ sub: U.prof1, role: 'profesor' }) })).status, 403);
+      assert.equal((await app.http('GET', '/bookings/rules')).status, 401);
+    } finally {
+      await servicePool.query(`UPDATE academy_settings SET value = $1::jsonb WHERE key = 'cancellation_notice_minutes'`, [JSON.stringify(before.value)]);
+      await app.close();
+    }
+  });
 } finally {
   const sessions = Object.values(S);
   await servicePool.query(

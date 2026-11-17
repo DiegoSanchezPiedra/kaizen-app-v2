@@ -29,13 +29,14 @@ export function weekQuery({ week, day }: WeekDay, today: string): { semana: stri
   return { semana: week === mondayOf(today) ? null : week, dia: day === defaultDay(week, today) ? null : day }
 }
 
-export type StripDay = { day: string; letter: string; number: number; today: boolean; selected: boolean; past: boolean; marked: boolean }
+export type StripDay = { day: string; letter: string; number: number; today: boolean; selected: boolean; past: boolean; marked: boolean; booked: boolean }
 
 // Los 7 botones de la tira. La inicial del miércoles es X, como en los calendarios en español.
-export function stripDays({ week, day }: WeekDay, today: string, marked: ReadonlySet<string>): StripDay[] {
+// `booked`: días en que el sujeto ya tiene una reserva firme (solo el alumno lo pasa).
+export function stripDays({ week, day }: WeekDay, today: string, marked: ReadonlySet<string>, booked: ReadonlySet<string> = new Set()): StripDay[] {
   return Array.from({ length: 7 }, (_, i) => {
     const d = addDays(week, i)
-    return { day: d, letter: 'LMXJVSD'[i], number: Number(d.slice(8)), today: d === today, selected: d === day, past: d < today, marked: marked.has(d) }
+    return { day: d, letter: 'LMXJVSD'[i], number: Number(d.slice(8)), today: d === today, selected: d === day, past: d < today, marked: marked.has(d), booked: booked.has(d) }
   })
 }
 

@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 
 export function Back({ to, children }: { to: LinkProps['to']; children: React.ReactNode }) {
   return (
-    <Link to={to} className="-mt-3 inline-flex min-h-11 items-center gap-1 self-start font-semibold text-link">
+    <Link to={to} className="-mt-3 inline-flex min-h-11 items-center gap-1 self-start rounded-md font-semibold text-link outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background">
       <ChevronLeftIcon className="size-4" aria-hidden="true" />
       {children}
     </Link>

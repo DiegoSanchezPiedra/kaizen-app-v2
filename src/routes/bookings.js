@@ -4,7 +4,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole, withRlsContext, requireCanBook } from '../middleware/auth.js';
 import { requireCompleteProfile } from '../middleware/requireCompleteProfile.js';
 import { httpError } from '../lib/errors.js';
-import { bookSession, cancelBooking, listBookings } from '../services/bookings.js';
+import { bookSession, bookingRules, cancelBooking, listBookings } from '../services/bookings.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -19,6 +19,9 @@ const uuidFields = (source, fields) => (req, res, next) => {
   const bad = fields.find((f) => req[source]?.[f] !== undefined && !UUID_RE.test(req[source][f]));
   return bad ? next(httpError(400, 'invalid_field', `${bad} debe ser un uuid`, { field: bad })) : next();
 };
+
+// GET /bookings/rules → { cancellation_notice_minutes }: el plazo de cancelación, para avisar antes de cancelar.
+router.get('/rules', withRlsContext(async (req, client) => bookingRules(client)));
 
 // GET /bookings?profile_id=&from=&to=
 router.get('/', uuidFields('query', ['profile_id']), withRlsContext(async (req, client) => ({

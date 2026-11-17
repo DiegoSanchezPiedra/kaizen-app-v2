@@ -1,21 +1,25 @@
 import { useMutation } from '@tanstack/react-query'
-import { CalendarIcon, LoaderCircleIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { CalendarIcon, LoaderCircleIcon, MapPinIcon } from 'lucide-react'
+import { useEffect, useId, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { Back, Kv, Note, StickyFooter } from '@/components/billing-bits'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { EventBadge, EventCard } from '@/components/event-card'
 import { Page } from '@/components/page'
+import { Rise } from '@/components/rise'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
+import { Seats } from '@/components/seats'
 import { SubjectGate, subjectName } from '@/components/subject-gate'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useNow } from '@/hooks/use-now'
 import { usePoll } from '@/hooks/use-poll'
 import { useCheckoutSubject, useSubject } from '@/hooks/use-subject'
 import { api } from '@/lib/api'
 import { rememberCheckoutSubject } from '@/lib/billing'
 import {
-  amountFor, audienceTag, audienceText, eventWhen, isMember, joinState, priceView, spotsLabel, type EventInfo, type JoinState,
+  amountFor, audienceTag, audienceText, eventHeadline, eventSpan, isMember, joinState, priceView, spotsLabel, type EventInfo, type JoinState,
 } from '@/lib/events'
 import { formatDeadline, formatEuros } from '@/lib/format'
 import { bookBlock, joinBlock } from '@/lib/minor'
@@ -24,6 +28,7 @@ import { errorCode, toastError, toastOk } from '@/lib/notify'
 import { eventOf, refreshEvents, useEvent, useEvents, useMinor, useProfileStatus, useSubscription } from '@/lib/queries'
 import type { Subject } from '@/lib/subject'
 import { toastManager } from '@/components/ui/toast'
+import { cn } from '@/lib/utils'
 
 type Props = { subject: Subject | null; profileId?: string }
 
@@ -54,18 +59,31 @@ export function EventList({ profileId }: Props) {
 
 // ── Detalle ──────────────────────────────────────────────────────────────
 
+// La entrada escalonada se juega una vez por sesión de la app (en memoria), como en Inicio y Progreso.
+let played = false
+
+// Rejilla del detalle: una columna en móvil (el HTML va en ese orden) y, desde lg, la izquierda y los datos en 21 rem a la derecha.
+// El pie fijo es hijo directo de la rejilla (si no, dejaría de pegarse) y va a la columna izquierda.
+const GRID = 'flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_21rem] lg:items-start lg:gap-x-8'
+
 const joinLabel = (amount: number, name?: string) => `${name ? `Inscribir a ${name}` : 'Inscribirse'}${amount > 0 ? ` · ${formatEuros(amount)}` : ''}`
 
 function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
   const { withSubject } = useSubject()
   const name = subjectName(subject)
   const member = useMember(profileId)
+  const subLoading = useSubscription(profileId).isLoading
   const status = useProfileStatus(profileId)
   // Con un hijo, además el estado del propio tutor (su protección de datos): hace falta para actuar por él.
   const selfStatus = useProfileStatus(undefined)
   const [mismatch, setMismatch] = useState(false)
   const [asking, setAsking] = useState(false)
   const [params] = useSearchParams()
+  const [first] = useState(!played)
+  useEffect(() => {
+    played = true
+  }, [])
+  const descId = useId()
 
   // La vuelta del Checkout: la inscripción pasa a confirmada con el webhook, así que se relee hasta verla (B18.3).
   const returning = params.get('pago') === 'ok'
@@ -99,7 +117,6 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
       const code = errorCode(err)
       if (code === 'audience_mismatch') setMismatch(true)
       if (code === 'profile_incomplete') void Promise.all([status.refetch(), selfStatus.refetch()])
-      else if (code !== 'audience_mismatch') void refreshEvents()
       if (code === 'audience_mismatch') toastManager.add({ type: 'error', title: audienceText(name), timeout: 5000 })
       else toastError(err)
     },
@@ -126,7 +143,7 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
   const reg = e.registration
   const waiting = returning && reg?.status === 'pending' && poll.phase !== 'done'
 
-  const action = (() => {
+  const notes = (() => {
     if (waiting) {
       return poll.phase === 'stopped' ? (
         <>
@@ -160,25 +177,14 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
         return <Note kind="success" title={name ? `${name} está inscrito` : 'Estás inscrito'} />
       case 'cancellable':
       case 'pending':
-        return (
-          <>
-            {state === 'pending' ? (
-              <Note kind="warning" title="Falta pagar la inscripción">
-                La plaza está reservada mientras se completa el pago (30 minutos). Si no lo has terminado, cancela e inscríbete de nuevo.
-              </Note>
-            ) : (
-              <Note kind="success" title={name ? `${name} está inscrito` : 'Estás inscrito'}>
-                {cancelBlock ?? 'Puedes cancelar hasta que empiece.'}
-              </Note>
-            )}
-            {!cancelBlock && (
-              <StickyFooter>
-                <Button size="xl" variant="outline" loading={cancel.isPending} onClick={() => setAsking(true)}>
-                  Cancelar inscripción
-                </Button>
-              </StickyFooter>
-            )}
-          </>
+        return state === 'pending' ? (
+          <Note kind="warning" title="Falta pagar la inscripción">
+            La plaza está reservada mientras se completa el pago (30 minutos). Si no lo has terminado, cancela e inscríbete de nuevo.
+          </Note>
+        ) : (
+          <Note kind="success" title={name ? `${name} está inscrito` : 'Estás inscrito'}>
+            {cancelBlock ?? 'Puedes cancelar hasta que empiece.'}
+          </Note>
         )
       case 'closed':
         return <Note kind="info" title="Las inscripciones están cerradas">{e.registration_deadline ? `El plazo terminó el ${formatDeadline(e.registration_deadline)}.` : 'El evento ya ha empezado.'}</Note>
@@ -202,41 +208,91 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
           </>
         )
       case 'open':
-        if (blocked) return <Note kind="info" title={blocked} />
-        return (
-          <StickyFooter>
-            <Button size="xl" loading={!ready || join.isPending || redirecting} onClick={() => join.mutate()}>
-              {joinLabel(amount, name)}
-            </Button>
-            {amount > 0 && <p className="text-center text-xs text-muted-foreground">Pagas con tarjeta en la página segura de Stripe. Impuestos incluidos.</p>}
-          </StickyFooter>
-        )
+        return blocked ? <Note kind="info" title={blocked} /> : null
     }
   })()
+
+  // El pie fijo con la acción (cancelar o inscribirse). Va fuera del bloque de estado: pegado a un hermano suyo no se sostendría.
+  const joinable = !waiting && state === 'open' && !blocked
+  // Hasta saber si es socio, el importe del botón podría cambiar: se espera si hay precio de socio.
+  // isLoading y no isPending: un menor (consulta desactivada) o un error no deben dejar el botón cargando para siempre.
+  const memberKnown = !subLoading || e.member_price_cents == null
+  const footer = waiting ? null : state === 'cancellable' || state === 'pending' ? (
+    !cancelBlock && (
+      <StickyFooter>
+        <Button size="xl" variant="outline" loading={cancel.isPending} onClick={() => setAsking(true)}>
+          Cancelar inscripción
+        </Button>
+      </StickyFooter>
+    )
+  ) : joinable ? (
+    <StickyFooter>
+      <Button size="xl" loading={!ready || !memberKnown || join.isPending || redirecting} onClick={() => join.mutate()}>
+        {joinLabel(amount, name)}
+      </Button>
+      {amount > 0 && <p className="text-center text-xs text-muted-foreground">Pagas con tarjeta en la página segura de Stripe. Impuestos incluidos.</p>}
+    </StickyFooter>
+  ) : null
 
   const rows: [string, React.ReactNode][] = [
     ['Precio', <>{price.main}{price.note && <span className="ml-1.5 text-xs font-medium text-muted-foreground">{price.note}</span>}</>],
   ]
-  if (spots) rows.push(['Plazas', spots])
+  if (spots)
+    rows.push([
+      'Plazas',
+      <span key="plazas" className="flex flex-col items-end gap-1">
+        {spots}
+        {e.capacity !== null && spots !== 'Completo' && <Seats taken={e.taken} capacity={e.capacity} />}
+      </span>,
+    ])
   if (e.registration_deadline) rows.push(['Inscripción hasta', formatDeadline(e.registration_deadline)])
+  if (e.discipline) rows.push(['Disciplina', e.discipline.name])
+  if (e.trainer?.display_name) rows.push(['Profesor', e.trainer.display_name])
+
+  // Turno de entrada de cada bloque: el de estado solo cuenta si se pinta.
+  const o = notes ? 1 : 0
 
   return (
     <>
-      <div className="flex flex-col gap-3 rounded-xl border bg-card p-3.5">
-        <h2 className="text-xl leading-snug font-semibold">{e.title}</h2>
-        <div className="flex flex-wrap items-center gap-2">
-          <EventBadge e={e} />
-          {tag && <span className="text-sm font-semibold text-muted-foreground">{tag}</span>}
-        </div>
-        <p className="font-semibold first-letter:uppercase">{eventWhen(e)}</p>
-        <p className="text-sm text-muted-foreground">{[e.location, e.discipline?.name, e.trainer?.display_name].filter(Boolean).join(' · ')}</p>
-        {e.description && <p className="text-[15px] leading-snug whitespace-pre-line">{e.description}</p>}
+      <div className={cn(GRID, 'lg:[&>.sticky]:col-start-1')}>
+        <Rise on={first} i={0} className="lg:col-start-1">
+          <div className="flex flex-col gap-2 rounded-2xl border bg-card p-4">
+            <div>
+              <p className="font-heading text-4xl leading-none font-bold tabular-nums text-balance first-letter:uppercase">{eventHeadline(e.starts_at)}</p>
+              <p className="mt-1.5 text-sm text-muted-foreground first-letter:uppercase">{eventSpan(e)}</p>
+            </div>
+            <h2 className="mt-1 text-lg leading-snug font-semibold">{e.title}</h2>
+            <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
+              <MapPinIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              {e.location}
+            </p>
+            <div className="flex flex-wrap items-center gap-2 empty:hidden">
+              <EventBadge e={e} />
+              {tag && <Badge variant="secondary">{tag}</Badge>}
+            </div>
+          </div>
+        </Rise>
+        {notes && (
+          <Rise on={first} i={1} className="flex flex-col gap-4 lg:col-start-1">
+            {notes}
+          </Rise>
+        )}
+        <Rise on={first} i={o + 1} className="lg:col-start-2 lg:row-span-3 lg:row-start-1">
+          <div className="rounded-2xl border bg-card px-4 py-1">
+            <Kv rows={rows} />
+            {e.price_cents > 0 && !joinable && <p className="border-t py-2 text-xs text-muted-foreground">Importes con impuestos incluidos.</p>}
+          </div>
+        </Rise>
+        {e.description && (
+          <Rise on={first} i={o + 2} className="lg:col-start-1">
+            <section aria-labelledby={descId} className="flex flex-col gap-2">
+              <h3 id={descId} className="text-base font-semibold">Sobre el evento</h3>
+              <p className="max-w-[70ch] text-[15px] leading-relaxed whitespace-pre-line">{e.description}</p>
+            </section>
+          </Rise>
+        )}
+        {footer}
       </div>
-      <div className="rounded-xl border bg-card px-3.5 py-1">
-        <Kv rows={rows} />
-        {e.price_cents > 0 && <p className="border-t py-2 text-xs text-muted-foreground">Importes con impuestos incluidos.</p>}
-      </div>
-      {action}
       <ConfirmDialog
         open={asking}
         onOpenChange={(o) => !o && !cancel.isPending && setAsking(false)}
@@ -250,9 +306,21 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
   )
 }
 
+function DetailSkeleton() {
+  return (
+    <div className={GRID} aria-busy="true" aria-label="Cargando">
+      <Skeleton className="h-40 rounded-2xl lg:col-start-1" />
+      <Skeleton className="h-16 rounded-2xl lg:col-start-1" />
+      <Skeleton className="h-32 rounded-2xl lg:col-start-2 lg:row-span-2 lg:row-start-1" />
+    </div>
+  )
+}
+
 function Loaded({ id, subject, profileId }: Props & { id: string }) {
   const query = useEvent(id, profileId)
-  if (query.isPending) return <ListSkeleton rows={2} />
+  // Sin red la consulta se pausa y se quedaría en esqueleto: se dice «Sin conexión» (ErrorState lo detecta con error null).
+  if (query.isPending && query.fetchStatus === 'paused') return <ErrorState error={null} onRetry={() => void query.refetch()} />
+  if (query.isPending) return <DetailSkeleton />
   if (query.isError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
   return <Detail e={query.data} subject={subject} profileId={profileId} />
 }
@@ -264,7 +332,7 @@ export function EventPage() {
   useCheckoutSubject()
   const back = { pathname: '/calendar', search: `?${new URLSearchParams({ tab: 'events', ...(para ? { para } : {}) })}` }
   return (
-    <Page title="Evento">
+    <Page title="Evento" lgWide>
       <Back to={back}>Eventos</Back>
       <SubjectGate>{(s) => <Loaded key={`${id}-${s.profileId ?? 'self'}`} id={id} {...s} />}</SubjectGate>
     </Page>

@@ -9,6 +9,10 @@ export function SessionRows({ children }: { children: React.ReactNode }) {
 }
 
 const accents = { success: 'shadow-[inset_3px_0_0_var(--success)]', warning: 'shadow-[inset_3px_0_0_var(--warning)]', primary: 'shadow-[inset_3px_0_0_var(--primary)]' }
+// El estado como tinte de la fila en lugar del borde de color de un solo lado. Más suave que el de una insignia (8 %, 16 %
+// en oscuro): cubre toda la fila y el ámbar, con el 8 %, deja la insignia en 4,4:1. `none`: sin tinte pero con la
+// transición, para que una fila que cambia de estado funda el color en vez de saltar.
+const tones = { success: 'bg-success/8 dark:bg-success/10', warning: 'bg-warning/5 dark:bg-warning/10', none: '' }
 
 // Hora en columna fija, nombre en negrita, una línea gris y a la derecha el estado o la acción del rol.
 // Si la derecha no cabe pasa debajo; en las 7 columnas de `lg` todo se apila.
@@ -22,6 +26,7 @@ export function SessionRow({
   to,
   off,
   accent,
+  tone,
 }: {
   start: string
   end: string
@@ -32,10 +37,12 @@ export function SessionRow({
   to?: string
   off?: boolean
   accent?: keyof typeof accents
+  tone?: keyof typeof tones
 }) {
   const cls = cn(
     'flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3 lg:flex-col lg:items-stretch lg:gap-y-1 lg:px-2 lg:[&_[data-slot=badge]]:text-xs',
     accent && accents[accent],
+    tone && ['transition-colors duration-200 ease-(--ease-out)', tones[tone]],
     to && 'outline-none hover:bg-accent/40 active:bg-accent/60 focus-visible:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
   )
   const body = (

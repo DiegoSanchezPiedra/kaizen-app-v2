@@ -20,9 +20,12 @@ const TEXT_FIELDS: [keyof Health, string, string?][] = [
   ['allergies', 'Alergias'],
 ]
 
+const OPTIONAL = <span className="font-normal text-muted-foreground">(opcional)</span>
+
 // Ficha de salud del sujeto. Solo se muestra aquí, a quien la rellena (nunca en listas ni en Inicio) y se descarta
 // de la memoria al salir (gcTime 0).
-export function HealthForm({ profileId, onSaved }: { profileId?: string; onSaved?: () => void }) {
+// `quiet`: sin aviso al guardar (en el alta, el paso siguiente ya lo dice); los errores siguen avisando.
+export function HealthForm({ profileId, onSaved, submitLabel = 'Guardar ficha', quiet }: { profileId?: string; onSaved?: () => void; submitLabel?: string; quiet?: boolean }) {
   const query = useQuery({
     queryKey: ['health', profileId ?? 'self'],
     queryFn: () => api<{ health: Health | null }>(path('/me/health', { profile_id: profileId })).then((r) => r.health),
@@ -32,7 +35,7 @@ export function HealthForm({ profileId, onSaved }: { profileId?: string; onSaved
     mutationFn: (v: Record<string, FormDataEntryValue>) =>
       api('/me/health', { method: 'POST', body: { profile_id: profileId, ...Object.fromEntries(Object.entries(v).map(([k, x]) => [k, String(x).trim() || null])) } }),
     onSuccess: async () => {
-      toastOk('Ficha guardada')
+      if (!quiet) toastOk('Ficha guardada')
       await queryClient.invalidateQueries({ queryKey: ['profile-status'] })
       onSaved?.()
     },
@@ -45,21 +48,6 @@ export function HealthForm({ profileId, onSaved }: { profileId?: string; onSaved
   return (
     <Form className="flex flex-col gap-4" onFormSubmit={(v) => save.mutate(v as Record<string, FormDataEntryValue>)}>
       <p className="text-sm text-muted-foreground">Solo la ven quienes la necesitan para cuidarte en la sesión.</p>
-      {TEXT_FIELDS.map(([name, label, hint]) => (
-        <Field key={name} name={name} className="items-stretch">
-          <FieldLabel>{label}</FieldLabel>
-          <Textarea defaultValue={h?.[name] ?? ''} maxLength={1000} className="min-h-22" />
-          {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
-        </Field>
-      ))}
-      <Field name="previous_experience" className="items-stretch">
-        <FieldLabel>Experiencia previa</FieldLabel>
-        <Input defaultValue={h?.previous_experience ?? ''} maxLength={300} />
-      </Field>
-      <Field name="previous_discipline" className="items-stretch">
-        <FieldLabel>Disciplina previa</FieldLabel>
-        <Input defaultValue={h?.previous_discipline ?? ''} maxLength={300} />
-      </Field>
       <fieldset className="flex flex-col gap-4 rounded-2xl border p-4">
         <legend className="px-1 text-sm font-semibold">Contacto de emergencia (obligatorio)</legend>
         <Field name="emergency_contact_name" className="items-stretch">
@@ -73,8 +61,23 @@ export function HealthForm({ profileId, onSaved }: { profileId?: string; onSaved
           <FieldMessage match="valueMissing">Pon un teléfono de contacto.</FieldMessage>
         </Field>
       </fieldset>
+      {TEXT_FIELDS.map(([name, label, hint]) => (
+        <Field key={name} name={name} className="items-stretch">
+          <FieldLabel>{label} {OPTIONAL}</FieldLabel>
+          <Textarea defaultValue={h?.[name] ?? ''} maxLength={1000} className="min-h-22" />
+          {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+        </Field>
+      ))}
+      <Field name="previous_experience" className="items-stretch">
+        <FieldLabel>Experiencia previa {OPTIONAL}</FieldLabel>
+        <Input defaultValue={h?.previous_experience ?? ''} maxLength={300} />
+      </Field>
+      <Field name="previous_discipline" className="items-stretch">
+        <FieldLabel>Disciplina previa {OPTIONAL}</FieldLabel>
+        <Input defaultValue={h?.previous_discipline ?? ''} maxLength={300} />
+      </Field>
       <Button type="submit" size="xl" loading={save.isPending}>
-        Guardar ficha
+        {submitLabel}
       </Button>
     </Form>
   )

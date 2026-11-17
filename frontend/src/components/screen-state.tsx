@@ -11,7 +11,11 @@ import { errorText } from '@/lib/errors'
 import { updateAndReload } from '@/lib/sw-update'
 
 // Estados comunes de docs/pantallas-b18.md: error, sin conexión y sin permiso. Cargando y vacío los pone cada pantalla.
-export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+// DESIGN.md: los títulos de estado van en sans semibold, no en la condensada. Por defecto se conserva la condensada (las demás
+// pantallas del grupo se pasan a ella al rediseñarlas): `plainTitle` la cambia.
+const PLAIN = 'font-sans! font-semibold! text-lg'
+
+export function ErrorState({ error, onRetry, plainTitle }: { error: unknown; onRetry?: () => void; plainTitle?: boolean }) {
   const offline = (error instanceof ApiError && error.code === 'network') || !navigator.onLine
   const forbidden = error instanceof ApiError && error.status === 403 && !offline
   const missing = error instanceof ApiError && error.status === 404
@@ -30,7 +34,7 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
         <EmptyMedia variant="icon">
           <Icon />
         </EmptyMedia>
-        <EmptyTitle>{title}</EmptyTitle>
+        <EmptyTitle className={plainTitle ? PLAIN : undefined}>{title}</EmptyTitle>
         <EmptyDescription>{text}</EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
@@ -56,17 +60,19 @@ export function EmptyState({
   title,
   text,
   action,
+  plainTitle,
 }: {
   icon: React.ReactNode
   title: string
   text?: string
   action?: React.ReactNode
+  plainTitle?: boolean
 }) {
   return (
     <Empty className="rounded-2xl border bg-card">
       <EmptyHeader>
         <EmptyMedia variant="icon">{icon}</EmptyMedia>
-        <EmptyTitle>{title}</EmptyTitle>
+        <EmptyTitle className={plainTitle ? PLAIN : undefined}>{title}</EmptyTitle>
         {text && <EmptyDescription>{text}</EmptyDescription>}
       </EmptyHeader>
       {action && <EmptyContent>{action}</EmptyContent>}

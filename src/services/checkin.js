@@ -95,6 +95,15 @@ export async function getCheckinSettings(client) {
   return Object.fromEntries(Object.entries(SETTINGS).map(([field, key]) => [field, byKey[key] ?? null]));
 }
 
+// Ventana de check-in que ve el alumno o el tutor: minutos antes del inicio en que se abre y minutos después en que se cierra.
+// Son los mismos valores (y los mismos por defecto) que aplica checkin_window_open (migración 068); academy_settings es solo
+// de admin, así que se lee con una función definer. Solo la usa la app para saber cuándo ofrecer el check-in; quien decide
+// si una reserva puede marcar sigue siendo el servidor.
+export async function checkinWindow(client) {
+  const { rows: [r] } = await client.query(`SELECT checkin_window() AS w`);
+  return r.w;
+}
+
 // ── Tablet (sin usuario) ─────────────────────────────────────────────────────
 
 export async function linkTablet(code) {

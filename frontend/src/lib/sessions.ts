@@ -56,5 +56,30 @@ export function splitBookings(bookings: Booking[], now: number) {
   }
 }
 
+// Ventana de check-in (GET /checkin/window): minutos antes del inicio en que se abre y minutos después en que se cierra.
+// Mientras no llega (cargando o con error) se usa una holgada: mejor ofrecer el check-in un poco pronto, que /checkin explica
+// el rechazo, que esconderlo cuando sí se puede.
+export type CheckinWindow = { opens_minutes: number; closes_minutes: number }
+export const CHECKIN_FALLBACK: CheckinWindow = { opens_minutes: 60, closes_minutes: 30 }
+
+// 'soon': la ventana está abierta y la sesión aún no ha empezado; 'live': ha empezado y la ventana sigue abierta.
+export function checkinPhase(startsAt: string, now: number, win: CheckinWindow = CHECKIN_FALLBACK): 'soon' | 'live' | null {
+  const min = (Date.parse(startsAt) - now) / 60_000
+  return min > 0 && min <= win.opens_minutes ? 'soon' : min <= 0 && min >= -win.closes_minutes ? 'live' : null
+}
+
+// «1 hora», «2 horas», «90 minutos».
+const noticeLabel = (min: number) => (min % 60 === 0 ? `${min / 60} ${min === 60 ? 'hora' : 'horas'}` : `${min} minutos`)
+
+// Aviso del diálogo de cancelar según el plazo de la academia (GET /bookings/rules). Solo afirma lo seguro: antes del plazo
+// nunca es tardía; pasado el plazo «puede» serlo, porque el servidor exime a la reserva promovida desde la espera dentro del
+// plazo y a la de una sesión cambiada. Salir de la espera nunca cuenta, y su diálogo no usa esto.
+export function cancelNotice(startsAt: string, now: number, noticeMin: number): string {
+  const min = (Date.parse(startsAt) - now) / 60_000
+  return min < noticeMin
+    ? `Falta menos de ${noticeLabel(noticeMin)} para empezar: puede contar como cancelación tardía.`
+    : `Cancelas con más de ${noticeLabel(noticeMin)} de antelación: no cuenta como cancelación tardía.`
+}
+
 // La API limita los rangos a 92 días: las pasadas se piden por tramos hacia atrás, el último día incluido.
 export const PAST_CHUNK_DAYS = 92

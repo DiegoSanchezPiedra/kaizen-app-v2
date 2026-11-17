@@ -34,5 +34,5 @@ const shortFmt = new Intl.DateTimeFormat('es-ES', { timeZone: TZ, day: 'numeric'
 const shortNoYear = new Intl.DateTimeFormat('es-ES', { timeZone: TZ, day: 'numeric', month: 'short' })
 const hourFmt = new Intl.DateTimeFormat('es-ES', { timeZone: TZ, hour: 'numeric', minute: '2-digit' })
 export const formatShortDate = (iso: string | Date): string => shortFmt.format(new Date(iso)).replace('.', '')
-export const formatDeadline = (iso: string | Date): string =>
-  `${shortNoYear.format(new Date(iso)).replace('.', '')} a las ${hourFmt.format(new Date(iso))}`
+export const formatDayMonth = (iso: string | Date): string => shortNoYear.format(new Date(iso)).replace('.', '')
+export const formatDeadline = (iso: string | Date): string => `${formatDayMonth(iso)} a las ${hourFmt.format(new Date(iso))}`

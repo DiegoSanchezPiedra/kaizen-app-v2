@@ -5,11 +5,14 @@ import { api } from '@/lib/api'
 import { toastError, toastOk } from '@/lib/notify'
 import { toastManager } from '@/components/ui/toast'
 import { refreshBookings } from '@/lib/queries'
+import { cancelNotice } from '@/lib/sessions'
 import type { Booking } from '@/lib/types'
 
 // Cancelar una reserva o salir de la espera, con confirmación. Salir de la espera no avisa de la cancelación tardía.
-export function useCancelBooking() {
-  const [target, setTarget] = useState<{ id: string; waitlisted: boolean } | null>(null)
+// Con `noticeMinutes` (el plazo de la academia, GET /bookings/rules) y la hora de inicio que pasa `ask`, el diálogo dice de
+// antemano si la cancelación puede contar como tardía; sin ellos (el Calendario), el texto genérico de siempre.
+export function useCancelBooking(noticeMinutes?: number) {
+  const [target, setTarget] = useState<{ id: string; waitlisted: boolean; startsAt?: string; askedAt: number } | null>(null)
   const cancel = useMutation({
     mutationFn: (id: string) => api<{ booking: Booking }>(`/bookings/${id}/cancel`, { method: 'POST' }),
     onSuccess: ({ booking }) => {
@@ -30,12 +33,14 @@ export function useCancelBooking() {
       description={
         target?.waitlisted
           ? 'Perderás tu sitio en la lista.'
-          : 'Si falta poco para empezar, puede contar como cancelación tardía.'
+          : target?.startsAt && noticeMinutes
+            ? cancelNotice(target.startsAt, target.askedAt, noticeMinutes)
+            : 'Si falta poco para empezar, puede contar como cancelación tardía.'
       }
       confirmLabel={target?.waitlisted ? 'Salir de la espera' : 'Cancelar reserva'}
       loading={cancel.isPending}
       onConfirm={() => target && cancel.mutate(target.id)}
     />
   )
-  return { ask: (id: string, waitlisted: boolean) => setTarget({ id, waitlisted }), dialog, pendingId: cancel.isPending ? target?.id : undefined }
+  return { ask: (id: string, waitlisted: boolean, startsAt?: string) => setTarget({ id, waitlisted, startsAt, askedAt: Date.now() }), dialog, pendingId: cancel.isPending ? target?.id : undefined }
 }

@@ -41,11 +41,33 @@ export function AppShell() {
   // El sujeto sigue al cambiar de pestaña.
   const para = useSearchParams()[0].get('para')
   const search = para ? `?${new URLSearchParams({ para })}` : ''
+  // El visor de check-in cubre la pantalla entera: el menú y su enlace de salto quedan inertes (sin foco bajo el visor).
+  const covered = pathname.startsWith('/checkin')
   return (
-    <div className="flex min-h-dvh flex-col lg:flex-row">
+    // El HTML va en el orden visual móvil (DESIGN.md): primero el contenido y, al final, la barra inferior; el Tab lo sigue.
+    // Desde lg el menú pasa a la izquierda con la rejilla (no con `order`), y «Ir al menú» evita al teclado recorrer toda
+    // la página para llegar a él.
+    <div className="flex min-h-dvh flex-col lg:grid lg:grid-cols-[16rem_minmax(0,1fr)]">
+      <a
+        href="#menu"
+        inert={covered}
+        onClick={(e) => {
+          e.preventDefault()
+          document.querySelector<HTMLElement>('#menu a')?.focus()
+        }}
+        className="print:hidden sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:border focus:bg-card focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:ring-2 focus:ring-ring focus:outline-none"
+      >
+        Ir al menú
+      </a>
+      <main className="min-w-0 flex-1 px-4 pt-6 pb-28 print:p-0 lg:col-start-2 lg:row-start-1 lg:px-10 lg:pb-10">
+        {usesSubject(pathname) && <SubjectPicker />}
+        {wait ? <ListSkeleton /> : <Outlet />}
+      </main>
       <nav
+        id="menu"
+        inert={covered}
         aria-label="Principal"
-        className="print:hidden order-last fixed inset-x-0 bottom-0 z-10 grid border-t bg-card px-1 pt-1.5 pb-[calc(6px+env(safe-area-inset-bottom))] lg:static lg:order-first lg:flex lg:w-64 lg:flex-col lg:gap-1 lg:border-t-0 lg:border-r lg:px-3 lg:py-4"
+        className="print:hidden fixed inset-x-0 bottom-0 z-10 grid border-t bg-card px-1 pt-1.5 pb-[calc(6px+env(safe-area-inset-bottom))] lg:static lg:col-start-1 lg:row-start-1 lg:flex lg:flex-col lg:gap-1 lg:border-t-0 lg:border-r lg:px-3 lg:py-4"
         style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
       >
         <div className="mb-4 hidden items-center gap-2.5 px-2 lg:flex">
@@ -74,10 +96,6 @@ export function AppShell() {
           </NavLink>
         ))}
       </nav>
-      <main className="min-w-0 flex-1 px-4 pt-6 pb-28 print:p-0 lg:px-10 lg:pb-10">
-        {usesSubject(pathname) && <SubjectPicker />}
-        {wait ? <ListSkeleton /> : <Outlet />}
-      </main>
     </div>
   )
 }

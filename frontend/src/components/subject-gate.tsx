@@ -12,9 +12,9 @@ import type { Subject } from '@/lib/subject'
 // Pantallas que actúan por un sujeto: espera a /me/children y, si es un tutor sin hijos, pide añadirlos.
 export function SubjectGate({ children }: { children: (s: { subject: Subject | null; profileId?: string }) => React.ReactNode }) {
   const session = useSession()
-  const { subject, profileId, loading, error, retry } = useSubject()
+  const { subject, profileId, loading, offline, error, retry } = useSubject()
   const canCreate = useMe().data?.can_create_children
-  if (loading) return <ListSkeleton />
+  if (loading) return offline ? <ErrorState error={null} onRetry={retry} /> : <ListSkeleton />
   if (error) return <ErrorState error={error} onRetry={retry} />
   if (session?.role === 'tutor' && !subject) {
     return (

@@ -12,7 +12,7 @@ const weekFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'UTC', day: 'numeri
 const weekLabel = (start: string) => `${weekFmt.format(new Date(`${start}T12:00:00Z`))} – ${weekFmt.format(new Date(`${addDays(start, 6)}T12:00:00Z`))}`
 
 // Tira de lunes a domingo (docs/auditoria-b22.md § 4): en móvil va fija arriba y se desliza para cambiar de semana.
-function Strip({ w, marked, top }: { w: Week; marked: ReadonlySet<string>; top: string }) {
+function Strip({ w, marked, booked, tint, top }: { w: Week; marked: ReadonlySet<string>; booked?: ReadonlySet<string>; tint?: boolean; top: string }) {
   const touch = useRef<{ x: number; y: number }>(null)
   return (
     <div data-week-strip className={cn('sticky z-10 -mx-4 flex flex-col gap-2 border-b bg-background px-4 pt-2 pb-2 lg:static lg:mx-0 lg:border-b-0 lg:bg-transparent lg:p-0', top)}>
@@ -50,23 +50,33 @@ function Strip({ w, marked, top }: { w: Week; marked: ReadonlySet<string>; top: 
           if (Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) w.shift(dx < 0 ? 1 : -1)
         }}
       >
-        {stripDays(w, w.today, marked).map((d) => (
+        {stripDays(w, w.today, marked, booked).map((d) => (
           <button
             key={d.day}
             type="button"
             aria-pressed={d.selected}
             aria-current={d.today ? 'date' : undefined}
-            aria-label={`${formatDay(d.day)}${d.today ? ', hoy' : ''}${d.marked ? ', con clases' : ''}`}
+            aria-label={`${formatDay(d.day)}${d.today ? ', hoy' : ''}${d.marked ? ', con clases' : ''}${d.booked ? ', con reserva' : ''}`}
             onClick={() => w.pick(d.day)}
             className={cn(
               'relative flex min-h-13 cursor-pointer flex-col items-center justify-center rounded-lg pb-1 text-muted-foreground outline-none transition-[transform,background-color,color] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] motion-reduce:active:scale-100',
               d.today && !d.selected && 'ring-[1.5px] ring-primary ring-inset',
-              d.selected ? 'bg-primary text-primary-foreground' : 'hover:bg-accent/60',
+              // `tint`: el elegido va con el relleno suave de la barra inferior, no sólido; el sólido se reserva a la acción.
+              d.selected ? (tint ? 'bg-primary/12 text-link ring-[1.5px] ring-primary/40 ring-inset' : 'bg-primary text-primary-foreground') : 'hover:bg-accent/60',
             )}
           >
             <span className="text-xs font-semibold">{d.letter}</span>
             <span className={cn('font-heading text-xl leading-none font-bold tabular-nums', !d.selected && !d.past && 'text-foreground')}>{d.number}</span>
-            <span aria-hidden="true" className={cn('absolute bottom-1.5 size-1 rounded-full', d.marked ? (d.selected ? 'bg-primary-foreground' : 'bg-muted-foreground') : 'invisible')} />
+            {/* El punto dice «hay clases»; si el sujeto ya tiene reserva, es más grande y verde (y el aria-label lo dice). */}
+            <span
+              aria-hidden="true"
+              className={cn(
+                'absolute',
+                d.booked ? 'bottom-1 size-2' : 'bottom-1.5 size-1',
+                'rounded-full',
+                !d.marked && !d.booked ? 'invisible' : d.selected && !tint ? 'bg-primary-foreground' : d.booked ? 'bg-success-foreground' : 'bg-muted-foreground',
+              )}
+            />
           </button>
         ))}
       </div>
@@ -82,6 +92,8 @@ export function WeekBoard({
   w,
   query,
   marked,
+  booked,
+  tint,
   renderDay,
   noun = 'clases',
   top = 'top-0',
@@ -89,6 +101,9 @@ export function WeekBoard({
   w: Week
   query: Query
   marked: ReadonlySet<string>
+  // Días con reserva del sujeto y día elegido con relleno suave: solo el calendario del alumno los pasa.
+  booked?: ReadonlySet<string>
+  tint?: boolean
   renderDay: (day: string) => React.ReactNode
   noun?: string
   // Dónde se queda la tira en móvil: bajo lo que ya sea fijo arriba (la cabecera del admin, el selector de sujeto).
@@ -116,7 +131,7 @@ export function WeekBoard({
   const next = nextMarked(w, marked)
   return (
     <div className="flex flex-col gap-4">
-      <Strip w={w} marked={query.isPending || query.isError ? new Set() : marked} top={top} />
+      <Strip w={w} marked={query.isPending || query.isError ? new Set() : marked} booked={query.isPending || query.isError ? undefined : booked} tint={tint} top={top} />
       {query.isPending ? (
         <ListSkeleton rows={3} className="h-16" />
       ) : query.isError ? (
