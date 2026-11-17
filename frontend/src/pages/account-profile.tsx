@@ -39,24 +39,34 @@ const FIELDS: [string, string][] = [
 const PROFESSOR_FIELDS = FIELDS.filter(([k]) => k !== 'achievements' && k !== 'ranking').map(([k, l]): [string, string] => [k, k === 'member_since' ? 'Desde cuándo estoy en la academia' : l])
 
 type Patch = { is_public?: boolean; visible_fields?: Record<string, boolean>; bio?: string | null; social_links?: Record<string, string> | null }
-const patch = (body: Patch) => api<MyProfile>('/me/profile', { method: 'PATCH', body })
-// La respuesta trae el perfil entero: se pinta ya, sin volver a pedirlo.
-const store = (p: MyProfile) => queryClient.setQueryData(['my-profile'], p)
+const KEY = ['my-profile']
+// Todos los PATCH del perfil van en fila (scope): cada respuesta trae el perfil entero tras el anterior.
+const PATCH = { mutationKey: KEY, scope: { id: 'my-profile' }, mutationFn: (body: Patch) => api<MyProfile>('/me/profile', { method: 'PATCH', body }) }
+// La respuesta trae el perfil entero: se pinta, salvo que queden otros en fila (pisaría lo que ya se ve de ellos).
+const store = (p: MyProfile) => queryClient.isMutating({ mutationKey: KEY }) <= 1 && queryClient.setQueryData(KEY, p)
 
 // Cada interruptor guarda al pulsarlo (como en la ficha del hijo).
 function VisibilityCard({ profile }: { profile: MyProfile }) {
   const role = useSession()?.role
   const me = useMe()
-  const set = useMutation({ mutationFn: patch, onSuccess: store, onError: (err) => toastError(err) })
-  // Mientras guarda se ve ya lo pedido; si falla, `variables` se vacía y vuelve lo guardado.
-  const asked = set.isPending ? set.variables : undefined
-  const on = asked?.is_public ?? profile.is_public
-  const visible = { ...profile.visible_fields, ...asked?.visible_fields }
+  const set = useMutation({
+    ...PATCH,
+    // Se ve ya lo pedido, sin bloquear los demás interruptores mientras guarda.
+    onMutate: (body) => queryClient.setQueryData<MyProfile>(KEY, (p) => p && { ...p, ...body, visible_fields: { ...p.visible_fields, ...body.visible_fields } }),
+    onSuccess: store,
+    // Si falla, vuelve lo que de verdad hay guardado.
+    onError: (err) => {
+      toastError(err)
+      void queryClient.invalidateQueries({ queryKey: KEY })
+    },
+  })
+  const on = profile.is_public
+  const visible = profile.visible_fields
   // El servidor mezcla visible_fields con lo que ya había: se manda solo el campo que cambia.
   const field = (key: string, label: string) => (
     <label key={key} className="flex min-h-12 items-center justify-between gap-3 border-t">
       <span className="text-[15px]">{label}</span>
-      <Switch checked={visible[key] ?? false} disabled={set.isPending} aria-label={label} onCheckedChange={(c) => set.mutate({ visible_fields: { [key]: c } })} />
+      <Switch checked={visible[key] ?? false} aria-label={label} onCheckedChange={(c) => set.mutate({ visible_fields: { [key]: c } })} />
     </label>
   )
   return (
@@ -74,13 +84,13 @@ function VisibilityCard({ profile }: { profile: MyProfile }) {
             <span className="block font-semibold">{role === 'profesor' ? 'Visible para los alumnos' : 'Visible para otros alumnos'}</span>
             <span className="block text-sm text-pretty text-muted-foreground">{role === 'profesor' ? 'Podrán ver tu ficha.' : 'Podrán ver tu ficha desde los rankings.'}</span>
           </span>
-          <Switch checked={on} disabled={set.isPending} onCheckedChange={(c) => set.mutate({ is_public: c })} />
+          <Switch checked={on} onCheckedChange={(c) => set.mutate({ is_public: c })} />
         </label>
         {/* Apagado, lo que se ve no cuenta: se pliega (sin perder los valores) y el Tab lo salta. */}
         <div
           data-testid="profile-fields"
           inert={!on}
-          className={cn('grid transition-[grid-template-rows,opacity] duration-200 ease-(--ease-out) motion-reduce:transition-opacity', on ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0')}
+          className={cn('grid transition-[grid-template-rows,opacity] ease-(--ease-out) motion-reduce:transition-opacity', on ? 'grid-rows-[1fr] opacity-100 duration-200' : 'grid-rows-[0fr] opacity-0 duration-150')}
         >
           {/* -mx/px: que el anillo de foco no quede recortado por overflow-hidden. */}
           <div className="-mx-1 flex min-h-0 flex-col overflow-hidden px-1">
@@ -103,7 +113,7 @@ function TextCard({ profile }: { profile: MyProfile }) {
   const links = (profile.social_links as Record<string, string> | null) ?? {}
   const [urlErrors, setUrlErrors] = useState<Record<string, boolean>>({})
   const save = useMutation({
-    mutationFn: patch,
+    ...PATCH,
     onSuccess: (p) => {
       store(p)
       toastOk('Perfil guardado')

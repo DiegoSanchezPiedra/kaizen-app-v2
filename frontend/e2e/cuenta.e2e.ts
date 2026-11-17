@@ -173,6 +173,15 @@ test('perfil público: cada interruptor guarda al momento solo su campo', async 
   await expect.poll(() => patches).toEqual([{ visible_fields: { social_links: true } }])
 })
 
+test('perfil público: dos interruptores seguidos se guardan los dos, en orden', async ({ page }) => {
+  const patches = await abrir(page, '/account/profile', ALUMNO)
+  await page.getByRole('switch', { name: 'Redes' }).click()
+  await page.getByRole('switch', { name: 'Logros' }).click()
+  await expect.poll(() => patches).toEqual([{ visible_fields: { social_links: true } }, { visible_fields: { achievements: true } }])
+  await expect(page.getByRole('switch', { name: 'Redes' })).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByRole('switch', { name: 'Logros' })).toHaveAttribute('aria-checked', 'true')
+})
+
 test('perfil público: apagado, «Qué se ve» se pliega y el Tab lo salta', async ({ page }) => {
   await abrir(page, '/account/profile', { ...ALUMNO, perfil: { ...PERFIL, is_public: false } })
   await expect(page.getByTestId('profile-fields')).toHaveAttribute('inert')
@@ -207,6 +216,7 @@ test('perfil público: un enlace sin https queda marcado y no se envía', async 
   await page.getByRole('button', { name: 'Guardar' }).click()
   await expect(page.getByText('Usa un enlace que empiece por https://')).toBeVisible()
   await expect(web).toHaveAttribute('aria-invalid', 'true')
+  await expect(web).toBeFocused()
   expect(patches).toEqual([])
 })
 
