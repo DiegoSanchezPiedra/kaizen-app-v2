@@ -60,6 +60,7 @@ export function AdminMembershipsPage() {
                     p.max_disciplines === null ? 'todas las disciplinas' : plural(p.max_disciplines, 'disciplina', 'disciplinas'),
                     p.eligible_discipline_ids.length > 0 && `elige entre ${p.eligible_discipline_ids.length}`,
                     ageRangeLabel(p.min_age, p.max_age)?.toLowerCase(),
+                    p.is_featured && 'recomendada',
                   ]
                     .filter(Boolean)
                     .join(' · '),
@@ -74,7 +75,9 @@ export function AdminMembershipsPage() {
               <TableBody>
                 {list.data.map((p) => (
                   <TableRow key={p.id} className={p.is_active ? 'h-10' : 'h-10 text-muted-foreground'}>
-                    <TableCell className="ps-4 font-medium">{p.name}</TableCell>
+                    <TableCell className="ps-4 font-medium">
+                      {p.name} {p.is_featured && <Tag variant="info">Recomendada</Tag>}
+                    </TableCell>
                     <TableCell className="tabular-nums whitespace-nowrap">{formatEuros(p.price_cents)}</TableCell>
                     <TableCell>{maxDisciplinesLabel(p.max_disciplines)}</TableCell>
                     <TableCell>{ageRangeLabel(p.min_age, p.max_age) ? <Tag variant="info">{ageRangeLabel(p.min_age, p.max_age)}</Tag> : 'Todos'}</TableCell>
@@ -121,6 +124,7 @@ function PlanSheet({ p, onClose, onChoose }: { p: Plan | null; onClose: () => vo
     min_age: p?.min_age == null ? '' : String(p.min_age),
     max_age: p?.max_age == null ? '' : String(p.max_age),
     is_active: p?.is_active ?? true,
+    is_featured: p?.is_featured ?? false,
   })
   const fe = useFieldError()
   const cents = eurosToCents(f.price)
@@ -130,7 +134,7 @@ function PlanSheet({ p, onClose, onChoose }: { p: Plan | null; onClose: () => vo
   const crossed = minAge != null && maxAge != null && minAge > maxAge
   const priceChanged = !!p && cents !== null && cents !== p.price_cents
   const retiring = !!p?.is_active && !f.is_active
-  const body = { name: f.name.trim(), price_cents: cents, max_disciplines: max, min_age: minAge ?? null, max_age: maxAge ?? null, is_active: f.is_active }
+  const body = { name: f.name.trim(), price_cents: cents, max_disciplines: max, min_age: minAge ?? null, max_age: maxAge ?? null, is_active: f.is_active, is_featured: f.is_featured }
   const diff = p ? Object.fromEntries(Object.entries(body).filter(([k, v]) => v !== p[k as keyof Plan])) : body
   const save = useMutation({
     mutationFn: () => {
@@ -182,6 +186,12 @@ function PlanSheet({ p, onClose, onChoose }: { p: Plan | null; onClose: () => vo
       </div>
       <p className="-mt-1 text-xs text-muted-foreground">Vacío: sin límite. Al contratar cuentan la mínima y la máxima; quien después supera la máxima deja de estar cubierto.</p>
       {p && <SwitchRow label="Activa" hint="Una membresía retirada ya no se contrata." checked={f.is_active} onChange={(v) => setF((x) => ({ ...x, is_active: v }))} />}
+      <SwitchRow
+        label="Recomendada"
+        hint="Sale destacada al contratar. Solo hay una: marcar esta quita la marca de la otra."
+        checked={f.is_featured}
+        onChange={(v) => setF((x) => ({ ...x, is_featured: v }))}
+      />
       {p && (
         // Por debajo de `sm` la tarjeta solo abre esta hoja; la lista de elegibles se abre desde aquí. Cambiar de hoja descarta lo escrito.
         <div className="flex flex-col gap-1">

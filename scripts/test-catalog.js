@@ -84,6 +84,13 @@ try {
       assert.deepEqual(await setEligibleDisciplines(c, { planId: kidsPlan.id, ids: [kids.id], actorId: admin }), [kids.id]);
       assert.deepEqual(await setEligibleDisciplines(c, { planId: open.id, ids: [], actorId: admin }), []);
     });
+    await run('destacado: solo uno; marcar otro desmarca el anterior', async () => {
+      assert.equal((await updatePlan(c, { id: open.id, body: { is_featured: true }, actorId: admin })).is_featured, true);
+      assert.equal((await updatePlan(c, { id: kidsPlan.id, body: { is_featured: true }, actorId: admin })).is_featured, true);
+      assert.deepEqual((await listPlans(c)).filter((p) => p.is_featured).map((p) => p.id), [kidsPlan.id]);
+      await sp(c, () => rejects(updatePlan(c, { id: open.id, body: { is_featured: 'sí' }, actorId: admin }), 400, 'invalid_field'));
+      await sp(c, () => assert.rejects(c.query(`UPDATE plans SET is_featured = true WHERE id = $1`, [open.id]), /plans_one_featured/));
+    });
     await run('cambio de precio audita; retirar plan/disciplina; sin DELETE', async () => {
       const p = await updatePlan(c, { id: open.id, body: { price_cents: 6000 }, actorId: admin });
       assert.equal(p.price_cents, 6000);

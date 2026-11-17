@@ -10,7 +10,7 @@ const isAge = (v) => v === null || (Number.isInteger(v) && v >= 0 && v <= 99);
 const isName = (v) => typeof v === 'string' && v.trim().length > 0 && v.length <= 100;
 
 const PLAN_SELECT = `
-  SELECT p.id, p.name, p.price_cents, p.billing_period, p.max_disciplines, p.min_age, p.max_age, p.is_active,
+  SELECT p.id, p.name, p.price_cents, p.billing_period, p.max_disciplines, p.min_age, p.max_age, p.is_active, p.is_featured,
          ARRAY(SELECT discipline_id::text FROM plan_disciplines WHERE plan_id = p.id ORDER BY plan_disciplines.discipline_id)
            AS eligible_discipline_ids
     FROM plans p`;
@@ -55,7 +55,12 @@ const PLAN_SPEC = {
   min_age: [isAge, 'min_age: entero 0–99 o null'],
   max_age: [isAge, 'max_age: entero 0–99 o null'],
   is_active: [isBool, 'is_active debe ser booleano'],
+  is_featured: [isBool, 'is_featured debe ser booleano'],
 };
+
+// Solo uno destacado (índice plans_one_featured): el nuevo desmarca el anterior.
+const unfeatureOthers = (client, data, id = null) =>
+  data.is_featured && client.query(`UPDATE plans SET is_featured = false WHERE is_featured AND id IS DISTINCT FROM $1`, [id]);
 
 // 23505 (unique) → 409; el resto se propaga.
 async function guardUnique(fn) {
@@ -183,6 +188,7 @@ async function getPlan(client, id, { lock = false } = {}) {
 
 export async function createPlan(client, body) {
   const data = validate(body, PLAN_SPEC, false);
+  await unfeatureOthers(client, data);
   const [sql, params] = insertSql('plans', data);
   const { rows: [{ id }] } = await guardUnique(() => client.query(sql, params));
   const plan = await getPlan(client, id);
@@ -205,6 +211,7 @@ export async function updatePlan(client, { id, body, actorId }) {
   }
   checkEligible({ ...before, ...data }, before.eligible_discipline_ids);
 
+  await unfeatureOthers(client, data, id);
   const [sql, params] = updateSql('plans', id, data);
   await guardUnique(() => client.query(sql, params));
   if ('price_cents' in data && data.price_cents !== before.price_cents) {

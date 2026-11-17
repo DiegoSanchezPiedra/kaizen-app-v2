@@ -66,6 +66,7 @@ export type Plan = {
   min_age: number | null
   max_age: number | null
   is_active: boolean
+  is_featured?: boolean // «Recomendado» al contratar; lo marca el admin (como mucho uno)
   eligible_discipline_ids: (number | string)[]
 }
 
