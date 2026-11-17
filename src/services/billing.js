@@ -603,7 +603,7 @@ export async function getPayerChange(client, { id }) {
             jsonb_build_object('id', pl.id::text, 'name', pl.name) AS plan, pl.price_cents,
             COALESCE((SELECT jsonb_agg(jsonb_build_object('id', d.id::text, 'name', d.name) ORDER BY d.name)
                         FROM disciplines d WHERE d.id = ANY(pc.discipline_ids)), '[]') AS disciplines,
-            pc.starts_at, pc.deadline
+            pc.starts_at, pc.deadline, pc.new_payer_id
        FROM payer_changes pc JOIN profiles st ON st.id = pc.student_id JOIN plans pl ON pl.id = pc.plan_id
       WHERE pc.id = $1`, [id]);
   return pc;

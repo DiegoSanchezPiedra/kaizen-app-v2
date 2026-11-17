@@ -97,7 +97,7 @@ router.delete('/pause', pauseSubject, withRlsContext(async (req, client) => endP
 
 // --- Cambio de pagador (B11): el nuevo pagador abre el enlace del aviso en la app y paga aquí. ---
 
-// GET /billing/payer-changes/:id → { id, status, student, plan, price_cents, disciplines, starts_at, deadline }
+// GET /billing/payer-changes/:id → { id, status, student, plan, price_cents, disciplines, starts_at, deadline, new_payer_id }
 router.get('/payer-changes/:id', withRlsContext(async (req, client) => getPayerChange(client, { id: req.params.id })));
 
 // Sujeto de requireCompleteProfile = el alumno del cambio. Antes, el 403 not_new_payer (también al tutor desvinculado).
