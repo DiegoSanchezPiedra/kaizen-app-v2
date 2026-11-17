@@ -172,3 +172,28 @@ test('ficha de salud con ?para=: el título y los textos nombran al hijo', async
   await expect(page.getByRole('group', { name: 'Contacto de emergencia' })).toContainText('quienes cuidan de Nico')
   await expect(page.getByRole('region', { name: /^Para cuidar mejor a Nico/ })).toBeVisible()
 })
+
+test('Contraseña: avisa antes de enviar de que se cierran las demás sesiones', async ({ page }) => {
+  await abrir(page, '/account/password')
+  await expect(page.getByText('Al cambiarla se cerrará tu sesión en los demás dispositivos.')).toBeVisible()
+})
+
+test('Contraseña: si la actual no es correcta, el error queda en el campo con el foco', async ({ page }) => {
+  await abrir(page, '/account/password')
+  await page.route('**/api/me/password', (r) => r.fulfill({ status: 401, json: { code: 'wrong_password' } }))
+  const actual = page.getByLabel('Contraseña actual')
+  await actual.fill('mala-1234')
+  await page.getByLabel('Contraseña nueva').fill('nueva-12345')
+  await page.getByRole('button', { name: 'Cambiar contraseña' }).click()
+  await expect(page.getByText('La contraseña actual no es correcta.')).toBeVisible()
+  await expect(actual).toHaveAttribute('aria-invalid', 'true')
+  await expect(actual).toBeFocused()
+})
+
+test('Contraseña: una cuenta solo con Google ve en la tarjeta que se envió el email y puede reenviarlo', async ({ page }) => {
+  await abrir(page, '/account/password', { me: { ...ME, has_password: false } })
+  await page.getByRole('button', { name: 'Crear contraseña' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'ana@example.invalid' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reenviar email' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Crear contraseña' })).toHaveCount(0)
+})

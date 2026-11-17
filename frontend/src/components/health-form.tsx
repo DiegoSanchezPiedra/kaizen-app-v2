@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { LockIcon } from 'lucide-react'
 import { StickyFooter } from '@/components/billing-bits'
+import { CARD } from '@/components/child-access'
 import { ErrorState } from '@/components/screen-state'
 import { FieldMessage } from '@/components/status-alert'
 import { Button } from '@/components/ui/button'
@@ -23,8 +24,6 @@ const TEXT_FIELDS: [keyof Health, string, string?][] = [
   ['allergies', 'Alergias'],
 ]
 
-// shortcut: copia de CARD de child-access.tsx (feat/account-children, aún sin mergear); importarlo cuando esté en main.
-const CARD = 'flex flex-col gap-3 rounded-2xl border bg-card p-4'
 
 const OPTIONAL = <span className="font-normal text-muted-foreground">(opcional)</span>
 
