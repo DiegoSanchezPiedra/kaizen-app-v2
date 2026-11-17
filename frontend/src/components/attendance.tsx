@@ -49,8 +49,11 @@ export function professorError(err: unknown, fallbackOffline = false) {
   else toastError(err)
 }
 
-// El interruptor grande de «Presente»: mientras guarda queda bloqueado.
-function SwitchCell({ on, pending, label, onChange }: { on: boolean; pending: boolean; label: string; onChange: (present: boolean) => void }) {
+// El interruptor grande de «Presente»: mientras guarda queda bloqueado, pero sin atenuarse ni animarse (se marca
+// decenas de veces seguidas). «Guardando…» solo aparece si tarda más de 600 ms. El estado lo anuncia el propio
+// role=switch: sin aria-live aquí. `touch`: 44 px de alto (pasar lista de pie en el tatami).
+function SwitchCell({ on, pending, label, onChange, touch }: { on: boolean; pending: boolean; label: string; onChange: (present: boolean) => void; touch?: boolean }) {
+  const slow = 'col-start-1 row-start-1 delay-600 duration-150 fill-mode-both'
   return (
     <div className="flex flex-col items-center gap-1">
       <Switch
@@ -58,27 +61,37 @@ function SwitchCell({ on, pending, label, onChange }: { on: boolean; pending: bo
         disabled={pending}
         onCheckedChange={onChange}
         aria-label={label}
-        className="relative h-9 w-16 [--thumb-size:34px] after:absolute after:-inset-1.5 after:content-[''] sm:[--thumb-size:34px]"
+        className={cn(
+          "relative transition-none duration-0 after:absolute after:-inset-1.5 after:content-[''] data-disabled:cursor-default data-disabled:opacity-100 [&>[data-slot=switch-thumb]]:transition-none",
+          touch ? 'h-11 w-20 [--thumb-size:42px] sm:[--thumb-size:42px]' : 'h-9 w-16 [--thumb-size:34px] sm:[--thumb-size:34px]',
+        )}
       />
-      <span className={cn('text-xs font-semibold', on ? 'text-foreground' : 'text-muted-foreground')} aria-live="polite">
-        {pending ? 'Guardando…' : on ? 'Presente' : 'Sin marcar'}
+      <span className={cn('grid text-xs font-semibold', on ? 'text-foreground' : 'text-muted-foreground')}>
+        <span className={cn('col-start-1 row-start-1', pending && `${slow} animate-out fade-out`)}>{on ? 'Presente' : 'Sin marcar'}</span>
+        {pending && <span className={`${slow} animate-in fade-in`}>Guardando…</span>}
       </span>
     </div>
   )
 }
 
-// Cada interruptor guarda al tocarlo; si falla, no cambia (la caché solo se toca al guardar).
-function MarkSwitch({ sessionId, row }: { sessionId: string; row: AttendanceRow }) {
+// Cada interruptor cambia la lista (y el contador) al tocarlo; si falla, esa fila vuelve tal como estaba.
+function MarkSwitch({ sessionId, row, touch }: { sessionId: string; row: AttendanceRow; touch?: boolean }) {
+  const setRow = (r: AttendanceRow) =>
+    queryClient.setQueryData<Attendance>(attKey(sessionId), (a) => a && { ...a, students: a.students.map((x) => (x.student_id === r.student_id ? r : x)) })
   const mark = useMutation({
     mutationFn: (present: boolean) => api(`/sessions/${sessionId}/attendance/${row.student_id}`, { method: 'PUT', body: { present } }),
-    onSuccess: (_r, present) => queryClient.setQueryData<Attendance>(attKey(sessionId), (a) => a && withMark(a, row.student_id, present)),
-    onError: (err) => {
+    onMutate: async (present) => {
+      await queryClient.cancelQueries({ queryKey: attKey(sessionId) })
+      queryClient.setQueryData<Attendance>(attKey(sessionId), (a) => a && withMark(a, row.student_id, present))
+      return row
+    },
+    onError: (err, _present, prev) => {
+      if (prev) setRow(prev)
       professorError(err, true)
       if (['no_active_booking', 'attendance_closed', 'session_not_started'].includes(errorCode(err))) void refreshAttendance(sessionId)
     },
   })
-  const on = mark.isPending ? mark.variables : row.status === 'present'
-  return <SwitchCell on={on} pending={mark.isPending} label={`Presente: ${row.display_name}`} onChange={(c) => mark.mutate(c)} />
+  return <SwitchCell on={row.status === 'present'} pending={mark.isPending} label={`Presente: ${row.display_name}`} onChange={(c) => mark.mutate(c)} touch={touch} />
 }
 
 // Lista de un evento (B21.2): presente sí o no, desde el inicio, sin cerrar ni corregir.
@@ -108,12 +121,28 @@ export function EventStudentItem({ eventId, student, open }: { eventId: string; 
   )
 }
 
-export function AttendanceItem({ sessionId, row, mode, onCorrect }: { sessionId: string; row: AttendanceRow; mode: 'switch' | 'read' | 'closed'; onCorrect: (r: AttendanceRow) => void }) {
+// `touch`: para pasar lista de pie (interruptor y «Corregir» de 44 px, nombre en dos líneas en vez de cortado).
+// `canCorrect={false}`: el plazo de corrección ya ha terminado y no hay botón.
+export function AttendanceItem({
+  sessionId,
+  row,
+  mode,
+  onCorrect,
+  touch,
+  canCorrect = true,
+}: {
+  sessionId: string
+  row: AttendanceRow
+  mode: 'switch' | 'read' | 'closed'
+  onCorrect: (r: AttendanceRow) => void
+  touch?: boolean
+  canCorrect?: boolean
+}) {
   return (
     <li className="grid min-h-18 grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b px-3.5 py-2.5 last:border-b-0">
       <ProfileAvatar name={row.display_name} avatar={row.avatar} className="size-10" />
       <div className={cn('min-w-0', mode === 'closed' && 'col-span-2')}>
-        <p className="truncate text-base font-semibold">{row.display_name}</p>
+        <p className={cn('text-base font-semibold', touch ? 'line-clamp-2 leading-snug break-words' : 'truncate')}>{row.display_name}</p>
         <div className="mt-1 flex flex-wrap gap-1.5 empty:hidden">
           {row.method === 'qr' && (
             <Badge variant="outline">
@@ -123,7 +152,7 @@ export function AttendanceItem({ sessionId, row, mode, onCorrect }: { sessionId:
           )}
         </div>
       </div>
-      {mode === 'switch' && <MarkSwitch sessionId={sessionId} row={row} />}
+      {mode === 'switch' && <MarkSwitch sessionId={sessionId} row={row} touch={touch} />}
       {mode === 'read' && <span className="text-[13px] font-semibold text-muted-foreground">{row.status === 'present' ? 'Presente' : 'Reservado'}</span>}
       {mode === 'closed' && (
         <div className="col-span-2 col-start-2 flex items-center justify-between gap-2">
@@ -131,9 +160,11 @@ export function AttendanceItem({ sessionId, row, mode, onCorrect }: { sessionId:
             {row.status === 'present' ? <CheckIcon aria-hidden="true" /> : <XIcon aria-hidden="true" />}
             {row.status === 'present' ? 'Presente' : 'Falta'}
           </Badge>
-          <Button size="lg" variant="outline" aria-label={`Corregir la asistencia de ${row.display_name}`} onClick={() => onCorrect(row)}>
-            Corregir
-          </Button>
+          {canCorrect && (
+            <Button size={touch ? 'xl' : 'lg'} variant="outline" aria-label={`Corregir la asistencia de ${row.display_name}`} onClick={() => onCorrect(row)}>
+              Corregir
+            </Button>
+          )}
         </div>
       )}
       {mode === 'closed' && row.corrected_at && (
@@ -146,7 +177,8 @@ export function AttendanceItem({ sessionId, row, mode, onCorrect }: { sessionId:
 const MAX_REASON = 500
 
 // Presente ↔ falta con motivo obligatorio. Sheet en móvil, Dialog en escritorio.
-export function CorrectDialog({ sessionId, row, onClose }: { sessionId: string; row: AttendanceRow | null; onClose: () => void }) {
+// `onExpired`: la pantalla se entera de que el plazo terminó (la API no lo da de antemano) y quita los «Corregir».
+export function CorrectDialog({ sessionId, row, onClose, onExpired }: { sessionId: string; row: AttendanceRow | null; onClose: () => void; onExpired?: () => void }) {
   const mobile = useIsMobile()
   const [reason, setReason] = useState('')
   const [empty, setEmpty] = useState(false)
@@ -162,7 +194,10 @@ export function CorrectDialog({ sessionId, row, onClose }: { sessionId: string; 
     },
     onError: (err) => {
       const code = errorCode(err)
-      if (code === 'correction_window_expired') return setExpired(true)
+      if (code === 'correction_window_expired') {
+        onExpired?.()
+        return setExpired(true)
+      }
       toastError(err)
       if (['no_change', 'attendance_not_closed', 'no_active_booking'].includes(code)) {
         void refreshAttendance(sessionId)

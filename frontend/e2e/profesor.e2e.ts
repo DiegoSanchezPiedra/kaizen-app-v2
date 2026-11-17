@@ -125,3 +125,143 @@ test('objetivos táctiles de 44 px o más', async ({ page }) => {
     expect(Math.round(box!.width)).toBeGreaterThanOrEqual(44)
   }
 })
+
+// ── Detalle de una sesión (/professor/sessions/:id): pasar lista ──────────────────────────────────────────────
+// Misma API simulada; aquí los PUT/POST se apuntan en `calls` y se responden simulados (nunca llegan a la BD).
+const R = (i: number, name: string, o: object = {}) => ({
+  booking_id: `b${i}`, student_id: `st${i}`, display_name: name, avatar: null, status: null, method: null, corrected_at: null, correction_reason: null, ...o,
+})
+const ROWS = [
+  R(1, 'Lucía Fernández', { status: 'present', method: 'qr' }),
+  R(2, 'Mateo García', { status: 'present', method: 'manual' }),
+  R(3, 'Alejandro Martínez-Ruiz de la Torre'),
+  R(4, 'Sofía López'),
+  R(5, 'Hugo Sánchez', { status: 'present', method: 'manual' }),
+  R(6, 'Valeria Gómez'),
+]
+const CLOSED = ROWS.map((r) => ({ ...r, status: r.status ?? 'absent' }))
+const HEALTH = [
+  { student_id: 'st1', display_name: 'Lucía Fernández', injuries: 'Hombro derecho', conditions: null, allergies: null, medication: null, emergency_contact_name: 'Ana', emergency_contact_phone: '+34 600 111 222' },
+  { student_id: 'st4', display_name: 'Sofía López', injuries: null, conditions: null, allergies: null, medication: null, emergency_contact_name: null, emergency_contact_phone: null },
+]
+
+type SesOpts = { now?: string; day?: number; rows?: object[]; closed?: boolean; cancelled?: boolean; put?: 'ok' | 'offline'; correct?: 'ok' | 'expired' }
+async function abrirSesion(page: Page, o: SesOpts = {}) {
+  const calls: string[] = []
+  const gets: string[] = []
+  const ses = S('s2', o.day ?? 17, '18:00', '19:30', 'Jiu-jitsu', { location: 'Tatami 2', capacity: 16, status: o.cancelled ? 'cancelled' : 'scheduled' })
+  await page.clock.setFixedTime(new Date(`2026-11-17T${o.now ?? '18:30'}:00+01:00`))
+  await page.addInitScript((t) => localStorage.setItem('kz.token', t), TOKEN)
+  await page.route('**/api/**', (r) => {
+    const req = r.request()
+    const u = new URL(req.url()).pathname.replace(/^\/api/, '')
+    if (req.method() !== 'GET') {
+      calls.push(`${req.method()} ${u} ${req.postData() ?? ''}`)
+      if (o.put === 'offline') return r.abort('internetdisconnected')
+      if (u.endsWith('/close')) return r.fulfill({ json: { present: 3, absent: 3 } })
+      if (u.endsWith('/correct') && o.correct === 'expired') return r.fulfill({ status: 403, json: { code: 'correction_window_expired' } })
+      return r.fulfill({ json: { ok: true } })
+    }
+    gets.push(u)
+    if (u === '/me') return r.fulfill({ json: ME })
+    if (u === '/professor/sessions/s2') return r.fulfill({ json: { session: ses } })
+    if (u === '/sessions/s2/attendance') return r.fulfill({ json: { closed_at: o.closed ? at(17, '19:35') : null, students: o.rows ?? (o.closed ? CLOSED : ROWS) } })
+    if (u === '/professor/sessions/s2/health') return r.fulfill({ json: { students: HEALTH } })
+    return r.fulfill({ json: {} })
+  })
+  await page.goto('/professor/sessions/s2')
+  await expect(page.getByRole('heading', { name: 'Jiu-jitsu', level: 1 })).toBeVisible()
+  return { calls, gets }
+}
+
+const contador = (page: Page) => page.locator('p[aria-live]')
+const sw = (page: Page, name: string) => page.getByRole('switch', { name: `Presente: ${name}` })
+
+test('pasar lista en curso: hueco, contador único y la marca cambia el contador al momento', async ({ page }) => {
+  const { calls } = await abrirSesion(page)
+  await expect(page.getByText('Hoy · 18:00')).toBeVisible()
+  await expect(page.getByText('En curso · pasa lista')).toHaveCount(0)
+  await expect(contador(page)).toContainText('3 de 6 presentes')
+  await expect(page.locator('main [aria-live]')).toHaveCount(1)
+  const box = await sw(page, 'Sofía López').boundingBox()
+  expect(Math.round(box!.height)).toBeGreaterThanOrEqual(44)
+  await sw(page, 'Sofía López').click()
+  await expect(sw(page, 'Sofía López')).toBeChecked()
+  await expect(contador(page)).toContainText('4 de 6 presentes')
+  expect(calls).toEqual(['PUT /sessions/s2/attendance/st4 {"present":true}'])
+  // El orden del HTML es el visual del móvil: «Cerrar lista» (abajo, fija) va después de la lista.
+  const order = await page.evaluate(() => {
+    const els = [...document.querySelectorAll('[role=switch], button')].map((e) => e.getAttribute('aria-label') ?? e.textContent)
+    return [els.indexOf('Presente: Valeria Gómez'), els.indexOf('Cerrar lista')]
+  })
+  expect(order[0]).toBeLessThan(order[1])
+})
+
+test('cerrar la lista: confirmación con los que pasan a falta', async ({ page }) => {
+  const { calls } = await abrirSesion(page)
+  await page.getByRole('button', { name: 'Cerrar lista' }).click()
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog.getByText('Quien no esté marcado pasa a falta.')).toBeVisible()
+  await expect(dialog.getByText('Sofía López')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cerrar lista' }).click()
+  await expect.poll(() => calls).toContain('POST /sessions/s2/attendance/close ')
+})
+
+test('sin conexión al marcar: aviso, el interruptor vuelve y el contador también', async ({ page }) => {
+  await abrirSesion(page, { put: 'offline' })
+  await sw(page, 'Sofía López').click()
+  await expect(page.getByText('Sin conexión: no se ha guardado. Vuelve a intentarlo.')).toBeVisible()
+  await expect(sw(page, 'Sofía López')).not.toBeChecked()
+  await expect(contador(page)).toContainText('3 de 6 presentes')
+  // Quitar a quien llegó por check-in y fallar no le borra la insignia.
+  await sw(page, 'Lucía Fernández').click()
+  await expect(sw(page, 'Lucía Fernández')).toBeChecked()
+  await expect(page.getByText('Llegó por check-in')).toBeVisible()
+})
+
+test('antes del inicio: aviso primero y solo lectura', async ({ page }) => {
+  await abrirSesion(page, { now: '17:30' })
+  await expect(page.getByRole('switch')).toHaveCount(0)
+  const aviso = await page.getByText('La lista se abre a las 18:00').boundingBox()
+  const lista = await page.getByText('6 reservas · 1 con check-in').boundingBox()
+  expect(aviso!.y).toBeLessThan(lista!.y)
+})
+
+test('lista cerrada: corregir pide motivo y lo envía; caducado quita los «Corregir»', async ({ page }) => {
+  const { calls } = await abrirSesion(page, { now: '19:45', closed: true, correct: 'expired' })
+  await expect(page.getByText('Lista cerrada')).toBeVisible()
+  await page.getByRole('button', { name: 'Corregir la asistencia de Mateo García' }).click()
+  await page.getByRole('button', { name: 'Guardar corrección' }).click()
+  await expect(page.getByRole('alert').filter({ hasText: /motivo/i })).toBeVisible()
+  expect(calls).toHaveLength(0)
+  await page.getByLabel('Motivo (obligatorio)').fill('Se fue antes')
+  await page.getByRole('button', { name: 'Guardar corrección' }).click()
+  await expect.poll(() => calls).toEqual(['POST /sessions/s2/attendance/st2/correct {"status":"absent","reason":"Se fue antes"}'])
+  await page.getByRole('button', { name: 'Cerrar', exact: true }).last().click()
+  await expect(page.getByText('Ya no se puede corregir. Pídelo a la academia.')).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Corregir la asistencia/ })).toHaveCount(0)
+})
+
+test('fichas de salud: solo se piden al tocar, sin edad; otro día no hay botón', async ({ page }) => {
+  const { gets } = await abrirSesion(page)
+  expect(gets.filter((u) => u.endsWith('/health'))).toHaveLength(0)
+  await page.getByRole('button', { name: /Ver fichas de salud/ }).click()
+  await expect(page.getByRole('heading', { name: 'Fichas de salud', level: 1 })).toBeVisible()
+  await expect(page.getByText('Hombro derecho')).toBeVisible()
+  expect(gets.filter((u) => u.endsWith('/health'))).toHaveLength(1)
+  await expect(page.getByText(/edad|nacimiento|años/i)).toHaveCount(0)
+  const call = await page.getByRole('link', { name: /Llamar al contacto/ }).first().boundingBox()
+  expect(Math.round(call!.height)).toBeGreaterThanOrEqual(44)
+})
+
+test('sesión de otro día: sin fichas', async ({ page }) => {
+  await abrirSesion(page, { day: 16, closed: true })
+  await expect(page.getByText('Lista cerrada')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Ver fichas de salud/ })).toHaveCount(0)
+})
+
+test('cancelada: sin lista y sin pedirla', async ({ page }) => {
+  const { gets } = await abrirSesion(page, { cancelled: true })
+  await expect(page.getByText('Sesión cancelada')).toBeVisible()
+  expect(gets).not.toContain('/sessions/s2/attendance')
+})
