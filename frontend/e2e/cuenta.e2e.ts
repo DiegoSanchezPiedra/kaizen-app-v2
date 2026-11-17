@@ -31,7 +31,7 @@ async function abrir(page: Page, url: string, o: Opciones = {}) {
 }
 
 const fila = (page: Page, nombre: string) => page.getByRole('link', { name: new RegExp(`^${nombre}`) })
-const FILAS = ['Mis datos', 'Contraseña', 'Mis hijos', 'Ficha de salud', 'Acuerdos', 'Mi cuota']
+const FILAS = ['Mis datos', 'Contraseña', 'Mis hijos', 'Ficha de salud', 'Acuerdos', 'Su cuota']
 
 test('ficha de identidad: nombre, email y rol con los nombres de los hijos', async ({ page }) => {
   await abrir(page, '/account', { hijos: [LARA, NICO] })
@@ -47,7 +47,7 @@ test('tutor sin hijos: el rol es solo «Tutor»', async ({ page }) => {
 
 test('todo en orden: ninguna insignia', async ({ page }) => {
   await abrir(page, '/account')
-  await expect(fila(page, 'Mi cuota')).toBeVisible()
+  await expect(fila(page, 'Su cuota')).toBeVisible()
   for (const texto of ['Incompleta', 'Falta firmar', 'Impagada', 'Cobro pendiente', 'Sin cuota']) await expect(page.getByText(texto, { exact: true })).toHaveCount(0)
 })
 
@@ -55,7 +55,7 @@ test('lo pendiente se marca en su fila: ficha incompleta y falta firmar', async 
   await abrir(page, '/account', { missing: ['health_info', 'data_protection'] })
   await expect(fila(page, 'Ficha de salud')).toContainText('Incompleta')
   await expect(fila(page, 'Acuerdos')).toContainText('Falta firmar')
-  await expect(fila(page, 'Mi cuota')).not.toContainText(/Impagada|Cobro pendiente|Sin cuota/)
+  await expect(fila(page, 'Su cuota')).not.toContainText(/Impagada|Cobro pendiente|Sin cuota/)
 })
 
 for (const [subscription, texto] of [
@@ -63,9 +63,9 @@ for (const [subscription, texto] of [
   [{ ...CUOTA_AL_DIA, status: 'past_due' }, 'Cobro pendiente'],
   [null, 'Sin cuota'],
 ] as const)
-  test(`cuota «${texto}»: insignia solo en Mi cuota`, async ({ page }) => {
+  test(`cuota «${texto}»: insignia solo en Su cuota`, async ({ page }) => {
     await abrir(page, '/account', { subscription })
-    await expect(fila(page, 'Mi cuota')).toContainText(texto)
+    await expect(fila(page, 'Su cuota')).toContainText(texto)
     await expect(fila(page, 'Ficha de salud')).not.toContainText(/Incompleta/)
     await expect(fila(page, 'Acuerdos')).not.toContainText(/Falta firmar/)
   })
@@ -74,6 +74,8 @@ test('con ?para= los grupos llevan el nombre del hijo', async ({ page }) => {
   await abrir(page, `/account?para=${LARA.id}`, { hijos: [LARA, NICO] })
   await expect(page.getByRole('heading', { name: 'Salud y documentos de Lara' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Cuota de Lara' })).toBeVisible()
+  await expect(fila(page, 'Su cuota')).toBeVisible()
+  await expect(page.getByRole('link', { name: /^Mi cuota/ })).toHaveCount(0)
 })
 
 test('con ?para= de otro hijo, el nombre cambia con él', async ({ page }) => {
@@ -89,13 +91,13 @@ test('vista de menor: solo su tarjeta, sin datos, hijos, salud, acuerdos ni cuot
   })
   await expect(page.getByRole('heading', { name: 'Tu cuenta' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Contraseña' })).toBeVisible() // la página ya cargó
-  for (const nombre of ['Mis datos', 'Mis hijos', 'Ficha de salud', 'Acuerdos', 'Mi cuota']) await expect(page.getByRole('link', { name: nombre })).toHaveCount(0)
+  for (const nombre of ['Mis datos', 'Mis hijos', 'Ficha de salud', 'Acuerdos', 'Mi cuota', 'Su cuota']) await expect(page.getByRole('link', { name: nombre })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: /^(Salud y documentos|Cuota)/ })).toHaveCount(0)
 })
 
 test('el Tab recorre las filas en el orden en que se ven', async ({ page }) => {
   await abrir(page, '/account')
-  await expect(fila(page, 'Mi cuota')).toBeVisible()
+  await expect(fila(page, 'Su cuota')).toBeVisible()
   const ys: number[] = []
   for (const n of FILAS) ys.push((await fila(page, n).boundingBox())!.y)
   expect(ys, 'de arriba abajo').toEqual([...ys].sort((a, b) => a - b))

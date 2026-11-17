@@ -131,7 +131,7 @@ function FamilyGroups({ on, i }: { on: boolean; i: number }) {
       </Rise>
       <Rise on={on} i={i + 1}>
         <Group title={kid ? `Cuota de ${kid}` : 'Cuota'}>
-          <Row to={withSubject('/billing')} icon={WalletIcon} label="Mi cuota" badge={badges.billing} />
+          <Row to={withSubject('/billing')} icon={WalletIcon} label={kid ? 'Su cuota' : 'Mi cuota'} badge={badges.billing} />
         </Group>
       </Rise>
     </>
