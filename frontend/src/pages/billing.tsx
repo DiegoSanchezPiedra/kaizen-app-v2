@@ -513,12 +513,13 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
   const [open, setOpen] = useState(false)
   const [problem, setProblem] = useState<{ code: string } | null>(null)
   const lock = planLock(s)
-  const name = subjectName(subject)
+  const name = subjectName(subject)?.split(' ')[0]
 
   const all = plans.data ?? []
   const current = all.find((p) => String(p.id) === String(s.plan.id))
-  const list = visiblePlans(all, birth)
+  const list = visiblePlans(all, birth).filter((p) => String(p.id) !== String(s.plan.id))
   const outOfPlan = !!current && pastPlanMax(current, birth)
+  const scheduled = s.scheduled_change ?? null
   const target = list.find((p) => String(p.id) === planId)
   const eligible = target ? eligibleDisciplines(target, disciplines.data ?? [], birth) : []
   const max = target?.max_disciplines ?? null
@@ -566,9 +567,32 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
     },
   })
 
-  if (lock) return <Note kind="info" title={lock} />
+  if (lock)
+    return (
+      <Note
+        kind="info"
+        title={lock}
+        action={
+          <Button variant="outline" size="lg" render={<Link to={withSubject('/billing')} />}>
+            Ver la cuota
+          </Button>
+        }
+      />
+    )
   if (plans.isPending || disciplines.isPending) return <ListSkeleton rows={3} />
   if (plans.isError || disciplines.isError) return <ErrorState error={plans.error ?? disciplines.error} onRetry={() => void Promise.all([plans.refetch(), disciplines.refetch()])} />
+
+  // «+20,00 € al mes · desde hoy»: lo que cambia el importe y cuándo, en una insignia.
+  const effect = (p: (typeof list)[number]) => {
+    const k = planChange(s.plan.price_cents, p, outOfPlan)
+    const diff = p.price_cents - s.plan.price_cents
+    const amount = `${diff > 0 ? '+' : '−'}${formatEuros(Math.abs(diff))} al mes`
+    if (k === 'up') return `${amount} · desde hoy`
+    if (k === 'now') return diff === 0 ? 'Mismo precio · desde hoy' : `${amount} · desde hoy, sin cobro`
+    if (k === 'same') return `Mismo precio · desde el ${period}`
+    return `${amount} · desde el ${period}`
+  }
+  const busy = change.isPending
 
   const PROBLEM: Record<string, [string, string]> = {
     not_payer: ['Solo puede cambiar el plan quien paga la cuota', 'Si eres tú quien debería pagarla, pídele a la academia el cambio de pagador.'],
@@ -585,94 +609,139 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
           {PROBLEM[problem.code][1]}
         </Note>
       )}
-      <p className="text-sm text-muted-foreground">
-        {outOfPlan
-          ? `Precios al mes, impuestos incluidos. ${s.plan.name} ya no es para ${name ? 'su' : 'tu'} edad: el cambio se aplica ya. Si sube, hoy se cobra la parte proporcional; si no, no se cobra ni se devuelve nada.`
-          : 'Precios al mes, impuestos incluidos. Una subida se aplica ya y se cobra hoy la parte proporcional; una bajada se aplica al renovar.'}
-      </p>
-      <RadioGroup value={planId} onValueChange={(v) => pick(String(v))} aria-label="Plan nuevo" className="flex flex-col gap-2.5 lg:grid lg:grid-cols-2">
-        {list.map((p) => {
-          const cur = String(p.id) === String(s.plan.id)
-          const k = planChange(s.plan.price_cents, p, outOfPlan)
-          return (
-            <OptionCard
-              key={p.id}
-              value={String(p.id)}
-              disabled={cur}
-              title={p.name}
-              price={perMonth(p.price_cents).replace(' al mes', '')}
-              priceNote="al mes"
-              description={p.max_disciplines === null ? 'Todas las disciplinas' : `${p.max_disciplines} ${p.max_disciplines === 1 ? 'disciplina' : 'disciplinas'} a elegir`}
-              tags={
-                <>
-                  {cur && <Tag variant="info">Tu plan ahora</Tag>}
-                  {!cur && k === 'up' && <Tag>Subida · se aplica ya</Tag>}
-                  {!cur && k === 'now' && <Tag>Se aplica ya · sin cobro</Tag>}
-                  {!cur && k === 'down' && <Tag>Bajada · desde el {period}</Tag>}
-                  {!cur && k === 'same' && <Tag>Mismo precio · desde el {period}</Tag>}
-                  {ageRangeLabel(p.min_age, p.max_age) && <Tag variant="secondary">{ageRangeLabel(p.min_age, p.max_age)}</Tag>}
-                </>
-              }
-            />
-          )
-        })}
-      </RadioGroup>
+      <section aria-labelledby="plan-now" className={cn('enter-soft', CARD)}>
+        <h2 id="plan-now" className="text-lg font-semibold">
+          {name ? `Plan de ${name} ahora` : 'Tu plan ahora'}
+        </h2>
+        <div className="flex flex-col gap-1">
+          <p className="text-[17px] leading-snug font-semibold">{s.plan.name}</p>
+          <p className="flex flex-wrap items-baseline gap-x-2">
+            <span className="font-heading text-[32px] leading-none font-bold tabular-nums">{formatEuros(s.plan.price_cents)}</span>
+            <span className="text-sm text-muted-foreground">al mes · impuestos incluidos</span>
+          </p>
+        </div>
+        <Kv
+          rows={[
+            ['Disciplinas', s.plan.max_disciplines === null ? 'Todas' : s.disciplines.map((d) => d.name).join(', ')],
+            ...(s.current_period_end ? [['Se renueva', formatShortDate(s.current_period_end)] as [string, string]] : []),
+          ]}
+        />
+      </section>
+      {scheduled && (
+        <Note kind="info" title={`${name ? `${name} tiene` : 'Tienes'} programado el paso a ${scheduled.plan_name} el ${formatShortDate(scheduled.scheduled_at)}`}>
+          Si eliges otro plan, sustituye a este cambio.
+        </Note>
+      )}
+      {outOfPlan && (
+        <Note kind="warning" title={`${s.plan.name} ya no ${name ? 'le' : 'te'} corresponde`}>
+          El cambio se aplica hoy. Si el plan nuevo cuesta más, hoy se cobra la parte proporcional; si no, no se cobra ni se devuelve nada.
+        </Note>
+      )}
+      {problem && (
+        <Note kind={problem.code === 'not_payer' ? 'info' : 'error'} title={PROBLEM[problem.code][0]}>
+          {PROBLEM[problem.code][1]}
+        </Note>
+      )}
+      {list.length === 0 ? (
+        <EmptyState icon={<WalletIcon />} title={`Ahora no hay otro plan ${name ? `para ${name}` : 'para ti'}`} text="Pregunta en la academia." />
+      ) : (
+        <section aria-labelledby="plan-new" className="enter-soft flex flex-col gap-3">
+          <div>
+            <h2 id="plan-new" className="text-lg font-semibold">
+              {name ? `Plan nuevo para ${name}` : 'Elige el plan nuevo'}
+            </h2>
+            <p className="text-sm text-muted-foreground">Precios al mes, impuestos incluidos.</p>
+          </div>
+          <RadioGroup value={planId} onValueChange={(v) => pick(String(v))} aria-labelledby="plan-new" className="flex flex-col gap-2.5">
+            {list.map((p) => {
+              const isScheduled = String(p.id) === String(scheduled?.plan_id)
+              return (
+                <OptionCard
+                  key={p.id}
+                  value={String(p.id)}
+                  disabled={isScheduled}
+                  title={p.name}
+                  price={formatEuros(p.price_cents)}
+                  priceNote="al mes"
+                  stackPrice
+                  description={p.max_disciplines === null ? 'Todas las disciplinas' : `${p.max_disciplines} ${p.max_disciplines === 1 ? 'disciplina' : 'disciplinas'} a elegir`}
+                  tags={isScheduled ? <Tag variant="info">Programado · {formatShortDate(scheduled!.scheduled_at)}</Tag> : <Tag>{effect(p)}</Tag>}
+                />
+              )
+            })}
+          </RadioGroup>
+        </section>
+      )}
       {target && max === null && <Note kind="info" title={`${target.name} incluye todas las disciplinas`}>No hay que elegir. Con este plan no hay cambios de disciplina.</Note>}
       {choose && (
-        <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 font-semibold">
-            {immediate ? `Elige ${max === 1 ? 'la disciplina' : `${max} disciplinas`}` : `Elige con ${max === 1 ? 'qué disciplina' : `qué ${max} disciplinas`} ${name ? `se queda ${name}` : 'te quedas'}`}
-          </legend>
-          <p className="text-sm text-muted-foreground" aria-live="polite">
-            {picked.length} de {max} elegidas
-          </p>
-          {eligible.map((d) => {
-            const on = picked.includes(String(d.id))
-            const range = ageRangeLabel(d.min_age, d.max_age)
-            return (
-              <label key={d.id} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border bg-card px-4 has-data-checked:border-primary has-data-disabled:cursor-default has-data-disabled:opacity-64">
-                <Checkbox
-                  aria-label={d.name}
-                  checked={on}
-                  disabled={!on && picked.length >= max!}
-                  onCheckedChange={(c) => setPicked((xs) => (c ? [...xs, String(d.id)] : xs.filter((x) => x !== String(d.id))))}
-                />
-                <span className="flex-1 font-medium">{d.name}</span>
-                {range && <Tag variant="secondary">{range}</Tag>}
-              </label>
-            )
-          })}
-          {picked.length >= max! && <p className="text-sm text-muted-foreground">Ya has elegido {max}. Quita una para elegir otra.</p>}
-        </fieldset>
+        // La clave lo vuelve a montar al cambiar de plan: entra suave (enter-soft) con sus disciplinas.
+        <section key={planId} role="group" aria-labelledby="disc-title" className={cn('enter-soft overflow-hidden', CARD)}>
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 id="disc-title" className="font-semibold">
+              {immediate ? `Elige ${max === 1 ? 'la disciplina' : `${max} disciplinas`}` : `${max === 1 ? '¿Qué disciplina' : `¿Qué ${max} disciplinas`} ${name ? `se queda ${name}` : 'te quedas'}?`}
+            </h3>
+            <span className="text-sm text-muted-foreground tabular-nums" aria-live="polite">
+              {picked.length} de {max}
+            </span>
+          </div>
+          <ul className="-mx-4 -mb-4 divide-y border-t">
+            {eligible.map((d) => {
+              const on = picked.includes(String(d.id))
+              const range = ageRangeLabel(d.min_age, d.max_age)
+              return (
+                <li key={d.id}>
+                  <label className="flex min-h-14 cursor-pointer items-center gap-3 px-4 py-2 transition-colors duration-150 ease-(--ease-out) hover:bg-accent has-data-disabled:cursor-default has-data-disabled:hover:bg-transparent">
+                    <Checkbox
+                      aria-label={d.name}
+                      checked={on}
+                      disabled={!on && picked.length >= max!}
+                      onCheckedChange={(c) => setPicked((xs) => (c ? [...xs, String(d.id)] : xs.filter((x) => x !== String(d.id))))}
+                    />
+                    <span className="flex-1 font-medium">{d.name}</span>
+                    {range && <Tag variant="secondary">{range}</Tag>}
+                  </label>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
       )}
-      <StickyFooter>
-        <Button size="xl" disabled={!ready} loading={change.isPending} onClick={() => setOpen(true)}>
-          {change.isPending ? 'Confirmando con tu banco…' : immediate && target ? `Pasar a ${target.name}` : 'Continuar'}
-        </Button>
-        {!target && <p className="text-center text-sm text-muted-foreground">Elige un plan para seguir.</p>}
-      </StickyFooter>
+      {choose && picked.length >= max! && <p className="text-sm text-muted-foreground">Ya has elegido {max}. Quita una para elegir otra.</p>}
+      {list.length > 0 && (
+        <StickyFooter>
+          <Button size="xl" disabled={!ready || busy} onClick={() => setOpen(true)}>
+            {busy ? (immediate ? 'Confirmando con tu banco…' : 'Programando…') : 'Revisar el cambio'}
+          </Button>
+          {!target && <p className="text-center text-sm text-muted-foreground">Elige un plan para seguir.</p>}
+        </StickyFooter>
+      )}
       {target && (
         <ConfirmDialog
           open={open}
-          onOpenChange={setOpen}
+          onOpenChange={(o) => !busy && setOpen(o)}
           variant="default"
-          title={`Pasar a ${target.name}`}
-          description={
-            kind === 'up'
-              ? `Se aplica ahora. Hoy se cobra la parte proporcional hasta el ${period} con la tarjeta de la cuota; después, ${perMonth(target.price_cents)}, impuestos incluidos. El recibo con el importe te llega por email.`
-              : kind === 'now'
-                ? `Se aplica ahora, sin cobro ni devolución: lo pagado hasta el ${period} se queda como está. Después, ${perMonth(target.price_cents)}, impuestos incluidos.`
-                : kind === 'same'
-                ? `Tiene el mismo precio: no se cobra nada. Se aplica al renovar, el ${period}; hasta entonces ${name ? 'sigue' : 'sigues'} con ${s.plan.name}.`
-                : `Se aplica al renovar, el ${period}: hasta entonces ${name ? 'sigue' : 'sigues'} con ${s.plan.name}. No se devuelve nada.`
-          }
-          confirmLabel={immediate ? `Pasar a ${target.name}` : 'Programar el cambio'}
+          title={name ? `¿Cambiar el plan de ${name} a ${target.name}?` : `¿Pasar a ${target.name}?`}
+          description={immediate ? 'El cambio se aplica hoy.' : `El cambio se aplica al renovar; hasta entonces ${name ? 'sigue' : 'sigues'} con ${s.plan.name}.`}
+          confirmLabel={busy ? (immediate ? 'Confirmando con tu banco…' : 'Programando…') : immediate ? `Pasar a ${target.name}` : 'Programar el cambio'}
           cancelLabel="Cancelar"
-          loading={change.isPending}
+          disabled={busy}
           onConfirm={() => change.mutate()}
         >
-          {kind === 'up' && <p>Si el banco lo pide, tendrás que confirmarlo.</p>}
-          {max !== null && <p>Las reservas de las disciplinas que dejas {immediate ? 'se cancelan al aplicarse.' : `desde el ${period} se cancelarán.`}</p>}
+          <div>
+            <p className="font-heading text-3xl leading-none font-bold text-foreground tabular-nums">{formatEuros(target.price_cents)}</p>
+            <p className="mt-1.5 text-muted-foreground">al mes · impuestos incluidos</p>
+          </div>
+          <Kv
+            rows={[
+              ['Se aplica', immediate ? 'Hoy' : period],
+              ['Hoy se cobra', kind === 'up' ? 'La parte proporcional' : 'Nada'],
+              ...(kind === 'up' ? [[`Desde el ${period}`, perMonth(target.price_cents)] as [string, string]] : []),
+            ]}
+          />
+          {kind === 'up' && <p className="text-muted-foreground">La parte proporcional es lo que queda hasta el {period}. El recibo con el importe te llega por email. Si el banco lo pide, tendrás que confirmarlo.</p>}
+          {kind === 'now' && <p className="text-muted-foreground">Lo pagado hasta el {period} se queda como está: no se devuelve nada.</p>}
+          {scheduled && <p className="text-muted-foreground">{immediate ? 'Anula' : 'Sustituye'} el paso a {scheduled.plan_name} programado para el {formatShortDate(scheduled.scheduled_at)}.</p>}
+          {max !== null && <p className="text-muted-foreground">Las reservas de las disciplinas que {name ? 'deja' : 'dejas'} {immediate ? 'se cancelan al aplicarse.' : `desde el ${period} se cancelarán.`}</p>}
         </ConfirmDialog>
       )}
     </>
@@ -682,7 +751,7 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
 export function PlanPage() {
   const { withSubject } = useSubject()
   return (
-    <Page title="Cambiar de plan" wide>
+    <Page title="Cambiar de plan">
       <Back to={withSubject('/billing')}>Cuota</Back>
       <SubjectGate>{(p) => <WithSubscription profileId={p.profileId}>{(s) => <PlanChange key={s.id} s={s} {...p} />}</WithSubscription>}</SubjectGate>
     </Page>
