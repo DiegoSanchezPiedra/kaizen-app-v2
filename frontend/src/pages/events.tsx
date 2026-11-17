@@ -19,7 +19,7 @@ import { useCheckoutSubject, useSubject } from '@/hooks/use-subject'
 import { api } from '@/lib/api'
 import { rememberCheckoutSubject } from '@/lib/billing'
 import {
-  amountFor, audienceTag, audienceText, eventHeadline, eventWhen, isMember, joinState, priceView, spotsLabel, type EventInfo, type JoinState,
+  amountFor, audienceTag, audienceText, eventHeadline, eventSpan, isMember, joinState, priceView, spotsLabel, type EventInfo, type JoinState,
 } from '@/lib/events'
 import { formatDeadline, formatEuros } from '@/lib/format'
 import { bookBlock, joinBlock } from '@/lib/minor'
@@ -72,6 +72,7 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
   const { withSubject } = useSubject()
   const name = subjectName(subject)
   const member = useMember(profileId)
+  const subLoading = useSubscription(profileId).isLoading
   const status = useProfileStatus(profileId)
   // Con un hijo, además el estado del propio tutor (su protección de datos): hace falta para actuar por él.
   const selfStatus = useProfileStatus(undefined)
@@ -116,7 +117,6 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
       const code = errorCode(err)
       if (code === 'audience_mismatch') setMismatch(true)
       if (code === 'profile_incomplete') void Promise.all([status.refetch(), selfStatus.refetch()])
-      else if (code !== 'audience_mismatch') void refreshEvents()
       if (code === 'audience_mismatch') toastManager.add({ type: 'error', title: audienceText(name), timeout: 5000 })
       else toastError(err)
     },
@@ -213,6 +213,10 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
   })()
 
   // El pie fijo con la acción (cancelar o inscribirse). Va fuera del bloque de estado: pegado a un hermano suyo no se sostendría.
+  const joinable = !waiting && state === 'open' && !blocked
+  // Hasta saber si es socio, el importe del botón podría cambiar: se espera si hay precio de socio.
+  // isLoading y no isPending: un menor (consulta desactivada) o un error no deben dejar el botón cargando para siempre.
+  const memberKnown = !subLoading || e.member_price_cents == null
   const footer = waiting ? null : state === 'cancellable' || state === 'pending' ? (
     !cancelBlock && (
       <StickyFooter>
@@ -221,9 +225,9 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
         </Button>
       </StickyFooter>
     )
-  ) : state === 'open' && !blocked ? (
+  ) : joinable ? (
     <StickyFooter>
-      <Button size="xl" loading={!ready || join.isPending || redirecting} onClick={() => join.mutate()}>
+      <Button size="xl" loading={!ready || !memberKnown || join.isPending || redirecting} onClick={() => join.mutate()}>
         {joinLabel(amount, name)}
       </Button>
       {amount > 0 && <p className="text-center text-xs text-muted-foreground">Pagas con tarjeta en la página segura de Stripe. Impuestos incluidos.</p>}
@@ -255,7 +259,7 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
           <div className="flex flex-col gap-2 rounded-2xl border bg-card p-4">
             <div>
               <p className="font-heading text-4xl leading-none font-bold tabular-nums text-balance first-letter:uppercase">{eventHeadline(e.starts_at)}</p>
-              <p className="mt-1.5 text-sm text-muted-foreground first-letter:uppercase">{eventWhen(e)}</p>
+              <p className="mt-1.5 text-sm text-muted-foreground first-letter:uppercase">{eventSpan(e)}</p>
             </div>
             <h2 className="mt-1 text-lg leading-snug font-semibold">{e.title}</h2>
             <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
@@ -276,7 +280,7 @@ function Detail({ e, subject, profileId }: Props & { e: EventInfo }) {
         <Rise on={first} i={o + 1} className="lg:col-start-2 lg:row-span-3 lg:row-start-1">
           <div className="rounded-2xl border bg-card px-4 py-1">
             <Kv rows={rows} />
-            {e.price_cents > 0 && <p className="border-t py-2 text-xs text-muted-foreground">Importes con impuestos incluidos.</p>}
+            {e.price_cents > 0 && !joinable && <p className="border-t py-2 text-xs text-muted-foreground">Importes con impuestos incluidos.</p>}
           </div>
         </Rise>
         {e.description && (

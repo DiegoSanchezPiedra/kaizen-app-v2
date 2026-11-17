@@ -309,5 +309,14 @@ export function eventWhen(e: Pick<EventInfo, 'starts_at' | 'ends_at'>): string {
     : `${formatDeadline(e.starts_at)} – ${formatDeadline(e.ends_at)}`
 }
 
+// La línea bajo la cabecera del detalle: si es el mismo día, solo horas y duración («10:00–13:00 · 3 h»), que el día ya está arriba.
+export function eventSpan(e: Pick<EventInfo, 'starts_at' | 'ends_at'>): string {
+  if (madridDay(e.starts_at) !== madridDay(e.ends_at)) return eventWhen(e)
+  const min = Math.round((Date.parse(e.ends_at) - Date.parse(e.starts_at)) / 60000)
+  const [h, m] = [Math.floor(min / 60), min % 60]
+  const dur = [h && `${h} h`, m && `${m} min`].filter(Boolean).join(' ')
+  return `${formatTime(e.starts_at)}–${formatTime(e.ends_at)}${dur ? ` · ${dur}` : ''}`
+}
+
 // «dom 22 nov · 10:00»: la cabecera del detalle (la mayúscula inicial la pone el CSS). El rango entero va debajo, con eventWhen.
 export const eventHeadline = (startsAt: string): string => `${shortWeekday(madridDay(startsAt))} ${formatDayMonth(startsAt)} · ${formatTime(startsAt)}`
