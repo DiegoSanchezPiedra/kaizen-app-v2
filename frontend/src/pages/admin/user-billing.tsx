@@ -23,6 +23,7 @@ import {
   PAUSE_LOCK,
   pauseFee,
   pauseLock,
+  pastPlanMax,
   pauseTitle,
   perMonth,
   planChange,
@@ -86,17 +87,19 @@ export const del = (url: string) => () => api(url, { method: 'DELETE' })
 function PlanDialog({ s, minor, onClose, refresh }: { s: Sub; minor: boolean; onClose: () => void; refresh: () => void }) {
   const plans = usePlans()
   const disciplines = useDisciplines()
-  const self = !minor // «solo menores», solo para un menor
+  // shortcut: la API del admin no da la fecha de nacimiento; un adulto cuenta como 18 y un menor no se filtra (decide el backend).
+  // Exacto para máximas ≤ 17 y mínimas ≤ 18; si hay planes de otros rangos, dar la fecha en la ficha del admin.
+  const birth = minor ? undefined : null
   const [planId, setPlanId] = useState('')
   const [picked, setPicked] = useState<string[]>([])
   const all = plans.data ?? []
   const current = all.find((p) => String(p.id) === String(s.plan.id))
-  const list = visiblePlans(all, self).filter((p) => p !== current)
+  const list = visiblePlans(all, birth).filter((p) => p !== current)
   const target = list.find((p) => String(p.id) === planId)
   // Sin la edad: la API del admin no da la fecha de nacimiento (409 discipline_not_eligible si no entra).
   const eligible = target ? planDisciplines(target, disciplines.data ?? []) : []
   const max = target?.max_disciplines ?? null
-  const kind = target ? planChange(s.plan.price_cents, target, self && !!current?.minors_only) : null
+  const kind = target ? planChange(s.plan.price_cents, target, !!current && pastPlanMax(current, birth)) : null
   const period = s.current_period_end ? `el ${formatShortDate(s.current_period_end)}` : 'al renovar'
 
   const pick = (id: string) => {
@@ -106,12 +109,12 @@ function PlanDialog({ s, minor, onClose, refresh }: { s: Sub; minor: boolean; on
   }
   const change = useMutation({
     mutationFn: () =>
-      api<{ change: 'upgrade' | 'downgrade'; scheduled_at?: string }>(`/admin/subscriptions/${s.id}/plan`, {
+      api<{ change: 'upgrade' | 'downgrade' | 'age_change'; scheduled_at?: string }>(`/admin/subscriptions/${s.id}/plan`, {
         method: 'POST',
         body: { plan_id: target!.id, discipline_ids: picked },
       }),
     onSuccess: (r) =>
-      toastOk(r.change === 'upgrade' ? `Plan cambiado a ${target!.name}` : `Cambio a ${target!.name} programado para ${r.scheduled_at ? `el ${formatShortDate(r.scheduled_at)}` : period}`),
+      toastOk(r.change !== 'downgrade' ? `Plan cambiado a ${target!.name}` : `Cambio a ${target!.name} programado para ${r.scheduled_at ? `el ${formatShortDate(r.scheduled_at)}` : period}`),
     onError: (err) =>
       errorCode(err) === 'requires_payer_action' ? toastManager.add({ type: 'info', title: errorText('requires_payer_action'), timeout: 6000 }) : toastError(err),
     onSettled: () => {
@@ -130,9 +133,11 @@ function PlanDialog({ s, minor, onClose, refresh }: { s: Sub; minor: boolean; on
           ? 'Elige el plan nuevo.'
           : kind === 'up'
             ? `Se cobra ya al pagador (${name(s.payer)}) la parte proporcional de ${target.name}. Si su banco pide autorizarlo, le llega un email.`
-            : `Pasa a ${target.name} ${period}; hasta entonces sigue igual. Se avisa al pagador.`
+            : kind === 'now'
+              ? `Pasa ya a ${target.name}, sin cobro ni devolución: lo pagado de este periodo se queda como está.`
+              : `Pasa a ${target.name} ${period}; hasta entonces sigue igual. Se avisa al pagador.`
       }
-      confirmLabel={kind === 'up' ? 'Cambiar y cobrar' : 'Programar el cambio'}
+      confirmLabel={kind === 'up' ? 'Cambiar y cobrar' : kind === 'now' ? 'Cambiar ya' : 'Programar el cambio'}
       variant="default"
       disabled={!target || (max !== null && picked.length !== max)}
       loading={change.isPending}

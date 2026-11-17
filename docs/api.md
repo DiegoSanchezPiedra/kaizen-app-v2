@@ -117,7 +117,7 @@ crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
 | Método y ruta | Rol | Cuerpo / query | Respuesta |
 |---|---|---|---|
 | `GET /disciplines` | cualquiera | — | `{ disciplines: [{ id, name, min_age, max_age, is_active, is_open }] }` (`min_age`/`max_age`: rango de edad inclusive en años cumplidos, `null` = sin límite) (activas; las desactivadas solo si las ve por suscripción o por sus sesiones) |
-| `GET /plans` | cualquiera | — | `{ plans: [{ id, name, price_cents, billing_period, max_disciplines, minors_only, is_active, eligible_discipline_ids }] }` |
+| `GET /plans` | cualquiera | — | `{ plans: [{ id, name, price_cents, billing_period, max_disciplines, min_age, max_age, is_active, eligible_discipline_ids }] }` (`min_age`/`max_age`: rango de edad del plan, como el de las disciplinas) |
 | `GET /sessions/calendar?from&to&discipline_id&profile_id` | alumno, tutor, admin (`profile_id`: el admin, o quien sea tutor de ese perfil; si no, `403 not_guardian`) | rango ≤ 92 días, por defecto hoy + 30 | `{ sessions: [{ id, class_id (null en una sesión suelta), starts_at, ends_at, discipline: { id, name }, trainer: { id, display_name }, location, capacity, taken (reservas confirmadas de todos, solo la cuenta: `session_taken`), status, held, covered, booking }] }`. `covered`: la suscripción cubre la disciplina y, el día de la sesión (Madrid), el sujeto tiene su edad (B29) y no está en pausa (B30). Al tutor sin `profile_id`, `covered` y `booking` vienen **por hijo** (objeto por id); con `profile_id`, planos para ese sujeto |
 | `GET /bookings?profile_id&from&to` | alumno, tutor, admin | rango ≤ 92 días | `{ bookings: [{ id, session_id, student_id, booked_by, status, cancel_reason, discipline_id, discipline_name, starts_at, ends_at, location, session_status }] }`; una fila por sesión y alumno (la activa o, si no hay, la última cancelada) |
 | `POST /bookings` | alumno, tutor, admin (perfil completo) | `{ session_id, profile_id? }` | `201 { booking }` con `status` `confirmed` o `waitlisted` |
@@ -169,7 +169,7 @@ Errores: `400 invalid_qr`, `404 no_candidates`, `409 attendance_closed`.
 | `GET /billing/subscription?profile_id=` | — | `{ id, status, plan: { id, name, price_cents, max_disciplines }, disciplines: [{ id, name }], current_period_end, cancel_at_period_end, scheduled_change, discipline_changes_left, payer_change, pause, pause_settings }`. `pause`: la programada o en curso `{ id, status: 'scheduled'\|'active', months, starts_at, ends_at, price_cents, exempt }` o `null`; `price_cents` es la cuota de mantenimiento al pedirla (si `exempt`, se cobra 0 €). `pause_settings`: `{ price_cents (null = la academia no ofrece pausas), max_months, per_year }` |
 | `POST /billing/checkout` (perfil completo) | `{ plan_id, discipline_ids?, profile_id? }` (otro campo → `400 invalid_field`) | `201 { url }` → redirigir a Stripe Checkout |
 | `POST /billing/portal` | — | `{ url }` → Portal de Stripe (método de pago, facturas, baja) |
-| `POST /billing/subscriptions/:id/plan` | `{ plan_id, discipline_ids }` | subida `{ change: 'upgrade', status: 'applied'\|'requires_action', client_secret? }`; bajada `202 { change: 'downgrade', scheduled_at }` |
+| `POST /billing/subscriptions/:id/plan` | `{ plan_id, discipline_ids }` | subida `{ change: 'upgrade', status: 'applied'\|'requires_action', client_secret? }`; bajada `202 { change: 'downgrade', scheduled_at }`; si ya superó la máxima de su plan y el nuevo cuesta igual o menos, `{ change: 'age_change', status: 'applied' }` (ya, sin cobro ni devolución) |
 | `DELETE /billing/subscriptions/:id/plan/scheduled` | — | `204` (anula la bajada programada) |
 | `POST /billing/subscriptions/:id/disciplines` | `{ from_id, to_id }` | `{ disciplines, changes_left, free }` |
 | `GET /billing/payer-changes/:id` | — | `{ id, status, student: { id, name }, plan: { id, name }, price_cents, disciplines, starts_at, deadline }` |
@@ -182,7 +182,7 @@ sí se puede (la pausa se anula o acaba con la suscripción). `DELETE …/plan/s
 (`404 no_scheduled_change`).
 
 Errores frecuentes: `409 subscription_exists`,
-`409 plan_not_purchasable`, `409 plan_minors_only`, `409 discipline_not_eligible` (también si hoy supera su edad máxima), `409 discipline_change_limit`,
+`409 plan_not_purchasable`, `409 plan_out_of_age` (`{ min_age, max_age }`: la edad de hoy no entra en el rango del plan), `409 discipline_not_eligible` (también si hoy supera su edad máxima), `409 discipline_change_limit`,
 `409 same_plan`, `409 upgrade_pending`, `409 period_ending_soon`,
 `402 payment_failed`, `403 not_payer`, `403 not_new_payer`, `404 payer_change_not_found` (también si el RLS no te deja
 verlo: no se revela que existe), `409 payer_change_expired|payer_change_paid`,
@@ -298,7 +298,7 @@ Todas exigen `role = admin` (y el admin entra con MFA si lo tiene activado). El 
 | `POST /admin/disciplines` | `{ name, min_age?, max_age?, is_active?, is_open?, medal_theme? }` | `201 { discipline }`. `min_age`/`max_age`: entero 0–99 o `null`, con `min_age ≤ max_age` (si no, 400 `invalid_field`). `medal_theme`: código de temática o `null` (Kaizen); desconocido, 400 `invalid_field`; la tiene otra disciplina activa, 409 `theme_taken` |
 | `PATCH /admin/disciplines/:id` | `{ name?, min_age?, max_age?, is_active?, is_open?, medal_theme? }` | `{ discipline }`; al desactivar, `discipline` trae además `retired_classes` y `cancelled_sessions` (la desactivada conserva su temática y la deja libre). 409 `theme_taken` al poner una temática ocupada o al reactivar con la suya ya ocupada |
 | `GET /admin/plans` | — | `{ plans }` (todos) |
-| `POST /admin/plans` | `{ name, price_cents, max_disciplines (null = todas), billing_period?, minors_only?, is_active? }` | `201 { plan }` |
+| `POST /admin/plans` | `{ name, price_cents, max_disciplines (null = todas), billing_period?, min_age?, max_age?, is_active? }` | `201 { plan }`. `min_age`/`max_age` como en las disciplinas; con suscripciones, ni ellos ni `max_disciplines` se cambian (409 `plan_has_subscriptions`) |
 | `PATCH /admin/plans/:id` | campos del plan | `{ plan }` |
 | `GET/PUT /admin/plans/:id/disciplines` | PUT `{ discipline_ids }` | `{ discipline_ids }` |
 

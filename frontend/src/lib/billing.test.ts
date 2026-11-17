@@ -6,6 +6,8 @@ import {
   changesLeft,
   disciplineLocked,
   eligibleDisciplines,
+  fitsPlan,
+  pastPlanMax,
   freeChange,
   keepDisciplines,
   pauseEnd,
@@ -20,6 +22,7 @@ import {
   takeCheckoutSubject,
   visiblePlans,
 } from '@/lib/billing'
+import { addDays, madridDay } from '@/lib/dates'
 import { formatDeadline, formatShortDate } from '@/lib/format'
 import type { Discipline, Pause, Plan, Subscription } from '@/lib/types'
 
@@ -32,7 +35,8 @@ const plan = (o: Partial<Plan>): Plan => ({
   price_cents: 4500,
   billing_period: 'month',
   max_disciplines: 1,
-  minors_only: false,
+  min_age: null,
+  max_age: null,
   is_active: true,
   eligible_discipline_ids: [],
   ...o,
@@ -51,10 +55,31 @@ const sub = (o: Partial<Subscription>): Subscription => ({
 })
 
 describe('planes y disciplinas visibles', () => {
-  const plans = [plan({ id: 3, price_cents: 8500 }), plan({ id: 1, minors_only: true, price_cents: 3900 }), plan({ id: 2, price_cents: 0 }), plan({ id: 4, is_active: false })]
-  it('uno mismo no ve los solo menores; un hijo sí; nunca los de 0 € ni los inactivos; por precio', () => {
-    expect(visiblePlans(plans, true).map((p) => p.id)).toEqual([3])
-    expect(visiblePlans(plans, false).map((p) => p.id)).toEqual([1, 3])
+  const plans = [plan({ id: 3, price_cents: 8500 }), plan({ id: 1, min_age: 5, max_age: 12, price_cents: 3900 }), plan({ id: 2, price_cents: 0 }), plan({ id: 4, is_active: false })]
+  const born = (years: number, days = 0) => addDays(`${Number(madridDay().slice(0, 4)) - years}${madridDay().slice(4)}`, days)
+  it('solo los que admiten la edad de hoy (mínima y máxima, inclusive); nunca los de 0 € ni los inactivos; por precio', () => {
+    vi.useFakeTimers({ now: new Date('2026-06-15T10:00:00Z'), toFake: ['Date'] }) // born() no vale un 29 de febrero
+    expect(visiblePlans(plans, born(5)).map((p) => p.id)).toEqual([1, 3])
+    expect(visiblePlans(plans, born(12)).map((p) => p.id)).toEqual([1, 3])
+    expect(visiblePlans(plans, born(5, 1)).map((p) => p.id)).toEqual([3]) // cumple 5 mañana
+    expect(visiblePlans(plans, born(13)).map((p) => p.id)).toEqual([3])
+    expect(visiblePlans(plans, null).map((p) => p.id)).toEqual([3]) // sin fecha: adulto
+    expect(visiblePlans(plans, undefined).map((p) => p.id)).toEqual([1, 3]) // edad desconocida: decide el backend
+    vi.useRealTimers()
+  })
+  it('fitsPlan: sin rango, cualquier edad', () => {
+    vi.useFakeTimers({ now: new Date('2026-06-15T10:00:00Z'), toFake: ['Date'] })
+    expect(fitsPlan(plan({}), born(3))).toBe(true)
+    expect(fitsPlan(plan({ min_age: 18 }), born(17))).toBe(false)
+    vi.useRealTimers()
+  })
+  it('pastPlanMax: solo la máxima; edad desconocida, no', () => {
+    vi.useFakeTimers({ now: new Date('2026-06-15T10:00:00Z'), toFake: ['Date'] })
+    expect(pastPlanMax(plan({ max_age: 12 }), born(13))).toBe(true)
+    expect(pastPlanMax(plan({ max_age: 12 }), born(12))).toBe(false)
+    expect(pastPlanMax(plan({ min_age: 5 }), born(3))).toBe(false)
+    expect(pastPlanMax(plan({ max_age: 17 }), undefined)).toBe(false)
+    vi.useRealTimers()
   })
   it('elegibles del plan (vacío = todas), sin abiertas ni inactivas ni solo menores para uno mismo', () => {
     const ds = [disc(1), disc(2, { max_age: 12 }), disc(3, { is_open: true }), disc(4, { is_active: false }), disc(5)]
@@ -69,11 +94,14 @@ describe('planes y disciplinas visibles', () => {
 })
 
 describe('subida, bajada o mismo precio', () => {
-  it('por precio, como el backend; un adulto en un plan solo menores cambia ya', () => {
+  it('por precio, como el backend; quien ya superó la máxima de su plan cambia ya', () => {
     expect(planChange(4500, plan({ price_cents: 6500 }), false)).toBe('up')
     expect(planChange(4500, plan({ price_cents: 3900 }), false)).toBe('down')
     expect(planChange(4500, plan({ price_cents: 4500 }), false)).toBe('same')
-    expect(planChange(4500, plan({ price_cents: 3900 }), true)).toBe('up')
+    // Fuera de la edad de su plan: va ya; más caro se cobra el prorrateo, igual o más barato sin cobro ni devolución.
+    expect(planChange(4500, plan({ price_cents: 6500 }), true)).toBe('up')
+    expect(planChange(4500, plan({ price_cents: 3900 }), true)).toBe('now')
+    expect(planChange(4500, plan({ price_cents: 4500 }), true)).toBe('now')
   })
 })
 

@@ -256,7 +256,7 @@ try {
   const up = await mkPlan('two', { price_cents: 3000, max_disciplines: 2 });
   const top = await mkPlan('all', { price_cents: 4000, max_disciplines: null });
   const down = await mkPlan('cheap', { price_cents: 1000, max_disciplines: 1 });
-  const kids = await mkPlan('kids', { price_cents: 2500, max_disciplines: null, minors_only: true });
+  const kids = await mkPlan('kids', { price_cents: 2500, max_disciplines: null, max_age: 17 });
   const same = await mkPlan('same', { price_cents: 1000, max_disciplines: 1 }); // mismo precio que down = bajada
   const [{ id: discB }] = await q(`INSERT INTO disciplines (name) VALUES ('T-Wh-B') RETURNING id`);
   const [{ id: discC }] = await q(`INSERT INTO disciplines (name) VALUES ('T-Wh-C') RETURNING id`);
@@ -455,7 +455,7 @@ try {
     await assert.rejects(change('pc', pcRow.id, up.id, [disc, discB]), (e) => e.status === 409 && e.code === 'cancel_scheduled');
   });
 
-  await run('adulto en un plan solo menores: el cambio es inmediato aunque baje; deja saldo a favor', async () => {
+  await run('adulto en un plan de máxima 17: el cambio es inmediato aunque baje; sin prorrateo (ni factura ni saldo a favor)', async () => {
     const cus = await customer('pc2', 'pm_card_visa');
     const [{ stripe_price_id: kidsPrice }] = await q(`SELECT stripe_price_id FROM plans WHERE id = $1`, [kids.id]);
     const s = await stripe.subscriptions.create({ customer: cus, items: [{ price: kidsPrice }],
@@ -465,10 +465,15 @@ try {
     const row = await localSub(s.id);
     assert.equal(row.plan_id, kids.id);
     const r = await change('pc2', row.id, down.id, [disc]);
-    assert.deepEqual([r.status, r.body.status], [200, 'applied']);
+    assert.deepEqual([r.status, r.body], [200, { change: 'age_change', status: 'applied' }]);
+    assert.deepEqual(await noticeOf('subscription.age_change', row.id), [{ from: kids.id, to: down.id, discipline_ids: [disc] }]);
+    const st = await stripe.subscriptions.retrieve(s.id);
+    assert.deepEqual([st.items.data[0].price.id, st.pending_update, st.latest_invoice], [await priceOf(down.id), null, s.latest_invoice],
+      'precio nuevo ya, sin factura de prorrateo');
     await updated(s.id);
     assert.equal((await localSub(s.id)).plan_id, down.id);
-    assert.ok((await stripe.customers.retrieve(cus)).balance < 0, 'saldo a favor, sin reembolso');
+    assert.equal((await stripe.customers.retrieve(cus)).balance, 0, 'sin saldo a favor');
+    assert.deepEqual((await stripe.invoiceItems.list({ customer: cus, pending: true })).data, [], 'sin abonos pendientes');
   });
 
   // --- B30: pausa. El cambio de fase se simula al releer el Schedule (current_phase); con el reloj, test:e2e-b30. ---

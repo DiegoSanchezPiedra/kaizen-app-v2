@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { api } from '@/lib/api'
-import { ageRangeLabel, centsToEuros, eurosToCents, maxDisciplinesLabel } from '@/lib/catalog'
+import { ageOf, ageRangeLabel, centsToEuros, eurosToCents, maxDisciplinesLabel } from '@/lib/catalog'
 import { formatEuros } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import { plural } from '@/lib/professor'
@@ -59,7 +59,7 @@ export function AdminMembershipsPage() {
                     formatEuros(p.price_cents),
                     p.max_disciplines === null ? 'todas las disciplinas' : plural(p.max_disciplines, 'disciplina', 'disciplinas'),
                     p.eligible_discipline_ids.length > 0 && `elige entre ${p.eligible_discipline_ids.length}`,
-                    p.minors_only && 'solo menores',
+                    ageRangeLabel(p.min_age, p.max_age)?.toLowerCase(),
                   ]
                     .filter(Boolean)
                     .join(' · '),
@@ -77,7 +77,7 @@ export function AdminMembershipsPage() {
                     <TableCell className="ps-4 font-medium">{p.name}</TableCell>
                     <TableCell className="tabular-nums whitespace-nowrap">{formatEuros(p.price_cents)}</TableCell>
                     <TableCell>{maxDisciplinesLabel(p.max_disciplines)}</TableCell>
-                    <TableCell>{p.minors_only ? <Tag variant="info">Solo menores</Tag> : 'Todos'}</TableCell>
+                    <TableCell>{ageRangeLabel(p.min_age, p.max_age) ? <Tag variant="info">{ageRangeLabel(p.min_age, p.max_age)}</Tag> : 'Todos'}</TableCell>
                     <TableCell>{eligible(p)}</TableCell>
                     <TableCell>{p.is_active ? <Tag variant="success">Activa</Tag> : <Tag variant="secondary">Retirada</Tag>}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">
@@ -118,15 +118,19 @@ function PlanSheet({ p, onClose, onChoose }: { p: Plan | null; onClose: () => vo
     name: p?.name ?? '',
     price: p ? centsToEuros(p.price_cents) : '',
     max: p ? String(p.max_disciplines ?? 'all') : '1',
-    minors_only: p?.minors_only ?? false,
+    min_age: p?.min_age == null ? '' : String(p.min_age),
+    max_age: p?.max_age == null ? '' : String(p.max_age),
     is_active: p?.is_active ?? true,
   })
   const fe = useFieldError()
   const cents = eurosToCents(f.price)
   const max = f.max === 'all' ? null : Number(f.max)
+  const minAge = ageOf(f.min_age)
+  const maxAge = ageOf(f.max_age)
+  const crossed = minAge != null && maxAge != null && minAge > maxAge
   const priceChanged = !!p && cents !== null && cents !== p.price_cents
   const retiring = !!p?.is_active && !f.is_active
-  const body = { name: f.name.trim(), price_cents: cents, max_disciplines: max, minors_only: f.minors_only, is_active: f.is_active }
+  const body = { name: f.name.trim(), price_cents: cents, max_disciplines: max, min_age: minAge ?? null, max_age: maxAge ?? null, is_active: f.is_active }
   const diff = p ? Object.fromEntries(Object.entries(body).filter(([k, v]) => v !== p[k as keyof Plan])) : body
   const save = useMutation({
     mutationFn: () => {
@@ -149,7 +153,7 @@ function PlanSheet({ p, onClose, onChoose }: { p: Plan | null; onClose: () => vo
       title={p ? `Editar ${p.name}` : 'Nueva membresía'}
       description="El precio es el que paga el alumno cada mes, impuestos incluidos."
       submitLabel={priceChanged ? 'Cambiar el precio' : retiring ? 'Retirar' : p ? 'Guardar' : 'Crear la membresía'}
-      disabled={!body.name || body.name.length > 100 || cents === null || (!!p && Object.keys(diff).length === 0)}
+      disabled={!body.name || body.name.length > 100 || cents === null || minAge === undefined || maxAge === undefined || crossed || (!!p && Object.keys(diff).length === 0)}
       loading={save.isPending}
       confirm={effects.length ? { title: priceChanged ? `¿Cambiar el precio de ${p!.name}?` : `¿Retirar ${p!.name}?`, description: effects.join(' ') } : undefined}
       onSubmit={() => save.mutateAsync()}
@@ -170,9 +174,13 @@ function PlanSheet({ p, onClose, onChoose }: { p: Plan | null; onClose: () => vo
           onChange={(v) => setF((x) => ({ ...x, max: v }))}
           items={[...new Set([...MAX_OPTIONS, f.max].filter((v) => v !== 'all'))].map((v) => ({ value: v, label: v })).concat({ value: 'all', label: 'Todas' })}
         />
-        {p && <p className="text-xs text-muted-foreground">Con suscriptores, ni esto ni «solo menores» se pueden cambiar: crea otra membresía.</p>}
+        {p && <p className="text-xs text-muted-foreground">Con suscriptores, ni esto ni la edad se pueden cambiar: crea otra membresía.</p>}
       </SelectField>
-      <SwitchRow label="Solo menores" checked={f.minors_only} onChange={(v) => setF((x) => ({ ...x, minors_only: v }))} />
+      <div className="grid grid-cols-2 gap-3">
+        <TextField label="Edad mínima" inputMode="numeric" value={f.min_age} onChange={(v) => setF((x) => ({ ...x, min_age: v }))} error={minAge === undefined ? 'Escribe un entero de 0 a 99.' : fe.error('min_age')} />
+        <TextField label="Edad máxima" inputMode="numeric" value={f.max_age} onChange={(v) => setF((x) => ({ ...x, max_age: v }))} error={maxAge === undefined ? 'Escribe un entero de 0 a 99.' : crossed ? 'No puede ser menor que la mínima.' : fe.error('max_age')} />
+      </div>
+      <p className="-mt-1 text-xs text-muted-foreground">Vacío: sin límite. Al contratar cuentan la mínima y la máxima; quien después supera la máxima deja de estar cubierto.</p>
       {p && <SwitchRow label="Activa" hint="Una membresía retirada ya no se contrata." checked={f.is_active} onChange={(v) => setF((x) => ({ ...x, is_active: v }))} />}
       {p && (
         // Por debajo de `sm` la tarjeta solo abre esta hoja; la lista de elegibles se abre desde aquí. Cambiar de hoja descarta lo escrito.

@@ -59,21 +59,27 @@ try {
       await rejects(createPlan(c, { name: 'T-bad', price_cents: 1, max_disciplines: 0 }), 400, 'invalid_field');
       await rejects(createPlan(c, { name: 'T-bad', price_cents: 1 }), 400, 'invalid_field'); // falta max_disciplines
       await rejects(createPlan(c, { name: 'T-bad', price_cents: 1, max_disciplines: 1, billing_period: 'yearly' }), 400, 'invalid_field');
+      // Rango de edad del plan: como el de la disciplina (0–99, enteros o null, mín ≤ máx).
+      for (const bad of [{ min_age: -1 }, { max_age: 100 }, { min_age: 5.5 }, { max_age: '12' }, { min_age: 13, max_age: 12 }]) {
+        await sp(c, () => rejects(createPlan(c, { name: 'T-bad', price_cents: 1, max_disciplines: 1, ...bad }), 400, 'invalid_field'));
+      }
     });
     await run('crea planes (1 y todas) con defaults', async () => {
       open = await createPlan(c, { name: 'T-Open', price_cents: 5000, max_disciplines: 2 });
-      kidsPlan = await createPlan(c, { name: 'T-KidsPlan', price_cents: 3000, max_disciplines: null, minors_only: true });
+      kidsPlan = await createPlan(c, { name: 'T-KidsPlan', price_cents: 3000, max_disciplines: null, min_age: 5, max_age: 12 });
       assert.equal(open.billing_period, 'monthly');
+      assert.deepEqual([open.min_age, open.max_age, kidsPlan.min_age, kidsPlan.max_age], [null, null, 5, 12]);
+      assert.equal('minors_only' in open, false);
       assert.equal(open.is_active, true);
       assert.equal(kidsPlan.max_disciplines, null);
       assert.deepEqual(open.eligible_discipline_ids, []);
     });
-    await run('elegibles: reemplazo, existencia, mínimo y plan solo menores con disciplina de adultos', async () => {
+    await run('elegibles: reemplazo, existencia, mínimo y plan con rango con disciplina de adultos', async () => {
       const other = await createDiscipline(c, { name: 'T-MT' });
       assert.deepEqual(await setEligibleDisciplines(c, { planId: open.id, ids: [bjj.id, other.id], actorId: admin }), [bjj.id, other.id].sort((a, b) => a - b));
       await rejects(setEligibleDisciplines(c, { planId: open.id, ids: [bjj.id], actorId: admin }), 409, 'eligible_too_few');
       await rejects(setEligibleDisciplines(c, { planId: open.id, ids: [bjj.id, '999999999'], actorId: admin }), 400, 'unknown_discipline');
-      // Un plan solo menores puede listar disciplinas de adultos (adolescentes en Muay Thai adultos).
+      // Un plan con rango puede listar disciplinas de otra edad: cada rango se aplica por su lado.
       assert.deepEqual(await setEligibleDisciplines(c, { planId: kidsPlan.id, ids: [bjj.id], actorId: admin }), [bjj.id]);
       assert.deepEqual(await setEligibleDisciplines(c, { planId: kidsPlan.id, ids: [kids.id], actorId: admin }), [kids.id]);
       assert.deepEqual(await setEligibleDisciplines(c, { planId: open.id, ids: [], actorId: admin }), []);
@@ -90,10 +96,12 @@ try {
       await sp(c, () => assert.rejects(c.query(`DELETE FROM plans WHERE id=$1`, [open.id]), /permission denied/));
       await sp(c, () => assert.rejects(c.query(`DELETE FROM disciplines WHERE id=$1`, [bjj.id]), /permission denied/));
     });
-    await run('plan con suscripciones: max_disciplines/minors_only inmutables', async () => {
+    await run('plan con suscripciones: max_disciplines y rango de edad inmutables', async () => {
       const id = String(subPlan);
       await rejects(updatePlan(c, { id, body: { max_disciplines: 1 }, actorId: admin }), 409, 'plan_has_subscriptions');
-      await rejects(updatePlan(c, { id, body: { minors_only: true }, actorId: admin }), 409, 'plan_has_subscriptions');
+      await rejects(updatePlan(c, { id, body: { min_age: 5 }, actorId: admin }), 409, 'plan_has_subscriptions');
+      await rejects(updatePlan(c, { id, body: { max_age: 17 }, actorId: admin }), 409, 'plan_has_subscriptions');
+      await sp(c, () => rejects(updatePlan(c, { id: kidsPlan.id, body: { min_age: 13 }, actorId: admin }), 400, 'invalid_field')); // 13 > 12
       await updatePlan(c, { id, body: { price_cents: 3500 }, actorId: admin }); // precio sí
     });
 

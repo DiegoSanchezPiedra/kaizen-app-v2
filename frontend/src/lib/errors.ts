@@ -59,7 +59,7 @@ Object.assign(TEXTS, {
   portal_not_configured: 'Ahora no se pueden gestionar los pagos. Inténtalo más tarde.', // propuesto
   no_billing_account: 'Lo gestiona quien paga la cuota.',
   subscription_exists: 'Ya hay una cuota contratada.', // propuesto
-  plan_minors_only: 'Este plan es solo para menores.', // propuesto
+  plan_out_of_age: 'Este plan no es para la edad del alumno.',
   plan_not_purchasable: 'Este plan ya no se puede contratar.', // propuesto
   plan_not_found: 'Este plan ya no se puede contratar.', // propuesto
   discipline_not_eligible: 'Esa disciplina no entra en este plan.', // propuesto

@@ -30,7 +30,7 @@ const list = (items: string[]) => items.join(', ').replace(/, ([^,]*)$/, ' y $1'
 // ── Contratar (3 pasos: plan → disciplinas → pago) ──────────
 
 const CHECKOUT_ERRORS: Record<string, [string, string]> = {
-  plan_minors_only: ['Este plan es solo para menores', 'Elige otro plan.'],
+  plan_out_of_age: ['Este plan no es para su edad', 'Elige otro plan.'],
   plan_not_purchasable: ['Este plan ya no se puede contratar', 'La academia lo ha retirado. Elige otro.'],
   plan_not_found: ['Este plan ya no se puede contratar', 'La academia lo ha retirado. Elige otro.'],
   discipline_not_eligible: ['Esa disciplina no entra en este plan', 'Elige otra o cambia de plan.'],
@@ -38,9 +38,8 @@ const CHECKOUT_ERRORS: Record<string, [string, string]> = {
 }
 
 function Contract({ subject, profileId }: Props) {
-  const { withSubject } = useSubject()
+  const { withSubject, birthDate: birth } = useSubject()
   const location = useLocation()
-  const self = !subject || subject.self
   const name = subjectName(subject)
   const subscription = useSubscription(profileId)
   const status = useProfileStatus(profileId)
@@ -76,7 +75,7 @@ function Contract({ subject, profileId }: Props) {
       if (code === 'subscription_exists' || code === 'profile_incomplete') void Promise.all([subscription.refetch(), status.refetch(), own.refetch()])
       if (CHECKOUT_ERRORS[code]) {
         setProblem(code)
-        if (['plan_minors_only', 'plan_not_purchasable', 'plan_not_found'].includes(code)) setStep(1)
+        if (['plan_out_of_age', 'plan_not_purchasable', 'plan_not_found'].includes(code)) setStep(1)
         if (code === 'discipline_not_eligible') setStep(2)
       } else toastError(err)
     },
@@ -120,9 +119,8 @@ function Contract({ subject, profileId }: Props) {
   }
 
   const allDisciplines = disciplines.data ?? []
-  const options = visiblePlans(plans.data ?? [], self)
+  const options = visiblePlans(plans.data ?? [], birth)
   const plan = options.find((p) => String(p.id) === planId)
-  const birth = subject?.birth_date ?? null
   const eligible = plan ? eligibleDisciplines(plan, allDisciplines, birth) : []
   const max = plan?.max_disciplines ?? null
   const discNames = allDisciplines.filter((d) => picked.includes(String(d.id))).map((d) => d.name)
@@ -177,7 +175,7 @@ function Contract({ subject, profileId }: Props) {
                 price={perMonth(p.price_cents).replace(' al mes', '')}
                 priceNote="al mes"
                 description={p.max_disciplines === null ? 'Todas las disciplinas' : `${p.max_disciplines} ${p.max_disciplines === 1 ? 'disciplina' : 'disciplinas'} a elegir`}
-                tags={p.minors_only ? <Tag variant="secondary">Solo menores</Tag> : undefined}
+                tags={ageRangeLabel(p.min_age, p.max_age) ? <Tag variant="secondary">{ageRangeLabel(p.min_age, p.max_age)}</Tag> : undefined}
               />
             ))}
           </RadioGroup>

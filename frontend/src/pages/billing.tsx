@@ -28,6 +28,7 @@ import {
   keepDisciplines,
   pauseFee,
   pauseLock,
+  pastPlanMax,
   pauseTitle,
   perMonth,
   planChange,
@@ -461,11 +462,9 @@ function WithSubscription({ profileId, children }: { profileId?: string; childre
 
 function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
   const navigate = useNavigate()
-  const { withSubject } = useSubject()
+  const { withSubject, birthDate: birth } = useSubject()
   const plans = usePlans()
   const disciplines = useDisciplines()
-  const self = !subject || subject.self
-  const birth = subject?.birth_date ?? null
   const [planId, setPlanId] = useState<string>('')
   const [picked, setPicked] = useState<string[]>([])
   const [open, setOpen] = useState(false)
@@ -475,13 +474,15 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
 
   const all = plans.data ?? []
   const current = all.find((p) => String(p.id) === String(s.plan.id))
-  const list = visiblePlans(all, self)
+  const list = visiblePlans(all, birth)
+  const outOfPlan = !!current && pastPlanMax(current, birth)
   const target = list.find((p) => String(p.id) === planId)
   const eligible = target ? eligibleDisciplines(target, disciplines.data ?? [], birth) : []
   const max = target?.max_disciplines ?? null
   const choose = target && max !== null && eligible.length > max
   const ready = !!target && (max === null || picked.length === max)
-  const kind = target ? planChange(s.plan.price_cents, target, self && !!current?.minors_only) : null
+  const kind = target ? planChange(s.plan.price_cents, target, outOfPlan) : null
+  const immediate = kind === 'up' || kind === 'now'
   const period = s.current_period_end ? formatShortDate(s.current_period_end) : 'la renovación'
 
   const pick = (id: string) => {
@@ -493,7 +494,7 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
 
   const change = useMutation({
     mutationFn: async () => {
-      const r = await api<{ change: 'upgrade' | 'downgrade'; status?: string; client_secret?: string; scheduled_at?: string }>(`/billing/subscriptions/${s.id}/plan`, {
+      const r = await api<{ change: 'upgrade' | 'downgrade' | 'age_change'; status?: string; client_secret?: string; scheduled_at?: string }>(`/billing/subscriptions/${s.id}/plan`, {
         method: 'POST',
         body: { plan_id: target!.id, discipline_ids: picked },
       })
@@ -502,12 +503,13 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
         if (!(await bankConfirms(r.client_secret!))) throw new ApiError(402, { code: 'bank_not_confirmed' })
       }
       const id = String(target!.id)
-      await waitForSubscription(profileId, (x) => (r.change === 'upgrade' ? String(x.plan.id) === id : x.scheduled_change?.plan_id === id))
+      await waitForSubscription(profileId, (x) => (r.change === 'downgrade' ? x.scheduled_change?.plan_id === id : String(x.plan.id) === id))
       return r
     },
     onSuccess: (r) => {
       setOpen(false)
       if (r.change === 'upgrade') toastOk(`Pago hecho. Ya tienes ${target!.name}.`, 'El recibo te llega por email.')
+      else if (r.change === 'age_change') toastOk(`Ya tienes ${target!.name}.`)
       else toastOk(`Cambio programado para el ${r.scheduled_at ? formatShortDate(r.scheduled_at) : period}.`)
       void refreshBilling()
       navigate(withSubject('/billing'))
@@ -541,12 +543,14 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
         </Note>
       )}
       <p className="text-sm text-muted-foreground">
-        Precios al mes, impuestos incluidos. Una subida se aplica ya y se cobra hoy la parte proporcional; una bajada se aplica al renovar.
+        {outOfPlan
+          ? `Precios al mes, impuestos incluidos. ${s.plan.name} ya no es para ${name ? 'su' : 'tu'} edad: el cambio se aplica ya. Si sube, hoy se cobra la parte proporcional; si no, no se cobra ni se devuelve nada.`
+          : 'Precios al mes, impuestos incluidos. Una subida se aplica ya y se cobra hoy la parte proporcional; una bajada se aplica al renovar.'}
       </p>
       <RadioGroup value={planId} onValueChange={(v) => pick(String(v))} aria-label="Plan nuevo" className="flex flex-col gap-2.5 lg:grid lg:grid-cols-2">
         {list.map((p) => {
           const cur = String(p.id) === String(s.plan.id)
-          const k = planChange(s.plan.price_cents, p, self && !!current?.minors_only)
+          const k = planChange(s.plan.price_cents, p, outOfPlan)
           return (
             <OptionCard
               key={p.id}
@@ -560,9 +564,10 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
                 <>
                   {cur && <Tag variant="info">Tu plan ahora</Tag>}
                   {!cur && k === 'up' && <Tag>Subida · se aplica ya</Tag>}
+                  {!cur && k === 'now' && <Tag>Se aplica ya · sin cobro</Tag>}
                   {!cur && k === 'down' && <Tag>Bajada · desde el {period}</Tag>}
                   {!cur && k === 'same' && <Tag>Mismo precio · desde el {period}</Tag>}
-                  {p.minors_only && <Tag variant="secondary">Solo menores</Tag>}
+                  {ageRangeLabel(p.min_age, p.max_age) && <Tag variant="secondary">{ageRangeLabel(p.min_age, p.max_age)}</Tag>}
                 </>
               }
             />
@@ -573,7 +578,7 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
       {choose && (
         <fieldset className="flex flex-col gap-2">
           <legend className="mb-1 font-semibold">
-            {kind === 'up' ? `Elige ${max === 1 ? 'la disciplina' : `${max} disciplinas`}` : `Elige con ${max === 1 ? 'qué disciplina' : `qué ${max} disciplinas`} ${name ? `se queda ${name}` : 'te quedas'}`}
+            {immediate ? `Elige ${max === 1 ? 'la disciplina' : `${max} disciplinas`}` : `Elige con ${max === 1 ? 'qué disciplina' : `qué ${max} disciplinas`} ${name ? `se queda ${name}` : 'te quedas'}`}
           </legend>
           <p className="text-sm text-muted-foreground" aria-live="polite">
             {picked.length} de {max} elegidas
@@ -599,7 +604,7 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
       )}
       <StickyFooter>
         <Button size="xl" disabled={!ready} loading={change.isPending} onClick={() => setOpen(true)}>
-          {change.isPending ? 'Confirmando con tu banco…' : kind === 'up' && target ? `Pasar a ${target.name}` : 'Continuar'}
+          {change.isPending ? 'Confirmando con tu banco…' : immediate && target ? `Pasar a ${target.name}` : 'Continuar'}
         </Button>
         {!target && <p className="text-center text-sm text-muted-foreground">Elige un plan para seguir.</p>}
       </StickyFooter>
@@ -612,17 +617,19 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
           description={
             kind === 'up'
               ? `Se aplica ahora. Hoy se cobra la parte proporcional hasta el ${period} con la tarjeta de la cuota; después, ${perMonth(target.price_cents)}, impuestos incluidos. El recibo con el importe te llega por email.`
-              : kind === 'same'
+              : kind === 'now'
+                ? `Se aplica ahora, sin cobro ni devolución: lo pagado hasta el ${period} se queda como está. Después, ${perMonth(target.price_cents)}, impuestos incluidos.`
+                : kind === 'same'
                 ? `Tiene el mismo precio: no se cobra nada. Se aplica al renovar, el ${period}; hasta entonces ${name ? 'sigue' : 'sigues'} con ${s.plan.name}.`
                 : `Se aplica al renovar, el ${period}: hasta entonces ${name ? 'sigue' : 'sigues'} con ${s.plan.name}. No se devuelve nada.`
           }
-          confirmLabel={kind === 'up' ? `Pasar a ${target.name}` : 'Programar el cambio'}
+          confirmLabel={immediate ? `Pasar a ${target.name}` : 'Programar el cambio'}
           cancelLabel="Cancelar"
           loading={change.isPending}
           onConfirm={() => change.mutate()}
         >
           {kind === 'up' && <p>Si el banco lo pide, tendrás que confirmarlo.</p>}
-          {max !== null && <p>Las reservas de las disciplinas que dejas {kind === 'up' ? 'se cancelan al aplicarse.' : `desde el ${period} se cancelarán.`}</p>}
+          {max !== null && <p>Las reservas de las disciplinas que dejas {immediate ? 'se cancelan al aplicarse.' : `desde el ${period} se cancelarán.`}</p>}
         </ConfirmDialog>
       )}
     </>
@@ -643,10 +650,9 @@ export function PlanPage() {
 
 function DisciplineChange({ s, subject }: Props & { s: Subscription }) {
   const navigate = useNavigate()
-  const { withSubject } = useSubject()
+  const { withSubject, birthDate: birth } = useSubject() // la edad de hoy del sujeto decide qué disciplinas cubre
   const plans = usePlans()
   const disciplines = useDisciplines()
-  const birth = subject?.birth_date ?? null // la edad de hoy del sujeto decide qué disciplinas cubre
   const [from, setFrom] = useState(String(s.disciplines[0]?.id ?? ''))
   const [to, setTo] = useState('')
   const [open, setOpen] = useState(false)
