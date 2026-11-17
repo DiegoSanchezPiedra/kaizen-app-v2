@@ -24,6 +24,8 @@ const PLANS = [
   P({ id: 1, name: 'Plan 2 disciplinas', price_cents: 5900, max_disciplines: 2, min_age: 14, is_featured: true }),
   P({ id: 2, name: 'Plan ilimitado', price_cents: 7900, max_disciplines: null, min_age: 14 }),
   P({ id: 3, name: 'Kids', price_cents: 3500, max_disciplines: 1, min_age: 4, max_age: 13, eligible_discipline_ids: [1, 3] }),
+  P({ id: 4, name: 'Plan 1 disciplina', price_cents: 4500, max_disciplines: 1, min_age: 14 }),
+  P({ id: 5, name: 'Kids ilimitado', price_cents: 4900, max_disciplines: null, min_age: 4, max_age: 13 }),
 ]
 const DISCIPLINAS = ['Judo', 'Jiu-jitsu', 'Kárate'].map((name, i) => ({ id: i + 1, name, min_age: null, max_age: null, is_active: true, is_open: false }))
 
@@ -38,6 +40,11 @@ async function abrir(page: Page, o: { role?: 'alumno' | 'tutor'; subscription?: 
     if (r.request().method() === 'POST' && u === '/billing/checkout') {
       posts.push(r.request().postDataJSON())
       return json({ url: 'https://checkout.stripe.invalid/x' })
+    }
+    // Cambio de plan: se apunta y no se responde, para ver el botón ocupado (nunca llega a Stripe).
+    if (r.request().method() === 'POST' && /^\/billing\/subscriptions\/[^/]+\/plan$/.test(u)) {
+      posts.push(r.request().postDataJSON())
+      return
     }
     if (r.request().method() !== 'GET') return json({})
     if (u === '/me') return json({ ...ME, role })
@@ -131,4 +138,53 @@ test('contratar, alumno con hijos: el selector «Para» va por él mismo', async
   await abrir(page, { children: true, subscription: null, path: '/billing/contract' })
   await expect(page.getByRole('main').getByRole('combobox')).toHaveText('Tú')
   await expect(page.getByRole('heading', { name: 'Paso 1 de 3 · Plan' })).toBeVisible()
+})
+
+// ── Cambiar de plan (/billing/plan) ──
+
+test('cambiar de plan, subida: diferencia en la opción, el diálogo dice importe, cuándo y qué se cobra hoy', async ({ page }) => {
+  const posts = await abrir(page, { path: '/billing/plan' })
+  await expect(page.getByRole('heading', { name: 'Tu plan ahora' })).toBeVisible()
+  await expect(page.getByRole('radio')).toHaveCount(2) // el plan actual no es una opción
+  await expect(page.getByText('+20,00 € al mes · desde hoy')).toBeVisible()
+  await expect(page.getByText('−14,00 € al mes · desde el 5 dic 2026')).toBeVisible()
+  await page.getByText('Plan ilimitado', { exact: true }).click()
+  await page.getByRole('button', { name: 'Revisar el cambio' }).click()
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog).toContainText('¿Pasar a Plan ilimitado?')
+  await expect(dialog).toContainText('79,00 €')
+  await expect(dialog.getByText('Hoy se cobra')).toBeVisible()
+  await expect(dialog).toContainText('La parte proporcional')
+  await dialog.getByRole('button', { name: 'Pasar a Plan ilimitado' }).click()
+  await expect(dialog.getByRole('button', { name: 'Confirmando con tu banco…' })).toBeDisabled()
+  await expect.poll(() => posts).toEqual([{ plan_id: 2, discipline_ids: [] }])
+})
+
+test('cambiar de plan con una bajada programada: aviso, opción marcada y el diálogo dice que la anula', async ({ page }) => {
+  await abrir(page, {
+    path: '/billing/plan',
+    subscription: { ...CUOTA, scheduled_change: { plan_id: '4', plan_name: 'Plan 1 disciplina', discipline_ids: ['1'], scheduled_at: '2026-12-05T00:00:00Z' } },
+  })
+  await expect(page.getByText('Tienes programado el paso a Plan 1 disciplina el 5 dic 2026')).toBeVisible()
+  await expect(page.getByRole('radio', { name: 'Plan 1 disciplina' })).toBeDisabled()
+  await expect(page.getByText('Programado · 5 dic 2026')).toBeVisible()
+  await page.getByText('Plan ilimitado', { exact: true }).click()
+  await page.getByRole('button', { name: 'Revisar el cambio' }).click()
+  await expect(page.getByRole('alertdialog')).toContainText('Anula el paso a Plan 1 disciplina')
+})
+
+test('cambiar de plan por un hijo: nombre de pila, nunca el completo fuera del selector «Para»', async ({ page }) => {
+  await abrir(page, { role: 'tutor', path: '/billing/plan', subscription: { ...CUOTA, plan: { id: 3, name: 'Kids', price_cents: 3500, max_disciplines: 1 }, disciplines: [{ id: 1, name: 'Judo' }] } })
+  await expect(page.getByRole('heading', { name: 'Plan de Lara ahora' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Plan nuevo para Lara' })).toBeVisible()
+  await expect(page.locator('main section').getByText('Lara Pérez')).toHaveCount(0)
+  await page.getByText('Kids ilimitado', { exact: true }).click()
+  await page.getByRole('button', { name: 'Revisar el cambio' }).click()
+  await expect(page.getByRole('alertdialog')).toContainText('¿Cambiar el plan de Lara a Kids ilimitado?')
+})
+
+test('cambiar de plan con el cobro pendiente: el motivo y la salida a la cuota', async ({ page }) => {
+  await abrir(page, { path: '/billing/plan', subscription: { ...CUOTA, status: 'past_due' } })
+  await expect(page.getByText('El plan se podrá cambiar cuando el cobro esté al día.')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Ver la cuota' })).toHaveAttribute('href', '/billing')
 })
