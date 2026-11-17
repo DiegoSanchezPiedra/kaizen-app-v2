@@ -15,14 +15,16 @@ const CUOTA_AL_DIA = { id: 's-1', status: 'active', plan: { id: 1, name: 'Plan',
 
 const PERFIL = { is_public: true, eligible: true, visible_fields: { photo: true, bio: true, social_links: false, disciplines: false, member_since: false, achievements: false, ranking: true } as Record<string, boolean>, bio: 'Cinturón azul.', social_links: { instagram: 'https://instagram.com/ana' } }
 
-type Opciones = { me?: object; role?: string; hijos?: object[]; missing?: string[]; subscription?: object | null; perfil?: typeof PERFIL; patch?: { status: number; json: object } }
+type Opciones = { me?: object; role?: string; hijos?: object[]; missing?: string[]; missingHijo?: string[]; subscription?: object | null; perfil?: typeof PERFIL; patch?: { status: number; json: object } }
 
 async function abrir(page: Page, url: string, o: Opciones = {}) {
   await page.addInitScript((t) => localStorage.setItem('kz.token', t), token(o.role ?? 'tutor'))
-  const patches: unknown[] = [] // cuerpos de los PATCH /me y /me/profile recibidos
+  const patches: unknown[] = [] // cuerpos de los PATCH /me y /me/profile y de los POST /me/agreements recibidos
   const perfil = structuredClone(o.perfil ?? PERFIL)
+  let missing = o.missing ?? []
   await page.route('**/api/**', async (r) => {
-    const u = new URL(r.request().url()).pathname.replace(/^\/api/, '')
+    const url = new URL(r.request().url())
+    const u = url.pathname.replace(/^\/api/, '')
     const json = (j: unknown, status = 200) => r.fulfill({ status, json: j })
     if (r.request().method() === 'PATCH' && (u === '/me' || u === '/me/profile')) {
       const body = r.request().postDataJSON()
@@ -32,11 +34,22 @@ async function abrir(page: Page, url: string, o: Opciones = {}) {
       Object.assign(perfil, body, { visible_fields: { ...perfil.visible_fields, ...body.visible_fields } }) // el servidor fusiona
       return json(perfil)
     }
+    // Firma simulada: lo firmado sale de `missing` (el del sujeto propio).
+    if (r.request().method() === 'POST' && u === '/me/agreements') {
+      const body = r.request().postDataJSON()
+      patches.push(body)
+      missing = missing.filter((m) => m !== body.type)
+      return json({}, 201)
+    }
     if (r.request().method() !== 'GET') return json({})
+    if (u.startsWith('/agreements/')) return r.fulfill({ body: '%PDF-1.4', headers: { 'content-type': 'application/pdf', 'x-agreement-version': 'v3' } })
     if (u === '/me') return json(o.me ?? ME)
     if (u === '/me/children') return o.role === 'alumno' && !o.hijos ? json({ code: 'insufficient_role' }, 403) : json({ children: o.hijos ?? [LARA] })
     if (u === '/me/profile') return json(perfil)
-    if (u === '/me/profile-status') return json({ ok: !o.missing?.length, missing: o.missing ?? [] })
+    if (u === '/me/profile-status') {
+      const m = url.searchParams.has('profile_id') && o.missingHijo ? o.missingHijo : missing
+      return json({ ok: !m.length, missing: m })
+    }
     if (u === '/me/health') return json({ health: null })
     if (u === '/billing/subscription') return o.subscription === null ? json({ code: 'subscription_not_found' }, 404) : json(o.subscription ?? CUOTA_AL_DIA)
     return json({})
@@ -268,4 +281,26 @@ test('Contraseña: una cuenta solo con Google ve en la tarjeta que se envió el 
   await expect(page.getByRole('status').filter({ hasText: 'ana@example.invalid' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Reenviar email' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Crear contraseña' })).toHaveCount(0)
+})
+
+test('Acuerdos: firmar con la casilla; la fila se pliega y el foco va a su título', async ({ page }) => {
+  const posts = await abrir(page, '/agreements', { ...ALUMNO, missing: ['rights_of_image'] })
+  const tarjeta = page.getByRole('region', { name: 'Tus acuerdos' })
+  await expect(tarjeta).toContainText('Falta 1 por firmar')
+  const firmar = tarjeta.getByRole('button', { name: 'Firmar Derechos de imagen' })
+  await expect(firmar).toBeDisabled()
+  await tarjeta.getByRole('checkbox', { name: /He leído y acepto/ }).click()
+  await firmar.click()
+  await expect(tarjeta).toContainText('Todo firmado')
+  expect(posts).toEqual([{ type: 'rights_of_image', version: 'v3' }])
+  await expect(page.getByTestId('agreement-rights_of_image')).toHaveAttribute('inert', '')
+  // El botón desaparece: el foco pasa al título del acuerdo.
+  await expect(tarjeta.getByRole('heading', { name: 'Derechos de imagen' })).toBeFocused()
+})
+
+test('Acuerdos de un tutor: primero los del hijo, con su nombre de pila; luego los suyos', async ({ page }) => {
+  await abrir(page, '/agreements', { hijos: [hijo('c-lara', 'Lara Pérez')], missingHijo: ['data_protection'] })
+  await expect(page.getByRole('heading', { level: 2 })).toHaveText(['Acuerdos de Lara', 'Tus acuerdos'])
+  await expect(page.getByRole('region', { name: 'Acuerdos de Lara' })).toContainText('Falta 1 por firmar')
+  await expect(page.getByRole('region', { name: 'Tus acuerdos' })).toContainText('Todo firmado')
 })

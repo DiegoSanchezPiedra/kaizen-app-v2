@@ -343,20 +343,13 @@ function Agreements({ profileId, name }: { profileId?: string; name?: string }) 
   // Un tutor firma además su propia protección de datos (la de él, no la del hijo).
   const own = useProfileStatus(undefined)
   const query = status.isError ? status : own
-  if (status.isPending || (role === 'tutor' && own.isPending)) return <ListSkeleton rows={2} className="h-32" />
+  if (status.isPending || (role === 'tutor' && own.isPending)) return <ListSkeleton rows={role === 'tutor' ? 2 : 1} className="h-32" />
   if (query.isError && (status.isError || role === 'tutor')) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+  // Primero el hijo, por quien actúa el tutor; luego lo suyo. Con su nombre de pila: «Acuerdos de Lara».
   return (
-    <div className="flex flex-col gap-5">
-      {role === 'tutor' && own.data && (
-        <section aria-label="Tus acuerdos" className="flex flex-col gap-3">
-          <h2 className="text-lg font-semibold">Tus acuerdos</h2>
-          <AgreementsPanel types={agreementsFor('tutor')} status={own.data} />
-        </section>
-      )}
-      <section aria-label={name ? `Acuerdos de ${name}` : 'Acuerdos'} className="flex flex-col gap-3">
-        {role === 'tutor' && <h2 className="text-lg font-semibold">Acuerdos de {name}</h2>}
-        <AgreementsPanel types={agreementsFor('alumno')} status={status.data!} profileId={profileId} />
-      </section>
+    <div className="flex flex-col gap-4">
+      <AgreementsPanel types={agreementsFor('alumno')} status={status.data!} profileId={profileId} title={name ? `Acuerdos de ${name.split(' ')[0]}` : 'Tus acuerdos'} />
+      {role === 'tutor' && own.data && <AgreementsPanel types={agreementsFor('tutor')} status={own.data} title="Tus acuerdos" />}
     </div>
   )
 }
