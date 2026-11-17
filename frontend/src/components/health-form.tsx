@@ -1,5 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { LockIcon } from 'lucide-react'
 import { StickyFooter } from '@/components/billing-bits'
+import { CARD } from '@/components/child-access'
 import { ErrorState } from '@/components/screen-state'
 import { FieldMessage } from '@/components/status-alert'
 import { Button } from '@/components/ui/button'
@@ -13,6 +15,7 @@ import { queryClient } from '@/lib/logout'
 import { toastError, toastOk } from '@/lib/notify'
 import { path } from '@/lib/queries'
 import type { Health } from '@/lib/types'
+import { cn } from '@/lib/utils'
 
 const TEXT_FIELDS: [keyof Health, string, string?][] = [
   ['injuries', 'Lesiones', 'Las que tengas o hayas tenido.'],
@@ -21,13 +24,15 @@ const TEXT_FIELDS: [keyof Health, string, string?][] = [
   ['allergies', 'Alergias'],
 ]
 
+
 const OPTIONAL = <span className="font-normal text-muted-foreground">(opcional)</span>
 
 // Ficha de salud del sujeto. Solo se muestra aquí, a quien la rellena (nunca en listas ni en Inicio) y se descarta
 // de la memoria al salir (gcTime 0).
 // `quiet`: sin aviso al guardar (en el alta, el paso siguiente ya lo dice); los errores siguen avisando.
+// `name`: con un hijo elegido, los textos lo nombran.
 // `sticky`: el botón queda fijo abajo (en el alta, solo el contacto es obligatorio y el resto lo dejaría bajo el pliegue).
-export function HealthForm({ profileId, onSaved, submitLabel = 'Guardar ficha', quiet, sticky }: { profileId?: string; onSaved?: () => void; submitLabel?: string; quiet?: boolean; sticky?: boolean }) {
+export function HealthForm({ profileId, onSaved, submitLabel = 'Guardar ficha', quiet, sticky, cards, name }: { profileId?: string; onSaved?: () => void; submitLabel?: string; quiet?: boolean; sticky?: boolean; cards?: boolean; name?: string }) {
   const query = useQuery({
     queryKey: ['health', profileId ?? 'self'],
     queryFn: () => api<{ health: Health | null }>(path('/me/health', { profile_id: profileId })).then((r) => r.health),
@@ -47,37 +52,72 @@ export function HealthForm({ profileId, onSaved, submitLabel = 'Guardar ficha', 
   if (query.isPending) return <Skeleton className="h-96 w-full rounded-2xl" />
   if (query.isError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
   const h = query.data
-  return (
-    <Form className="flex flex-col gap-4" onFormSubmit={(v) => save.mutate(v as Record<string, FormDataEntryValue>)}>
-      <p className="text-sm text-muted-foreground">Solo la ven quienes la necesitan para cuidarte en la sesión.</p>
-      <fieldset className="flex flex-col gap-4 rounded-2xl border p-4">
-        <legend className="px-1 text-sm font-semibold">Contacto de emergencia (obligatorio)</legend>
-        <Field name="emergency_contact_name" className="items-stretch">
-          <FieldLabel>Nombre</FieldLabel>
-          <Input defaultValue={h?.emergency_contact_name ?? ''} autoComplete="off" required />
-          <FieldMessage match="valueMissing">Pon a quién llamamos si pasa algo.</FieldMessage>
-        </Field>
-        <Field name="emergency_contact_phone" className="items-stretch">
-          <FieldLabel>Teléfono</FieldLabel>
-          <Input type="tel" inputMode="tel" autoComplete="off" defaultValue={h?.emergency_contact_phone ?? ''} required />
-          <FieldMessage match="valueMissing">Pon un teléfono de contacto.</FieldMessage>
-        </Field>
-      </fieldset>
+  // `cards` (Cuenta): contacto y opcionales en dos tarjetas, con el aviso de privacidad dentro de la primera.
+  const contact = (
+    <>
+      <Field name="emergency_contact_name" className="items-stretch">
+        <FieldLabel>Nombre</FieldLabel>
+        <Input defaultValue={h?.emergency_contact_name ?? ''} autoComplete="off" required />
+        <FieldMessage match="valueMissing">Pon a quién llamamos si pasa algo.</FieldMessage>
+      </Field>
+      <Field name="emergency_contact_phone" className="items-stretch">
+        <FieldLabel>Teléfono</FieldLabel>
+        <Input type="tel" inputMode="tel" autoComplete="off" defaultValue={h?.emergency_contact_phone ?? ''} required />
+        <FieldMessage match="valueMissing">Pon un teléfono de contacto.</FieldMessage>
+      </Field>
+    </>
+  )
+  const optional = (
+    <>
       {TEXT_FIELDS.map(([name, label, hint]) => (
         <Field key={name} name={name} className="items-stretch">
-          <FieldLabel>{label} {OPTIONAL}</FieldLabel>
-          <Textarea defaultValue={h?.[name] ?? ''} maxLength={1000} className="min-h-22" />
+          <FieldLabel>{label} {!cards && OPTIONAL}</FieldLabel>
+          {/* En tarjetas arrancan a una línea, alto de Input, y crecen al escribir (field-sizing-content). */}
+          <Textarea defaultValue={h?.[name] ?? ''} maxLength={1000} className={cards ? '[&_textarea]:min-h-8.5 pointer-coarse:[&_textarea]:min-h-10.5 sm:[&_textarea]:min-h-7.5' : 'min-h-22'} />
           {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
         </Field>
       ))}
       <Field name="previous_experience" className="items-stretch">
-        <FieldLabel>Experiencia previa {OPTIONAL}</FieldLabel>
+        <FieldLabel>Experiencia previa {!cards && OPTIONAL}</FieldLabel>
         <Input defaultValue={h?.previous_experience ?? ''} maxLength={300} />
       </Field>
       <Field name="previous_discipline" className="items-stretch">
-        <FieldLabel>Disciplina previa {OPTIONAL}</FieldLabel>
+        <FieldLabel>Disciplina previa {!cards && OPTIONAL}</FieldLabel>
         <Input defaultValue={h?.previous_discipline ?? ''} maxLength={300} />
       </Field>
+    </>
+  )
+  return (
+    <Form className={cn('flex flex-col gap-4', cards && 'enter-soft')} onFormSubmit={(v) => save.mutate(v as Record<string, FormDataEntryValue>)}>
+      {cards ? (
+        <>
+          <fieldset aria-labelledby="health-contact" className={CARD}>
+            <div className="flex flex-col gap-1">
+              <h2 id="health-contact" className="text-lg font-semibold">Contacto de emergencia</h2>
+              <p className="flex gap-2 text-sm text-muted-foreground">
+                <LockIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                {name ? `La ficha solo la ven quienes cuidan de ${name} en la sesión.` : 'Tu ficha solo la ven quienes te cuidan en la sesión.'}
+              </p>
+            </div>
+            {contact}
+          </fieldset>
+          <section aria-labelledby="health-more" className={CARD}>
+            <h2 id="health-more" className="text-lg font-semibold">
+              {name ? `Para cuidar mejor a ${name}` : 'Para cuidarte mejor'} <span className="text-base font-normal text-muted-foreground">(opcional)</span>
+            </h2>
+            {optional}
+          </section>
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-muted-foreground">Solo la ven quienes la necesitan para cuidarte en la sesión.</p>
+          <fieldset className="flex flex-col gap-4 rounded-2xl border p-4">
+            <legend className="px-1 text-sm font-semibold">Contacto de emergencia (obligatorio)</legend>
+            {contact}
+          </fieldset>
+          {optional}
+        </>
+      )}
       {sticky ? (
         <StickyFooter>
           <Button type="submit" size="xl" loading={save.isPending}>

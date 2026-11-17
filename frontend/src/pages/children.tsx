@@ -1,9 +1,10 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, UsersIcon } from 'lucide-react'
+import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon, KeyRoundIcon, PlusIcon, UsersIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { AvatarEditor } from '@/components/avatar-editor'
-import { ChildAccessSection, ChildVisibilitySection } from '@/components/child-access'
+import { CARD, ChildAccessSection, ChildVisibilitySection } from '@/components/child-access'
+import { cn } from '@/lib/utils'
 import { Page } from '@/components/page'
 import { ProfileAvatar } from '@/components/profile-avatar'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
@@ -50,15 +51,29 @@ export function ChildrenPage() {
           {children.data.length === 0 ? (
             <EmptyState icon={<UsersIcon />} title="Aún no has añadido a nadie" text="Da de alta a tus hijos menores para reservar y seguir su progreso desde tu cuenta." />
           ) : (
-            <ul className="overflow-hidden rounded-xl border bg-card">
+            <ul className="enter-soft overflow-hidden rounded-xl border bg-card">
               {children.data.map((c) => (
                 <li key={c.id} className="border-b last:border-b-0">
-                  <Link to={`/account/children/${c.id}`} className="flex min-h-14 items-center gap-3 px-4 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
+                  <Link
+                    to={`/account/children/${c.id}`}
+                    className="flex min-h-14 items-center gap-3 px-4 py-2 outline-none transition-colors duration-150 ease-(--ease-out) hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset active:bg-accent"
+                  >
                     <ProfileAvatar name={c.display_name} avatar={c.avatar} className="size-10" />
                     <span className="min-w-0 flex-1 truncate font-semibold">{c.display_name}</span>
-                    {c.pending_claim && <Badge variant="info" size="lg">Mayor de edad</Badge>}
-                    {c.access && !c.pending_claim && <Badge variant="outline" size="lg">Con acceso</Badge>}
-                    <ChevronRightIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+                    {/* Cada estado con icono y texto (DESIGN.md); 14 px también desde sm, como en Cuenta. */}
+                    {c.pending_claim && (
+                      <Badge variant="info" className="sm:h-5.5 sm:text-sm">
+                        <InfoIcon className="size-3.5" aria-hidden="true" />
+                        Mayor de edad
+                      </Badge>
+                    )}
+                    {c.access && !c.pending_claim && (
+                      <Badge variant="outline" className="sm:h-5.5 sm:text-sm">
+                        <KeyRoundIcon className="size-3.5" aria-hidden="true" />
+                        Con acceso
+                      </Badge>
+                    )}
+                    <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                   </Link>
                 </li>
               ))}
@@ -126,38 +141,59 @@ export function ChildFormPage() {
     )
   }
 
+  const form = (
+    <Form className="flex flex-col gap-4" errors={errors} onFormSubmit={submit}>
+      <Field name="display_name" className="items-stretch">
+        <FieldLabel>Nombre y apellidos</FieldLabel>
+        <Input defaultValue={child?.display_name ?? ''} required autoFocus={!id} />
+        <FieldMessage match="valueMissing">Escribe su nombre.</FieldMessage>
+      </Field>
+      <Field name="birth_date" className="items-stretch">
+        <FieldLabel>Fecha de nacimiento</FieldLabel>
+        <InputGroup>
+          <InputGroupInput inputMode="numeric" placeholder="dd/mm/aaaa" maxLength={10} value={value} onChange={(e) => setBirth(maskSpanishDate(e.target.value))} required />
+          <InputGroupAddon align="inline-end" aria-hidden="true">
+            <CalendarIcon />
+          </InputGroupAddon>
+        </InputGroup>
+        <FieldMessage match="valueMissing">Escribe su fecha de nacimiento.</FieldMessage>
+        {errors.birth_date && <FieldMessage>{errors.birth_date}</FieldMessage>}
+      </Field>
+      {denied && <StatusAlert notice={{ kind: 'error', title: errorText('child_creation_not_allowed') }} />}
+      <Button type="submit" size="xl" loading={save.isPending}>
+        {id ? 'Guardar' : 'Añadir'}
+      </Button>
+    </Form>
+  )
+
+  if (!child) {
+    return (
+      <Page title="Añadir hijo o hija">
+        <Back />
+        <div className={cn(CARD, 'enter-soft')}>{form}</div>
+      </Page>
+    )
+  }
+
+  // Con un hijo, el título lo nombra. En lg, datos y acceso a la izquierda y el perfil público a la derecha (rejilla, no `order`).
   return (
-    <Page title={id ? 'Editar hijo o hija' : 'Añadir hijo o hija'}>
+    <Page title={child.display_name} lgWide>
       <Back />
-      {child && <AvatarEditor name={child.display_name} avatar={child.avatar} profileId={child.id} />}
-      <Form className="flex flex-col gap-4" errors={errors} onFormSubmit={submit}>
-        <Field name="display_name" className="items-stretch">
-          <FieldLabel>Nombre y apellidos</FieldLabel>
-          <Input defaultValue={child?.display_name ?? ''} required autoFocus={!id} />
-          <FieldMessage match="valueMissing">Escribe su nombre.</FieldMessage>
-        </Field>
-        <Field name="birth_date" className="items-stretch">
-          <FieldLabel>Fecha de nacimiento</FieldLabel>
-          <InputGroup>
-            <InputGroupInput inputMode="numeric" placeholder="dd/mm/aaaa" maxLength={10} value={value} onChange={(e) => setBirth(maskSpanishDate(e.target.value))} required />
-            <InputGroupAddon align="inline-end" aria-hidden="true">
-              <CalendarIcon />
-            </InputGroupAddon>
-          </InputGroup>
-          <FieldMessage match="valueMissing">Escribe su fecha de nacimiento.</FieldMessage>
-          {errors.birth_date && <FieldMessage>{errors.birth_date}</FieldMessage>}
-        </Field>
-        {denied && <StatusAlert notice={{ kind: 'error', title: errorText('child_creation_not_allowed') }} />}
-        <Button type="submit" size="xl" loading={save.isPending}>
-          {id ? 'Guardar' : 'Añadir'}
-        </Button>
-      </Form>
-      {child && (
-        <>
+      <div className="enter-soft grid items-start gap-5 lg:grid-cols-[1fr_21rem]">
+        <section aria-labelledby="child-data" className={cn(CARD, 'lg:col-start-1')}>
+          <h2 id="child-data" className="text-lg font-semibold">
+            Datos
+          </h2>
+          <AvatarEditor name={child.display_name} avatar={child.avatar} profileId={child.id} />
+          {form}
+        </section>
+        <div className="lg:col-start-1">
           <ChildAccessSection child={child} />
+        </div>
+        <div className="lg:col-start-2 lg:row-span-2 lg:row-start-1">
           <ChildVisibilitySection child={child} />
-        </>
-      )}
+        </div>
+      </div>
     </Page>
   )
 }

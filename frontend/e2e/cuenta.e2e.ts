@@ -34,9 +34,10 @@ async function abrir(page: Page, url: string, o: Opciones = {}) {
     }
     if (r.request().method() !== 'GET') return json({})
     if (u === '/me') return json(o.me ?? ME)
-    if (u === '/me/children') return o.role === 'alumno' ? json({ code: 'insufficient_role' }, 403) : json({ children: o.hijos ?? [LARA] })
+    if (u === '/me/children') return o.role === 'alumno' && !o.hijos ? json({ code: 'insufficient_role' }, 403) : json({ children: o.hijos ?? [LARA] })
     if (u === '/me/profile') return json(perfil)
     if (u === '/me/profile-status') return json({ ok: !o.missing?.length, missing: o.missing ?? [] })
+    if (u === '/me/health') return json({ health: null })
     if (u === '/billing/subscription') return o.subscription === null ? json({ code: 'subscription_not_found' }, 404) : json(o.subscription ?? CUOTA_AL_DIA)
     return json({})
   })
@@ -225,4 +226,46 @@ test('perfil público del profesor: sin logros ni rankings', async ({ page }) =>
   await expect(page.getByRole('switch', { name: 'Desde cuándo estoy en la academia' })).toBeVisible()
   await expect(page.getByRole('switch', { name: 'Logros' })).toHaveCount(0)
   await expect(page.getByRole('switch', { name: 'Aparecer en los rankings' })).toHaveCount(0)
+})
+
+test('ficha de salud: contacto y opcionales en dos tarjetas; el contacto es obligatorio', async ({ page }) => {
+  await abrir(page, '/account/health', { role: 'alumno', me: { ...ME, role: 'alumno' }, hijos: [] }) // alumno adulto: /me/children vacía, no 403
+  await expect(page.getByRole('heading', { level: 1, name: 'Ficha de salud' })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Contacto de emergencia' })).toContainText('Tu ficha solo la ven quienes te cuidan en la sesión.')
+  await expect(page.getByRole('region', { name: /^Para cuidarte mejor/ })).toBeVisible()
+  await page.getByRole('button', { name: 'Guardar ficha' }).click()
+  await expect(page.getByText('Pon a quién llamamos si pasa algo.')).toBeVisible()
+  await expect(page.getByLabel('Nombre')).toBeFocused()
+})
+
+test('ficha de salud con ?para=: el título y los textos nombran al hijo', async ({ page }) => {
+  await abrir(page, `/account/health?para=${NICO.id}`, { hijos: [LARA, NICO] })
+  await expect(page.getByRole('heading', { level: 1, name: 'Salud de Nico' })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Contacto de emergencia' })).toContainText('quienes cuidan de Nico')
+  await expect(page.getByRole('region', { name: /^Para cuidar mejor a Nico/ })).toBeVisible()
+})
+
+test('Contraseña: avisa antes de enviar de que se cierran las demás sesiones', async ({ page }) => {
+  await abrir(page, '/account/password')
+  await expect(page.getByText('Al cambiarla se cerrará tu sesión en los demás dispositivos.')).toBeVisible()
+})
+
+test('Contraseña: si la actual no es correcta, el error queda en el campo con el foco', async ({ page }) => {
+  await abrir(page, '/account/password')
+  await page.route('**/api/me/password', (r) => r.fulfill({ status: 401, json: { code: 'wrong_password' } }))
+  const actual = page.getByLabel('Contraseña actual')
+  await actual.fill('mala-1234')
+  await page.getByLabel('Contraseña nueva').fill('nueva-12345')
+  await page.getByRole('button', { name: 'Cambiar contraseña' }).click()
+  await expect(page.getByText('La contraseña actual no es correcta.')).toBeVisible()
+  await expect(actual).toHaveAttribute('aria-invalid', 'true')
+  await expect(actual).toBeFocused()
+})
+
+test('Contraseña: una cuenta solo con Google ve en la tarjeta que se envió el email y puede reenviarlo', async ({ page }) => {
+  await abrir(page, '/account/password', { me: { ...ME, has_password: false } })
+  await page.getByRole('button', { name: 'Crear contraseña' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'ana@example.invalid' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reenviar email' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Crear contraseña' })).toHaveCount(0)
 })

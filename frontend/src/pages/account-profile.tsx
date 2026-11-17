@@ -3,6 +3,7 @@ import { ChevronLeftIcon, LockIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { AvatarEditor } from '@/components/avatar-editor'
+import { CARD } from '@/components/child-access'
 import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { FieldMessage } from '@/components/status-alert'
@@ -22,8 +23,6 @@ import { useSession } from '@/lib/session'
 import type { MyProfile } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
-// shortcut: copia de CARD de child-access.tsx (feat/account-children, aún sin mergear); importarlo cuando esté en main.
-const CARD = 'enter-soft flex flex-col gap-3 rounded-2xl border bg-card p-4'
 const BIO_MAX = 500
 
 // Los campos de visible_fields que no son la foto (la foto va aparte, junto a ella).
@@ -70,7 +69,7 @@ function VisibilityCard({ profile }: { profile: MyProfile }) {
     </label>
   )
   return (
-    <section aria-labelledby="profile-card" className={CARD}>
+    <section aria-labelledby="profile-card" className={cn('enter-soft', CARD)}>
       {/* El nombre ya hace de título visible; el h2 queda para el lector de pantalla. */}
       <h2 id="profile-card" className="sr-only">
         Tu ficha
@@ -141,7 +140,7 @@ function TextCard({ profile }: { profile: MyProfile }) {
   }
 
   return (
-    <section aria-labelledby="profile-text" className={CARD}>
+    <section aria-labelledby="profile-text" className={cn('enter-soft', CARD)}>
       <div>
         <h2 id="profile-text" className="text-lg font-semibold">
           Presentación y redes
