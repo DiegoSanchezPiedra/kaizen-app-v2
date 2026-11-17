@@ -111,3 +111,37 @@ test('hoja del admin: vuelve a la jornada del profesor, con margen y sin desbord
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375)
   await expect(page.getByRole('link', { name: 'Jornada' })).toHaveAttribute('href', '/admin/clock?profile_id=p-1&month=2026-11')
 })
+
+// En la app instalada de iOS window.print() no hace nada: el botón genera el PDF (jsPDF) y abre Compartir.
+for (const fallo of ['ninguno', 'cancelado', 'error'] as const) {
+  test(`app instalada de iOS: comparte el PDF de la hoja (Compartir: ${fallo})`, async ({ page }) => {
+    await page.addInitScript((fallo) => {
+      const w = window as unknown as { shared: File[]; printed: number }
+      w.shared = []
+      w.printed = 0
+      Object.defineProperty(navigator, 'standalone', { value: true })
+      Object.defineProperty(navigator, 'share', {
+        value: async (d: { files: File[] }) => {
+          w.shared.push(...d.files)
+          if (fallo === 'cancelado') throw new DOMException('cancelado', 'AbortError')
+          if (fallo === 'error') throw new DOMException('no', 'NotAllowedError')
+        },
+      })
+      window.print = () => void w.printed++
+    }, fallo)
+    await abrir(page, month({ open: true, corrections: CORRECTIONS }))
+    const imprimir = page.getByRole('button', { name: 'Imprimir o guardar PDF' })
+    await expect(imprimir).not.toHaveAttribute('data-loading')
+    await imprimir.click()
+    await expect.poll(() => page.evaluate(() => (window as unknown as { shared: File[] }).shared.length)).toBe(1)
+    const shared = await page.evaluate(async () => {
+      const w = window as unknown as { shared: File[]; printed: number }
+      const f = w.shared[0]
+      return { printed: w.printed, name: f.name, type: f.type, head: await f.slice(0, 5).text() }
+    })
+    expect(shared).toEqual({ printed: 0, name: 'registro-jornada-2026-11.pdf', type: 'application/pdf', head: '%PDF-' })
+    const aviso = page.getByRole('alert').filter({ hasText: 'No se ha podido abrir Compartir' })
+    if (fallo === 'error') await expect(aviso).toBeVisible()
+    else await expect(aviso).toHaveCount(0)
+  })
+}

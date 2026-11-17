@@ -1,13 +1,14 @@
 import type { UseQueryResult } from '@tanstack/react-query'
-import { PrinterIcon, TriangleAlertIcon } from 'lucide-react'
+import { CircleAlertIcon, PrinterIcon, TriangleAlertIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { Back } from '@/components/billing-bits'
 import { QueryView } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
 import { useNow } from '@/hooks/use-now'
-import { authorName, type ClockDay, type ClockEvent, type ClockKind, type ClockMonth, type Correction, formatDuration, monthParam, originalOf, pausesOf, STATUS_LABEL, whatOf } from '@/lib/clock'
-import { dayOfMonth, formatMonth, shortWeekday } from '@/lib/dates'
-import { formatShortDate, formatTime } from '@/lib/format'
+import { authorName, type ClockDay, type ClockMonth, type Correction, correctionAt, dayLabel, draftOf, formatDuration, hasCorrected, listOf, monthParam, pausesText, sheetFooter, STATUS_LABEL, when, whatOf } from '@/lib/clock'
+import { formatMonth } from '@/lib/dates'
+import { formatShortDate } from '@/lib/format'
 import { useAdminClock, useClock } from '@/lib/queries'
 
 // «Registro de jornada» (B31): la misma hoja para el profesor (/clock/print) y para el admin (/admin/clock/print).
@@ -29,11 +30,26 @@ export function AdminClockPrintPage() {
   )
 }
 
-// En la app instalada de iOS window.print() no hace nada. shortcut: solo se avisa; el PDF propio está en wip/fichaje-pdf.
+// En la app instalada de iOS window.print() no hace nada y no se puede salir a Safari (el scope de la PWA vuelve a la app):
+// ahí el botón genera el PDF de la hoja y abre Compartir, que tiene «Imprimir» y «Guardar en Archivos». standalone solo existe en iOS.
 const iosApp = (navigator as Navigator & { standalone?: boolean }).standalone === true
+type PdfModule = typeof import('@/lib/clock-pdf')
 
 function PrintView({ query, month, back }: { query: UseQueryResult<ClockMonth>; month: string; back: { to: string; label: string } }) {
   const now = useNow()
+  // jsPDF se baja al abrir la hoja, no al pulsar: iOS solo abre Compartir justo después del toque.
+  const [pdf, setPdf] = useState<PdfModule | null>(null)
+  const [shareFailed, setShareFailed] = useState(false)
+  useEffect(() => {
+    if (iosApp) void import('@/lib/clock-pdf').then(setPdf)
+  }, [])
+  const print = (data: ClockMonth) => {
+    if (!iosApp) return window.print()
+    if (!pdf) return
+    setShareFailed(false)
+    // Cerrar Compartir sin elegir nada rechaza con AbortError: no es un error.
+    navigator.share({ files: [pdf.clockPdf(data, month, now)] }).catch((e: unknown) => setShareFailed(!(e instanceof DOMException && e.name === 'AbortError')))
+  }
   return (
     <div className="mx-auto flex max-w-[190mm] flex-col gap-4 print:max-w-none print:gap-0">
       <div className="print:hidden">
@@ -52,13 +68,15 @@ function PrintView({ query, month, back }: { query: UseQueryResult<ClockMonth>; 
                     El mes no está cerrado ({draft}). Si lo imprimes ahora, sale como borrador.
                   </p>
                 )}
-                {iosApp ? (
-                  <p className="text-sm text-muted-foreground">Para imprimir o guardar el PDF, abre esta página en Safari: desde la app instalada no se puede.</p>
-                ) : (
-                  <Button size="xl" className="sm:h-11 sm:self-end" onClick={() => window.print()}>
-                    <PrinterIcon />
-                    Imprimir o guardar PDF
-                  </Button>
+                <Button size="xl" className="sm:h-11 sm:self-end" loading={iosApp && !pdf} onClick={() => print(data)}>
+                  <PrinterIcon />
+                  Imprimir o guardar PDF
+                </Button>
+                {shareFailed && (
+                  <p role="alert" className="flex items-center gap-2 text-sm font-medium text-destructive-foreground sm:self-end">
+                    <CircleAlertIcon className="size-4 shrink-0" aria-hidden />
+                    No se ha podido abrir Compartir. Inténtalo otra vez.
+                  </p>
                 )}
               </div>
               <Sheet data={data} month={month} draft={draft} now={now} />
@@ -70,25 +88,9 @@ function PrintView({ query, month, back }: { query: UseQueryResult<ClockMonth>; 
   )
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
-
-// Qué deja el mes sin cerrar, o null si está cerrado.
-function draftOf(m: ClockMonth): string | null {
-  const open = m.days.filter((d) => d.open).length
-  const pending = m.corrections.filter((c) => c.status === 'pending').length
-  const parts = [open && plural(open, 'jornada abierta', 'jornadas abiertas'), pending && plural(pending, 'corrección pendiente', 'correcciones pendientes')].filter(Boolean)
-  return parts.length ? parts.join(' · ') : null
-}
-
 // A4 con pie en cada hoja: de quién es y «Página N de M» (márgenes de página de Chrome ≥ 131; los demás los ignoran).
 const pageCss = (m: ClockMonth, month: string) =>
-  `@page { size: A4; margin: 15mm 15mm 18mm; @bottom-left { content: ${JSON.stringify(`Kaizen · Registro de jornada · ${m.profile.display_name ?? 'Sin nombre'} · ${formatMonth(month)}`)}; font: 8pt sans-serif; color: #000; } @bottom-right { content: "Página " counter(page) " de " counter(pages); font: 8pt sans-serif; color: #000; } }`
-
-// Un fichaje corregido lleva «*» (su hora es la de la corrección). En las pausas, la de cualquiera de sus dos extremos.
-const stamp = (e: ClockEvent): string => `${formatTime(e.at)}${e.corrected ? '*' : ''}`
-const listOf = (events: ClockEvent[], kind: ClockKind): string => events.filter((e) => e.kind === kind).map(stamp).join(', ') || '—'
-const when = (iso: string): string => `${formatShortDate(iso)}, ${formatTime(iso)}`
-const dayLabel = (day: string): string => `${shortWeekday(day).replace(/^./, (c) => c.toUpperCase())} ${dayOfMonth(day)}`
+  `@page { size: A4; margin: 15mm 15mm 18mm; @bottom-left { content: ${JSON.stringify(sheetFooter(m, month))}; font: 8pt sans-serif; color: #000; } @bottom-right { content: "Página " counter(page) " de " counter(pages); font: 8pt sans-serif; color: #000; } }`
 
 const MONO = 'font-mono tabular-nums'
 // Bajo 640 px (solo en pantalla) cada día es un bloque; desde sm y al imprimir, una fila de tabla.
@@ -97,7 +99,7 @@ const LABEL = 'block text-xs text-muted-foreground sm:hidden print:hidden'
 
 function Sheet({ data, month, draft, now }: { data: ClockMonth; month: string; draft: string | null; now: number }) {
   const employee = data.profile.employment === 'employee'
-  const corrected = data.days.some((d) => d.events.some((e) => e.corrected))
+  const corrected = hasCorrected(data)
   return (
     <article className="flex enter-soft flex-col gap-6 rounded-2xl border bg-card p-4 sm:p-8 print:gap-3.5 print:rounded-none print:border-0 print:bg-transparent print:p-0 print:text-[10pt] print:text-foreground print:[--border:#8a8a8a] print:[--foreground:#000] print:[--muted-foreground:#333]">
       <header className="flex flex-col gap-4 border-b border-foreground pb-4 print:pb-2 sm:flex-row sm:items-end sm:justify-between print:flex-row print:items-end print:justify-between">
@@ -180,7 +182,6 @@ function Sheet({ data, month, draft, now }: { data: ClockMonth; month: string; d
 }
 
 function DayRow({ d }: { d: ClockDay }) {
-  const pauses = pausesOf(d.events).map(([from, to]) => `${stamp(from)}–${to ? stamp(to) : '…'}`)
   // role explícito: con display: grid en el móvil, Chrome deja de exponer la fila y las celdas.
   return (
     <tr role="row" className="grid grid-cols-[auto_1fr_auto] gap-x-4 gap-y-1 border-b py-2.5 break-inside-avoid sm:table-row sm:border-0 sm:py-0 print:table-row print:border-0 print:py-0">
@@ -194,7 +195,7 @@ function DayRow({ d }: { d: ClockDay }) {
       </td>
       <td role="cell" className={`row-start-2 ${MONO} ${CELL}`}>
         <span className={LABEL}>Pausas</span>
-        {pauses.join(', ') || '—'}
+        {pausesText(d.events)}
       </td>
       <td role="cell" className={`row-start-2 ${MONO} ${CELL}`}>
         <span className={LABEL}>Salida</span>
@@ -208,7 +209,7 @@ function DayRow({ d }: { d: ClockDay }) {
 }
 
 function CorrectionItem({ c, data }: { c: Correction; data: ClockMonth }) {
-  const at = c.at ?? originalOf(data, c.event_id)?.at
+  const at = correctionAt(c, data)
   return (
     <>
       <p>

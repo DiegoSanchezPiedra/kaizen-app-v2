@@ -89,7 +89,8 @@ test('Corregir → Cambiar la hora: envía event_id, at y motivo, y cierra la ho
   await page.getByLabel('Hora', { exact: true }).fill('08:45')
   await page.getByLabel('Motivo', { exact: true }).fill('Llegué antes.')
   await page.getByRole('button', { name: 'Pedir corrección' }).click()
-  await expect(page.getByRole('dialog')).toBeHidden()
+  // El aviso «Corrección pedida» también es role=dialog y sale mientras la hoja se cierra: buscar la hoja por su nombre.
+  await expect(page.getByRole('dialog', { name: 'Cambiar la hora' })).toBeHidden()
   expect(posts).toEqual([{ path: '/me/clock/corrections', body: { event_id: '16-in', at: at(16, '08:45'), reason: 'Llegué antes.' } }])
 })
 
