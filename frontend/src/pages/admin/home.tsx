@@ -97,7 +97,8 @@ function Search() {
         <InputGroupAddon aria-hidden="true">
           <SearchIcon />
         </InputGroupAddon>
-        <InputGroupInput type="search" name="q" aria-label="Buscar alumno" placeholder="Buscar alumno" enterKeyHint="search" />
+        {/* Excepción como en login: el marcador al 100 % de muted (al 72 % daba 3,5:1). */}
+        <InputGroupInput type="search" name="q" aria-label="Buscar alumno" placeholder="Buscar alumno" enterKeyHint="search" className="**:placeholder:text-muted-foreground!" />
       </InputGroup>
     </form>
   )
@@ -338,7 +339,8 @@ function Attention({ home, className }: { home: UseQueryResult<AdminHome>; class
       ) : pending.length === 0 && notices.data.length === 0 ? (
         <p className="enter-soft flex items-center gap-2 rounded-2xl border bg-card px-4 py-3.5 text-[15px] font-medium">
           <CircleCheckIcon className="size-5 text-success-foreground" aria-hidden="true" />
-          Nada pendiente
+          {/* Sin /admin/home no se sabe cuántos llevan 14 días sin venir: no se afirma más de lo que se sabe. */}
+          {home.data ? 'Nada pendiente' : 'Nada pendiente en cobros ni avisos'}
         </p>
       ) : (
         <ul className="enter-soft overflow-hidden rounded-2xl border bg-card">

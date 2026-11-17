@@ -70,6 +70,11 @@ test('si falla /admin/home sale un solo error y lo demás se sigue viendo', asyn
   await expect(section(page, 'Próximos eventos')).toBeVisible()
 })
 
+test('si falla /admin/home y lo demás está a cero, no afirma «Nada pendiente» a secas', async ({ page }) => {
+  await open(page, { home: 'error', attention: 'none' })
+  await expect(section(page, 'Requiere atención').getByText('Nada pendiente en cobros ni avisos', { exact: true })).toBeVisible({ timeout: 15_000 })
+})
+
 test('sin sesiones hoy: «Hoy no hay sesiones» y en Ahora la de mañana', async ({ page }) => {
   await open(page, { sessions: 'none' })
   await expect(section(page, 'Hoy').getByText('Hoy no hay sesiones.')).toBeVisible()
