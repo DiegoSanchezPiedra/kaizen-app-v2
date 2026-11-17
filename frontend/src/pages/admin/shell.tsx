@@ -10,6 +10,7 @@ import {
   FileTextIcon,
   HistoryIcon,
   HouseIcon,
+  SearchXIcon,
   SettingsIcon,
   ShieldAlertIcon,
   TabletIcon,
@@ -22,7 +23,7 @@ import logo from '@/assets/logo.png'
 import { Page } from '@/components/page'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Pagination } from '@/components/ui/pagination'
 import {
   Sidebar,
@@ -73,7 +74,7 @@ function NavItem({ item }: { item: Item }) {
     <SidebarMenuItem>
       <SidebarMenuButton
         isActive={isActive(item.to, pathname)}
-        className="h-10 text-[15px]"
+        className="h-11 text-[15px] lg:h-10"
         render={<NavLink to={item.to} end={item.to === '/admin'} onClick={() => setOpenMobile(false)} />}
       >
         <Icon aria-hidden="true" />
@@ -138,7 +139,7 @@ export function MfaNotice() {
       <AlertTitle>Activa el doble factor: protege los datos de la academia</AlertTitle>
       <AlertDescription>Con él, entrar pide también un código del móvil.</AlertDescription>
       <AlertAction>
-        <Button size="sm" render={<Link to="/admin/mfa" state={{ from: pathname }} />}>
+        <Button size="sm" className="max-sm:h-11 max-sm:px-4" render={<Link to="/admin/mfa" state={{ from: pathname }} />}>
           Activar
         </Button>
       </AlertAction>
@@ -152,9 +153,17 @@ export function AdminNotFound() {
     <Page title="Panel" wide>
       <Empty className="rounded-2xl border bg-card">
         <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <SearchXIcon />
+          </EmptyMedia>
           <EmptyTitle>No lo encontramos</EmptyTitle>
-          <EmptyDescription>Puede que esta página ya no exista. Usa el menú para seguir.</EmptyDescription>
+          <EmptyDescription>Puede que esta página ya no exista o que el enlace esté mal.</EmptyDescription>
         </EmptyHeader>
+        <EmptyContent>
+          <Button size="xl" render={<Link to="/admin" />}>
+            Ir al Inicio
+          </Button>
+        </EmptyContent>
       </Empty>
     </Page>
   )

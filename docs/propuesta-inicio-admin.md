@@ -3,6 +3,10 @@
 > 2026-11-06. Pendiente de aprobar. Se escribió sin ver el Inicio de MAAT (en la web no hay capturas de su panel), así que la
 > parte «como MAAT» está por cotejar: ver § 7. Hecha con impeccable (shape, modo *Operate*), taste-skill, emil-design-eng y
 > make-interfaces-feel-better. Móvil primero, a 375 px. Sustituye a `docs/pantallas-b19.md` § Inicio cuando se apruebe.
+>
+> **Rediseño 2026-11-18 (grupo 7):** «Requiere atención» va lo primero (en lg, arriba a la derecha); fuera la cifra «Impago»
+> (repetía «Morosos») y los atajos «Sesión suelta» / «Evento» (solo enlazaban a la lista); si falla `GET /admin/home`, un solo
+> error en lugar de Ahora, Cifras y Hoy. «Hoy en la academia» pide `subscription.cancel_now` y `cancel_at_period_end`.
 
 ## 1. Qué falla hoy
 
