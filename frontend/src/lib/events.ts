@@ -290,6 +290,14 @@ export const isUpcomingRegistration = (e: EventInfo, now: number): boolean =>
 export const eventHealthDay = (e: Pick<EventInfo, 'status' | 'starts_at' | 'ends_at'>, now: number): boolean =>
   e.status === 'scheduled' && madridDay(now) >= madridDay(e.starts_at) && madridDay(now) <= madridDay(e.ends_at)
 
+// «Día 2 de 3» de un evento de varios días (días de calendario en Madrid); null si empieza y acaba el mismo día.
+export function eventDayOf(e: Pick<EventInfo, 'starts_at' | 'ends_at'>, now: number): { n: number; of: number } | null {
+  const days = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000)
+  const first = madridDay(e.starts_at)
+  const last = madridDay(e.ends_at)
+  return first === last ? null : { n: days(first, madridDay(now)) + 1, of: days(first, last) + 1 }
+}
+
 // Lista del profesor: un evento y sus inscritos confirmados.
 export type EventStudent = { profile_id: string; display_name: string; attended: boolean | null }
 

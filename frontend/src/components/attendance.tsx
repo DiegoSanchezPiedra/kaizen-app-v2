@@ -67,7 +67,10 @@ function SwitchCell({ on, pending, label, onChange, touch }: { on: boolean; pend
         )}
       />
       <span className={cn('grid text-xs font-semibold', on ? 'text-foreground' : 'text-muted-foreground')}>
-        <span className={cn('col-start-1 row-start-1', pending && `${slow} animate-out fade-out`)}>{on ? 'Presente' : 'Sin marcar'}</span>
+        <span className={cn('col-start-1 row-start-1 inline-flex items-center justify-center gap-0.5', pending && `${slow} animate-out fade-out`)}>
+          {touch && on && <CheckIcon className="size-3.5" strokeWidth={3} aria-hidden="true" />}
+          {on ? 'Presente' : 'Sin marcar'}
+        </span>
         {pending && <span className={`${slow} animate-in fade-in`}>Guardando…</span>}
       </span>
     </div>
@@ -97,15 +100,23 @@ function MarkSwitch({ sessionId, row, touch }: { sessionId: string; row: Attenda
 // Lista de un evento (B21.2): presente sí o no, desde el inicio, sin cerrar ni corregir.
 export const evKey = (id: string) => ['prof-event', id]
 export function EventStudentItem({ eventId, student, open, touch }: { eventId: string; student: EventStudent; open: boolean; touch?: boolean }) {
+  // Como MarkSwitch: la fila (y el contador) cambian al tocar; si falla, esa fila vuelve tal como estaba.
+  const setAttended = (attended: boolean | null) =>
+    queryClient.setQueryData<{ students: EventStudent[] }>(evKey(eventId), (d) => d && { ...d, students: d.students.map((x) => (x.profile_id === student.profile_id ? { ...x, attended } : x)) })
   const mark = useMutation({
     mutationFn: (present: boolean) => api(`/events/${eventId}/attendance/${student.profile_id}`, { method: 'PUT', body: { present } }),
-    onError: (err) => {
+    onMutate: async (present) => {
+      await queryClient.cancelQueries({ queryKey: evKey(eventId) })
+      setAttended(present)
+      return student.attended
+    },
+    onError: (err, _present, prev) => {
+      if (prev !== undefined) setAttended(prev)
       professorError(err, true)
       if (['registration_not_found', 'event_cancelled', 'event_not_started'].includes(errorCode(err))) void queryClient.invalidateQueries({ queryKey: evKey(eventId) })
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: evKey(eventId) }),
   })
-  const on = mark.isPending ? mark.variables : student.attended === true
+  const on = student.attended === true
   return (
     <li className="grid min-h-18 grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-x-3 border-b px-3.5 py-2.5 last:border-b-0">
       <ProfileAvatar name={student.display_name} className="size-10" />

@@ -29,6 +29,8 @@ export function NextUp({
   action,
   live,
   now,
+  headline,
+  until,
 }: {
   startsAt: string
   endsAt: string
@@ -40,19 +42,22 @@ export function NextUp({
   action?: ReactNode
   live?: boolean
   now: number
+  // Un evento de varios días: «Día 2 de 3» y «Hasta el …» en vez de la hora de inicio y «Hasta las …».
+  headline?: string
+  until?: string
 }) {
   const { label, rel } = when(startsAt, now)
   const body = (
     <>
       <div className="flex items-start justify-between gap-3">
         <p className="font-heading text-4xl leading-none font-bold tabular-nums text-balance">
-          {label} · {formatTime(startsAt)}
+          {headline ?? `${label} · ${formatTime(startsAt)}`}
         </p>
         {to && <ChevronRightIcon aria-hidden="true" className="size-5 shrink-0 opacity-80" />}
       </div>
       <p className="mt-3 text-lg leading-snug font-semibold">{title}</p>
       <p className="mt-0.5 text-sm leading-snug tabular-nums">
-        Hasta las {formatTime(endsAt)}
+        {until ?? `Hasta las ${formatTime(endsAt)}`}
         {location ? ` · ${location}` : ''}
         {live ? ' · en curso' : rel ? ` · ${rel}` : ''}
       </p>
