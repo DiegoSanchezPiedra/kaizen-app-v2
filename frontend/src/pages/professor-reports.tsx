@@ -1,12 +1,16 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ChartColumnIcon, TableIcon } from 'lucide-react'
-import { useState } from 'react'
-import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
+import { useEffect, useState } from 'react'
+import { EmptyState, ErrorState, InlineError } from '@/components/screen-state'
+import { Rise } from '@/components/rise'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Page } from '@/components/page'
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
 import { useReportFilters } from '@/components/report-filters'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
+import { errorText } from '@/lib/errors'
 import { formatMonth } from '@/lib/dates'
 import {
   classTitle,
@@ -15,7 +19,6 @@ import {
   monthlyTotals,
   niceMax,
   percent,
-  plural,
   shortMonth,
   sumFigures,
   type Figures,
@@ -30,7 +33,8 @@ const PAGE = 25
 const nf = new Intl.NumberFormat('es-ES')
 
 // Colores pasados por el validador de dataviz en claro y oscuro (canvas B18.4); la falta no se distingue solo por el matiz.
-export const SERIES = 'text-foreground [--s-abs:#C8467E] [--s-occ:#0B47F0] [--s-pres:#0B47F0] [--s-unr:color-mix(in_srgb,var(--foreground)_34%,transparent)] dark:[--s-abs:#D55181] dark:[--s-occ:#2F62FF] dark:[--s-pres:#2F62FF]'
+// La trama de «sin registrar» va al 48 % de la tinta: al 34 % no llegaba a 3:1 sobre la tarjeta.
+export const SERIES = 'text-foreground [--s-abs:#C8467E] [--s-occ:#0B47F0] [--s-pres:#0B47F0] [--s-unr:color-mix(in_srgb,var(--foreground)_48%,transparent)] dark:[--s-abs:#D55181] dark:[--s-occ:#2F62FF] dark:[--s-pres:#2F62FF]'
 export const HATCH = 'bg-[repeating-linear-gradient(135deg,var(--s-unr)_0_2px,transparent_2px_5px)] shadow-[inset_0_0_0_1px_var(--s-unr)]'
 
 export function Tile({ label, value }: { label: string; value: string }) {
@@ -60,7 +64,7 @@ type Month = Figures & { month: string }
 // Barras en HTML con altura en % del área (la columna mide el 100 %).
 function Stack({ parts, max }: { parts: { cls: string; v: number }[]; max: number }) {
   return (
-    <span className="flex h-full w-full max-w-7.5 flex-col-reverse justify-start gap-0.5">
+    <span className="flex h-full w-full max-w-6 flex-col-reverse justify-start gap-0.5">
       {parts.map((p, k) => (
         <span key={k} className={cn('block shrink-0', p.cls, k === parts.length - 1 && 'rounded-t')} style={{ height: `${(p.v / max) * 100}%` }} />
       ))}
@@ -76,10 +80,17 @@ function Charts({ months }: { months: Month[] }) {
     <section aria-label="Por mes" className={cn('flex flex-col gap-5 rounded-2xl border bg-card p-4', SERIES)}>
       <div className="flex flex-col gap-3">
         <h2 className="font-semibold">Ocupación por mes</h2>
-        <MonthBars months={months} max={1} ticks={[0, 0.5, 1]} unit={(n) => `${n * 100} %`} stack={(m) => [{ cls: 'bg-(--s-occ)', v: occ(m) }]} tip={(m) => [`Ocupación: ${percent(m.occupancy)}`, `${nf.format(m.booked)} reservas de ${nf.format(m.capacity)} plazas`]} labelLast={(m) => percent(m.occupancy)} />
+        {months.every((m) => m.occupancy === null) ? (
+          <p className="text-sm text-muted-foreground">Sin plazas en el periodo: no hay ocupación que mostrar.</p>
+        ) : (
+          <MonthBars months={months} max={1} ticks={[0, 0.5, 1]} unit={(n) => `${n * 100} %`} stack={(m) => [{ cls: 'bg-(--s-occ)', v: occ(m) }]} tip={(m) => [`Ocupación: ${percent(m.occupancy)}`, `${nf.format(m.booked)} reservas de ${nf.format(m.capacity)} plazas`]} labelLast={(m) => percent(m.occupancy)} />
+        )}
       </div>
       <div className="flex flex-col gap-3">
-        <h2 className="font-semibold">Asistencia por mes</h2>
+        <div>
+          <h2 className="font-semibold">Asistencia por mes</h2>
+          <p className="text-[13px] text-muted-foreground">Reservas de cada mes: presentes, faltas y sin registrar.</p>
+        </div>
         <Key items={[{ label: 'Presentes', cls: 'bg-(--s-pres)' }, { label: 'Faltas', cls: 'bg-(--s-abs)' }, { label: 'Sin registrar', cls: HATCH }]} />
         <MonthBars
           months={months}
@@ -141,6 +152,15 @@ export function MonthBars<T>({ months, max, ticks, unit, stack, tip, labelLast, 
 }) {
   const [hover, setHover] = useState<number | null>(null)
   const last = months.length - 1
+  // Una sola parada de Tab por gráfica (la del último mes); las flechas, Inicio y Fin recorren los meses.
+  const [cur, setCur] = useState(last)
+  const move = (e: React.KeyboardEvent<HTMLButtonElement>, i: number) => {
+    const to = ({ ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: last } as Record<string, number>)[e.key]
+    if (to === undefined || to < 0 || to > last) return
+    e.preventDefault()
+    setCur(to)
+    ;(e.currentTarget.parentElement!.children[ticks.length + to] as HTMLElement).focus()
+  }
   const gap = months.length > 16 ? 'gap-0.5' : 'gap-2.5'
   const fits = mobileLabels(months.map(short)) // en el móvil no caben 12 meses: se ocultan sin mover la rejilla
   return (
@@ -156,6 +176,8 @@ export function MonthBars<T>({ months, max, ticks, unit, stack, tip, labelLast, 
             key={name(m)}
             type="button"
             aria-label={`${name(m)}: ${tip(m).join(', ')}`}
+            tabIndex={i === Math.min(cur, last) ? 0 : -1}
+            onKeyDown={(e) => move(e, i)}
             onMouseEnter={() => setHover(i)}
             onMouseLeave={() => setHover(null)}
             onFocus={() => setHover(i)}
@@ -194,27 +216,131 @@ export function MonthBars<T>({ months, max, ticks, unit, stack, tip, labelLast, 
   )
 }
 
-function Group({ title, subtitle, f }: { title: string; subtitle?: string | null; f: Figures }) {
-  const booked = f.present + f.absent + f.unrecorded
-  const pct = (n: number) => `${booked ? (n / booked) * 100 : 0}%`
+type Row = { key: string; title: string; subtitle?: string | null; f: Figures }
+
+const COLS: [string, (f: Figures) => string][] = [
+  ['Sesiones', (f) => nf.format(f.sessions)],
+  ['Ocupación', (f) => percent(f.occupancy)],
+  ['Presentes', (f) => nf.format(f.present)],
+  ['Faltas', (f) => nf.format(f.absent)],
+  ['Sin registrar', (f) => nf.format(f.unrecorded)],
+  ['Tardías', (f) => nf.format(f.late)],
+]
+
+// Barra segmentada fina (dataviz): partes proporcionales, 2 px de hueco, extremos redondeados; las cifras van al lado.
+function Bar({ f }: { f: Figures }) {
+  const parts = [
+    { cls: 'bg-(--s-pres)', v: f.present },
+    { cls: 'bg-(--s-abs)', v: f.absent },
+    { cls: HATCH, v: f.unrecorded },
+  ].filter((p) => p.v > 0)
+  if (!parts.length) return <div className="h-2 rounded-full bg-muted" aria-hidden="true" />
   return (
-    <article className={cn('flex flex-col gap-2.5 rounded-xl border bg-card p-3.5', SERIES)}>
-      <div>
-        <h3 className="font-semibold">{title}</h3>
-        {subtitle && <p className="text-[13px] text-muted-foreground">{subtitle}</p>}
-      </div>
-      {booked > 0 && (
-        <div className="flex h-3 gap-0.5" aria-hidden="true">
-          <span className="rounded-l bg-(--s-pres)" style={{ width: pct(f.present) }} />
-          <span className="bg-(--s-abs)" style={{ width: pct(f.absent) }} />
-          <span className={cn('rounded-r', HATCH)} style={{ width: pct(f.unrecorded) }} />
-        </div>
-      )}
-      <p className="text-[13px] leading-snug text-muted-foreground tabular-nums">
-        {plural(f.sessions, 'sesión', 'sesiones')} · {percent(f.occupancy)} de ocupación · {plural(f.present, 'presente', 'presentes')} · {plural(f.absent, 'falta', 'faltas')} · {f.unrecorded} sin registrar · {plural(f.late, 'cancelación tardía', 'cancelaciones tardías')}
-      </p>
-    </article>
+    <div className="flex h-2 gap-0.5 overflow-hidden rounded-full" aria-hidden="true">
+      {parts.map((p) => (
+        <span key={p.cls} className={cn('basis-0', p.cls)} style={{ flexGrow: p.v }} />
+      ))}
+    </div>
   )
+}
+
+// Móvil: una tarjeta por fila con las cifras en rejilla 3×2. Desde md: una tabla para comparar filas (columnas alineadas).
+function Rows({ rows, name }: { rows: Row[]; name: string }) {
+  return (
+    <>
+      <ul className={cn('flex flex-col gap-3 md:hidden', SERIES)}>
+        {rows.map((r) => (
+          <li key={r.key} className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
+            <div>
+              <h3 className="font-semibold text-pretty">{r.title}</h3>
+              {r.subtitle && <p className="text-[13px] text-muted-foreground">{r.subtitle}</p>}
+            </div>
+            <Bar f={r.f} />
+            <dl className="grid grid-cols-3 gap-x-3 gap-y-2.5">
+              {COLS.map(([label, v]) => (
+                <div key={label} className="flex flex-col-reverse">
+                  <dt className="text-[13px] text-muted-foreground">{label}</dt>
+                  <dd className="text-lg leading-tight font-semibold tabular-nums">{v(r.f)}</dd>
+                </div>
+              ))}
+            </dl>
+          </li>
+        ))}
+      </ul>
+      <div className={cn('rounded-2xl border bg-card max-md:hidden', SERIES)}>
+        <Table className="tabular-nums">
+          <caption className="sr-only">{`Por ${name.toLowerCase()}`}</caption>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="ps-4">{name}</TableHead>
+              <TableHead className="w-[18%]">Asistencia</TableHead>
+              {COLS.map(([label]) => (
+                <TableHead key={label} className="text-right last:pe-4">{label}</TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((r) => (
+              <TableRow key={r.key}>
+                <TableCell className="py-3 ps-4 whitespace-normal">
+                  <span className="block font-medium">{r.title}</span>
+                  {r.subtitle && <span className="block text-[13px] text-muted-foreground">{r.subtitle}</span>}
+                </TableCell>
+                <TableCell>
+                  <Bar f={r.f} />
+                </TableCell>
+                {COLS.map(([label, v]) => (
+                  <TableCell key={label} className="text-right last:pe-4">{v(r.f)}</TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </>
+  )
+}
+
+// Las seis cifras del periodo en una sola tarjeta: rejilla 3×2 en el móvil, una fila desde lg.
+function Summary({ f }: { f: Figures }) {
+  const items: [string, string][] = [
+    ['Sesiones', nf.format(f.sessions)],
+    [f.occupancy === null ? 'Ocupación · sin plazas' : 'Ocupación', percent(f.occupancy)],
+    ['Presentes', nf.format(f.present)],
+    ['Faltas', nf.format(f.absent)],
+    ['Sin registrar', nf.format(f.unrecorded)],
+    ['Cancelaciones tardías', nf.format(f.late)],
+  ]
+  return (
+    <dl className="grid grid-cols-3 gap-px overflow-hidden rounded-2xl border bg-border lg:grid-cols-6">
+      {items.map(([label, value]) => (
+        <div key={label} className="flex flex-col-reverse justify-end gap-1 bg-card px-3 py-3.5 sm:px-4">
+          <dt className="text-[13px] leading-snug font-medium text-muted-foreground">{label}</dt>
+          <dd className="font-heading text-[1.75rem] leading-none font-bold tabular-nums sm:text-3xl">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+function ReportSkeleton() {
+  return (
+    <div className="flex flex-col gap-4" aria-busy="true" aria-label="Cargando">
+      <Skeleton className="h-36 rounded-2xl lg:h-20" />
+      <Skeleton className="h-72 rounded-2xl" />
+      <Skeleton className="h-28 rounded-2xl" />
+    </div>
+  )
+}
+
+// «Noviembre de 2026», «Junio – noviembre de 2026» o, entre dos años, con los dos años.
+const periodLabel = (from: string, to: string) =>
+  from === to ? formatMonth(to) : `${from.slice(0, 4) === to.slice(0, 4) ? formatMonth(from).replace(/ de \d{4}$/, '') : formatMonth(from)} – ${formatMonth(to)}`
+
+const badRange = (e: unknown) => e instanceof ApiError && e.code === 'invalid_range'
+
+function Failure({ error, retry }: { error: unknown; retry: () => void }) {
+  return badRange(error) ? <InlineError>{errorText('invalid_range')}</InlineError> : <ErrorState plainTitle error={error} onRetry={retry} />
 }
 
 export function ProfessorReportsPage() {
@@ -225,10 +351,15 @@ export function ProfessorReportsPage() {
   )
 }
 
+// La entrada escalonada solo en la primera visita de la sesión de la app.
+let played = false
+
 // El del profesor (solo sus sesiones) y el del admin (toda la academia): la misma pantalla con otro endpoint.
 export function SessionsReport({ endpoint, trainer = classTrainer }: { endpoint: string; trainer?: (r: ReportRow) => string | null }) {
   const [tab, setTab] = useState('discipline')
   const { ok, base, filters } = useReportFilters()
+  const filtered = base.discipline_id !== undefined
+  const showClass = filtered || tab === 'class'
   const byDiscipline = useQuery({
     queryKey: ['report', endpoint, 'discipline', base],
     enabled: ok,
@@ -236,67 +367,92 @@ export function SessionsReport({ endpoint, trainer = classTrainer }: { endpoint:
   })
   const byClass = useInfiniteQuery({
     queryKey: ['report', endpoint, 'class', base],
-    enabled: ok && tab === 'class',
+    enabled: ok && showClass,
     initialPageParam: 0,
     queryFn: ({ pageParam }) => api<Report>(path(endpoint, { by: 'class', ...base, limit: String(PAGE), offset: String(pageParam) })),
     getNextPageParam: (last) => ((last.offset ?? 0) + PAGE < (last.total ?? 0) ? (last.offset ?? 0) + PAGE : undefined),
   })
 
-  const months = byDiscipline.data ? monthlyTotals(byDiscipline.data.rows) : []
-  const total = byDiscipline.data ? sumFigures(byDiscipline.data.rows.map((r) => r.total)) : null
-  const classRows: ReportRow[] = byClass.data?.pages.flatMap((p) => p.rows) ?? []
+  // Al cambiar de filtro el bloque de resultados es otro nodo (key) y entra con enter-soft; la primera vez, escalonado.
+  const key = JSON.stringify(base)
+  const [riseKey, setRiseKey] = useState(played ? null : key)
+  if (riseKey !== null && riseKey !== key) setRiseKey(null)
+  const rise = riseKey === key
+  useEffect(() => {
+    played = true
+  }, [])
+
+  const data = byDiscipline.data
+  const months = data ? monthlyTotals(data.rows) : []
+  const total = data ? sumFigures(data.rows.map((r) => r.total)) : null
+  const classRows: Row[] = (byClass.data?.pages.flatMap((p) => p.rows) ?? []).map((r) => ({ key: `${r.discipline.id}-${r.class_id ?? 'loose'}`, title: classTitle(r), subtitle: trainer(r), f: r.total }))
+  const left = (byClass.data?.pages.at(-1)?.total ?? 0) - classRows.length
+
+  const classes = byClass.isPending ? (
+    <Skeleton className="h-40 rounded-2xl" aria-busy="true" aria-label="Cargando" />
+  ) : !byClass.data ? (
+    <Failure error={byClass.error} retry={() => void byClass.refetch()} />
+  ) : (
+    <>
+      <Rows rows={classRows} name="Clase" />
+      {byClass.isFetchNextPageError && <InlineError>No se pudieron cargar más clases. Vuelve a intentarlo.</InlineError>}
+      {byClass.hasNextPage && (
+        <Button size="xl" variant="outline" loading={byClass.isFetchingNextPage} onClick={() => void byClass.fetchNextPage()}>
+          {byClass.isFetchNextPageError ? 'Reintentar' : `Cargar más clases (quedan ${nf.format(left)})`}
+        </Button>
+      )}
+    </>
+  )
 
   return (
     <>
       {filters}
-      {ok && byDiscipline.isPending && <ListSkeleton rows={3} className="h-28" />}
-      {ok && byDiscipline.isError && <ErrorState error={byDiscipline.error} onRetry={() => void byDiscipline.refetch()} />}
-      {ok && total && (total.sessions === 0 && total.booked === 0 ? (
-        <EmptyState icon={<ChartColumnIcon />} title="Sin sesiones en este periodo" text="Cuenta lo que ya se ha celebrado; prueba con otro periodo." />
-      ) : (
-        <>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
-            <Tile label="Sesiones" value={nf.format(total.sessions)} />
-            <Tile label="Ocupación" value={percent(total.occupancy)} />
-            <Tile label="Presentes" value={nf.format(total.present)} />
-            <Tile label="Faltas" value={nf.format(total.absent)} />
-            <Tile label="Sin registrar" value={nf.format(total.unrecorded)} />
-            <Tile label="Cancelaciones tardías" value={nf.format(total.late)} />
-          </div>
-          {months.length >= 2 && <Charts months={months} />}
-          <Tabs value={tab} onValueChange={(v) => setTab(String(v))} className="gap-4">
-            <TabsList className="w-full">
-              <TabsTab value="discipline" className="min-h-11 flex-1">Por disciplina</TabsTab>
-              <TabsTab value="class" className="min-h-11 flex-1">Por clase</TabsTab>
-            </TabsList>
-            <TabsPanel value="discipline" className="grid gap-3 lg:grid-cols-2">
-              {byDiscipline.data!.rows.map((r) => (
-                <Group key={String(r.discipline.id)} title={r.discipline.name} f={r.total} />
-              ))}
-            </TabsPanel>
-            <TabsPanel value="class" className="flex flex-col gap-3">
-              {byClass.isPending ? (
-                <ListSkeleton rows={3} className="h-24" />
-              ) : byClass.isError ? (
-                <ErrorState error={byClass.error} onRetry={() => void byClass.refetch()} />
-              ) : (
-                <>
-                  <div className="grid gap-3 lg:grid-cols-2">
-                    {classRows.map((r) => (
-                      <Group key={`${r.discipline.id}-${r.class_id ?? 'loose'}`} title={classTitle(r)} subtitle={trainer(r)} f={r.total} />
-                    ))}
-                  </div>
-                  {byClass.hasNextPage && (
-                    <Button size="xl" variant="outline" loading={byClass.isFetchingNextPage} onClick={() => void byClass.fetchNextPage()}>
-                      Cargar más clases
-                    </Button>
-                  )}
-                </>
+      {ok && (
+        <p className="-mt-1 text-sm text-muted-foreground first-letter:uppercase">
+          {periodLabel(base.from, base.to)} · sesiones ya celebradas
+        </p>
+      )}
+      {ok && byDiscipline.isPending && <ReportSkeleton />}
+      {ok && !data && byDiscipline.isError && <Failure error={byDiscipline.error} retry={() => void byDiscipline.refetch()} />}
+      {ok && data && total && (
+        <div key={key} className={cn('flex flex-col gap-4', !rise && 'enter-soft')}>
+          {total.sessions === 0 && total.booked === 0 ? (
+            <EmptyState plainTitle icon={<ChartColumnIcon />} title="Sin sesiones en este periodo" text="Cuenta lo que ya se ha celebrado; prueba con otro periodo." />
+          ) : (
+            <>
+              <Rise on={rise} i={0}>
+                <Summary f={total} />
+              </Rise>
+              {months.length >= 2 && (
+                <Rise on={rise} i={1}>
+                  <Charts months={months} />
+                </Rise>
               )}
-            </TabsPanel>
-          </Tabs>
-        </>
-      ))}
+              <Rise on={rise} i={2} className="flex flex-col gap-3">
+                {filtered ? (
+                  <>
+                    <h2 className="mt-1 font-semibold">Por clase</h2>
+                    {classes}
+                  </>
+                ) : (
+                  <Tabs value={tab} onValueChange={(v) => setTab(String(v))} className="gap-4">
+                    <TabsList className="w-full sm:w-auto sm:self-start">
+                      <TabsTab value="discipline" className="min-h-11 flex-1 px-5">Por disciplina</TabsTab>
+                      <TabsTab value="class" className="min-h-11 flex-1 px-5">Por clase</TabsTab>
+                    </TabsList>
+                    <TabsPanel value="discipline">
+                      <Rows rows={data.rows.map((r) => ({ key: String(r.discipline.id), title: r.discipline.name, f: r.total }))} name="Disciplina" />
+                    </TabsPanel>
+                    <TabsPanel value="class" className="flex flex-col gap-3">
+                      {classes}
+                    </TabsPanel>
+                  </Tabs>
+                )}
+              </Rise>
+            </>
+          )}
+        </div>
+      )}
     </>
   )
 }
