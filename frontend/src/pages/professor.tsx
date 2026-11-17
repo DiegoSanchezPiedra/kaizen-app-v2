@@ -12,13 +12,15 @@ import {
   PlayIcon,
   UsersIcon,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type React from 'react'
 import { Link, useParams } from 'react-router'
 import { attKey, AttendanceItem, CorrectDialog, useCloseList } from '@/components/attendance'
 import { ClockCard } from '@/components/clock-card'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { NextUp } from '@/components/next-up'
 import { Page } from '@/components/page'
+import { Rise } from '@/components/rise'
 import { SessionRow, SessionRows } from '@/components/session-row'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { StatusAlert } from '@/components/status-alert'
@@ -48,6 +50,7 @@ import {
 } from '@/lib/professor'
 import { groupByDay } from '@/lib/sessions'
 import { path } from '@/lib/url'
+import { pickDay } from '@/lib/week'
 import { cn } from '@/lib/utils'
 
 // Sus sesiones y sus eventos, mezclados por fecha (B21.2).
@@ -66,12 +69,13 @@ const PHASE_BADGE: Record<Phase, { variant: 'outline' | 'info' | 'secondary' | '
 
 const chevron = <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
 
+// En la lista, «En curso» a secas: la llamada a pasar lista va en el hueco de arriba (y cabe en las 7 columnas de `lg`).
 function phaseBadge(phase: Phase) {
   const badge = PHASE_BADGE[phase]
   return badge ? (
     <Badge variant={badge.variant} size="lg">
       <badge.Icon aria-hidden="true" />
-      {badge.text}
+      {phase === 'now' ? 'En curso' : badge.text}
     </Badge>
   ) : (
     chevron
@@ -88,7 +92,6 @@ function SessionLink({ s, now }: { s: TrainerSession; now: number }) {
       title={s.discipline_name}
       meta={`${s.location ? `${s.location} · ` : ''}${plural(s.capacity, 'plaza', 'plazas')}`}
       off={phase === 'cancelled'}
-      accent={phase === 'now' ? 'primary' : undefined}
       aside={phaseBadge(phase)}
     />
   )
@@ -104,7 +107,6 @@ function EventLink({ e, now }: { e: EventInfo; now: number }) {
       title={e.title}
       meta={[e.location, e.discipline?.name].filter(Boolean).join(' · ')}
       off={phase === 'cancelled'}
-      accent={phase === 'now' ? 'primary' : undefined}
       below={
         <Badge variant="outline" size="lg">
           <CalendarDaysIcon aria-hidden="true" />
@@ -117,26 +119,73 @@ function EventLink({ e, now }: { e: EventInfo; now: number }) {
 }
 
 // Sesiones y eventos de la semana elegida (docs/pantallas-b22.md § Calendario semanal); antes y después, con las flechas.
+// El botón blanco sobre la cara azul de NextUp (el mismo que «Hacer check-in» en Reservas).
+const ON_FACE = 'w-full border-transparent bg-white text-primary hover:bg-white/90 focus-visible:ring-white focus-visible:ring-offset-0 dark:bg-white dark:hover:bg-white/90'
+
+// La sesión o el evento en curso: el único caso con un elemento dominante. Lleva a pasar lista.
+function LiveNow({ it, now }: { it: Entry<TrainerSession>; now: number }) {
+  const x = it.kind === 'session' ? { ...it.s, title: it.s.discipline_name, to: `/professor/sessions/${it.s.id}` } : { ...it.e, to: `/professor/events/${it.e.id}` }
+  return (
+    <NextUp
+      startsAt={x.starts_at}
+      endsAt={x.ends_at}
+      title={x.title}
+      location={x.location}
+      live
+      now={now}
+      action={
+        <Button size="xl" variant="outline" className={ON_FACE} render={<Link to={x.to} />}>
+          <UsersIcon />
+          Pasar lista
+        </Button>
+      }
+    />
+  )
+}
+
+// La entrada escalonada, solo la primera vez de la sesión de la app.
+let played = false
+
 export function ProfessorSessionsPage() {
+  const [first] = useState(!played)
+  useEffect(() => {
+    played = true
+  }, [])
   const now = useNow()
   const w = useWeek()
   const query = useQuery({ queryKey: ['prof-sessions', w.week], queryFn: () => range(w.week, addDays(w.week, 6)) })
+  // La semana de hoy, con la misma clave: en la semana actual no pide nada más y, al ir a otra, el hueco se queda.
+  const thisWeek = pickDay(w.today).week
+  const today = useQuery({ queryKey: ['prof-sessions', thisWeek], queryFn: () => range(thisWeek, addDays(thisWeek, 6)) })
+  const live = today.data?.find((it) => phaseOf(it.kind === 'session' ? it.s : it.e, now) === 'now')
   const byDay = new Map(groupByDay(query.data ?? [], (it) => (it.kind === 'session' ? it.s : it.e).starts_at))
 
   return (
     <Page title="Sesiones" wide>
-      <ClockCard />
-      <WeekBoard
-        w={w}
-        query={query}
-        marked={new Set(byDay.keys())}
-        noun="sesiones"
-        renderDay={(day) => (
-          <SessionRows>
-            {(byDay.get(day) ?? []).map((it) => (it.kind === 'session' ? <SessionLink key={it.s.id} s={it.s} now={now} /> : <EventLink key={it.e.id} e={it.e} now={now} />))}
-          </SessionRows>
+      {/* En `lg`, el hueco y la Jornada lado a lado; si solo hay uno, ocupa todo el ancho. */}
+      <div className="flex flex-col gap-4 not-has-[>:not(:empty)]:hidden lg:grid lg:auto-cols-fr lg:grid-flow-col">
+        {live && (
+          <Rise on={first} i={0} className={first ? undefined : 'enter-soft'}>
+            <LiveNow it={live} now={now} />
+          </Rise>
         )}
-      />
+        <Rise on={first} i={1} className="empty:hidden lg:*:h-full">
+          <ClockCard />
+        </Rise>
+      </div>
+      <Rise on={first} i={2}>
+        <WeekBoard
+          w={w}
+          query={query}
+          marked={new Set(byDay.keys())}
+          noun="sesiones"
+          renderDay={(day) => (
+            <SessionRows>
+              {(byDay.get(day) ?? []).map((it) => (it.kind === 'session' ? <SessionLink key={it.s.id} s={it.s} now={now} /> : <EventLink key={it.e.id} e={it.e} now={now} />))}
+            </SessionRows>
+          )}
+        />
+      </Rise>
     </Page>
   )
 }
