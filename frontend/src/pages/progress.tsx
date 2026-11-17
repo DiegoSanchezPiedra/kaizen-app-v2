@@ -119,7 +119,7 @@ function Progress({ subject, profileId }: { subject: Subject | null; profileId?:
                             <span className="font-medium">{h.name}</span>
                             <span className="font-mono tabular-nums">{formatHours(h.hours)}</span>
                           </div>
-                          <MeterTrack className="h-2.5 rounded-full">
+                          <MeterTrack className="h-2.5 rounded-full bg-primary/15">
                             <MeterIndicator className="rounded-full transition-[width] duration-200 ease-(--ease-out)" />
                           </MeterTrack>
                         </Meter>
@@ -201,12 +201,9 @@ function NextMedal({ d, name }: { d: DisciplineMedals; name?: string }) {
           {hours.at === 0 ? (
             <p className="text-[15px]">Se consigue con {name ? 'su' : 'tu'} primera sesión</p>
           ) : (
-            <Meter value={d.hours} max={hours.at} aria-label={`Horas hacia ${hours.name}`} className="w-full max-w-64 gap-1">
+            <Meter value={d.hours} max={hours.at} aria-label={`Horas hacia ${hours.name}`} className="w-full gap-1">
               <p className="text-[15px] text-white/80">
-                <span className="font-mono font-semibold text-white tabular-nums">
-                  {formatHours(d.hours).replace(' h', '')} / {formatHours(hours.at)}
-                </span>{' '}
-                · te faltan <span className="font-mono tabular-nums">{formatHours(Math.max(0, hours.at - d.hours))}</span>
+                <span className="font-mono font-semibold whitespace-nowrap text-white tabular-nums">{formatHours(d.hours)}</span> en total · te faltan <span className="font-mono whitespace-nowrap tabular-nums">{formatHours(Math.max(0, hours.at - d.hours))}</span>
               </p>
             </Meter>
           )}
@@ -266,9 +263,12 @@ function MedalLadders({ d, name }: { d: DisciplineMedals; name?: string }) {
         const value = l.kind === 'hours' ? d.hours : d.streak.best
         return (
           <TabsPanel key={l.kind} value={l.kind}>
-            <ol className="flex flex-col rounded-2xl border-3 border-black bg-card py-1.5 shadow-[4px_4px_0_#000]">
+            {/* En oscuro el negro no se ve sobre la tinta: borde y sombra dura en claro tenue. */}
+            <ol className="flex flex-col overflow-hidden rounded-2xl border-3 border-black bg-card py-1.5 shadow-[4px_4px_0_#000] dark:border-white/25 dark:shadow-[4px_4px_0_rgb(255_255_255/0.14)]">
               {ladder.filter((x) => x.kind === l.kind).map((x) => {
                 const at = earned.get(x.code)
+                // Por código: nextMedal crea objetos nuevos y la identidad nunca coincide.
+                const isNext = !at && x.code === next?.code
                 const left = x.kind === 'hours' ? formatHours(Math.max(0, x.at - value)) : `${Math.max(0, x.at - value)} semanas`
                 const body = (
                   <>
@@ -276,7 +276,7 @@ function MedalLadders({ d, name }: { d: DisciplineMedals; name?: string }) {
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span className="font-heading text-xl leading-tight font-extrabold uppercase italic">{x.name}</span>
                       <span className="text-[13px] text-muted-foreground">
-                        {at ? `${medalGoal(x)} · ${shortDate(at)}` : x === next && x.at > 0 ? `${medalGoal(x)} · te faltan ${left}` : `Bloqueada · ${medalGoal(x)}`}
+                        {at ? `${medalGoal(x)} · ${shortDate(at)}` : isNext && x.at > 0 ? `${medalGoal(x)} · te faltan ${left}` : `Bloqueada · ${medalGoal(x)}`}
                       </span>
                     </span>
                   </>
@@ -289,7 +289,7 @@ function MedalLadders({ d, name }: { d: DisciplineMedals; name?: string }) {
                         <span className="sr-only">. Ver su animación</span>
                       </button>
                     ) : (
-                      <div className="flex items-center gap-3 px-3.5 py-2">{body}</div>
+                      <div className={cn('flex items-center gap-3 px-3.5 py-2', isNext && 'bg-ki/10')}>{body}</div>
                     )}
                   </li>
                 )

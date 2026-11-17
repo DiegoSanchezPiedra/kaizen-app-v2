@@ -188,6 +188,16 @@ test('cambiar de mes mantiene las horas atenuadas, sin esqueleto, y la pestaña 
   await expect(page.getByRole('tab', { name: /^Constancia/ })).toHaveAttribute('aria-selected', 'true')
 })
 
+test('la escalera marca la próxima medalla con lo que falta; el héroe da horas en total', async ({ page }) => {
+  await simular(page, DATOS)
+  await page.goto('/progress')
+  await expect(page.locator('section[aria-labelledby="next-medal"]')).toContainText('124,5 h en total · te faltan 125,5 h')
+  const escalera = page.getByRole('tabpanel')
+  await expect(escalera.getByText('250 h · te faltan 125,5 h')).toBeVisible()
+  await expect(escalera.getByText('Bloqueada · 250 h')).toHaveCount(0)
+  await expect(escalera.getByText(/^Bloqueada/)).toHaveCount(2)
+})
+
 test('el héroe cabe en la primera pantalla a 375 px', async ({ page }) => {
   await simular(page, DATOS)
   await page.goto('/progress')
