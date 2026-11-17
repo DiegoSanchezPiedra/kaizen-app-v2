@@ -73,8 +73,8 @@ export function HealthForm({ profileId, onSaved, submitLabel = 'Guardar ficha', 
       {TEXT_FIELDS.map(([name, label, hint]) => (
         <Field key={name} name={name} className="items-stretch">
           <FieldLabel>{label} {!cards && OPTIONAL}</FieldLabel>
-          {/* En tarjetas arrancan a dos líneas y crecen al escribir (field-sizing-content). */}
-          <Textarea defaultValue={h?.[name] ?? ''} maxLength={1000} className={cards ? '[&_textarea]:min-h-15' : 'min-h-22'} />
+          {/* En tarjetas arrancan a una línea, alto de Input, y crecen al escribir (field-sizing-content). */}
+          <Textarea defaultValue={h?.[name] ?? ''} maxLength={1000} className={cards ? '[&_textarea]:min-h-8.5 pointer-coarse:[&_textarea]:min-h-10.5 sm:[&_textarea]:min-h-7.5' : 'min-h-22'} />
           {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
         </Field>
       ))}
