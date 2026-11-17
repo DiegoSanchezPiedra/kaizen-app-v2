@@ -34,23 +34,26 @@ export function ClockCard() {
                 Mi registro
               </Link>
             </div>
-            <p className="-mt-2 font-heading text-2xl font-bold" aria-live="polite">
-              {stateLine(m.state, sinceOf(m))}
-            </p>
-            <div className="flex gap-2">
-              {actionsFor(m.state).map((a) => (
-                <Button
-                  key={a.kind}
-                  size="xl"
-                  variant={a.kind === 'out' ? 'outline' : 'default'}
-                  className="flex-1"
-                  loading={fichar.isPending && fichar.variables === a.kind}
-                  disabled={fichar.isPending}
-                  onClick={() => fichar.mutate(a.kind)}
-                >
-                  {a.label}
-                </Button>
-              ))}
+            {/* Desde `sm`, el estado y los botones en una fila (los botones a su ancho); si no caben, bajan. */}
+            <div className="-mt-2 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+              <p className="font-heading text-2xl font-bold" aria-live="polite">
+                {stateLine(m.state, sinceOf(m))}
+              </p>
+              <div className="flex gap-2">
+                {actionsFor(m.state).map((a) => (
+                  <Button
+                    key={a.kind}
+                    size="xl"
+                    variant={a.kind === 'out' ? 'outline' : 'default'}
+                    className="flex-1 sm:min-w-32 sm:flex-none"
+                    loading={fichar.isPending && fichar.variables === a.kind}
+                    disabled={fichar.isPending}
+                    onClick={() => fichar.mutate(a.kind)}
+                  >
+                    {a.label}
+                  </Button>
+                ))}
+              </div>
             </div>
           </section>
         )

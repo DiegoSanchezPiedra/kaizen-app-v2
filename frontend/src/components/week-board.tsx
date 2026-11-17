@@ -97,6 +97,7 @@ export function WeekBoard({
   renderDay,
   noun = 'clases',
   top = 'top-0',
+  plainTitle,
 }: {
   w: Week
   query: Query
@@ -108,6 +109,8 @@ export function WeekBoard({
   noun?: string
   // Dónde se queda la tira en móvil: bajo lo que ya sea fijo arriba (la cabecera del admin, el selector de sujeto).
   top?: 'top-0' | 'top-14' | 'top-[61px]'
+  // Títulos de vacío y error en sans (DESIGN.md): las pantallas lo adoptan al rediseñarlas.
+  plainTitle?: boolean
 }) {
   // Al elegir un día: en escritorio, su columna a la vista; en móvil, si se quedó bajo la tira, su cabecera justo debajo.
   const first = useRef(true)
@@ -135,9 +138,10 @@ export function WeekBoard({
       {query.isPending ? (
         <ListSkeleton rows={3} className="h-16" />
       ) : query.isError ? (
-        <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+        <ErrorState plainTitle={plainTitle} error={query.error} onRetry={() => void query.refetch()} />
       ) : marked.size === 0 ? (
         <EmptyState
+          plainTitle={plainTitle}
           icon={<CalendarIcon />}
           title={`No hay ${noun} esta semana`}
           text="Prueba con la semana siguiente."
@@ -176,6 +180,7 @@ export function WeekBoard({
                     <p className="px-0.5 text-sm text-muted-foreground max-lg:hidden">Sin {noun}</p>
                     <div className="lg:hidden">
                       <EmptyState
+                        plainTitle={plainTitle}
                         icon={<CalendarIcon />}
                         title={`No hay ${noun} el ${longWeekday(day)}`}
                         action={
