@@ -3,6 +3,7 @@ import { CircleAlertIcon, LockIcon, RefreshCwIcon, SearchXIcon, WifiOffIcon } fr
 import type React from 'react'
 import { useEffect, useState } from 'react'
 import { Link, useRouteError } from 'react-router'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -77,6 +78,16 @@ export function EmptyState({
       </EmptyHeader>
       {action && <EmptyContent>{action}</EmptyContent>}
     </Empty>
+  )
+}
+
+// Error en línea (fechas no válidas, una página que no carga): icono y texto en su color -texto, no solo color.
+export function InlineError({ children }: { children: React.ReactNode }) {
+  return (
+    <Alert variant="error">
+      <CircleAlertIcon />
+      <AlertDescription className="font-medium text-destructive-foreground">{children}</AlertDescription>
+    </Alert>
   )
 }
 

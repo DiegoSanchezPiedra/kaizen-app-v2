@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { addMonths, formatMonth, madridMonth } from '@/lib/dates'
-import { periodRange, validRange, type Period } from '@/lib/professor'
+import { monthsBetween, periodRange, validRange, type Period } from '@/lib/professor'
 import { useDisciplines } from '@/lib/queries'
 import { Filter } from '@/components/filter'
+import { InlineError } from '@/components/screen-state'
 
 const PERIODS: { value: Period; label: string }[] = [
   { value: 'this', label: 'Este mes' },
@@ -23,9 +24,10 @@ export function useReportFilters() {
   const disciplines = useDisciplines()
   const { from, to } = period === 'custom' ? { from: cFrom, to: cTo } : periodRange(period)
   const ok = validRange(from, to)
+  const n = monthsBetween(from, to)
   const filters = (
     <>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <Filter label="Periodo" value={period} onChange={(v) => setPeriod(v as Period)} items={PERIODS} />
         <Filter
           label="Disciplina"
@@ -35,14 +37,13 @@ export function useReportFilters() {
         />
         {period === 'custom' && (
           <>
-            <Filter label="Desde" value={cFrom} onChange={setCFrom} items={monthOptions(cur)} />
-            <Filter label="Hasta" value={cTo} onChange={setCTo} items={monthOptions(cur)} />
+            <Filter label="Desde" value={cFrom} onChange={setCFrom} items={monthOptions(cur)} invalid={!ok} />
+            <Filter label="Hasta" value={cTo} onChange={setCTo} items={monthOptions(cur)} invalid={!ok} />
           </>
         )}
       </div>
-      {!ok && <p role="alert" className="rounded-xl border bg-card p-3.5 text-sm font-semibold">Revisa las fechas: «Hasta» no puede ser anterior a «Desde» y como mucho son 12 meses.</p>}
+      {!ok && <InlineError>{n < 1 ? 'Revisa las fechas: «Hasta» es anterior a «Desde».' : `Revisa las fechas: son ${n} meses y como mucho caben 12.`}</InlineError>}
     </>
   )
   return { ok, base: { from, to, discipline_id: discipline === 'all' ? undefined : discipline }, filters }
 }
-
