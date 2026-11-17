@@ -13,21 +13,29 @@ const LARA = hijo('c-lara', 'Lara')
 const NICO = hijo('c-nico', 'Nico')
 const CUOTA_AL_DIA = { id: 's-1', status: 'active', plan: { id: 1, name: 'Plan', price_cents: 3000, max_disciplines: 1 }, disciplines: [], current_period_end: '2026-12-01' }
 
-type Opciones = { me?: object; role?: string; hijos?: object[]; missing?: string[]; subscription?: object | null; patch?: { status: number; json: object } }
+const PERFIL = { is_public: true, eligible: true, visible_fields: { photo: true, bio: true, social_links: false, disciplines: false, member_since: false, achievements: false, ranking: true } as Record<string, boolean>, bio: 'Cinturón azul.', social_links: { instagram: 'https://instagram.com/ana' } }
+
+type Opciones = { me?: object; role?: string; hijos?: object[]; missing?: string[]; subscription?: object | null; perfil?: typeof PERFIL; patch?: { status: number; json: object } }
 
 async function abrir(page: Page, url: string, o: Opciones = {}) {
   await page.addInitScript((t) => localStorage.setItem('kz.token', t), token(o.role ?? 'tutor'))
-  const patches: unknown[] = [] // cuerpos de los PATCH /me recibidos
+  const patches: unknown[] = [] // cuerpos de los PATCH /me y /me/profile recibidos
+  const perfil = structuredClone(o.perfil ?? PERFIL)
   await page.route('**/api/**', async (r) => {
     const u = new URL(r.request().url()).pathname.replace(/^\/api/, '')
     const json = (j: unknown, status = 200) => r.fulfill({ status, json: j })
-    if (r.request().method() === 'PATCH' && u === '/me') {
-      patches.push(r.request().postDataJSON())
-      return o.patch ? json(o.patch.json, o.patch.status) : json(o.me ?? ME)
+    if (r.request().method() === 'PATCH' && (u === '/me' || u === '/me/profile')) {
+      const body = r.request().postDataJSON()
+      patches.push(body)
+      if (o.patch) return json(o.patch.json, o.patch.status)
+      if (u === '/me') return json(o.me ?? ME)
+      Object.assign(perfil, body, { visible_fields: { ...perfil.visible_fields, ...body.visible_fields } }) // el servidor fusiona
+      return json(perfil)
     }
     if (r.request().method() !== 'GET') return json({})
     if (u === '/me') return json(o.me ?? ME)
     if (u === '/me/children') return o.role === 'alumno' && !o.hijos ? json({ code: 'insufficient_role' }, 403) : json({ children: o.hijos ?? [LARA] })
+    if (u === '/me/profile') return json(perfil)
     if (u === '/me/profile-status') return json({ ok: !o.missing?.length, missing: o.missing ?? [] })
     if (u === '/me/health') return json({ health: null })
     if (u === '/billing/subscription') return o.subscription === null ? json({ code: 'subscription_not_found' }, 404) : json(o.subscription ?? CUOTA_AL_DIA)
@@ -154,6 +162,70 @@ test('Mis datos: el servidor rechaza el nombre y el error queda en el campo con 
 test('Mis datos: un alumno sin fecha de nacimiento la ve', async ({ page }) => {
   await abrir(page, '/account/data', { role: 'alumno', me: { ...ME, role: 'alumno', birth_date: null, can_create_children: false } })
   await expect(page.getByRole('textbox', { name: 'Fecha de nacimiento' })).toBeVisible()
+})
+
+const ALUMNO = { role: 'alumno', hijos: [], me: { ...ME, role: 'alumno', can_create_children: false } }
+
+test('perfil público: cada interruptor guarda al momento solo su campo', async ({ page }) => {
+  const patches = await abrir(page, '/account/profile', ALUMNO)
+  const redes = page.getByRole('switch', { name: 'Redes' })
+  await redes.click()
+  await expect(redes).toHaveAttribute('aria-checked', 'true')
+  await expect.poll(() => patches).toEqual([{ visible_fields: { social_links: true } }])
+})
+
+test('perfil público: dos interruptores seguidos se guardan los dos, en orden', async ({ page }) => {
+  const patches = await abrir(page, '/account/profile', ALUMNO)
+  await page.getByRole('switch', { name: 'Redes' }).click()
+  await page.getByRole('switch', { name: 'Logros' }).click()
+  await expect.poll(() => patches).toEqual([{ visible_fields: { social_links: true } }, { visible_fields: { achievements: true } }])
+  await expect(page.getByRole('switch', { name: 'Redes' })).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByRole('switch', { name: 'Logros' })).toHaveAttribute('aria-checked', 'true')
+})
+
+test('perfil público: apagado, «Qué se ve» se pliega y el Tab lo salta', async ({ page }) => {
+  await abrir(page, '/account/profile', { ...ALUMNO, perfil: { ...PERFIL, is_public: false } })
+  await expect(page.getByTestId('profile-fields')).toHaveAttribute('inert')
+  await expect(page.getByText('Se verán cuando tu perfil sea público.')).toBeVisible()
+  await page.getByRole('switch', { name: /Visible para otros alumnos/ }).focus()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('textbox', { name: 'Presentación' })).toBeFocused()
+})
+
+test('perfil público: si el servidor falla, el interruptor vuelve', async ({ page }) => {
+  const patches = await abrir(page, '/account/profile', { ...ALUMNO, patch: { status: 500, json: {} } })
+  const logros = page.getByRole('switch', { name: 'Logros' })
+  await logros.click()
+  await expect.poll(() => patches.length).toBe(1)
+  await expect(logros).toHaveAttribute('aria-checked', 'false')
+})
+
+test('perfil público: guardar sin cambios no envía nada; con cambios, solo presentación y redes', async ({ page }) => {
+  const patches = await abrir(page, '/account/profile', ALUMNO)
+  await page.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Perfil guardado')).toBeVisible()
+  expect(patches).toEqual([])
+  await page.getByRole('textbox', { name: 'Presentación' }).fill('Cinturón morado.')
+  await page.getByRole('button', { name: 'Guardar' }).click()
+  await expect.poll(() => patches).toEqual([{ bio: 'Cinturón morado.', social_links: { instagram: 'https://instagram.com/ana' } }])
+})
+
+test('perfil público: un enlace sin https queda marcado y no se envía', async ({ page }) => {
+  const patches = await abrir(page, '/account/profile', ALUMNO)
+  const web = page.getByRole('textbox', { name: 'Web' })
+  await web.fill('http://ana.example')
+  await page.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Usa un enlace que empiece por https://')).toBeVisible()
+  await expect(web).toHaveAttribute('aria-invalid', 'true')
+  await expect(web).toBeFocused()
+  expect(patches).toEqual([])
+})
+
+test('perfil público del profesor: sin logros ni rankings', async ({ page }) => {
+  await abrir(page, '/account/profile', { role: 'profesor', hijos: [], me: { ...ME, role: 'profesor' } })
+  await expect(page.getByRole('switch', { name: 'Desde cuándo estoy en la academia' })).toBeVisible()
+  await expect(page.getByRole('switch', { name: 'Logros' })).toHaveCount(0)
+  await expect(page.getByRole('switch', { name: 'Aparecer en los rankings' })).toHaveCount(0)
 })
 
 test('ficha de salud: contacto y opcionales en dos tarjetas; el contacto es obligatorio', async ({ page }) => {
