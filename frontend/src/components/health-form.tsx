@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { StickyFooter } from '@/components/billing-bits'
 import { ErrorState } from '@/components/screen-state'
 import { FieldMessage } from '@/components/status-alert'
 import { Button } from '@/components/ui/button'
@@ -25,7 +26,8 @@ const OPTIONAL = <span className="font-normal text-muted-foreground">(opcional)<
 // Ficha de salud del sujeto. Solo se muestra aquí, a quien la rellena (nunca en listas ni en Inicio) y se descarta
 // de la memoria al salir (gcTime 0).
 // `quiet`: sin aviso al guardar (en el alta, el paso siguiente ya lo dice); los errores siguen avisando.
-export function HealthForm({ profileId, onSaved, submitLabel = 'Guardar ficha', quiet }: { profileId?: string; onSaved?: () => void; submitLabel?: string; quiet?: boolean }) {
+// `sticky`: el botón queda fijo abajo (en el alta, solo el contacto es obligatorio y el resto lo dejaría bajo el pliegue).
+export function HealthForm({ profileId, onSaved, submitLabel = 'Guardar ficha', quiet, sticky }: { profileId?: string; onSaved?: () => void; submitLabel?: string; quiet?: boolean; sticky?: boolean }) {
   const query = useQuery({
     queryKey: ['health', profileId ?? 'self'],
     queryFn: () => api<{ health: Health | null }>(path('/me/health', { profile_id: profileId })).then((r) => r.health),
@@ -76,9 +78,17 @@ export function HealthForm({ profileId, onSaved, submitLabel = 'Guardar ficha', 
         <FieldLabel>Disciplina previa {OPTIONAL}</FieldLabel>
         <Input defaultValue={h?.previous_discipline ?? ''} maxLength={300} />
       </Field>
-      <Button type="submit" size="xl" loading={save.isPending}>
-        {submitLabel}
-      </Button>
+      {sticky ? (
+        <StickyFooter>
+          <Button type="submit" size="xl" loading={save.isPending}>
+            {submitLabel}
+          </Button>
+        </StickyFooter>
+      ) : (
+        <Button type="submit" size="xl" loading={save.isPending}>
+          {submitLabel}
+        </Button>
+      )}
     </Form>
   )
 }

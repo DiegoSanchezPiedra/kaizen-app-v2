@@ -82,7 +82,7 @@ export function OnboardingPage() {
     return (
       <Page title="Completar perfil">
         <Rise on={first} i={0}>
-          <div className="flex flex-col items-center gap-3 rounded-2xl border bg-card p-8 text-center">
+          <div className="flex flex-col items-center gap-3 rounded-2xl border bg-card p-8 text-center [&>a]:w-full">
             <CircleCheckIcon className="size-10 text-success" aria-hidden="true" />
             <h2 ref={focusOnChange('fin')} tabIndex={-1} className="text-xl font-semibold outline-none">
               Perfil completo
@@ -137,7 +137,7 @@ export function OnboardingPage() {
         {/* Al guardar un paso, el siguiente entra con un fundido suave (con movimiento reducido, solo opacidad: index.css limita las transiciones). */}
         <div key={now} className="transition-[opacity,translate] duration-200 ease-(--ease-out) starting:translate-y-1.5 starting:opacity-0">
           {now === 'datos' && <MyDataForm submitLabel="Continuar" askEmail={missing.includes('email')} quiet />}
-          {now === 'ficha' && <HealthForm submitLabel="Continuar" quiet />}
+          {now === 'ficha' && <HealthForm submitLabel="Continuar" quiet sticky />}
           {now === 'acuerdos' && <AgreementsPanel types={agreementsFor(role)} status={status.data!} />}
         </div>
       </Rise>
