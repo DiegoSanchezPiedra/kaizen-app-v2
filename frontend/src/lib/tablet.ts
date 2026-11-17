@@ -67,3 +67,11 @@ export function sessionBadge(startsAt: string, now: number): { text: string; sta
   const minutes = Math.ceil((new Date(startsAt).getTime() - now) / 60000)
   return minutes > 0 ? { text: `En ${minutes} min`, started: false } : { text: 'Ha empezado', started: true }
 }
+
+// Filas de sesión de la tablet (alto fijo, en rem): cuántas caben en `height` px sin scroll. Con `more`, deja sitio
+// a la fila «y N sesiones más», que es más baja. Siempre al menos una.
+const ROW_REM = 5.5
+const MORE_REM = 3.5
+const GAP_REM = 0.75
+export const rowsThatFit = (height: number, rem: number, more: boolean): number =>
+  Math.max(1, Math.floor((height + GAP_REM * rem - (more ? (MORE_REM + GAP_REM) * rem : 0)) / ((ROW_REM + GAP_REM) * rem)))

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { backoffSeconds, createSseParser, normalizeLinkCode, sessionBadge, validUntil, viewOf, type Received } from '@/lib/tablet'
+import { backoffSeconds, createSseParser, normalizeLinkCode, rowsThatFit, sessionBadge, validUntil, viewOf, type Received } from '@/lib/tablet'
 
 const feedMsg = 'event: feed\ndata: {"qr":"abc","expires_in":12,"sessions":[]}\n\n'
 
@@ -67,5 +67,15 @@ describe('textos de la pantalla', () => {
     const now = Date.parse('2026-11-02T18:41:00Z')
     expect(sessionBadge('2026-11-02T19:00:00Z', now)).toEqual({ text: 'En 19 min', started: false })
     expect(sessionBadge('2026-11-02T18:35:00Z', now)).toEqual({ text: 'Ha empezado', started: true })
+  })
+})
+
+describe('filas que caben', () => {
+  // a 16 px: fila 88 + hueco 12 = 100 px; «y N más» 56 + 12
+  it('cuenta las filas enteras y deja sitio a «y N más»', () => {
+    expect(rowsThatFit(288, 16, false)).toBe(3)
+    expect(rowsThatFit(287, 16, false)).toBe(2)
+    expect(rowsThatFit(288, 16, true)).toBe(2)
+    expect(rowsThatFit(40, 16, true)).toBe(1)
   })
 })
