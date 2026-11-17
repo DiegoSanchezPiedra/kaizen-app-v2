@@ -20,14 +20,14 @@ export const useMeKey = ['me'] as const
 
 // Mis datos: nombre y, solo si falta (alta con Google), la fecha de nacimiento. El email no se cambia (B18 lo deja fuera).
 // `askEmail` (B32): a los 18, quien entró con el usuario de su tutor añade su email, una vez (`missing` lo trae).
-export function MyDataForm({ showEmail, askEmail, submitLabel = 'Guardar', onSaved }: { showEmail?: boolean; askEmail?: boolean; submitLabel?: string; onSaved?: () => void }) {
+export function MyDataForm({ showEmail, askEmail, submitLabel = 'Guardar', onSaved, quiet }: { showEmail?: boolean; askEmail?: boolean; submitLabel?: string; onSaved?: () => void; quiet?: boolean }) {
   const me = useQuery({ queryKey: useMeKey, queryFn: () => api<Me>('/me') })
   const [birth, setBirth] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const save = useMutation({
     mutationFn: (body: Record<string, string>) => api<Me>('/me', { method: 'PATCH', body }),
     onSuccess: async () => {
-      toastOk('Datos guardados')
+      if (!quiet) toastOk('Datos guardados')
       await Promise.all([queryClient.invalidateQueries({ queryKey: useMeKey }), queryClient.invalidateQueries({ queryKey: ['profile-status'] })])
       onSaved?.()
     },
