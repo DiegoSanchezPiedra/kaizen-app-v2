@@ -24,7 +24,8 @@ export type AttendanceRow = {
   corrected_at: string | null
   correction_reason: string | null
 }
-export type Attendance = { closed_at: string | null; students: AttendanceRow[] }
+// `correctable_until`: hasta cuándo corrige el profesor (null sin cerrar; el admin, siempre).
+export type Attendance = { closed_at: string | null; correctable_until?: string | null; students: AttendanceRow[] }
 
 export type HealthStudent = {
   student_id: string

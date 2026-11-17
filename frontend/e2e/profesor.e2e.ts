@@ -145,7 +145,7 @@ const HEALTH = [
   { student_id: 'st4', display_name: 'Sofía López', injuries: null, conditions: null, allergies: null, medication: null, emergency_contact_name: null, emergency_contact_phone: null },
 ]
 
-type SesOpts = { now?: string; day?: number; rows?: object[]; closed?: boolean; cancelled?: boolean; put?: 'ok' | 'offline'; correct?: 'ok' | 'expired' }
+type SesOpts = { now?: string; day?: number; rows?: object[]; closed?: boolean; until?: string; cancelled?: boolean; put?: 'ok' | 'offline'; correct?: 'ok' | 'expired' }
 async function abrirSesion(page: Page, o: SesOpts = {}) {
   const calls: string[] = []
   const gets: string[] = []
@@ -165,7 +165,7 @@ async function abrirSesion(page: Page, o: SesOpts = {}) {
     gets.push(u)
     if (u === '/me') return r.fulfill({ json: ME })
     if (u === '/professor/sessions/s2') return r.fulfill({ json: { session: ses } })
-    if (u === '/sessions/s2/attendance') return r.fulfill({ json: { closed_at: o.closed ? at(17, '19:35') : null, students: o.rows ?? (o.closed ? CLOSED : ROWS) } })
+    if (u === '/sessions/s2/attendance') return r.fulfill({ json: { closed_at: o.closed ? at(17, '19:35') : null, correctable_until: o.until ?? null, students: o.rows ?? (o.closed ? CLOSED : ROWS) } })
     if (u === '/professor/sessions/s2/health') return r.fulfill({ json: { students: HEALTH } })
     return r.fulfill({ json: {} })
   })
@@ -264,4 +264,37 @@ test('cancelada: sin lista y sin pedirla', async ({ page }) => {
   const { gets } = await abrirSesion(page, { cancelled: true })
   await expect(page.getByText('Sesión cancelada')).toBeVisible()
   expect(gets).not.toContain('/sessions/s2/attendance')
+})
+
+test('plazo de corrección conocido: hasta cuándo, y pasado el plazo sin «Corregir» desde el principio', async ({ page }) => {
+  await abrirSesion(page, { now: '19:45', closed: true, until: at(19, '19:35') })
+  await expect(page.getByText('Puedes corregir hasta el jueves, 19 de noviembre a las 19:35')).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Corregir la asistencia/ })).toHaveCount(6)
+})
+
+test('plazo pasado: aviso y ningún «Corregir», sin intentar nada', async ({ page }) => {
+  const { calls } = await abrirSesion(page, { now: '19:45', closed: true, until: at(17, '19:40') })
+  await expect(page.getByText('Ya no se puede corregir. Pídelo a la academia.')).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Corregir la asistencia/ })).toHaveCount(0)
+  await expect(page.getByText(/Puedes corregir hasta/)).toHaveCount(0)
+  expect(calls).toHaveLength(0)
+})
+
+test('fichas: el «atrás» del navegador vuelve a la lista; al recargar en ellas no se piden', async ({ page }) => {
+  const { gets } = await abrirSesion(page)
+  await page.getByRole('button', { name: /Ver fichas de salud/ }).click()
+  await expect(page.getByRole('heading', { name: 'Fichas de salud', level: 1 })).toBeVisible()
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: 'Jiu-jitsu', level: 1 })).toBeVisible()
+  await expect(page).toHaveURL(/\/professor\/sessions\/s2$/)
+  await page.goForward()
+  await expect(page.getByRole('heading', { name: 'Fichas de salud', level: 1 })).toBeVisible()
+  const before = gets.filter((u) => u.endsWith('/health')).length
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Jiu-jitsu', level: 1 })).toBeVisible()
+  expect(gets.filter((u) => u.endsWith('/health')).length).toBe(before)
+  // El enlace de vuelta de las fichas también deshace la entrada del historial.
+  await page.getByRole('button', { name: /Ver fichas de salud/ }).click()
+  await page.getByRole('button', { name: /Jiu-jitsu · 18:00/ }).click()
+  await expect(page.getByRole('heading', { name: 'Jiu-jitsu', level: 1 })).toBeVisible()
 })

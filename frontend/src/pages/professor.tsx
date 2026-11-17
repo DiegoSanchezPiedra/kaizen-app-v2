@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type React from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { attKey, AttendanceItem, CorrectDialog, useCloseList } from '@/components/attendance'
 import { CARD } from '@/components/child-access'
 import { ClockCard } from '@/components/clock-card'
@@ -276,6 +276,21 @@ export function HealthView({ sessionId, kind = 'sessions' }: { sessionId: string
   )
 }
 
+// Las fichas como una entrada del historial: el «atrás» del móvil vuelve a la lista en vez de salir de la sesión.
+// La entrada lleva una marca que solo conoce esta visita: al recargar (o volver a la entrada otro día) no casa y
+// se ve la lista, así que las fichas nunca se piden sin tocar «Ver fichas».
+export function useHealthView() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [mark, setMark] = useState<string | null>(null)
+  const open = () => {
+    const m = Math.random().toString(36).slice(2)
+    setMark(m)
+    navigate(`${location.pathname}${location.search}`, { state: { fichas: m } })
+  }
+  return { show: mark !== null && (location.state as { fichas?: string } | null)?.fichas === mark, open, close: () => navigate(-1) }
+}
+
 export function BackLink({ to, onClick, children }: { to?: string; onClick?: () => void; children: React.ReactNode }) {
   const cls = '-mt-3 inline-flex min-h-11 items-center gap-1 self-start font-semibold text-link'
   const icon = <ChevronLeftIcon className="size-4" aria-hidden="true" />
@@ -294,9 +309,10 @@ function Detail({ session }: { session: TrainerSession }) {
   const phase = phaseOf(session, now)
   const cancelled = phase === 'cancelled'
   const att = useQuery({ queryKey: attKey(session.id), queryFn: () => api<Attendance>(`/sessions/${session.id}/attendance`), enabled: !cancelled })
-  const [showHealth, setShowHealth] = useState(false)
+  const health = useHealthView()
   const [asking, setAsking] = useState(false)
   const [correcting, setCorrecting] = useState<AttendanceRow | null>(null)
+  // El plazo lo da la API; `expired` cubre que el parámetro cambie con la pantalla abierta.
   const [expired, setExpired] = useState(false)
   // Al volver de las fichas no se repite la entrada.
   const [first, setFirst] = useState(!detailPlayed)
@@ -307,10 +323,10 @@ function Detail({ session }: { session: TrainerSession }) {
     detailPlayed = true
   }, [])
 
-  if (showHealth) {
+  if (health.show) {
     return (
       <Page title="Fichas de salud">
-        <BackLink onClick={() => setShowHealth(false)}>{session.discipline_name} · {formatTime(session.starts_at)}</BackLink>
+        <BackLink onClick={health.close}>{session.discipline_name} · {formatTime(session.starts_at)}</BackLink>
         <HealthView sessionId={session.id} />
       </Page>
     )
@@ -320,6 +336,8 @@ function Detail({ session }: { session: TrainerSession }) {
   const when = `${day === madridDay(now) ? 'Hoy, ' : ''}${formatDay(day)} · ${formatTime(session.starts_at)}–${formatTime(session.ends_at)}`
   const rows = att.data?.students ?? []
   const closed = att.data ? isClosed(att.data) : false
+  const until = att.data?.correctable_until
+  const canCorrect = !expired && !(until && now >= Date.parse(until))
   const badge = closed ? { variant: 'success' as const, Icon: CheckIcon, text: 'Lista cerrada' } : PHASE_BADGE[phase]
   const mode = closed ? 'closed' : phase === 'upcoming' ? 'read' : 'switch'
   const open = mode === 'switch' && rows.length > 0
@@ -351,6 +369,11 @@ function Detail({ session }: { session: TrainerSession }) {
                     {badge.text}
                   </Badge>
                 )}
+                {closed && canCorrect && until && (
+                  <p className="mt-1 text-[13px] text-muted-foreground tabular-nums">
+                    Puedes corregir hasta {madridDay(until) === madridDay(now) ? 'hoy' : `el ${formatDay(madridDay(until))}`} a las {formatTime(until)}
+                  </p>
+                )}
               </div>
             )}
           </Rise>
@@ -360,7 +383,7 @@ function Detail({ session }: { session: TrainerSession }) {
                 type="button"
                 onClick={() => {
                   setFirst(false)
-                  setShowHealth(true)
+                  health.open()
                 }}
                 className="flex min-h-14 w-full items-center gap-3 rounded-2xl border bg-card px-4 py-2.5 text-left outline-none transition-[scale] duration-150 ease-(--ease-out) focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98]"
               >
@@ -390,7 +413,7 @@ function Detail({ session }: { session: TrainerSession }) {
               {phase === 'upcoming' && !closed && (
                 <StatusAlert notice={{ kind: 'info', icon: 'clock', title: `La lista se abre a las ${formatTime(session.starts_at)}` }} />
               )}
-              {closed && expired && <StatusAlert notice={{ kind: 'error', icon: 'clock', title: errorText('correction_window_expired') }} />}
+              {closed && !canCorrect && <StatusAlert notice={{ kind: 'error', icon: 'clock', title: errorText('correction_window_expired') }} />}
               <h2 className="px-0.5 text-sm font-semibold text-muted-foreground tabular-nums">
                 {mode === 'read'
                   ? `${plural(rows.length, 'reserva', 'reservas')} · ${rows.filter((r) => r.method === 'qr').length} con check-in`
@@ -400,7 +423,7 @@ function Detail({ session }: { session: TrainerSession }) {
               </h2>
               <ul className="overflow-hidden rounded-2xl border bg-card">
                 {rows.map((r) => (
-                  <AttendanceItem key={r.booking_id} sessionId={session.id} row={r} mode={mode} onCorrect={setCorrecting} touch canCorrect={!expired} />
+                  <AttendanceItem key={r.booking_id} sessionId={session.id} row={r} mode={mode} onCorrect={setCorrecting} touch canCorrect={canCorrect} />
                 ))}
               </ul>
             </>

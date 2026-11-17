@@ -96,7 +96,7 @@ function MarkSwitch({ sessionId, row, touch }: { sessionId: string; row: Attenda
 
 // Lista de un evento (B21.2): presente sí o no, desde el inicio, sin cerrar ni corregir.
 export const evKey = (id: string) => ['prof-event', id]
-export function EventStudentItem({ eventId, student, open }: { eventId: string; student: EventStudent; open: boolean }) {
+export function EventStudentItem({ eventId, student, open, touch }: { eventId: string; student: EventStudent; open: boolean; touch?: boolean }) {
   const mark = useMutation({
     mutationFn: (present: boolean) => api(`/events/${eventId}/attendance/${student.profile_id}`, { method: 'PUT', body: { present } }),
     onError: (err) => {
@@ -110,10 +110,10 @@ export function EventStudentItem({ eventId, student, open }: { eventId: string; 
     <li className="grid min-h-18 grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-x-3 border-b px-3.5 py-2.5 last:border-b-0">
       <ProfileAvatar name={student.display_name} className="size-10" />
       <div className="min-w-0">
-        <p className="truncate text-base font-semibold">{student.display_name}</p>
+        <p className={cn('text-base font-semibold', touch ? 'line-clamp-2 leading-snug break-words' : 'truncate')}>{student.display_name}</p>
       </div>
       {open ? (
-        <SwitchCell on={on} pending={mark.isPending} label={`Presente: ${student.display_name}`} onChange={(c) => mark.mutate(c)} />
+        <SwitchCell on={on} pending={mark.isPending} label={`Presente: ${student.display_name}`} onChange={(c) => mark.mutate(c)} touch={touch} />
       ) : (
         <span className="text-[13px] font-semibold text-muted-foreground">Inscrito</span>
       )}
