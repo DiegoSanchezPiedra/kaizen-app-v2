@@ -165,6 +165,15 @@ test('cambiar de plan, subida: diferencia en la opción, el diálogo dice import
   await expect.poll(() => posts).toEqual([{ plan_id: 2, discipline_ids: [] }])
 })
 
+test('cambiar de plan, el banco rechaza el pago: el aviso sale una sola vez', async ({ page }) => {
+  await abrir(page, { path: '/billing/plan' })
+  await page.route('**/api/billing/subscriptions/*/plan', (r) => r.fulfill({ status: 402, json: { code: 'payment_failed' } }))
+  await page.getByText('Plan ilimitado', { exact: true }).click()
+  await page.getByRole('button', { name: 'Revisar el cambio' }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Pasar a Plan ilimitado' }).click()
+  await expect(page.getByText('El banco ha rechazado el pago')).toHaveCount(1)
+})
+
 test('cambiar de plan con una bajada programada: aviso, opción marcada y el diálogo dice que la anula', async ({ page }) => {
   await abrir(page, {
     path: '/billing/plan',

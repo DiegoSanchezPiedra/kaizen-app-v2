@@ -604,11 +604,6 @@ function PlanChange({ s, subject, profileId }: Props & { s: Subscription }) {
 
   return (
     <>
-      {problem && (
-        <Note kind={problem.code === 'not_payer' ? 'info' : 'error'} title={PROBLEM[problem.code][0]}>
-          {PROBLEM[problem.code][1]}
-        </Note>
-      )}
       <section aria-labelledby="plan-now" className={cn('enter-soft', CARD)}>
         <h2 id="plan-now" className="text-lg font-semibold">
           {name ? `Plan de ${name} ahora` : 'Tu plan ahora'}
