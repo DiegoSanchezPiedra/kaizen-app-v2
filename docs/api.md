@@ -219,7 +219,7 @@ badges, ranking ni informes. `404 registration_not_found` (sin inscripción conf
 
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
-| `GET /sessions/:id/attendance` | — | `{ closed_at, students: [{ booking_id, student_id, display_name, status, method, corrected_at, correction_reason }] }` |
+| `GET /sessions/:id/attendance` | — | `{ closed_at, correctable_until, students: [{ booking_id, student_id, display_name, status, method, corrected_at, correction_reason }] }`; `correctable_until` = `closed_at` + `attendance_correction_hours` (48 h por defecto), hasta cuándo corrige el profesor (el admin, siempre); `null` sin cerrar |
 | `PUT /sessions/:id/attendance/:studentId` | `{ present: boolean }` | `{ student_id, present }` (antes del cierre) |
 | `POST /sessions/:id/attendance/close` | — | `{ present, absent }` |
 | `POST /sessions/:id/attendance/:studentId/correct` | `{ status: 'present'\|'absent', reason (≤500) }` | `{ attendance }` |

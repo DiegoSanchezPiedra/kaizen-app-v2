@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
 import { BanIcon, CalendarDaysIcon, CheckIcon, ChevronRightIcon, HeartPulseIcon, PlayIcon, UsersIcon } from 'lucide-react'
-import { useState } from 'react'
 import { useParams } from 'react-router'
 import { EventStudentItem, evKey } from '@/components/attendance'
 import { Page } from '@/components/page'
@@ -12,23 +11,23 @@ import { api } from '@/lib/api'
 import { attendanceOpen, eventHealthDay, eventWhen, type EventInfo, type EventStudent } from '@/lib/events'
 import { formatTime } from '@/lib/format'
 import { phaseOf, plural } from '@/lib/professor'
-import { BackLink, HealthView } from '@/pages/professor'
+import { BackLink, HealthView, useHealthView } from '@/pages/professor'
 
 type Detail = { event: EventInfo; students: EventStudent[] }
 
 function EventDetail({ data }: { data: Detail }) {
   const { event: e, students } = data
   const now = useNow()
-  const [showHealth, setShowHealth] = useState(false)
+  const health = useHealthView()
   const phase = phaseOf(e, now)
   const cancelled = phase === 'cancelled'
   const open = attendanceOpen(e, now)
   const present = students.filter((s) => s.attended === true).length
 
-  if (showHealth) {
+  if (health.show) {
     return (
       <Page title="Fichas de salud">
-        <BackLink onClick={() => setShowHealth(false)}>{e.title} · {formatTime(e.starts_at)}</BackLink>
+        <BackLink onClick={health.close}>{e.title} · {formatTime(e.starts_at)}</BackLink>
         <HealthView sessionId={e.id} kind="events" />
       </Page>
     )
@@ -57,7 +56,7 @@ function EventDetail({ data }: { data: Detail }) {
           {eventHealthDay(e, now) && (
             <button
               type="button"
-              onClick={() => setShowHealth(true)}
+              onClick={health.open}
               className="flex min-h-14 items-center gap-3 rounded-xl border bg-card px-4 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <HeartPulseIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -77,13 +76,13 @@ function EventDetail({ data }: { data: Detail }) {
             <EmptyState icon={<UsersIcon />} title="Aún no hay inscritos" text="Cuando alguien se inscriba aparecerá aquí." />
           ) : (
             <>
-              <p className="px-0.5 text-sm font-semibold text-muted-foreground" aria-live="polite">
+              <p className="px-0.5 text-sm font-semibold text-muted-foreground tabular-nums" aria-live="polite">
                 {open ? `${present} de ${students.length} presentes` : plural(students.length, 'inscrito', 'inscritos')}
               </p>
               {!open && <StatusAlert notice={{ kind: 'info', icon: 'clock', title: `La lista se abre a las ${formatTime(e.starts_at)}` }} />}
               <ul className="overflow-hidden rounded-xl border bg-card">
                 {students.map((s) => (
-                  <EventStudentItem key={s.profile_id} eventId={e.id} student={s} open={open} />
+                  <EventStudentItem key={s.profile_id} eventId={e.id} student={s} open={open} touch />
                 ))}
               </ul>
             </>

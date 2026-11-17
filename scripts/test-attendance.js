@@ -164,6 +164,8 @@ try {
       await as(c, U.prof1, 'profesor');
       const l = await getAttendance(c, S.today);
       assert.ok(l.closed_at);
+      // El plazo del profesor: el cierre más attendance_correction_hours (48 por defecto).
+      assert.equal(l.correctable_until - l.closed_at, 48 * 3600 * 1000);
       assert.equal(l.students.length, 3);
       await as(c, U.prof2, 'profesor');
       await rejects(c, () => getAttendance(c, S.today), 404, 'session_not_found');
@@ -187,6 +189,8 @@ try {
       await as(c, U.admin, 'admin');
       await c.query(`UPDATE academy_settings SET value = '72' WHERE key = 'attendance_correction_hours'`);
       await as(c, U.prof1, 'profesor');
+      const l = await getAttendance(c, S.closed);
+      assert.equal(l.correctable_until - l.closed_at, 72 * 3600 * 1000); // la lista lee el mismo parámetro
       assert.equal((await correct(c, 'closed', 'child', 'absent', 'error del tutor')).status, 'absent');
     });
     await run('RLS: alumno ve solo lo suyo, tutor lo del hijo; nadie escribe directo', async () => {

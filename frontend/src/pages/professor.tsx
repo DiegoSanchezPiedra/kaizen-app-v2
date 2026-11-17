@@ -14,8 +14,9 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type React from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { attKey, AttendanceItem, CorrectDialog, useCloseList } from '@/components/attendance'
+import { CARD } from '@/components/child-access'
 import { ClockCard } from '@/components/clock-card'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { NextUp } from '@/components/next-up'
@@ -32,6 +33,7 @@ import { useWeek } from '@/hooks/use-week'
 import { api, ApiError } from '@/lib/api'
 import { addDays, formatDay, madridDay } from '@/lib/dates'
 import { mergeByStart, type Entry, type EventInfo } from '@/lib/events'
+import { errorText } from '@/lib/errors'
 import { formatTime } from '@/lib/format'
 import {
   canSeeHealth,
@@ -222,7 +224,7 @@ export function HealthView({ sessionId, kind = 'sessions' }: { sessionId: string
           Contacto: {s.emergency_contact_name ? `${s.emergency_contact_name} · ` : ''}
           <span className="whitespace-nowrap">{s.emergency_contact_phone}</span>
         </span>
-        <Button size="lg" variant="outline" render={<a href={telHref(s.emergency_contact_phone)} aria-label={`Llamar al contacto de ${s.display_name}`} />}>
+        <Button size="xl" variant="outline" render={<a href={telHref(s.emergency_contact_phone)} aria-label={`Llamar al contacto de ${s.display_name}`} />}>
           <PhoneIcon />
           Llamar
         </Button>
@@ -274,6 +276,21 @@ export function HealthView({ sessionId, kind = 'sessions' }: { sessionId: string
   )
 }
 
+// Las fichas como una entrada del historial: el «atrás» del móvil vuelve a la lista en vez de salir de la sesión.
+// La entrada lleva una marca que solo conoce esta visita: al recargar (o volver a la entrada otro día) no casa y
+// se ve la lista, así que las fichas nunca se piden sin tocar «Ver fichas».
+export function useHealthView() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [mark, setMark] = useState<string | null>(null)
+  const open = () => {
+    const m = Math.random().toString(36).slice(2)
+    setMark(m)
+    navigate(`${location.pathname}${location.search}`, { state: { fichas: m } })
+  }
+  return { show: mark !== null && (location.state as { fichas?: string } | null)?.fichas === mark, open, close: () => navigate(-1) }
+}
+
 export function BackLink({ to, onClick, children }: { to?: string; onClick?: () => void; children: React.ReactNode }) {
   const cls = '-mt-3 inline-flex min-h-11 items-center gap-1 self-start font-semibold text-link'
   const icon = <ChevronLeftIcon className="size-4" aria-hidden="true" />
@@ -284,20 +301,32 @@ export function BackLink({ to, onClick, children }: { to?: string; onClick?: () 
   )
 }
 
+// La entrada escalonada del detalle, solo la primera vez de la sesión de la app.
+let detailPlayed = false
+
 function Detail({ session }: { session: TrainerSession }) {
   const now = useNow()
   const phase = phaseOf(session, now)
   const cancelled = phase === 'cancelled'
   const att = useQuery({ queryKey: attKey(session.id), queryFn: () => api<Attendance>(`/sessions/${session.id}/attendance`), enabled: !cancelled })
-  const [showHealth, setShowHealth] = useState(false)
+  const health = useHealthView()
   const [asking, setAsking] = useState(false)
   const [correcting, setCorrecting] = useState<AttendanceRow | null>(null)
+  // El plazo lo da la API; `expired` cubre que el parámetro cambie con la pantalla abierta.
+  const [expired, setExpired] = useState(false)
+  // Al volver de las fichas no se repite la entrada.
+  const [first, setFirst] = useState(!detailPlayed)
+  // Si pasa a «en curso» con la pantalla abierta, el hueco entra suave (enter-soft); si ya lo estaba, sin más.
+  const [liveAtStart] = useState(phase === 'now')
   const close = useCloseList(session.id, () => setAsking(false))
+  useEffect(() => {
+    detailPlayed = true
+  }, [])
 
-  if (showHealth) {
+  if (health.show) {
     return (
       <Page title="Fichas de salud">
-        <BackLink onClick={() => setShowHealth(false)}>{session.discipline_name} · {formatTime(session.starts_at)}</BackLink>
+        <BackLink onClick={health.close}>{session.discipline_name} · {formatTime(session.starts_at)}</BackLink>
         <HealthView sessionId={session.id} />
       </Page>
     )
@@ -307,53 +336,69 @@ function Detail({ session }: { session: TrainerSession }) {
   const when = `${day === madridDay(now) ? 'Hoy, ' : ''}${formatDay(day)} · ${formatTime(session.starts_at)}–${formatTime(session.ends_at)}`
   const rows = att.data?.students ?? []
   const closed = att.data ? isClosed(att.data) : false
+  const until = att.data?.correctable_until
+  const canCorrect = !expired && !(until && now >= Date.parse(until))
   const badge = closed ? { variant: 'success' as const, Icon: CheckIcon, text: 'Lista cerrada' } : PHASE_BADGE[phase]
   const mode = closed ? 'closed' : phase === 'upcoming' ? 'read' : 'switch'
   const open = mode === 'switch' && rows.length > 0
   const missing = unmarked(rows)
   const present = presentCount(rows)
+  const seats = att.data ? `${plural(rows.length, 'reserva', 'reservas')} de ${plural(session.capacity, 'plaza', 'plazas')}` : plural(session.capacity, 'plaza', 'plazas')
 
   return (
     <Page title={session.discipline_name} wide>
       <BackLink to={`/professor?dia=${day}`}>Sesiones</BackLink>
-      <div className={cn('grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-7', open && 'pb-24 lg:pb-0')}>
+      <div className={cn('grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:items-start lg:gap-x-7 lg:gap-y-3', open && 'pb-28 lg:pb-0')}>
         <div className="flex flex-col gap-3">
-          <div className="rounded-xl border bg-card p-3.5">
-            <p className="font-semibold first-letter:uppercase">{when}</p>
-            <p className="text-sm text-muted-foreground">
-              {session.location ? `${session.location} · ` : ''}
-              {att.data ? `${plural(rows.length, 'reserva', 'reservas')} de ${plural(session.capacity, 'plaza', 'plazas')}` : plural(session.capacity, 'plaza', 'plazas')}
-            </p>
-            {badge && (
-              <Badge variant={badge.variant} size="lg" className="mt-2">
-                <badge.Icon aria-hidden="true" />
-                {badge.text}
-              </Badge>
+          <Rise on={first} i={0}>
+            {/* En curso y con la lista abierta, el hueco azul es lo dominante (la disciplina ya es el título). */}
+            {phase === 'now' && !closed ? (
+              <div className={liveAtStart ? undefined : 'enter-soft'}>
+                <NextUp startsAt={session.starts_at} endsAt={session.ends_at} title={seats} location={session.location} live now={now} />
+              </div>
+            ) : (
+              <div className={cn(CARD, 'gap-1')}>
+                <p className="font-semibold tabular-nums first-letter:uppercase">{when}</p>
+                <p className="text-sm text-muted-foreground">
+                  {session.location ? `${session.location} · ` : ''}
+                  {seats}
+                </p>
+                {badge && (
+                  <Badge variant={badge.variant} size="lg" className="mt-1.5 self-start">
+                    <badge.Icon aria-hidden="true" />
+                    {badge.text}
+                  </Badge>
+                )}
+                {closed && canCorrect && until && (
+                  <p className="mt-1 text-[13px] text-muted-foreground tabular-nums">
+                    Puedes corregir hasta {madridDay(until) === madridDay(now) ? 'hoy' : `el ${formatDay(madridDay(until))}`} a las {formatTime(until)}
+                  </p>
+                )}
+              </div>
             )}
-          </div>
+          </Rise>
           {canSeeHealth(session, now) && (
-            <button
-              type="button"
-              onClick={() => setShowHealth(true)}
-              className="flex min-h-14 items-center gap-3 rounded-xl border bg-card px-4 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <HeartPulseIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-              <span className="min-w-0 flex-1">
-                <span className="block font-semibold">Ver fichas de salud</span>
-                <span className="block text-[13px] text-muted-foreground">Solo hoy. Esta consulta queda registrada.</span>
-              </span>
-              <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-            </button>
-          )}
-          {open && (
-            <div className="fixed inset-x-3 bottom-[calc(70px+env(safe-area-inset-bottom))] z-10 flex items-center justify-between gap-3 rounded-2xl border bg-card p-3 shadow-lg lg:static lg:flex-col lg:items-stretch lg:shadow-xs/5">
-              <p className="text-sm font-semibold" aria-live="polite">{present} presentes · {missing.length} sin marcar</p>
-              <Button size="xl" onClick={() => setAsking(true)}>Cerrar lista</Button>
-            </div>
+            <Rise on={first} i={1}>
+              <button
+                type="button"
+                onClick={() => {
+                  setFirst(false)
+                  health.open()
+                }}
+                className="flex min-h-14 w-full items-center gap-3 rounded-2xl border bg-card px-4 py-2.5 text-left outline-none transition-[scale] duration-150 ease-(--ease-out) focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98]"
+              >
+                <HeartPulseIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-semibold">Ver fichas de salud</span>
+                  <span className="block text-[13px] text-muted-foreground">Solo hoy. Esta consulta queda registrada.</span>
+                </span>
+                <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              </button>
+            </Rise>
           )}
         </div>
 
-        <div className="flex min-w-0 flex-col gap-3">
+        <Rise on={first} i={2} className="flex flex-col gap-3 lg:col-start-2 lg:row-span-2 lg:row-start-1">
           {cancelled ? (
             <EmptyState icon={<BanIcon />} title="Sesión cancelada" text="No tiene lista." />
           ) : att.isPending ? (
@@ -364,24 +409,40 @@ function Detail({ session }: { session: TrainerSession }) {
             <EmptyState icon={<UsersIcon />} title="Aún no hay reservas" text="Cuando alguien reserve esta sesión aparecerá aquí." />
           ) : (
             <>
-              <p className="px-0.5 text-sm font-semibold text-muted-foreground" aria-live="polite">
-                {phase === 'upcoming'
+              {/* Antes de empezar, lo primero es saber cuándo se abre. */}
+              {phase === 'upcoming' && !closed && (
+                <StatusAlert notice={{ kind: 'info', icon: 'clock', title: `La lista se abre a las ${formatTime(session.starts_at)}` }} />
+              )}
+              {closed && !canCorrect && <StatusAlert notice={{ kind: 'error', icon: 'clock', title: errorText('correction_window_expired') }} />}
+              <h2 className="px-0.5 text-sm font-semibold text-muted-foreground tabular-nums">
+                {mode === 'read'
                   ? `${plural(rows.length, 'reserva', 'reservas')} · ${rows.filter((r) => r.method === 'qr').length} con check-in`
                   : closed
                     ? `${plural(present, 'presente', 'presentes')} · ${plural(rows.length - present, 'falta', 'faltas')}`
-                    : `${present} de ${rows.length} presentes`}
-              </p>
-              {phase === 'upcoming' && (
-                <StatusAlert notice={{ kind: 'info', icon: 'clock', title: `La lista se abre a las ${formatTime(session.starts_at)}` }} />
-              )}
-              <ul className="overflow-hidden rounded-xl border bg-card">
+                    : `Alumnos · ${rows.length}`}
+              </h2>
+              <ul className="overflow-hidden rounded-2xl border bg-card">
                 {rows.map((r) => (
-                  <AttendanceItem key={r.booking_id} sessionId={session.id} row={r} mode={mode} onCorrect={setCorrecting} />
+                  <AttendanceItem key={r.booking_id} sessionId={session.id} row={r} mode={mode} onCorrect={setCorrecting} touch canCorrect={canCorrect} />
                 ))}
               </ul>
             </>
           )}
-        </div>
+        </Rise>
+        {/* Después de la lista (en el móvil va abajo, fija; en lg, debajo de las fichas por la rejilla). Fuera de Rise: un
+            transform en el padre rompería el `fixed`. El único contador, y el único aria-live. */}
+        {open && (
+          <div className="fixed inset-x-3 bottom-[calc(70px+env(safe-area-inset-bottom))] z-10 flex items-center justify-between gap-3 rounded-2xl border bg-card p-3 pl-4 shadow-lg lg:static lg:col-start-1 lg:row-start-2 lg:flex-col lg:items-stretch lg:p-4 lg:shadow-xs/5">
+            <p className="min-w-0" aria-live="polite">
+              <span className="block text-sm font-semibold">
+                <span className="font-heading text-3xl leading-none font-bold tabular-nums">{present}</span>
+                <span className="tabular-nums"> de {rows.length}</span> {present === 1 ? 'presente' : 'presentes'}
+              </span>
+              <span className="block text-[13px] text-muted-foreground tabular-nums">{missing.length ? `${missing.length} sin marcar` : 'Todos marcados'}</span>
+            </p>
+            <Button size="xl" onClick={() => setAsking(true)}>Cerrar lista</Button>
+          </div>
+        )}
       </div>
 
       <ConfirmDialog
@@ -403,7 +464,7 @@ function Detail({ session }: { session: TrainerSession }) {
           </ul>
         )}
       </ConfirmDialog>
-      <CorrectDialog sessionId={session.id} row={correcting} onClose={() => setCorrecting(null)} />
+      <CorrectDialog sessionId={session.id} row={correcting} onClose={() => setCorrecting(null)} onExpired={() => setExpired(true)} />
     </Page>
   )
 }

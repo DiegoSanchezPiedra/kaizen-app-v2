@@ -25,9 +25,14 @@ async function callFn(client, sql, params) {
 }
 
 // Lista de la sesión: reservas activas con su asistencia (null = sin marcar / sin registrar).
+// `correctable_until`: hasta cuándo corrige el profesor (el admin, siempre); la misma regla que correct_attendance (010).
 export async function getAttendance(client, sessionId) {
   const { rows: [s] } = await client.query(
-    `SELECT attendance_closed_at FROM class_sessions WHERE id = $1`, [sessionId]); // la RLS oculta las ajenas al profesor
+    `SELECT attendance_closed_at,
+            attendance_closed_at + COALESCE((SELECT (value #>> '{}')::integer FROM academy_settings
+                                              WHERE key = 'attendance_correction_hours' AND value #>> '{}' ~ '^[1-9][0-9]{0,8}$'), 48)
+                                   * interval '1 hour' AS correctable_until
+       FROM class_sessions WHERE id = $1`, [sessionId]); // la RLS oculta las ajenas al profesor
   if (!s) throw httpError(404, 'session_not_found', SQL_ERRORS.session_not_found[1]);
   const { rows: students } = await client.query(
     `SELECT b.id AS booking_id, b.student_id, p.display_name, p.avatar, a.status, a.method, a.corrected_at, a.correction_reason
@@ -38,7 +43,7 @@ export async function getAttendance(client, sessionId) {
       ORDER BY p.display_name, b.student_id`,
     [sessionId]
   );
-  return { closed_at: s.attendance_closed_at, students };
+  return { closed_at: s.attendance_closed_at, correctable_until: s.correctable_until, students };
 }
 
 export async function markAttendance(client, { sessionId, studentId, present }) {
