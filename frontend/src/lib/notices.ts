@@ -11,7 +11,7 @@ export const MISSING_TEXT: Record<string, string> = {
   data_protection: 'la protección de datos',
   rights_of_image: 'los derechos de imagen',
 }
-const list = (items: string[]): string => items.join(', ').replace(/, ([^,]*)$/, ' y $1')
+export const list = (items: string[]): string => items.join(', ').replace(/, ([^,]*)$/, ' y $1')
 
 // Sin cuota: en Inicio y encima del Calendario, que es donde se intenta reservar.
 export const NO_SUBSCRIPTION: HomeNotice = { id: 'nosub', kind: 'info', title: 'Contrata una cuota para reservar', text: 'Sin cuota no se puede reservar ninguna sesión.', to: '/billing', cta: 'Contratar cuota' }
@@ -66,5 +66,24 @@ export function homeNotices({
   if (subscription === null) {
     out.push(NO_SUBSCRIPTION)
   }
+  return out
+}
+
+export type AccountBadge = { variant: 'warning' | 'error' | 'info'; label: string }
+
+// Insignias de las filas de Cuenta (salud, acuerdos, cuota): solo una palabra, nunca el dato de salud.
+// `self`: el estado del propio tutor cuando actúa por un hijo (su protección de datos).
+export function accountBadges({ status, subscription, self }: { status?: ProfileStatus; subscription?: Subscription | null; self?: ProfileStatus }): {
+  health?: AccountBadge
+  agreements?: AccountBadge
+  billing?: AccountBadge
+} {
+  const missing = status?.missing ?? []
+  const out: { health?: AccountBadge; agreements?: AccountBadge; billing?: AccountBadge } = {}
+  if (missing.includes('health_info') || missing.includes('emergency_contact')) out.health = { variant: 'warning', label: 'Incompleta' }
+  if (missing.includes('data_protection') || missing.includes('rights_of_image') || self?.missing?.includes('data_protection')) out.agreements = { variant: 'warning', label: 'Falta firmar' }
+  if (subscription?.status === 'unpaid') out.billing = { variant: 'error', label: 'Impagada' }
+  else if (subscription?.status === 'past_due' || subscription?.status === 'grace_period') out.billing = { variant: 'warning', label: 'Cobro pendiente' }
+  else if (subscription === null) out.billing = { variant: 'info', label: 'Sin cuota' }
   return out
 }
