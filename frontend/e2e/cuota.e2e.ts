@@ -30,9 +30,11 @@ const PLANS = [
 const DISCIPLINAS = ['Judo', 'Jiu-jitsu', 'Kárate'].map((name, i) => ({ id: i + 1, name, min_age: null, max_age: null, is_active: true, is_open: false }))
 
 // children: el alumno adulto con hijos también ve el selector «Para» (va por sí mismo por defecto).
-async function abrir(page: Page, o: { role?: 'alumno' | 'tutor'; subscription?: object | null; path?: string; children?: boolean; disciplines?: object[] } = {}) {
+// sequence: respuestas de /billing/subscription por orden (la última se repite), para el sondeo de /billing/success.
+async function abrir(page: Page, o: { role?: 'alumno' | 'tutor'; subscription?: object | null; sequence?: object[]; path?: string; children?: boolean; disciplines?: object[] } = {}) {
   const role = o.role ?? 'alumno'
   const posts: unknown[] = []
+  let polls = 0
   await page.addInitScript((t) => localStorage.setItem('kz.token', t), token(role))
   await page.route('**/api/**', (r) => {
     const u = new URL(r.request().url()).pathname.replace(/^\/api/, '')
@@ -55,6 +57,7 @@ async function abrir(page: Page, o: { role?: 'alumno' | 'tutor'; subscription?: 
     if (u === '/me') return json({ ...ME, role })
     if (u === '/me/children') return json({ children: role === 'tutor' || o.children ? [LARA] : [] })
     if (u === '/me/profile-status') return json({ ok: true, missing: [] })
+    if (u === '/billing/subscription' && o.sequence) return json(o.sequence[Math.min(polls++, o.sequence.length - 1)])
     if (u === '/billing/subscription') return o.subscription === null ? json({ code: 'subscription_not_found' }, 404) : json(o.subscription ?? CUOTA)
     if (u === '/plans') return json({ plans: PLANS })
     if (u === '/disciplines') return json({ disciplines: o.disciplines ?? DISCIPLINAS })
@@ -252,4 +255,52 @@ test('cambiar de disciplina con la cuota impagada: el motivo y la salida a la cu
   await abrir(page, { path: '/billing/discipline', subscription: { ...CUOTA, status: 'unpaid' } })
   await expect(page.getByText('Ahora no se pueden cambiar las disciplinas')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Ver la cuota' })).toHaveAttribute('href', '/billing')
+})
+
+// ── Vuelta de Stripe (/billing/success y /billing/cancel) ──
+
+test('vuelta del pago: confirma tras el sondeo y enseña la cuota con su importe; el aviso vivo lo dice una vez', async ({ page }) => {
+  await abrir(page, { path: '/billing/success', sequence: [{ ...CUOTA, status: 'incomplete' }, CUOTA] })
+  await expect(page.getByRole('status')).toHaveText('Confirmando el pago.')
+  await expect(page.getByRole('heading', { name: 'Ya tienes cuota' })).toBeVisible({ timeout: 6000 })
+  await expect(page.getByRole('status')).toHaveText('Pago confirmado: ya tienes cuota.')
+  const card = page.locator('main section')
+  await expect(card).toContainText('59,00 €')
+  await expect(card).toContainText('Judo y Jiu-jitsu')
+  await expect(card).toContainText('Se renueva')
+  await expect(page.getByRole('link', { name: 'Reservar una sesión' })).toHaveAttribute('href', '/calendar')
+})
+
+test('vuelta del pago por un hijo: recupera a Lara de la sesión y la nombra por su nombre de pila', async ({ page }) => {
+  await page.addInitScript(() => sessionStorage.setItem('kz.checkout-for', 'c-lara'))
+  await abrir(page, { role: 'tutor', path: '/billing/success', subscription: { ...CUOTA, plan: { id: 3, name: 'Kids', price_cents: 3500, max_disciplines: 1 }, disciplines: [{ id: 1, name: 'Judo' }] } })
+  await expect(page.getByRole('heading', { name: 'Lara ya tiene cuota' })).toBeVisible()
+  await expect(page).toHaveURL(/para=c-lara/)
+  await expect(page.locator('main section').getByText('Lara Pérez')).toHaveCount(0)
+})
+
+test('vuelta del pago sin aviso de Stripe: a los 20 s «puede tardar» y a los 2 min reintentar o ver la cuota', async ({ page }) => {
+  await page.clock.install()
+  await abrir(page, { path: '/billing/success', subscription: { ...CUOTA, status: 'incomplete' } })
+  await expect(page.getByRole('heading', { name: 'Confirmando el pago…' })).toBeVisible()
+  await page.clock.fastForward(21_000)
+  await expect(page.getByRole('heading', { name: 'Puede tardar unos minutos' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Ir a Inicio' })).toBeVisible()
+  await page.clock.fastForward(100_000)
+  await expect(page.getByRole('heading', { name: 'No podemos comprobarlo ahora' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reintentar' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Ver la cuota' })).toHaveAttribute('href', '/billing')
+})
+
+test('pago cancelado sin cuota: no se ha cobrado nada y se puede volver a intentar', async ({ page }) => {
+  await abrir(page, { path: '/billing/cancel', subscription: null })
+  await expect(page.getByRole('heading', { name: 'No se ha cobrado nada' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Volver a intentarlo' })).toHaveAttribute('href', '/billing/contract')
+})
+
+test('pago cancelado con la cuota ya activa: sin reintentar, solo la salida a la cuota', async ({ page }) => {
+  await abrir(page, { path: '/billing/cancel' })
+  await expect(page.getByText('La cuota sigue como estaba.', { exact: false })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Ver la cuota' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Volver a intentarlo' })).toHaveCount(0)
 })
