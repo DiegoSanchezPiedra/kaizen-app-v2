@@ -172,6 +172,18 @@ const AUDIT_LABEL: Record<string, string> = {
 }
 export const auditLabel = (action: string): string => AUDIT_LABEL[action] ?? action
 
+// «Hoy en la academia» del Inicio: altas, bajas, subidas y cambios por edad de plan, y sesiones y eventos cancelados, con los
+// nombres que escribe la API (src/services/billing.js, stripeWebhook.js, events.js y la migración 022). Los cobros fallidos son avisos.
+export const TODAY_ACTIONS = [
+  'subscription.create',
+  'subscription.cancel_now',
+  'subscription.cancel_at_period_end',
+  'subscription.upgrade',
+  'subscription.age_change',
+  'session.cancel',
+  'event.cancel',
+]
+
 export type AuditRow = {
   id: string
   created_at: string

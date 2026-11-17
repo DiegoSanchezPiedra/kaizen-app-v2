@@ -3,6 +3,7 @@ import {
   ageMarks,
   auditDetail,
   auditLabel,
+  TODAY_ACTIONS,
   auditTarget,
   canCancelPayerChange,
   ASSIGNABLE_ROLES,
@@ -310,5 +311,14 @@ describe('avisos del registro de jornada (B31)', () => {
   it('tienen texto en español', () => {
     expect(noticeLabel('notice.clock_open')).not.toBe('notice.clock_open')
     expect(deliveryLabel('notice.clock_correction_rejected')).not.toBe('notice.clock_correction_rejected')
+  })
+})
+
+describe('Hoy en la academia (Inicio)', () => {
+  // Antes pedía `subscription.cancel`, que la API no escribe: las bajas no salían nunca.
+  it('solo pide acciones que la auditoría escribe y que tienen texto', () => {
+    expect(TODAY_ACTIONS).not.toContain('subscription.cancel')
+    expect(TODAY_ACTIONS).toEqual(expect.arrayContaining(['subscription.cancel_now', 'subscription.cancel_at_period_end']))
+    for (const a of TODAY_ACTIONS) expect(auditLabel(a)).not.toBe(a)
   })
 })

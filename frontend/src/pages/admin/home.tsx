@@ -1,5 +1,5 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
-import { ArrowDownIcon, ArrowUpIcon, ChevronRightIcon, CircleCheckIcon, PlusIcon, SearchIcon } from 'lucide-react'
+import { ArrowDownIcon, ArrowUpIcon, BanIcon, BellIcon, CalendarCheckIcon, ChevronRightIcon, CircleCheckIcon, ClockIcon, PlayIcon, SearchIcon } from 'lucide-react'
 import type React from 'react'
 import { Link, useNavigate } from 'react-router'
 import { Page } from '@/components/page'
@@ -16,6 +16,7 @@ import {
   auditTarget,
   noticeLabel,
   nowFocus,
+  TODAY_ACTIONS,
   trend,
   variation,
   type AcademyNotice,
@@ -39,9 +40,13 @@ const nf = new Intl.NumberFormat('es-ES')
 const dayFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', weekday: 'short', day: 'numeric', month: 'short' })
 const signed = new Intl.NumberFormat('es-ES', { signDisplay: 'exceptZero' })
 
+// Pulsación de tarjetas y filas (B22): escala corta con --ease-out; con movimiento reducido index.css deja solo el color.
+const PRESS = 'transition-[background-color,scale] duration-150 ease-(--ease-out)'
+
 // Con datos, sigue enseñándolos aunque un refresco falle (el indicador de la cabecera avisa); sin datos, esqueleto o error.
+// Lo que sustituye al esqueleto entra con un fundido de 200 ms (enter-soft); los refrescos no lo repiten.
 function View<T>({ q, skeleton, children }: { q: UseQueryResult<T>; skeleton: React.ReactNode; children: (data: T) => React.ReactNode }) {
-  if (q.data !== undefined) return <>{children(q.data)}</>
+  if (q.data !== undefined) return <div className="enter-soft">{children(q.data)}</div>
   if (q.isError) return <ErrorState error={q.error} onRetry={() => void q.refetch()} />
   return <>{skeleton}</>
 }
@@ -54,7 +59,7 @@ function Spark({ values }: { values: (number | null)[] }) {
   const y = (v: number) => 22 - ((v - min) / (max - min || 1)) * 20
   const d = values.reduce((acc, v, i) => (v === null ? acc : `${acc}${i && values[i - 1] !== null ? 'L' : 'M'}${i} ${y(v)}`), '')
   return (
-    <svg viewBox={`0 0 ${Math.max(values.length - 1, 1)} 24`} preserveAspectRatio="none" aria-hidden="true" className="h-6 w-full text-link">
+    <svg viewBox={`0 0 ${Math.max(values.length - 1, 1)} 24`} preserveAspectRatio="none" aria-hidden="true" className="mt-auto h-6 w-full text-link">
       <path d={d} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
     </svg>
   )
@@ -81,7 +86,7 @@ function Search() {
   return (
     <form
       role="search"
-      className="min-w-0 flex-1"
+      className="lg:max-w-md"
       onSubmit={(e) => {
         e.preventDefault()
         const q = String(new FormData(e.currentTarget).get('q') ?? '').trim()
@@ -92,25 +97,29 @@ function Search() {
         <InputGroupAddon aria-hidden="true">
           <SearchIcon />
         </InputGroupAddon>
-        <InputGroupInput type="search" name="q" aria-label="Buscar alumno" placeholder="Buscar alumno" enterKeyHint="search" />
+        {/* Excepción como en login: el marcador al 100 % de muted (al 72 % daba 3,5:1). */}
+        <InputGroupInput type="search" name="q" aria-label="Buscar alumno" placeholder="Buscar alumno" enterKeyHint="search" className="**:placeholder:text-muted-foreground!" />
       </InputGroup>
     </form>
   )
 }
 
-// «Sesión suelta» y «Evento» se crean desde su pantalla (la hoja de crear no tiene URL propia).
-function Shortcuts({ className }: { className?: string }) {
+// ── Estados de sesión: icono y texto, nunca solo color ───────────────────────
+
+const PHASE: Record<Phase, { label: string; variant: 'outline' | 'info' | 'secondary' | 'error'; Icon: typeof ClockIcon }> = {
+  upcoming: { label: 'Programada', variant: 'outline', Icon: ClockIcon },
+  now: { label: 'En curso', variant: 'info', Icon: PlayIcon },
+  ended: { label: 'Celebrada', variant: 'secondary', Icon: CalendarCheckIcon },
+  cancelled: { label: 'Cancelada', variant: 'error', Icon: BanIcon },
+}
+
+function PhaseBadge({ phase, label }: { phase: Phase; label?: string }) {
+  const p = PHASE[phase]
   return (
-    <div className={cn('grid grid-cols-2 gap-3', className)}>
-      <Button variant="outline" size="xl" render={<Link to="/admin/sessions" />}>
-        <PlusIcon />
-        Sesión suelta
-      </Button>
-      <Button variant="outline" size="xl" render={<Link to="/admin/events" />}>
-        <PlusIcon />
-        Evento
-      </Button>
-    </div>
+    <Badge variant={p.variant} className="shrink-0">
+      <p.Icon aria-hidden="true" />
+      {label ?? p.label}
+    </Badge>
   )
 }
 
@@ -125,12 +134,16 @@ function NowSession({ s, kind, now }: { s: HomeSession; kind: 'now' | 'upcoming'
         <div className="min-w-0">
           <p className="font-heading text-xl leading-tight font-bold break-words">{s.discipline.name}</p>
           <p className="mt-1 text-[15px] font-medium tabular-nums">
-            {kind === 'next' && <span className="first-letter:uppercase">{formatDate(s.starts_at)}, </span>}
+            {kind === 'next' && (
+              <>
+                <span className="inline-block first-letter:uppercase">{dayFmt.format(new Date(s.starts_at)).replace('.', '')}</span> ·{' '}
+              </>
+            )}
             {formatTime(s.starts_at)}–{formatTime(s.ends_at)}
           </p>
           <p className="text-[13px] text-muted-foreground">{[s.trainer?.display_name ?? 'Sin profesor', s.location].filter(Boolean).join(' · ')}</p>
         </div>
-        <Badge variant={kind === 'now' ? 'info' : 'outline'}>{kind === 'now' ? 'En curso' : 'Siguiente'}</Badge>
+        <PhaseBadge phase={kind === 'now' ? 'now' : 'upcoming'} label={kind === 'now' ? undefined : 'Siguiente'} />
       </div>
       <Meter value={Math.min(s.booked, s.capacity)} max={Math.max(s.capacity, 1)} aria-label={`${s.booked} reservas de ${s.capacity} plazas`}>
         <MeterTrack className="rounded-full">
@@ -145,9 +158,9 @@ function NowSession({ s, kind, now }: { s: HomeSession; kind: 'now' | 'upcoming'
   )
 }
 
-function Now({ home, now, className }: { home: UseQueryResult<AdminHome>; now: number; className?: string }) {
+function Now({ home, now }: { home: UseQueryResult<AdminHome>; now: number }) {
   return (
-    <section aria-label="Ahora" className={cn('flex flex-col gap-3', className)}>
+    <section aria-label="Ahora" className="flex flex-col gap-3">
       <h2 className="font-semibold">Ahora</h2>
       <View q={home} skeleton={<Skeleton className="h-52 w-full rounded-2xl" />}>
         {(d) => {
@@ -159,7 +172,7 @@ function Now({ home, now, className }: { home: UseQueryResult<AdminHome>; now: n
               ))}
             </div>
           ) : (
-            <p className="rounded-2xl border bg-card px-4 py-3.5 text-[15px] text-muted-foreground">No hay ninguna sesión programada.</p>
+            <Empty>No hay ninguna sesión programada.</Empty>
           )
         }}
       </View>
@@ -169,13 +182,13 @@ function Now({ home, now, className }: { home: UseQueryResult<AdminHome>; now: n
 
 // ── Cifras ───────────────────────────────────────────────────────────────────
 
-// La variación en % frente a `before`, seguida de `suffix`; sin base (before 0), «`beforeLabel`: before».
+// La variación en % frente a `before` y debajo `suffix`; sin base (before 0), «`beforeLabel`: before». Color en su variante de texto (4,5:1).
 function Delta({ now, before, suffix, beforeLabel }: { now: number; before: number; suffix: string; beforeLabel: string }) {
   const pct = variation(now, before)
   if (pct === null) return <span className="text-[13px] text-muted-foreground tabular-nums">{beforeLabel}: {nf.format(before)}</span>
   return (
-    <span className="flex flex-wrap items-center gap-x-1.5 text-[13px] text-muted-foreground tabular-nums">
-      <span className={cn('flex items-center gap-0.5 font-semibold', pct > 0 ? 'text-success' : pct < 0 && 'text-destructive')}>
+    <span className="flex flex-col text-[13px] leading-snug text-muted-foreground tabular-nums">
+      <span className={cn('flex items-center gap-0.5 font-semibold', pct > 0 ? 'text-success-foreground' : pct < 0 && 'text-destructive-foreground')}>
         {pct > 0 && <ArrowUpIcon className="size-3.5" aria-hidden="true" />}
         {pct < 0 && <ArrowDownIcon className="size-3.5" aria-hidden="true" />}
         {signed.format(pct)} %
@@ -185,61 +198,64 @@ function Delta({ now, before, suffix, beforeLabel }: { now: number; before: numb
   )
 }
 
-function Figures({ home, className }: { home: UseQueryResult<AdminHome>; className?: string }) {
+// Tres cifras de personas; el impago vive en «Requiere atención», que es donde se actúa.
+function Figures({ d }: { d: AdminHome }) {
   // La línea de 30 días sale de la foto nocturna; si no está o falla, la tarjeta se ve igual sin línea.
   const rows = useQuery({
     queryKey: ['admin', 'stats-day', 'home'],
     queryFn: () => api<SubscriptionReport<DayStat>>('/admin/reports/subscriptions?group=day'),
   }).data?.rows
+  const activeTrend = rows && trend(rows, 'active')
+  const cards: { label: string; value: number; to: string; extra?: React.ReactNode; spark?: (number | null)[] }[] = [
+    {
+      label: 'Alumnos activos',
+      value: d.students.activos,
+      to: '/admin/users?estado=activo',
+      spark: rows?.map((r) => r.active),
+      extra: typeof activeTrend === 'number' && <span className="text-[13px] leading-snug text-muted-foreground tabular-nums">{signed.format(activeTrend)} en 30 días</span>,
+    },
+    {
+      label: 'Entrenaron (30 días)',
+      value: d.trained.last_30,
+      to: '/admin/reports',
+      spark: d.trained.series,
+      extra: <Delta now={d.trained.last_30} before={d.trained.previous_30} suffix="vs. 30 días antes" beforeLabel="30 días antes" />,
+    },
+    {
+      label: 'Asistencias hoy',
+      value: d.attendance.today,
+      to: '/admin/reports?tab=students',
+      extra: <Delta now={d.attendance.today} before={d.attendance.last_week} suffix="vs. hace 7 días" beforeLabel="Hace 7 días" />,
+    },
+  ]
   return (
-    <section aria-label="Cifras" className={className}>
-      <View q={home} skeleton={<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}</div>}>
-        {(d) => {
-          const activeTrend = rows && trend(rows, 'active')
-          const cards: { label: string; value: string; to: string; extra?: React.ReactNode; spark?: (number | null)[]; alert?: boolean }[] = [
-            {
-              label: 'Alumnos activos',
-              value: nf.format(d.students.activos),
-              to: '/admin/users?estado=activo',
-              spark: rows?.map((r) => r.active),
-              extra: typeof activeTrend === 'number' && <span className="text-[13px] text-muted-foreground tabular-nums">{signed.format(activeTrend)} en 30 días</span>,
-            },
-            { label: 'Impago', value: nf.format(d.students.impago), to: '/admin/billing', alert: d.students.impago > 0 },
-            {
-              label: 'Entrenaron (30 días)',
-              value: nf.format(d.trained.last_30),
-              to: '/admin/reports',
-              spark: d.trained.series,
-              extra: <Delta now={d.trained.last_30} before={d.trained.previous_30} suffix="vs. 30 días anteriores" beforeLabel="30 días antes" />,
-            },
-            {
-              label: 'Asistencias hoy',
-              value: nf.format(d.attendance.today),
-              to: '/admin/reports?tab=students',
-              extra: <Delta now={d.attendance.today} before={d.attendance.last_week} suffix="vs. hace 7 días" beforeLabel="Hace 7 días" />,
-            },
-          ]
-          return (
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              {cards.map((c) => (
-                <Link
-                  key={c.label}
-                  to={c.to}
-                  className="flex min-w-0 flex-col gap-2 rounded-xl border bg-card p-4 outline-none transition-colors hover:bg-accent/40 active:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <span className="text-[13px] font-medium text-muted-foreground">{c.label}</span>
-                  <span className={cn('font-heading text-3xl leading-none font-bold tabular-nums lg:text-2xl xl:text-3xl', c.alert && 'text-destructive')}>{c.value}</span>
-                  {c.extra}
-                  {c.spark?.some((v) => v !== null) && <Spark values={c.spark} />}
-                </Link>
-              ))}
-            </div>
-          )
-        }}
-      </View>
-    </section>
+    <div className="grid grid-cols-3 gap-2 sm:gap-3">
+      {cards.map((c) => (
+        <Link
+          key={c.label}
+          to={c.to}
+          className={cn(
+            'flex min-w-0 flex-col gap-1.5 rounded-2xl border bg-card p-3 outline-none hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring motion-safe:active:scale-[0.98] active:bg-accent/60 sm:p-4',
+            PRESS,
+          )}
+        >
+          <span className="min-h-[2lh] text-[13px] leading-tight font-medium text-muted-foreground sm:min-h-0">{c.label}</span>
+          <span className="font-heading text-3xl leading-none font-bold tabular-nums">{nf.format(c.value)}</span>
+          {c.extra}
+          {c.spark?.some((v) => v !== null) && <Spark values={c.spark} />}
+        </Link>
+      ))}
+    </div>
   )
 }
+
+const figuresSkeleton = (
+  <div className="grid grid-cols-3 gap-2 sm:gap-3">
+    {[0, 1, 2].map((i) => (
+      <Skeleton key={i} className="h-32 rounded-2xl" />
+    ))}
+  </div>
+)
 
 // ── Filas ────────────────────────────────────────────────────────────────────
 
@@ -249,7 +265,10 @@ function Row({ to, children }: { to?: string; children: React.ReactNode }) {
   return (
     <li className="border-b last:border-b-0">
       {to ? (
-        <Link to={to} className={cn(cls, 'outline-none hover:bg-accent/40 active:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset')}>
+        <Link
+          to={to}
+          className={cn(cls, PRESS, 'outline-none hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset motion-safe:active:scale-[0.99] active:bg-accent/60')}
+        >
           {children}
           <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         </Link>
@@ -271,6 +290,8 @@ const Heading = ({ title, to, link }: { title: string; to?: string; link?: strin
     )}
   </div>
 )
+
+const Empty = ({ children }: { children: React.ReactNode }) => <p className="rounded-2xl border bg-card px-4 py-3.5 text-[15px] text-muted-foreground">{children}</p>
 
 // ── Requiere atención ────────────────────────────────────────────────────────
 
@@ -306,6 +327,8 @@ function Attention({ home, className }: { home: UseQueryResult<AdminHome>; class
     { n: home.data?.students.inactivos ?? 0, label: 'Sin venir hace 14 días', hint: 'alumnos activos sin asistencia', to: '/admin/users?estado=inactivo' },
   ]
   const pending = items?.filter((i) => i.n > 0) ?? []
+  // Contador o icono en la misma columna, para que todas las filas alineen.
+  const chip = 'grid h-7 min-w-8 shrink-0 place-items-center self-start rounded-full bg-warning/16 px-1.5 text-sm font-bold tabular-nums'
   return (
     <section aria-label="Requiere atención" className={cn('flex flex-col gap-3', className)}>
       <Heading title="Requiere atención" />
@@ -314,25 +337,29 @@ function Attention({ home, className }: { home: UseQueryResult<AdminHome>; class
       ) : loading ? (
         <ListSkeleton rows={2} className="h-14" />
       ) : pending.length === 0 && notices.data.length === 0 ? (
-        <p className="flex items-center gap-2 rounded-2xl border bg-card px-4 py-3.5 text-[15px] font-medium">
-          <CircleCheckIcon className="size-5 text-success" aria-hidden="true" />
-          Nada pendiente
+        <p className="enter-soft flex items-center gap-2 rounded-2xl border bg-card px-4 py-3.5 text-[15px] font-medium">
+          <CircleCheckIcon className="size-5 text-success-foreground" aria-hidden="true" />
+          {/* Sin /admin/home no se sabe cuántos llevan 14 días sin venir: no se afirma más de lo que se sabe. */}
+          {home.data ? 'Nada pendiente' : 'Nada pendiente en cobros ni avisos'}
         </p>
       ) : (
-        <ul className="overflow-hidden rounded-2xl border bg-card">
+        <ul className="enter-soft overflow-hidden rounded-2xl border bg-card">
           {pending.map((i) => (
             <Row key={i.label} to={i.to}>
-              <span className="grid h-7 min-w-7 place-items-center rounded-full bg-warning/16 px-2 text-sm font-bold tabular-nums">{nf.format(i.n)}</span>
+              <span className={chip}>{nf.format(i.n)}</span>
               <span className="min-w-0 flex-1">
-                <span className="block font-semibold">{i.label}</span>
+                <span className="block leading-snug font-semibold">{i.label}</span>
                 <span className="block text-[13px] text-muted-foreground">{i.hint}</span>
               </span>
             </Row>
           ))}
           {notices.data.map((n) => (
             <Row key={n.id} to="/admin/notices">
+              <span className={chip}>
+                <BellIcon className="size-3.5" aria-hidden="true" />
+              </span>
               <span className="min-w-0 flex-1">
-                <span className="block font-semibold">{noticeLabel(n.action)}</span>
+                <span className="block leading-snug font-semibold">{noticeLabel(n.action)}</span>
                 <span className="block text-[13px] text-muted-foreground">Aviso de la academia · {formatShortDate(n.created_at)}</span>
               </span>
             </Row>
@@ -345,57 +372,40 @@ function Attention({ home, className }: { home: UseQueryResult<AdminHome>; class
 
 // ── Hoy ──────────────────────────────────────────────────────────────────────
 
-const PHASE: Record<Phase, { label: string; variant: 'outline' | 'info' | 'secondary' | 'error' }> = {
-  upcoming: { label: 'Programada', variant: 'outline' },
-  now: { label: 'En curso', variant: 'info' },
-  ended: { label: 'Celebrada', variant: 'secondary' },
-  cancelled: { label: 'Cancelada', variant: 'error' },
-}
-
-function Today({ home, now, className }: { home: UseQueryResult<AdminHome>; now: number; className?: string }) {
-  return (
-    <section aria-label="Hoy" className={cn('flex flex-col gap-3', className)}>
-      <Heading title="Hoy" to="/admin/sessions" link="Horario" />
-      <View q={home} skeleton={<ListSkeleton rows={3} className="h-14" />}>
-        {(d) =>
-          d.sessions.length === 0 ? (
-            <p className="rounded-2xl border bg-card px-4 py-3.5 text-[15px] text-muted-foreground">Hoy no hay sesiones.</p>
-          ) : (
-            <ul className="overflow-hidden rounded-2xl border bg-card">
-              {d.sessions.map((s) => {
-                const phase = PHASE[phaseOf(s, now)]
-                const off = s.status === 'cancelled'
-                const started = Date.parse(s.starts_at) <= now
-                return (
-                  <Row key={s.id} to={`/admin/sessions/${s.id}`}>
-                    <span className="w-13 shrink-0 font-mono text-[15px] leading-tight tabular-nums">
-                      <span className={cn('block font-semibold', off && 'text-muted-foreground line-through')}>{formatTime(s.starts_at)}</span>
-                      <span className="block text-xs text-muted-foreground">{formatTime(s.ends_at)}</span>
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className={cn('block leading-snug font-semibold break-words', off && 'text-muted-foreground line-through')}>{s.discipline.name}</span>
-                      <span className="block truncate text-[13px] text-muted-foreground">{s.trainer?.display_name ?? 'Sin profesor'}</span>
-                    </span>
-                    <span className="flex shrink-0 flex-col items-end gap-1">
-                      <Badge variant={phase.variant}>{phase.label}</Badge>
-                      <span className={cn('text-[13px] text-muted-foreground tabular-nums', off && 'line-through')}>
-                        {s.booked}/{s.capacity} reservas{started && !off ? ` · ${s.present} dentro` : ''}
-                      </span>
-                    </span>
-                  </Row>
-                )
-              })}
-            </ul>
-          )
-        }
-      </View>
-    </section>
+// Dos líneas: disciplina con su estado, y profesor · reservas/aforo · dentro. A 375 px ya no se corta el profesor.
+function Today({ d, now }: { d: AdminHome; now: number }) {
+  return d.sessions.length === 0 ? (
+    <Empty>Hoy no hay sesiones.</Empty>
+  ) : (
+    <ul className="overflow-hidden rounded-2xl border bg-card">
+      {d.sessions.map((s) => {
+        const off = s.status === 'cancelled'
+        const started = Date.parse(s.starts_at) <= now
+        return (
+          <Row key={s.id} to={`/admin/sessions/${s.id}`}>
+            <span className="w-12 shrink-0 self-start font-mono text-[15px] leading-snug tabular-nums">
+              <span className={cn('block font-semibold', off && 'text-muted-foreground line-through')}>{formatTime(s.starts_at)}</span>
+              <span className="block text-xs text-muted-foreground">{formatTime(s.ends_at)}</span>
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span className={cn('leading-snug font-semibold', off && 'text-muted-foreground line-through')}>{s.discipline.name}</span>
+                <PhaseBadge phase={phaseOf(s, now)} />
+              </span>
+              <span className="block text-[13px] text-muted-foreground tabular-nums">
+                {[s.trainer?.display_name ?? 'Sin profesor', `${s.booked}/${s.capacity} reservas`, started && !off && `${s.present} dentro`].filter(Boolean).join(' · ')}
+              </span>
+            </span>
+          </Row>
+        )
+      })}
+    </ul>
   )
 }
 
 // ── Próximos eventos y lo de hoy en la academia: solo salen si hay algo ──────
 
-function Events({ today, className }: { today: string; className?: string }) {
+function Events({ today }: { today: string }) {
   const events = useQuery({
     queryKey: ['admin', 'events', 'home', today],
     refetchInterval: 120_000,
@@ -403,7 +413,7 @@ function Events({ today, className }: { today: string; className?: string }) {
   })
   if (events.data?.length === 0) return null
   return (
-    <section aria-label="Próximos eventos" className={cn('flex flex-col gap-3', className)}>
+    <section aria-label="Próximos eventos" className="flex flex-col gap-3">
       <Heading title="Próximos eventos" to="/admin/events" link="Eventos" />
       <View q={events} skeleton={<ListSkeleton rows={2} className="h-14" />}>
         {(rows) => (
@@ -411,12 +421,12 @@ function Events({ today, className }: { today: string; className?: string }) {
             {rows.map((e) => (
               <Row key={e.id} to={`/admin/events/${e.id}`}>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-semibold">{e.title}</span>
+                  <span className="line-clamp-2 leading-snug font-semibold">{e.title}</span>
                   <span className="block text-[13px] text-muted-foreground first-letter:uppercase">
                     {dayFmt.format(new Date(e.starts_at))} · {formatTime(e.starts_at)}
                   </span>
                 </span>
-                <span className="text-[13px] text-muted-foreground tabular-nums">{e.capacity === null ? plural(e.taken, 'inscrito', 'inscritos') : `${e.taken}/${e.capacity}`}</span>
+                <span className="shrink-0 text-[13px] text-muted-foreground tabular-nums">{e.capacity === null ? plural(e.taken, 'inscrito', 'inscritos') : `${e.taken}/${e.capacity}`}</span>
               </Row>
             ))}
           </ul>
@@ -426,19 +436,15 @@ function Events({ today, className }: { today: string; className?: string }) {
   )
 }
 
-// Solo lo que el audit_log guarda de verdad: bajas, subidas y cambios por edad de plan, y sesiones y eventos cancelados (las altas y los
-// cobros fallidos no pasan por la auditoría: los fallidos son avisos, que la API de auditoría nunca devuelve).
-const TODAY_ACTIONS = 'subscription.create,subscription.cancel,subscription.upgrade,subscription.age_change,session.cancel,event.cancel'
-
-function Activity({ today, className }: { today: string; className?: string }) {
+function Activity({ today }: { today: string }) {
   const rows = useQuery({
     queryKey: ['admin', 'audit', 'home', today],
     refetchInterval: 120_000,
-    queryFn: () => api<Paged<'rows', AuditRow>>(path('/admin/audit', { from: today, to: today, action: TODAY_ACTIONS, limit: '5' })).then((r) => r.rows),
+    queryFn: () => api<Paged<'rows', AuditRow>>(path('/admin/audit', { from: today, to: today, action: TODAY_ACTIONS.join(','), limit: '5' })).then((r) => r.rows),
   })
   if (rows.data?.length === 0) return null
   return (
-    <section aria-label="Hoy en la academia" className={cn('flex flex-col gap-3', className)}>
+    <section aria-label="Hoy en la academia" className="flex flex-col gap-3">
       <Heading title="Hoy en la academia" />
       <View q={rows} skeleton={<ListSkeleton rows={2} className="h-14" />}>
         {(list) => (
@@ -446,10 +452,10 @@ function Activity({ today, className }: { today: string; className?: string }) {
             {list.map((a) => (
               <Row key={a.id} to={auditTarget(a).to ?? undefined}>
                 <span className="min-w-0 flex-1">
-                  <span className="block font-semibold">{auditLabel(a.action)}</span>
+                  <span className="block leading-snug font-semibold">{auditLabel(a.action)}</span>
                   <span className="block text-[13px] text-muted-foreground">{[a.actor.display_name ?? 'Sistema', auditDetail(a)].filter(Boolean).join(' · ')}</span>
                 </span>
-                <span className="text-[13px] text-muted-foreground tabular-nums">{formatTime(a.created_at)}</span>
+                <span className="shrink-0 text-[13px] text-muted-foreground tabular-nums">{formatTime(a.created_at)}</span>
               </Row>
             ))}
           </ul>
@@ -459,8 +465,9 @@ function Activity({ today, className }: { today: string; className?: string }) {
   )
 }
 
-// docs/propuesta-inicio-admin.md: qué pasa ahora, qué pide atención y cómo va la academia; todo enlaza a su pantalla.
-// En móvil el orden es el del DOM por `order-*`; en `lg` las dos columnas (8 + 4) se montan con `contents` → `flex`.
+// docs/propuesta-inicio-admin.md: qué pide atención, qué pasa ahora y cómo va la academia; todo enlaza a su pantalla.
+// El HTML va en el orden del móvil (y del Tab). En lg, rejilla 8 + 4: a la izquierda Ahora, Cifras y Hoy; a la derecha
+// Requiere atención y, debajo, Eventos y Actividad (la fila 1 la mide solo Atención, así la columna derecha no deja huecos).
 export function AdminHomePage() {
   const now = useNow()
   const today = madridDay(now)
@@ -469,22 +476,34 @@ export function AdminHomePage() {
     <Page title="Inicio" wide actions={<Live home={home} />}>
       <p className="-mt-3 text-sm text-muted-foreground first-letter:uppercase">{formatDate(new Date(now))}</p>
       <MfaNotice />
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-        <Search />
-        <Shortcuts className="hidden lg:grid lg:w-96" />
-      </div>
-      <div className="flex flex-col gap-6 lg:grid lg:grid-cols-12 lg:items-start">
-        <Figures home={home} className="order-2 lg:order-first lg:col-span-12" />
-        <div className="contents lg:col-span-8 lg:flex lg:flex-col lg:gap-6">
-          <Now home={home} now={now} className="order-1" />
-          <Today home={home} now={now} className="order-4" />
+      <Search />
+      <div className="flex flex-col gap-6 lg:grid lg:grid-cols-12 lg:grid-rows-[auto_1fr] lg:items-start">
+        <Attention home={home} className="lg:col-span-4 lg:col-start-9 lg:row-start-1" />
+        <div className="flex min-w-0 flex-col gap-6 lg:col-span-8 lg:col-start-1 lg:row-span-2 lg:row-start-1">
+          {home.isError && home.data === undefined ? (
+            // Ahora, Cifras y Hoy salen de la misma petición: un solo error, no tres.
+            <ErrorState error={home.error} onRetry={() => void home.refetch()} />
+          ) : (
+            <>
+              <Now home={home} now={now} />
+              <section aria-label="Cifras">
+                <View q={home} skeleton={figuresSkeleton}>
+                  {(d) => <Figures d={d} />}
+                </View>
+              </section>
+              <section aria-label="Hoy" className="flex flex-col gap-3">
+                <Heading title="Hoy" to="/admin/sessions" link="Horario" />
+                <View q={home} skeleton={<ListSkeleton rows={3} className="h-14" />}>
+                  {(d) => <Today d={d} now={now} />}
+                </View>
+              </section>
+            </>
+          )}
         </div>
-        <div className="contents lg:col-span-4 lg:flex lg:flex-col lg:gap-6">
-          <Attention home={home} className="order-3" />
-          <Events today={today} className="order-5" />
-          <Activity today={today} className="order-6" />
+        <div className="flex min-w-0 flex-col gap-6 empty:hidden lg:col-span-4 lg:col-start-9 lg:row-start-2">
+          <Events today={today} />
+          <Activity today={today} />
         </div>
-        <Shortcuts className="order-7 lg:hidden" />
       </div>
     </Page>
   )
