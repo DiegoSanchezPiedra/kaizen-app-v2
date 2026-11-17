@@ -31,11 +31,17 @@ const DISCIPLINAS = ['Judo', 'Jiu-jitsu', 'Kárate'].map((name, i) => ({ id: i +
 
 // children: el alumno adulto con hijos también ve el selector «Para» (va por sí mismo por defecto).
 // sequence: respuestas de /billing/subscription por orden (la última se repite), para el sondeo de /billing/success.
-async function abrir(page: Page, o: { role?: 'alumno' | 'tutor'; subscription?: object | null; sequence?: object[]; path?: string; children?: boolean; disciplines?: object[] } = {}) {
+// payer: respuestas de GET /billing/payer-changes/:id por orden (null = 404); payerError: código con que falla su POST checkout
+// (sin él, se apunta y no se responde). anon: sin sesión.
+async function abrir(
+  page: Page,
+  o: { role?: 'alumno' | 'tutor'; subscription?: object | null; sequence?: object[]; path?: string; children?: boolean; disciplines?: object[]; payer?: (object | null)[]; payerError?: object; anon?: boolean } = {},
+) {
   const role = o.role ?? 'alumno'
   const posts: unknown[] = []
   let polls = 0
-  await page.addInitScript((t) => localStorage.setItem('kz.token', t), token(role))
+  let payerGets = 0
+  if (!o.anon) await page.addInitScript((t) => localStorage.setItem('kz.token', t), token(role))
   await page.route('**/api/**', (r) => {
     const u = new URL(r.request().url()).pathname.replace(/^\/api/, '')
     const json = (j: unknown, status = 200) => r.fulfill({ status, json: j })
@@ -53,7 +59,15 @@ async function abrir(page: Page, o: { role?: 'alumno' | 'tutor'; subscription?: 
       posts.push(r.request().postDataJSON())
       return
     }
+    if (r.request().method() === 'POST' && /^\/billing\/payer-changes\/[^/]+\/checkout$/.test(u)) {
+      posts.push(u)
+      return o.payerError ? json(o.payerError, 422) : undefined
+    }
     if (r.request().method() !== 'GET') return json({})
+    if (u.startsWith('/billing/payer-changes/') && o.payer) {
+      const pc = o.payer[Math.min(payerGets++, o.payer.length - 1)]
+      return pc ? json(pc) : json({ code: 'payer_change_not_found' }, 404)
+    }
     if (u === '/me') return json({ ...ME, role })
     if (u === '/me/children') return json({ children: role === 'tutor' || o.children ? [LARA] : [] })
     if (u === '/me/profile-status') return json({ ok: true, missing: [] })
@@ -303,4 +317,90 @@ test('pago cancelado con la cuota ya activa: sin reintentar, solo la salida a la
   await expect(page.getByText('La cuota sigue como estaba.', { exact: false })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Ver la cuota' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Volver a intentarlo' })).toHaveCount(0)
+})
+
+// ── Cambio de pagador (/billing/payer-changes/:id) ──
+const CAMBIO = {
+  id: 'pc-1',
+  status: 'requested',
+  student: { id: 'c-lara', name: 'Lara Pérez' },
+  plan: { id: '3', name: 'Kids' },
+  price_cents: 3500,
+  disciplines: [{ id: '1', name: 'Judo' }],
+  starts_at: '2026-12-05T00:00:00Z',
+  deadline: '2026-12-01T22:59:59Z',
+  new_payer_id: 'u-1',
+}
+const cambio = (o: object = {}) => ({ ...CAMBIO, ...o })
+
+test('cambio de pagador: importe arriba, y pagar pide confirmación antes de abrir Stripe (una sola vez)', async ({ page }) => {
+  const posts = await abrir(page, { role: 'tutor', path: '/billing/payer-changes/pc-1', payer: [cambio()] })
+  await expect(page.getByRole('heading', { name: 'Te toca pagar la cuota de Lara' })).toBeVisible()
+  const card = page.locator('main section')
+  await expect(card).toContainText('35,00 €')
+  await expect(card).toContainText('Primer cobro')
+  await expect(card.getByText('Lara Pérez')).toHaveCount(0)
+  await expect(page.getByText('Si no quieres pagarla, no hagas nada', { exact: false })).toBeVisible()
+  // Volver no cobra nada.
+  await page.getByRole('button', { name: 'Pagar · 0 € hoy' }).click()
+  await page.getByRole('button', { name: 'Volver' }).click()
+  expect(posts).toHaveLength(0)
+  await page.getByRole('button', { name: 'Pagar · 0 € hoy' }).click()
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog).toContainText('Hoy no se cobra nada')
+  await dialog.getByRole('button', { name: 'Ir a Stripe' }).click()
+  await expect(dialog.getByRole('button', { name: 'Abriendo Stripe…' })).toBeDisabled()
+  expect(posts).toEqual(['/billing/payer-changes/pc-1/checkout'])
+})
+
+test('cambio de pagador para otra persona: no ofrece pagar, solo la cuota', async ({ page }) => {
+  await abrir(page, { role: 'tutor', path: '/billing/payer-changes/pc-1', payer: [cambio({ new_payer_id: 'u-9' })] })
+  await expect(page.getByRole('heading', { name: 'Este pago no es para ti' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Pagar/ })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Ver la cuota' })).toHaveAttribute('href', '/billing?para=c-lara')
+})
+
+test('cambio de pagador con el perfil incompleto: aviso para completarlo y pagar desactivado', async ({ page }) => {
+  await abrir(page, { role: 'tutor', path: '/billing/payer-changes/pc-1', payer: [cambio()], payerError: { code: 'profile_incomplete', missing: ['emergency_contact'], whose: 'self' } })
+  await page.getByRole('button', { name: 'Pagar · 0 € hoy' }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Ir a Stripe' }).click()
+  await expect(page.getByText('Falta un contacto de emergencia.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Pagar · 0 € hoy' })).toBeDisabled()
+})
+
+test('cambio de pagador, vuelta de Stripe: confirma tras el sondeo con un solo aviso vivo', async ({ page }) => {
+  await abrir(page, { role: 'tutor', path: '/billing/payer-changes/pc-1?session_id=cs_x', payer: [cambio(), cambio(), cambio({ status: 'paid' })] })
+  await expect(page.getByRole('heading', { name: 'Desde el 5 dic 2026 pagas tú la cuota de Lara' })).toBeVisible()
+  await expect(page.getByRole('status')).toHaveText('Hecho: desde el 5 dic 2026 pagas tú la cuota de Lara.')
+  await expect(page.getByRole('link', { name: 'Ver la cuota' })).toBeVisible()
+})
+
+test('cambio de pagador, vuelta sin aviso de Stripe: a los 2 min reintentar, nunca volver a pagar', async ({ page }) => {
+  await page.clock.install()
+  await abrir(page, { role: 'tutor', path: '/billing/payer-changes/pc-1?session_id=cs_x', payer: [cambio()] })
+  await expect(page.getByRole('heading', { name: 'Confirmando el cambio…' })).toBeVisible()
+  await page.clock.fastForward(21_000)
+  await expect(page.getByRole('heading', { name: 'Puede tardar unos minutos' })).toBeVisible()
+  await page.clock.fastForward(100_000)
+  await expect(page.getByRole('heading', { name: 'No podemos comprobarlo ahora' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reintentar' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Pagar/ })).toHaveCount(0)
+})
+
+for (const [status, title] of [
+  ['expired', 'Este enlace ha caducado'],
+  ['cancelled', 'Este cambio se ha anulado'],
+  [null, 'No lo encontramos'],
+] as const) {
+  test(`cambio de pagador: «${title}» con salida a Inicio`, async ({ page }) => {
+    await abrir(page, { role: 'tutor', path: '/billing/payer-changes/pc-1', payer: [status ? cambio({ status }) : null] })
+    await expect(page.getByRole('heading', { name: title })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Ir a Inicio' })).toHaveAttribute('href', '/')
+  })
+}
+
+test('cambio de pagador sin sesión: al login, que vuelve al enlace', async ({ page }) => {
+  await abrir(page, { anon: true, path: '/billing/payer-changes/pc-1', payer: [cambio()] })
+  await expect(page).toHaveURL(/\/login/)
+  expect(decodeURIComponent(page.url())).toContain('/billing/payer-changes/pc-1')
 })

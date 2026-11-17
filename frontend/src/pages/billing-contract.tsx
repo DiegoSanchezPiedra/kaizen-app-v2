@@ -502,12 +502,26 @@ export function CancelPage() {
 
 // ── Cambio de pagador (enlace del email al nuevo pagador) ───────────────
 
+// Plan y cifra grande, como en «Ya tienes cuota» de la vuelta del pago.
+function Amount({ plan, cents }: { plan: string; cents: number }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="text-[17px] leading-snug font-semibold">{plan}</p>
+      <p className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-heading text-[32px] leading-none font-bold tabular-nums">{formatEuros(cents)}</span>
+        <span className="text-sm text-muted-foreground">al mes · impuestos incluidos</span>
+      </p>
+    </div>
+  )
+}
+
 function PayerChangeView({ id }: { id: string }) {
   const location = useLocation()
   const session = useSession()
   const [params] = useSearchParams()
   const back = !!params.get('session_id')
   const [problem, setProblem] = useState<ApiError | null>(null)
+  const [confirming, setConfirming] = useState(false)
   const get = () => api<PayerChange>(`/billing/payer-changes/${id}`)
   const change = useQuery({ queryKey: ['payer-change', id], queryFn: get, retry: false })
   // Al volver del Checkout, el paso a «paid» lo trae el webhook.
@@ -518,133 +532,189 @@ function PayerChangeView({ id }: { id: string }) {
     mutationFn: () => api<{ url: string }>(`/billing/payer-changes/${id}/checkout`, { method: 'POST' }),
     onSuccess: ({ url }) => window.location.assign(url),
     onError: (err) => {
+      setConfirming(false)
       if (!(err instanceof ApiError)) return toastError(err)
       if (['payer_change_expired', 'payer_change_cancelled', 'payer_change_paid'].includes(err.code)) return void change.refetch()
       if (['not_new_payer', 'profile_incomplete'].includes(err.code)) return setProblem(err)
       toastError(err)
     },
   })
+  const opening = pay.isPending || pay.isSuccess
 
+  const home = (
+    <Button size="xl" variant="outline" render={<Link to="/" />}>
+      Ir a Inicio
+    </Button>
+  )
   if (change.isPending) return <ListSkeleton rows={2} />
   if (change.isError) {
     if (change.error instanceof ApiError && change.error.status === 404)
       return (
-        <EmptyState
-          icon={<WalletIcon />}
-          title="No lo encontramos"
-          text="Puede que el enlace esté mal copiado."
-          action={
-            <Button size="xl" variant="outline" render={<Link to="/" />}>
-              Volver al inicio
-            </Button>
-          }
-        />
+        <>
+          <ResultCard icon={InfoIcon} tone="info" title="No lo encontramos">
+            <p className="text-sm text-pretty text-muted-foreground">Puede que el enlace esté mal copiado.</p>
+          </ResultCard>
+          {home}
+        </>
       )
     return <ErrorState error={change.error} onRetry={() => void change.refetch()} />
   }
   if (!pc) return null
   const student = pc.student.id === session?.id ? undefined : pc.student
-  const quota = student ? `la cuota de ${student.name}` : 'tu cuota'
+  const name = student?.name.split(' ')[0]
+  const quota = name ? `la cuota de ${name}` : 'tu cuota'
   const toBilling = student ? `/billing?${new URLSearchParams({ para: student.id })}` : '/billing'
+  const toQuota = (
+    <Button size="xl" variant="outline" render={<Link to={toBilling} />}>
+      Ver la cuota
+    </Button>
+  )
+  const disciplines = pc.disciplines.length
+    ? ([[pc.disciplines.length === 1 ? 'Disciplina' : 'Disciplinas', list(pc.disciplines.map((d) => d.name))]] as [string, string][])
+    : []
+  const done = pc.status === 'paid' || pc.status === 'completed'
+  const waiting = back && pc.status === 'requested'
 
-  if (problem?.code === 'not_new_payer') {
-    return (
-      <EmptyState
-        icon={<WalletIcon />}
-        title="Este pago no es para ti"
-        text="Lo tiene que hacer la persona a la que se lo pidió la academia."
-        action={
-          <Button size="xl" variant="outline" render={<Link to="/" />}>
-            Volver al inicio
-          </Button>
-        }
-      />
-    )
-  }
-  if (pc.status === 'paid' || pc.status === 'completed') {
-    return (
+  // Un solo aviso vivo que no se desmonta; solo habla en la vuelta de Stripe.
+  const said = !back
+    ? ''
+    : done
+      ? `Hecho: desde el ${formatShortDate(pc.starts_at)} pagas tú ${quota}.`
+      : !waiting
+        ? ''
+        : poll.phase === 'stopped'
+          ? 'No podemos comprobarlo ahora.'
+          : poll.phase === 'slow'
+            ? 'Puede tardar unos minutos. Lo seguimos comprobando.'
+            : 'Confirmando el cambio.'
+
+  let body: React.ReactNode
+  if (problem?.code === 'not_new_payer' || (pc.new_payer_id && pc.new_payer_id !== session?.id)) {
+    body = (
       <>
-        <Note kind="success" title="Hecho">
-          Desde el {formatShortDate(pc.starts_at)} pagas tú {quota}: {perMonth(pc.price_cents)}, impuestos incluidos. Hasta entonces, nada cambia.
-        </Note>
-        <Button size="xl" variant="outline" render={<Link to={toBilling} />}>
-          Ver {quota}
-        </Button>
+        <ResultCard icon={InfoIcon} tone="info" title="Este pago no es para ti">
+          <p className="text-sm text-pretty text-muted-foreground">La academia se lo ha pedido a otra persona. Cómo va el cambio lo ves en la cuota.</p>
+        </ResultCard>
+        {toQuota}
+      </>
+    )
+  } else if (done) {
+    body = (
+      <>
+        <ResultCard
+          key="done"
+          icon={CircleCheckIcon}
+          tone="success"
+          title={pc.status === 'paid' ? `Desde el ${formatShortDate(pc.starts_at)} pagas tú ${quota}` : `Pagas tú ${quota}`}
+        >
+          <Amount plan={pc.plan.name} cents={pc.price_cents} />
+          {disciplines.length > 0 && <Kv rows={disciplines} />}
+          {pc.status === 'paid' && <p className="text-sm text-pretty text-muted-foreground">Hasta entonces, nada cambia.</p>}
+        </ResultCard>
+        {toQuota}
+      </>
+    )
+  } else if (pc.status === 'expired' || pc.status === 'cancelled') {
+    body = (
+      <>
+        <ResultCard icon={InfoIcon} tone="info" title={pc.status === 'expired' ? 'Este enlace ha caducado' : 'Este cambio se ha anulado'}>
+          <p className="text-sm text-pretty text-muted-foreground">
+            {pc.status === 'expired'
+              ? `El plazo terminó el ${formatDeadline(pc.deadline)} y sigue pagando quien pagaba. Si aún quieres pagar tú, pídeselo a la academia.`
+              : 'El enlace ya no vale. No tienes que hacer nada.'}
+          </p>
+        </ResultCard>
+        {home}
+      </>
+    )
+  } else if (waiting && poll.phase === 'stopped') {
+    body = (
+      <>
+        <ResultCard key="stopped" icon={TriangleAlertIcon} tone="warning" title="No podemos comprobarlo ahora">
+          <p className="text-sm text-pretty text-muted-foreground">Si ya has dado la tarjeta, no lo repitas. Reintenta o mira la cuota en un rato.</p>
+        </ResultCard>
+        <Actions>
+          <Button size="xl" onClick={poll.restart}>
+            Reintentar
+          </Button>
+          {toQuota}
+        </Actions>
+      </>
+    )
+  } else if (waiting) {
+    // Aparece con 300 ms de retraso: si el webhook ya llegó, no destella «Confirmando…».
+    body = (
+      <>
+        <ResultCard key="wait" icon={LoaderCircleIcon} tone="wait" className="delay-300" title={poll.phase === 'slow' ? 'Puede tardar unos minutos' : 'Confirmando el cambio…'}>
+          <p className="text-sm text-pretty text-muted-foreground">
+            {poll.phase === 'slow'
+              ? 'Stripe ya tiene tu tarjeta. Puedes esperar aquí o salir: lo verás en Cuenta › Cuota. Lo seguimos comprobando.'
+              : 'Stripe ya tiene tu tarjeta. Falta que nos llegue el aviso; suele tardar unos segundos.'}
+          </p>
+        </ResultCard>
+        {poll.phase === 'slow' && home}
+      </>
+    )
+  } else {
+    const missing = problem?.code === 'profile_incomplete' && Array.isArray(problem.details.missing) ? (problem.details.missing as string[]) : null
+    const fix = missing && student ? incompletePath(missing, problem!.details.whose) : '/onboarding'
+    body = (
+      <>
+        <ResultCard icon={WalletIcon} tone="info" title={name ? `Te toca pagar la cuota de ${name}` : 'Te toca pagar tu cuota'}>
+          <p className="text-sm text-pretty text-muted-foreground">La academia te lo ha pedido. Hoy no se cobra nada.</p>
+          <Amount plan={pc.plan.name} cents={pc.price_cents} />
+          <Kv
+            rows={[
+              ...disciplines,
+              ['Primer cobro', formatShortDate(pc.starts_at)],
+              ['Plazo', `hasta el ${formatDeadline(pc.deadline)}`],
+            ]}
+          />
+          <p className="-mx-4 -mb-4 flex items-start gap-2 rounded-b-2xl border-t bg-muted/50 px-4 py-3 text-sm text-pretty text-muted-foreground">
+            <LockIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            Stripe te pedirá la tarjeta. Kaizen no ve sus datos.
+          </p>
+        </ResultCard>
+        {missing && (
+          <Note
+            kind="warning"
+            title="Antes de pagar hay que completar el perfil"
+            action={
+              <Button size="lg" variant="outline" render={<Link to={fix === '/onboarding' ? onboardingFrom(location.pathname) : `${fix}?${new URLSearchParams({ para: student!.id })}`} />}>
+                Completar
+              </Button>
+            }
+          >
+            Falta {list(missing.map((m) => MISSING_TEXT[m]).filter(Boolean))}.
+          </Note>
+        )}
+        <div className="flex flex-col gap-2">
+          <Button size="xl" disabled={!!missing} onClick={() => setConfirming(true)}>
+            Pagar · 0 € hoy
+          </Button>
+          <p className="text-sm text-pretty text-muted-foreground">
+            Si no quieres pagarla, no hagas nada: después del {formatDeadline(pc.deadline)} sigue pagando quien pagaba.
+          </p>
+        </div>
+        <ConfirmDialog
+          open={confirming}
+          onOpenChange={(o) => !opening && setConfirming(o)}
+          title={name ? `¿Pagar tú la cuota de ${name}?` : '¿Pagar tu cuota?'}
+          description={`Hoy no se cobra nada. Desde el ${formatShortDate(pc.starts_at)}, ${perMonth(pc.price_cents)}, impuestos incluidos. Ahora se abre Stripe para dar la tarjeta.`}
+          confirmLabel={opening ? 'Abriendo Stripe…' : 'Ir a Stripe'}
+          disabled={opening}
+          variant="default"
+          onConfirm={() => pay.mutate()}
+        />
       </>
     )
   }
-  if (pc.status === 'expired') {
-    return (
-      <Note kind="info" title="Este enlace ha caducado">
-        El plazo terminó el {formatDeadline(pc.deadline)} y sigue pagando quien pagaba. Si aún quieres pagar tú, pídeselo a la academia.
-      </Note>
-    )
-  }
-  if (pc.status === 'cancelled') {
-    return (
-      <Note kind="info" title="Este cambio se ha anulado">
-        El enlace ya no vale. No tienes que hacer nada.
-      </Note>
-    )
-  }
-  if (back && poll.phase !== 'stopped') {
-    return (
-      <div role="status" className="flex flex-col items-center gap-3 rounded-2xl border bg-card px-5 py-8 text-center">
-        <LoaderCircleIcon className="size-8 animate-spin text-primary motion-reduce:animate-none" aria-hidden="true" />
-        <p className="text-lg font-semibold">{poll.phase === 'slow' ? 'Puede tardar unos minutos' : 'Confirmando…'}</p>
-        <p className="text-sm text-muted-foreground">Stripe ya tiene tu tarjeta. Falta que nos llegue el aviso.</p>
-      </div>
-    )
-  }
-  const missing = problem?.code === 'profile_incomplete' && Array.isArray(problem.details.missing) ? (problem.details.missing as string[]) : null
-  const fix = missing && student ? incompletePath(missing, problem!.details.whose) : '/onboarding'
   return (
     <>
-      {back && poll.phase === 'stopped' && (
-        <Note kind="warning" title="No podemos comprobarlo ahora">
-          Si ya has pagado, no lo repitas: mira {quota} en un rato.
-        </Note>
-      )}
-      <p>La academia te ha pedido que pagues tú {quota} a partir de su renovación.</p>
-      <section aria-label="Detalle" className="rounded-2xl border bg-card px-4 py-1">
-        <Kv
-          rows={[
-            ['Alumno', pc.student.name],
-            ['Plan', pc.plan.name],
-            ...(pc.disciplines.length ? ([['Disciplinas', list(pc.disciplines.map((d) => d.name))]] as [string, string][]) : []),
-            ['Desde', formatShortDate(pc.starts_at)],
-            [
-              'Al mes',
-              <>
-                {perMonth(pc.price_cents).replace(' al mes', '')} <small className="font-normal text-muted-foreground">impuestos incluidos</small>
-              </>,
-            ],
-            ['Hoy pagas', '0,00 €'],
-          ]}
-        />
-      </section>
-      <Note kind="warning" title={`Tienes hasta el ${formatDeadline(pc.deadline)}`}>
-        Si no, sigue pagando quien pagaba y este enlace deja de valer.
-      </Note>
-      {missing && (
-        <Note
-          kind="warning"
-          title="Antes de pagar hay que completar el perfil"
-          action={
-            <Button size="lg" variant="outline" render={<Link to={fix === '/onboarding' ? onboardingFrom(location.pathname) : `${fix}?${new URLSearchParams({ para: student!.id })}`} />}>
-              Completar
-            </Button>
-          }
-        >
-          Falta {list(missing.map((m) => MISSING_TEXT[m]).filter(Boolean))}.
-        </Note>
-      )}
-      <p className="text-sm text-muted-foreground">
-        Stripe te pedirá la tarjeta. Hoy no se cobra nada; desde el {formatShortDate(pc.starts_at)}, {perMonth(pc.price_cents)}.
+      <p role="status" className="sr-only">
+        {said}
       </p>
-      <Button size="xl" disabled={!!missing} loading={pay.isPending || pay.isSuccess} onClick={() => pay.mutate()}>
-        {pay.isPending || pay.isSuccess ? 'Abriendo Stripe…' : 'Pagar · 0 € hoy'}
-      </Button>
+      {body}
     </>
   )
 }

@@ -79,6 +79,7 @@ export type PayerChange = {
   disciplines: { id: string; name: string }[]
   starts_at: string
   deadline: string
+  new_payer_id: string
 }
 
 export type Badge = { code: string; earned_at: string }
