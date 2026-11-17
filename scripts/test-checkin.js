@@ -46,7 +46,7 @@ async function session(offset, closed = false) {
 }
 const S = {
   in29: await session('29 min'), in31: await session('31 min'), ago5: await session('-5 min'),
-  ago11: await session('-11 min'), closed: await session('-2 min', true),
+  ago11: await session('-11 min'), closed: await session('-2 min', true), now: await session('3 min'),
 };
 const B = {};
 async function booking(s, k) {
@@ -57,7 +57,18 @@ async function booking(s, k) {
 }
 for (const s of ['in29', 'in31', 'ago11']) await booking(s, 'alu1');
 for (const s of ['ago5', 'in29']) await booking(s, 'child');
+await booking('in29', 'tutor'); // el tutor también entrena
+await booking('ago5', 'alu2'); // reserva de alguien que no es hijo del tutor
 await booking('closed', 'alu3');
+await booking('now', 'alu3');
+await booking('now', 'alu2'); // para la carrera con la anulación
+// alu2 tenía check-in en ago11 con una reserva que luego anuló y rehízo: el presente cuelga de la anulada.
+const { rows: [old] } = await servicePool.query(
+  `INSERT INTO bookings (session_id, student_id, booked_by, status, cancel_reason, cancelled_at)
+   VALUES ($1, $2, $2, 'cancelled', 'student', now()) RETURNING id`, [S.ago11, U.alu2]);
+await servicePool.query(`INSERT INTO attendance (session_id, student_id, booking_id, status, method, recorded_by)
+  VALUES ($1, $2, $3, 'present', 'qr', $2)`, [S.ago11, U.alu2, old.id]);
+await booking('ago11', 'alu2');
 
 const code = () => qrCode(qrStep(30)); // checkin_qr_seconds por defecto
 const attendanceOf = async (c, bookingId) => {
@@ -123,31 +134,78 @@ try {
     await run('check-in: QR inválido → 400; sin candidatas o reserva ajena → 404', async () => {
       await as(c, U.alu1, 'alumno');
       await rejects(c, () => checkIn(c, { code: 'x'.repeat(16) }), 400, 'invalid_qr');
+      await as(c, U.prof, 'alumno'); // sin reservas
+      await rejects(c, () => checkIn(c, { code: code() }), 404, 'no_candidates');
       await as(c, U.alu2, 'alumno');
-      await rejects(c, () => checkIn(c, { code: code() }), 404, 'no_candidates');
-      await rejects(c, () => checkIn(c, { code: code(), bookingId: B['in29:alu1'] }), 404, 'no_candidates');
-      await as(c, U.alu3, 'alumno'); // su sesión tiene la lista cerrada
-      await rejects(c, () => checkIn(c, { code: code() }), 404, 'no_candidates');
+      await rejects(c, () => checkIn(c, { code: code(), bookingIds: [B['in29:alu1']] }), 404, 'no_candidates');
+      await as(c, U.alu3, 'alumno'); // esa sesión tiene la lista cerrada
+      await rejects(c, () => checkIn(c, { code: code(), bookingIds: [B['closed:alu3']] }), 404, 'no_candidates');
     });
 
-    await run('check-in: una candidata se marca (solo la de la ventana) y no se repite', async () => {
+    await run('check-in: una candidata se marca (solo la de la ventana); reintento → ya registrado con su hora', async () => {
       await as(c, U.alu1, 'alumno');
       const r = await checkIn(c, { code: code() });
-      assert.deepEqual([r.status, r.booking_id], ['checked_in', B['in29:alu1']]);
+      assert.equal(r.status, 'done');
+      assert.deepEqual(r.results.map((x) => [x.booking_id, x.already]), [[B['in29:alu1'], false]]);
+      assert.ok(r.results[0].checked_in_at);
       assert.deepEqual(await attendanceOf(c, B['in29:alu1']), { status: 'present', method: 'qr', recorded_by: U.alu1 });
       for (const s of ['in31', 'ago11']) assert.equal(await attendanceOf(c, B[`${s}:alu1`]), undefined);
       await as(c, U.alu1, 'alumno');
-      await rejects(c, () => checkIn(c, { code: code() }), 404, 'no_candidates');
+      const again = await checkIn(c, { code: code() });
+      assert.equal(again.status, 'done');
+      assert.deepEqual(again.results.map((x) => [x.booking_id, x.already, x.checked_in_at]),
+        [[B['in29:alu1'], true, r.results[0].checked_in_at]]);
+      const { rows } = await c.query(`SELECT count(*)::int AS n FROM attendance WHERE booking_id = $1`, [B['in29:alu1']]);
+      assert.equal(rows[0].n, 1);
     });
 
-    await run('check-in del tutor: varias candidatas del hijo → elegir; queda recorded_by = tutor', async () => {
+    await run('tutor: varias candidatas (él y su hijo) → elegir; marca a ambos de una vez, recorded_by = tutor', async () => {
       await as(c, U.tutor, 'tutor');
       const r = await checkIn(c, { code: code() });
       assert.equal(r.status, 'choose');
-      assert.deepEqual(r.candidates.map((x) => x.booking_id).sort(), [B['ago5:child'], B['in29:child']].sort());
-      const ok = await checkIn(c, { code: code(), bookingId: B['ago5:child'] });
-      assert.equal(ok.status, 'checked_in');
+      assert.deepEqual(r.candidates.map((x) => x.booking_id).sort(),
+        [B['ago5:child'], B['in29:child'], B['in29:tutor']].sort());
+      assert.ok(r.candidates.every((x) => x.checked_in_at === null));
+      const ok = await checkIn(c, { code: code(), bookingIds: [B['ago5:child'], B['in29:tutor']] });
+      assert.equal(ok.status, 'done');
+      assert.deepEqual(ok.results.map((x) => [x.booking_id, x.already]).sort(),
+        [[B['ago5:child'], false], [B['in29:tutor'], false]].sort());
       assert.deepEqual(await attendanceOf(c, B['ago5:child']), { status: 'present', method: 'qr', recorded_by: U.tutor });
+      assert.deepEqual(await attendanceOf(c, B['in29:tutor']), { status: 'present', method: 'qr', recorded_by: U.tutor });
+    });
+
+    await run('tutor: al re-escanear no se marca solo a nadie; repetir la elección → ya registrado', async () => {
+      await as(c, U.tutor, 'tutor');
+      const r = await checkIn(c, { code: code() }); // queda in29:child pendiente: se pregunta, no se marca
+      assert.equal(r.status, 'choose');
+      assert.equal(await attendanceOf(c, B['in29:child']), undefined);
+      await as(c, U.tutor, 'tutor');
+      const done = Object.fromEntries(r.candidates.map((x) => [x.booking_id, !!x.checked_in_at]));
+      assert.deepEqual(done, { [B['ago5:child']]: true, [B['in29:tutor']]: true, [B['in29:child']]: false });
+      const again = await checkIn(c, { code: code(), bookingIds: [B['ago5:child'], B['ago5:child']] });
+      assert.deepEqual(again.results.map((x) => [x.booking_id, x.already]), [[B['ago5:child'], true]]);
+    });
+
+    await run('tutor: reserva de alguien que no es su hijo → 404 y no se marca nada', async () => {
+      await as(c, U.tutor, 'tutor');
+      await rejects(c, () => checkIn(c, { code: code(), bookingIds: [B['ago5:alu2']] }), 404, 'no_candidates');
+      await rejects(c, () => checkIn(c, { code: code(), bookingIds: [B['in29:child'], B['ago5:alu2']] }), 404, 'no_candidates');
+      assert.equal(await attendanceOf(c, B['in29:child']), undefined);
+      assert.equal(await attendanceOf(c, B['ago5:alu2']), undefined);
+    });
+
+    await run('reserva anulada y rehecha: el presente previo cuenta (ya registrado, no pendiente)', async () => {
+      await as(c, U.admin, 'admin');
+      await updateCheckinSettings(c, { closes_minutes: 12 }); // ago11 entra en la ventana
+      await as(c, U.alu2, 'alumno');
+      const r = await checkIn(c, { code: code() }); // ago5 pendiente + ago11 ya registrado → elegir
+      assert.equal(r.status, 'choose');
+      assert.ok(r.candidates.find((x) => x.booking_id === B['ago11:alu2']).checked_in_at);
+      await as(c, U.alu2, 'alumno');
+      const again = await checkIn(c, { code: code(), bookingIds: [B['ago11:alu2']] });
+      assert.deepEqual(again.results.map((x) => x.already), [true]);
+      await as(c, U.admin, 'admin');
+      await updateCheckinSettings(c, { closes_minutes: 10 });
     });
 
     await run('profesor ve el método en su lista', async () => {
@@ -162,9 +220,56 @@ try {
       assert.equal(r.opens_minutes, 32);
       await rejects(c, () => updateCheckinSettings(c, { closes_minutes: 0 }), 400, 'invalid_field');
       await as(c, U.alu1, 'alumno'); // in31 entra en la ventana
-      assert.equal((await checkIn(c, { code: code() })).booking_id, B['in31:alu1']);
+      const r2 = await checkIn(c, { code: code() }); // in29 ya registrado + in31 nuevo → elegir
+      assert.equal(r2.status, 'choose');
+      const ok = await checkIn(c, { code: code(), bookingIds: [B['in31:alu1']] });
+      assert.deepEqual(ok.results.map((x) => [x.booking_id, x.already]), [[B['in31:alu1'], false]]);
     });
   }, { commit: false });
+
+  await run('doble envío concurrente: una sola fila; uno marca y el otro responde ya registrado', async () => {
+    const twice = await Promise.all([1, 2].map(() =>
+      withRls({ uid: U.alu3, role: 'alumno' }, (c) => checkIn(c, { code: code(), bookingIds: [B['now:alu3']] }))));
+    assert.deepEqual(twice.map((r) => r.results[0].already).sort(), [false, true]);
+    assert.equal(twice[0].results[0].checked_in_at, twice[1].results[0].checked_in_at);
+    const { rows } = await servicePool.query(`SELECT count(*)::int AS n FROM attendance WHERE booking_id = $1`, [B['now:alu3']]);
+    assert.equal(rows[0].n, 1);
+  });
+
+  await run('anulación concurrente: espera al bloqueo de la sesión y, tras ella, no marca la reserva anulada', async () => {
+    const other = await servicePool.connect();
+    try {
+      await other.query('BEGIN'); // como cancel_booking: sesión bloqueada y luego la reserva anulada
+      await other.query(`SELECT 1 FROM class_sessions WHERE id = $1 FOR UPDATE`, [S.now]);
+      await other.query(`UPDATE bookings SET status = 'cancelled', cancel_reason = 'student', cancelled_at = now() WHERE id = $1`,
+        [B['now:alu2']]);
+      const pending = withRls({ uid: U.alu2, role: 'alumno' }, (c) => checkIn(c, { code: code(), bookingIds: [B['now:alu2']] }))
+        .then(() => 'ok', (e) => e.code);
+      await new Promise((r) => setTimeout(r, 300)); // que el check-in llegue a esperar el bloqueo
+      await other.query('COMMIT');
+      assert.equal(await pending, 'no_candidates');
+      const { rows } = await servicePool.query(`SELECT 1 FROM attendance WHERE booking_id = $1`, [B['now:alu2']]);
+      assert.equal(rows.length, 0);
+    } finally {
+      other.release();
+    }
+  });
+
+  await run('POST /checkin: booking_id (API anterior) → 400, booking_ids mal formado → 400', async () => {
+    const { startApp } = await import('./lib/app-server.js');
+    const { signToken } = await import('../src/services/jwt.js');
+    const app = await startApp();
+    try {
+      const token = signToken({ sub: U.alu1, role: 'alumno' });
+      for (const body of [{ code: code(), booking_id: B['in29:alu1'] }, { code: code(), booking_ids: [] },
+        { code: code(), booking_ids: ['x'] }, { code: code(), booking_ids: B['in29:alu1'] }]) {
+        const r = await app.http('POST', '/checkin', { token, body });
+        assert.deepEqual([r.status, r.body?.error?.code ?? r.body?.code], [400, 'invalid_field'], JSON.stringify(body));
+      }
+    } finally {
+      await app.close();
+    }
+  });
 } finally {
   const sessions = Object.values(S);
   await servicePool.query(`DELETE FROM bookings WHERE session_id = ANY($1::uuid[])`, [sessions]);

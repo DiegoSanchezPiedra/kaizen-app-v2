@@ -240,7 +240,7 @@ async function matrix() {
     assert.equal((await A('POST', '/bookings', { session_id: S.now })).status, 201);
     const ci = await A('POST', '/checkin', { code: qrCode(qrStep(30)) });
     assert.equal(ci.status, 200, JSON.stringify(ci.body));
-    assert.equal(ci.body.status, 'checked_in');
+    assert.equal(ci.body.status, 'done');
     const reg = await A('POST', `/events/${E.free}/registrations`);
     assert.equal(reg.status, 201, JSON.stringify(reg.body));
     assert.equal((await A('DELETE', `/events/registrations/${reg.body.registration.id}`)).status, 204);
