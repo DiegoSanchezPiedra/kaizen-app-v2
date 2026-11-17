@@ -13,13 +13,18 @@ const LARA = hijo('c-lara', 'Lara')
 const NICO = hijo('c-nico', 'Nico')
 const CUOTA_AL_DIA = { id: 's-1', status: 'active', plan: { id: 1, name: 'Plan', price_cents: 3000, max_disciplines: 1 }, disciplines: [], current_period_end: '2026-12-01' }
 
-type Opciones = { me?: object; role?: string; hijos?: object[]; missing?: string[]; subscription?: object | null }
+type Opciones = { me?: object; role?: string; hijos?: object[]; missing?: string[]; subscription?: object | null; patch?: { status: number; json: object } }
 
 async function abrir(page: Page, url: string, o: Opciones = {}) {
   await page.addInitScript((t) => localStorage.setItem('kz.token', t), token(o.role ?? 'tutor'))
+  const patches: unknown[] = [] // cuerpos de los PATCH /me recibidos
   await page.route('**/api/**', async (r) => {
     const u = new URL(r.request().url()).pathname.replace(/^\/api/, '')
     const json = (j: unknown, status = 200) => r.fulfill({ status, json: j })
+    if (r.request().method() === 'PATCH' && u === '/me') {
+      patches.push(r.request().postDataJSON())
+      return o.patch ? json(o.patch.json, o.patch.status) : json(o.me ?? ME)
+    }
     if (r.request().method() !== 'GET') return json({})
     if (u === '/me') return json(o.me ?? ME)
     if (u === '/me/children') return o.role === 'alumno' ? json({ code: 'insufficient_role' }, 403) : json({ children: o.hijos ?? [LARA] })
@@ -28,6 +33,7 @@ async function abrir(page: Page, url: string, o: Opciones = {}) {
     return json({})
   })
   await page.goto(url)
+  return patches
 }
 
 const fila = (page: Page, nombre: string) => page.getByRole('link', { name: new RegExp(`^${nombre}`) })
@@ -110,4 +116,41 @@ test('el Tab recorre las filas en el orden en que se ven', async ({ page }) => {
     if (n) visto.push(n)
   }
   expect(visto).toEqual(FILAS)
+})
+
+test('Mis datos: el email es texto fijo, no un campo', async ({ page }) => {
+  await abrir(page, '/account/data')
+  await expect(page.getByText('ana@example.invalid', { exact: true })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Email' })).toHaveCount(0)
+  await expect(page.getByRole('textbox')).toHaveCount(1) // solo el nombre
+})
+
+test('Mis datos: guardar sin cambios no envía nada y vuelve a Cuenta', async ({ page }) => {
+  const patches = await abrir(page, '/account/data')
+  await page.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page).toHaveURL(/\/account$/)
+  expect(patches).toEqual([])
+})
+
+test('Mis datos: cambiar el nombre lo envía y vuelve a Cuenta', async ({ page }) => {
+  const patches = await abrir(page, '/account/data')
+  await page.getByRole('textbox', { name: 'Nombre y apellidos' }).fill('Ana Pérez López')
+  await page.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page).toHaveURL(/\/account$/)
+  expect(patches).toEqual([{ display_name: 'Ana Pérez López' }])
+})
+
+test('Mis datos: el servidor rechaza el nombre y el error queda en el campo con el foco', async ({ page }) => {
+  await abrir(page, '/account/data', { patch: { status: 400, json: { code: 'invalid_field_type' } } })
+  const nombre = page.getByRole('textbox', { name: 'Nombre y apellidos' })
+  await nombre.fill('Ana Pérez López')
+  await page.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Escribe tu nombre.')).toBeVisible()
+  await expect(nombre).toHaveAttribute('aria-invalid', 'true')
+  await expect(nombre).toBeFocused()
+})
+
+test('Mis datos: un alumno sin fecha de nacimiento la ve', async ({ page }) => {
+  await abrir(page, '/account/data', { role: 'alumno', me: { ...ME, role: 'alumno', birth_date: null, can_create_children: false } })
+  await expect(page.getByRole('textbox', { name: 'Fecha de nacimiento' })).toBeVisible()
 })

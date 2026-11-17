@@ -218,7 +218,9 @@ export function DataPage() {
   return (
     <Page title="Mis datos">
       <Back />
-      <MyDataForm showEmail onSaved={() => void navigate('/account')} />
+      <div className="rounded-2xl border bg-card p-4">
+        <MyDataForm showEmail="text" onSaved={() => void navigate('/account')} onUnchanged={() => void navigate('/account')} />
+      </div>
     </Page>
   )
 }
