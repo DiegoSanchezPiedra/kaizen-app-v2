@@ -1,11 +1,12 @@
 import { useMutation } from '@tanstack/react-query'
 import type React from 'react'
-import { LockIcon, PauseIcon, UsersIcon, WalletIcon } from 'lucide-react'
+import { ChevronRightIcon, CircleAlertIcon, CircleCheckIcon, ClockIcon, ExternalLinkIcon, ListChecksIcon, LockIcon, PauseIcon, RepeatIcon, UsersIcon, WalletIcon } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate, type LinkProps } from 'react-router'
 import { Back, Kv, Note, OptionCard, StickyFooter, Tag } from '@/components/billing-bits'
 import { usePortal } from '@/hooks/use-portal'
 import { bankConfirms } from '@/lib/stripe'
+import { CARD } from '@/components/child-access'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Page } from '@/components/page'
 import { PauseSheet } from '@/components/pause-sheet'
@@ -36,7 +37,9 @@ import {
   visiblePlans,
 } from '@/lib/billing'
 import { errorText } from '@/lib/errors'
-import { formatDeadline, formatShortDate } from '@/lib/format'
+import { formatDeadline, formatEuros, formatShortDate } from '@/lib/format'
+import { cn } from '@/lib/utils'
+import { Spinner } from '@/components/ui/spinner'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
 import { path, refreshBilling, refreshBookings, useDisciplines, usePlans, useSubscription } from '@/lib/queries'
 import { useSession } from '@/lib/session'
@@ -47,11 +50,63 @@ import type { Subscription } from '@/lib/types'
 type Props = { subject: Subject | null; profileId?: string }
 
 const names = (xs: { name: string }[]) => xs.map((x) => x.name).join(', ').replace(/, ([^,]*)$/, ' y $1')
-const BADGE: Record<string, [string, 'success' | 'warning' | 'error' | 'secondary']> = {
-  active: ['Activa', 'success'],
-  past_due: ['Cobro pendiente', 'warning'],
-  unpaid: ['Impagada', 'error'],
-  incomplete: ['Pendiente de pago', 'secondary'],
+const BADGE: Record<string, [string, 'success' | 'warning' | 'error' | 'secondary', typeof ClockIcon]> = {
+  active: ['Activa', 'success', CircleCheckIcon],
+  past_due: ['Cobro pendiente', 'warning', CircleAlertIcon],
+  unpaid: ['Impagada', 'error', CircleAlertIcon],
+  incomplete: ['Pendiente de pago', 'secondary', ClockIcon],
+}
+
+// Filas de acción de las tarjetas, como las de Cuenta: 56 px, chapa con icono, título, pista y chevrón.
+const ROW_BASE = 'flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left'
+const ROW = cn(
+  ROW_BASE,
+  'outline-none transition-colors duration-150 ease-(--ease-out) hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset active:bg-accent',
+)
+const CHEVRON = <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+const ROWS = '-mx-4 -mb-4 divide-y border-t'
+
+function RowBody({ icon: Icon, label, hint, end, locked }: { icon: typeof ClockIcon; label: string; hint?: string; end?: React.ReactNode; locked?: boolean }) {
+  return (
+    <>
+      <span
+        className={cn('grid size-9 shrink-0 place-items-center rounded-lg', locked ? 'bg-muted text-muted-foreground' : 'bg-primary/8 text-link dark:bg-primary/16')}
+        aria-hidden="true"
+      >
+        <Icon className="size-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className={cn('block font-semibold', locked && 'text-muted-foreground')}>{label}</span>
+        {hint && <span className="block text-[13px] text-pretty text-muted-foreground">{hint}</span>}
+      </span>
+      {end}
+    </>
+  )
+}
+
+// Acción de la tarjeta: enlace, botón o, si `lock` trae el motivo, fila sin enlace con candado y el porqué.
+function ActionRow({ to, onClick, icon, label, hint, lock }: { to?: LinkProps['to']; onClick?: () => void; icon: typeof ClockIcon; label: string; hint?: string; lock?: string | null }) {
+  if (lock) {
+    return (
+      <li className={ROW_BASE} data-locked="">
+        <RowBody icon={LockIcon} label={label} hint={lock} locked />
+      </li>
+    )
+  }
+  const body = <RowBody icon={icon} label={label} hint={hint} end={CHEVRON} />
+  return (
+    <li>
+      {to ? (
+        <Link to={to} className={ROW}>
+          {body}
+        </Link>
+      ) : (
+        <button type="button" className={ROW} onClick={onClick}>
+          {body}
+        </button>
+      )}
+    </li>
+  )
 }
 
 // Los cambios de plan los aplica el webhook: se espera un poco a verlos antes de volver a Mi cuota.
@@ -64,15 +119,6 @@ async function waitForSubscription(profileId: string | undefined, done: (s: Subs
 }
 
 // ── Mi cuota ─────────────────────────────────────────────────────────────
-
-function Lock({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="flex items-start gap-2 text-sm text-muted-foreground">
-      <LockIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-      <span>{children}</span>
-    </p>
-  )
-}
 
 function PayerChangeNote({ s, me, price, name }: { s: Subscription; me?: string; price: string; name?: string }) {
   const pc = s.payer_change
@@ -114,12 +160,8 @@ function PayerChangeNote({ s, me, price, name }: { s: Subscription; me?: string;
 function PayerSheet() {
   return (
     <Sheet>
-      <SheetTrigger render={<Button variant="ghost" size="xl" className="justify-start" />}>
-        <UsersIcon />
-        <span className="flex flex-col items-start">
-          <span className="font-semibold">Que pague otra persona</span>
-          <span className="text-[13px] font-normal text-muted-foreground">Lo cambia la academia</span>
-        </span>
+      <SheetTrigger render={<button type="button" className={ROW} />}>
+        <RowBody icon={UsersIcon} label="Que pague otra persona" hint="Lo cambia la academia" end={CHEVRON} />
       </SheetTrigger>
       <SheetPopup side="bottom">
         <SheetHeader>
@@ -146,19 +188,27 @@ function PayerSheet() {
 function Payments() {
   const portal = usePortal()
   return (
-    <section aria-labelledby="pay" className="flex flex-col gap-1 rounded-2xl border bg-card p-2">
-      <h2 id="pay" className="px-2 pt-2 text-sm font-semibold text-muted-foreground">
+    <section aria-labelledby="pay" className={cn('enter-soft overflow-hidden', CARD)}>
+      <h2 id="pay" className="text-lg font-semibold">
         Pagos
       </h2>
-      <Button variant="ghost" size="xl" className="justify-start" loading={portal.busy} onClick={portal.open}>
-        <WalletIcon />
-        <span className="flex flex-col items-start">
-          <span className="font-semibold">Gestionar pagos</span>
-          <span className="text-[13px] font-normal text-muted-foreground">Tarjeta y recibos · se abre Stripe</span>
-        </span>
-      </Button>
-      {portal.notPayer && <p className="px-3 pb-2 text-sm text-muted-foreground">{errorText('no_billing_account')}</p>}
-      <PayerSheet />
+      <ul className={ROWS}>
+        <li>
+          {/* Cargando no se deshabilita: el foco se queda en el botón mientras se abre Stripe. */}
+          <button type="button" className={ROW} aria-disabled={portal.busy} aria-busy={portal.busy} onClick={portal.busy ? undefined : portal.open}>
+            <RowBody
+              icon={WalletIcon}
+              label="Gestionar pagos"
+              hint="Tarjeta y recibos, en Stripe"
+              end={portal.busy ? <Spinner className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" role={undefined} aria-label={undefined} /> : <ExternalLinkIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
+            />
+          </button>
+          {portal.notPayer && <p className="px-4 pb-3 text-sm text-muted-foreground">{errorText('no_billing_account')}</p>}
+        </li>
+        <li>
+          <PayerSheet />
+        </li>
+      </ul>
     </section>
   )
 }
@@ -277,7 +327,7 @@ function Billing({ subject, profileId }: Props) {
   const { withSubject } = useSubject()
   const subscription = useSubscription(profileId)
   const portal = usePortal()
-  const name = subjectName(subject)
+  const name = subjectName(subject)?.split(' ')[0]
   const [pausing, setPausing] = useState(false)
   const contract = (
     <Button size="xl" render={<Link to={withSubject('/billing/contract')} />}>
@@ -291,6 +341,7 @@ function Billing({ subject, profileId }: Props) {
           return (
             <EmptyState
               icon={<WalletIcon />}
+              plainTitle
               title={name ? `${name} aún no tiene cuota` : 'Aún no tienes cuota'}
               text={`${name ? 'Para reservar sus sesiones necesita una cuota.' : 'Para reservar sesiones necesitas una cuota.'} Elige plan y disciplinas; se paga con tarjeta en Stripe.`}
               action={contract}
@@ -301,6 +352,7 @@ function Billing({ subject, profileId }: Props) {
           return (
             <EmptyState
               icon={<WalletIcon />}
+              plainTitle
               title={`${name ? `La cuota de ${name}` : 'Tu cuota'} terminó${s.current_period_end ? ` el ${formatShortDate(s.current_period_end)}` : ''}`}
               text="Para volver a reservar, contrata una cuota nueva. Se paga con tarjeta en Stripe."
               action={contract}
@@ -311,7 +363,8 @@ function Billing({ subject, profileId }: Props) {
         const discLocked = disciplineLocked(s)
         const pLock = pauseLock(s)
         const withChanges = s.plan.max_disciplines !== null
-        const [label, variant] = s.cancel_at_period_end && isLive(s.status) && s.status === 'active' ? ['Termina pronto', 'warning' as const] : (BADGE[s.status] ?? ['', 'secondary' as const])
+        const [label, variant, BadgeIcon] =
+          s.cancel_at_period_end && isLive(s.status) && s.status === 'active' ? (['Termina pronto', 'warning', CircleAlertIcon] as const) : (BADGE[s.status] ?? ['', 'secondary', ClockIcon])
         const portalAction = (
           <Button size="lg" variant="outline" loading={portal.busy} onClick={portal.open}>
             Gestionar pagos
@@ -327,7 +380,7 @@ function Billing({ subject, profileId }: Props) {
                 </Note>
               )}
               {s.status === 'unpaid' && (
-                <Note kind="error" title="Hay un cobro pendiente" action={!portal.notPayer && portalAction}>
+                <Note kind="error" title="La cuota está impagada" action={!portal.notPayer && portalAction}>
                   La cuota está impagada: hasta que se pague no cubre las sesiones.{portal.notPayer && ` ${errorText('no_billing_account')}`}
                 </Note>
               )}
@@ -339,16 +392,24 @@ function Billing({ subject, profileId }: Props) {
               <ScheduledNote s={s} profileId={profileId} name={name} />
               <PauseNote s={s} profileId={profileId} name={name} />
               <PayerChangeNote s={s} me={session?.id} price={perMonth(s.plan.price_cents)} name={name} />
-              <section aria-labelledby="plan" className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
+              <section aria-labelledby="plan" className={cn('enter-soft', CARD)}>
                 <div className="flex items-center justify-between gap-3">
-                  <h2 id="plan" className="text-sm font-semibold text-muted-foreground">
-                    Plan
+                  <h2 id="plan" className="text-lg font-semibold">
+                    {name ? `Cuota de ${name}` : 'Tu cuota'}
                   </h2>
-                  {label && <Tag variant={variant === 'error' ? 'warning' : variant}>{label}</Tag>}
+                  {label && (
+                    <Tag variant={variant === 'error' ? 'warning' : variant}>
+                      <BadgeIcon aria-hidden="true" />
+                      {label}
+                    </Tag>
+                  )}
                 </div>
-                <div>
-                  <p className="font-heading text-[28px] leading-tight font-bold">{s.plan.name}</p>
-                  <p className="text-sm text-muted-foreground">{perMonth(s.plan.price_cents)} · impuestos incluidos</p>
+                <div className="flex flex-col gap-1">
+                  <p className="text-[17px] leading-snug font-semibold">{s.plan.name}</p>
+                  <p className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-heading text-[32px] leading-none font-bold tabular-nums">{formatEuros(s.plan.price_cents)}</span>
+                    <span className="text-sm text-muted-foreground">al mes · impuestos incluidos</span>
+                  </p>
                 </div>
                 <ul className="flex flex-wrap gap-1.5" aria-label="Disciplinas">
                   {(withChanges ? s.disciplines : [{ id: 'all', name: 'Todas las disciplinas' }]).map((d) => (
@@ -357,51 +418,33 @@ function Billing({ subject, profileId }: Props) {
                     </li>
                   ))}
                 </ul>
-                <Kv
-                  rows={[
-                    ...(s.current_period_end ? ([[s.cancel_at_period_end ? 'Termina' : 'Se renueva', formatShortDate(s.current_period_end)]] as [string, string][]) : []),
-                    ...(withChanges && s.discipline_changes_left != null
-                      ? ([['Cambios de disciplina', `${changesLeft(s.discipline_changes_left)} este periodo`]] as [string, string][])
-                      : []),
-                  ]}
-                />
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  {lock ? (
-                    <Button variant="outline" size="xl" disabled>
-                      <LockIcon />
-                      Cambiar de plan
-                    </Button>
-                  ) : (
-                    <Button variant="outline" size="xl" render={<Link to={withSubject('/billing/plan')} />}>
-                      Cambiar de plan
-                    </Button>
+                {s.current_period_end && <Kv rows={[[s.cancel_at_period_end ? 'Termina' : 'Se renueva', formatShortDate(s.current_period_end)]]} />}
+              </section>
+              <section aria-labelledby="changes" className={cn('enter-soft overflow-hidden', CARD)}>
+                <h2 id="changes" className="text-lg font-semibold">
+                  Cambios
+                </h2>
+                <ul className={ROWS}>
+                  <ActionRow to={withSubject('/billing/plan')} icon={RepeatIcon} label="Cambiar de plan" hint="Subir se aplica ya; bajar, al renovar" lock={lock} />
+                  {withChanges && (
+                    <ActionRow
+                      to={withSubject('/billing/discipline')}
+                      icon={ListChecksIcon}
+                      label="Cambiar de disciplina"
+                      hint={s.discipline_changes_left != null ? `${changesLeft(s.discipline_changes_left)} este periodo` : undefined}
+                      lock={discLocked ? (lock ?? 'Ahora no se pueden cambiar las disciplinas.') : null}
+                    />
                   )}
-                  {withChanges &&
-                    (discLocked ? (
-                      <Button variant="outline" size="xl" disabled>
-                        <LockIcon />
-                        Cambiar de disciplina
-                      </Button>
-                    ) : (
-                      <Button variant="outline" size="xl" render={<Link to={withSubject('/billing/discipline')} />}>
-                        Cambiar de disciplina
-                      </Button>
-                    ))}
-                </div>
-                {s.pause_settings?.price_cents != null && !s.pause &&
-                  (pLock ? (
-                    <Button variant="outline" size="xl" disabled>
-                      <LockIcon />
-                      Pausar membresía
-                    </Button>
-                  ) : (
-                    <Button variant="outline" size="xl" onClick={() => setPausing(true)}>
-                      <PauseIcon />
-                      Pausar membresía
-                    </Button>
-                  ))}
-                {lock && <Lock>{lock}</Lock>}
-                {pLock && s.pause_settings?.price_cents != null && !s.pause && <Lock>{pLock}</Lock>}
+                  {s.pause_settings?.price_cents != null && !s.pause && (
+                    <ActionRow
+                      onClick={() => setPausing(true)}
+                      icon={PauseIcon}
+                      label="Pausar membresía"
+                      hint={`Mantenimiento: ${perMonth(s.pause_settings.price_cents)}`}
+                      lock={pLock}
+                    />
+                  )}
+                </ul>
                 {pausing && (
                   <PauseSheet
                     s={s}
