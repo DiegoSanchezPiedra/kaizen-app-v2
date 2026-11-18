@@ -42,7 +42,8 @@ const NOTICE_LABEL: Record<string, string> = {
   'notice.payer_change_expired': 'Un cambio de pagador ha caducado',
   'notice.event_refund_failed': 'Stripe ha rechazado el reembolso de una inscripción: reintenta el reembolso desde el evento',
   'notice.clock_correction_requested': 'Un profesor ha pedido una corrección de su jornada',
-  'notice.clock_open': 'Un profesor lleva más de 16 horas con la jornada abierta',
+  // Sin el número de horas: el umbral es OPEN_HOURS del servidor (src/services/clock.js) y el aviso solo existe al pasarlo.
+  'notice.clock_open': 'Un profesor no ha fichado la salida y su jornada sigue abierta',
 }
 export const noticeLabel = (action: string): string => NOTICE_LABEL[action] ?? action
 // Los que piden actuar ya (dinero o una jornada sin cerrar): llevan icono de alerta y «Revisar».
