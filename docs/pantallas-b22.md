@@ -85,7 +85,7 @@
 - **Avisos** sigue con dos pestañas (`?tab=academy|deliveries`; `deliveries` es lo que enlaza el Inicio). «Entregas
   fallidas» lleva la cifra de los últimos 30 días, la misma consulta que «Requiere atención» del Inicio. Es un registro:
   sin «leído», orden cronológico.
-- **Lo grave** (riesgo de Stripe, reembolso rechazado, jornada abierta más de 16 h; `noticeUrgent` en `lib/admin.ts`):
+- **Lo grave** (riesgo de Stripe, reembolso rechazado, jornada abierta pasado `OPEN_HOURS`; `noticeUrgent` en `lib/admin.ts`):
   icono de alerta y etiqueta «Revisar» con texto, sin sacarlo del orden. El resto, campana atenuada.
 - **Entregas fallidas**: el texto fijo de b19 se queda. Hasta `xl`, una fila por entrega (destinatario → ficha, canal con
   icono y texto, aviso · fecha, «N intentos · error» entero); la tabla solo desde `xl`, con el error partido en líneas.
@@ -173,10 +173,10 @@
 
 - El admin viene a **revisar correcciones**; cerrar e imprimir el mes es secundario.
 - **Lista**: «N profesores empleados» y, en cada fila (enlace de 64 px con chevron), su estado con icono y texto:
-  «N correcciones pendientes» (aviso), «Jornada abierta desde el 17 nov a las 8:00» (aviso, más de 16 h, como «Lo grave» del
-  Inicio), «En jornada desde las 16:30» o «Al día» (atenuados). Arriba los que tienen pendientes o una jornada de más de 16 h;
-  luego, por nombre. `GET /admin/clock/employees` trae `pending`, `open_since` y `open_late` (cambio aditivo; las 16 h
-  las pone la API, el mismo umbral que `notice.clock_open`). Coste medido: ~9 ms por profesor con 4 años de fichajes.
+  «N correcciones pendientes» (aviso), «Jornada abierta desde el 17 nov a las 8:00» (aviso, pasado `OPEN_HOURS`, como «Lo grave» del
+  Inicio), «En jornada desde las 16:30» o «Al día» (atenuados). Arriba los que tienen pendientes o una jornada que pasa el umbral;
+  luego, por nombre. `GET /admin/clock/employees` trae `pending`, `open_since` y `open_late` (cambio aditivo; el umbral
+  lo pone la API con `OPEN_HOURS`, el mismo que `notice.clock_open`; el texto del aviso no nombra las horas). Coste medido: ~9 ms por profesor con 4 años de fichajes.
 - **Mes**: el nombre (`h2`, con Empleado/Autónomo) va encima de MonthNav. «Por revisar · N» es lo primero del lateral (en
   móvil, lo primero de la página); las aplicadas y rechazadas van en «Correcciones del mes», después de las acciones. Aplicar
   con confirmación (avisa por email); Rechazar, con motivo obligatorio.

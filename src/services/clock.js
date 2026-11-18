@@ -15,6 +15,7 @@ export const KINDS = ['in', 'out', 'pause_start', 'pause_end'];
 // Estado → fichajes que admite; fichaje → estado al que lleva.
 const NEXT = { out: ['in'], in: ['out', 'pause_start'], paused: ['pause_end'] };
 const AFTER = { in: 'in', out: 'out', pause_start: 'paused', pause_end: 'in' };
+// Jornada abierta: la única fuente del umbral (aviso nocturno y open_late). Docs, comentarios y textos lo nombran sin el número.
 const OPEN_HOURS = 16;
 const KEEP_YEARS = 4;
 
@@ -384,7 +385,7 @@ export async function exportCsv(client, { profileId, month: m }) {
 // ── Tarea nocturna ───────────────────────────────────────────────────────────
 
 /**
- * Jornada abierta: la última entrada de un profesor sigue sin salida a las 16 h → aviso al profesor (email) y al
+ * Jornada abierta: la última entrada de un profesor sigue sin salida pasadas OPEN_HOURS horas → aviso al profesor (email) y al
  * panel. Una vez por entrada (idempotente). Devuelve cuántos avisos creó.
  */
 export async function warnOpenDays(db = servicePool) {
