@@ -134,3 +134,13 @@ export type Tablet = {
 }
 export type TabletState = 'waiting' | 'linked' | 'revoked'
 export const tabletState = (t: Pick<Tablet, 'linked_at' | 'revoked_at'>): TabletState => (t.revoked_at ? 'revoked' : t.linked_at ? 'linked' : 'waiting')
+
+// Lo que ve el admin: la tablet pide el QR cada pocos segundos, así que más de 24 h sin verse (noches y domingos caben) es que se cayó.
+export const OFFLINE_MS = 24 * 3600_000
+export type TabletStatus = 'waiting' | 'expired' | 'linked' | 'offline' | 'revoked'
+export function tabletStatus(t: Pick<Tablet, 'linked_at' | 'revoked_at' | 'link_expires_at' | 'last_seen_at'>, now: number): TabletStatus {
+  const s = tabletState(t)
+  if (s === 'waiting') return t.link_expires_at && new Date(t.link_expires_at).getTime() < now ? 'expired' : 'waiting'
+  if (s === 'linked') return now - new Date(t.last_seen_at ?? t.linked_at!).getTime() > OFFLINE_MS ? 'offline' : 'linked'
+  return s
+}

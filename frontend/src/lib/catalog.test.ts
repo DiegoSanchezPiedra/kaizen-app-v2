@@ -14,6 +14,7 @@ import {
   perPeriodBody,
   rankingTopBody,
   tabletState,
+  tabletStatus,
   type AgreementDoc,
 } from '@/lib/catalog'
 
@@ -121,6 +122,17 @@ describe('estado de una tablet', () => {
     expect(tabletState({ linked_at: '2026-11-01T10:00:00Z', revoked_at: null })).toBe('linked')
     expect(tabletState({ linked_at: '2026-11-01T10:00:00Z', revoked_at: '2026-11-02T10:00:00Z' })).toBe('revoked')
     expect(tabletState({ linked_at: null, revoked_at: '2026-11-02T10:00:00Z' })).toBe('revoked')
+  })
+  it('lo que ve el admin: código caducado y sin conexión a más de 24 h', () => {
+    const now = Date.parse('2026-11-18T17:10:00Z')
+    const t = { linked_at: null, revoked_at: null, link_expires_at: null, last_seen_at: null }
+    expect(tabletStatus({ ...t, link_expires_at: '2026-11-18T17:40:00Z' }, now)).toBe('waiting')
+    expect(tabletStatus({ ...t, link_expires_at: '2026-11-18T17:00:00Z' }, now)).toBe('expired')
+    const linked = { ...t, linked_at: '2026-10-01T10:00:00Z' }
+    expect(tabletStatus({ ...linked, last_seen_at: '2026-11-17T17:10:00Z' }, now)).toBe('linked') // justo 24 h
+    expect(tabletStatus({ ...linked, last_seen_at: '2026-11-17T17:09:59Z' }, now)).toBe('offline')
+    expect(tabletStatus(linked, now)).toBe('offline') // vinculada hace semanas y nunca vista
+    expect(tabletStatus({ ...linked, last_seen_at: '2026-01-01T00:00:00Z', revoked_at: '2026-01-02T00:00:00Z' }, now)).toBe('revoked')
   })
 })
 
