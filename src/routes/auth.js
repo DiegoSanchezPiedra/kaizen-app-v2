@@ -11,6 +11,8 @@ import {
   assertMfaReauth,
   readOwnPasswordHash,
   prepareMfaSetup,
+  prepareRecoveryCodes,
+  regenerateRecoveryCodes,
   setupMfa,
   verifyAndEnableMfa,
   verifyMfaCode,
@@ -155,6 +157,25 @@ router.post(
   withRlsContext(async (req, client) => ({
     status: 201,
     body: await setupMfa(client, req.user.id, req.mfaSetup),
+  }))
+);
+
+// POST /auth/mfa/recovery-codes { password } → 201 { recovery_codes } (ADR 0031). Misma confirmación que setup (contraseña o
+// login reciente); los códigos anteriores dejan de valer. 409 mfa_not_enabled. No cierra sesiones: no cambia el factor.
+router.post(
+  '/mfa/recovery-codes',
+  requireAuth,
+  requireRole('admin'),
+  authLimit,
+  asyncHandler(async (req, res, next) => {
+    const hash = await withRls({ uid: req.user.id, role: req.user.role }, readOwnPasswordHash);
+    await assertMfaReauth(hash, { password: req.body?.password, tokenIat: req.user.iat });
+    req.recoveryCodes = await prepareRecoveryCodes();
+    next();
+  }),
+  withRlsContext(async (req, client) => ({
+    status: 201,
+    body: await regenerateRecoveryCodes(client, req.user.id, req.recoveryCodes),
   }))
 );
 
