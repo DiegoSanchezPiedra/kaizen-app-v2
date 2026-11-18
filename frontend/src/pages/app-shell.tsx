@@ -1,14 +1,14 @@
-import { CalendarCheckIcon, CalendarIcon, ChartColumnIcon, HouseIcon, LogOutIcon, UserIcon, ZapIcon } from 'lucide-react'
-import { NavLink, Outlet, useLocation, useSearchParams } from 'react-router'
+import { CalendarCheckIcon, CalendarIcon, ChartColumnIcon, HouseIcon, SearchXIcon, UserIcon, ZapIcon } from 'lucide-react'
+import { Link, NavLink, Outlet, useLocation, useSearchParams } from 'react-router'
 import logo from '@/assets/logo.png'
+import { Page } from '@/components/page'
 import { SubjectPicker } from '@/components/subject-picker'
 import { Button } from '@/components/ui/button'
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { ListSkeleton } from '@/components/screen-state'
 import { usePushQuery } from '@/hooks/use-push'
 import { isMinorClosedPath } from '@/lib/minor'
 import { useMe } from '@/lib/queries'
-import { logout } from '@/lib/logout'
 import { cn } from '@/lib/utils'
 import { useSession, type Role } from '@/lib/session'
 import { usesSubject } from '@/lib/subject'
@@ -110,28 +110,27 @@ const TITLES: Record<string, string> = {
   '/agreements': 'Acuerdos',
 }
 
-// Hueco de lo que aún no existe: el router y la sesión ya funcionan.
+// Cualquier ruta de alumno o profesor que no existe (la del panel es AdminNotFound). El título, el de su pestaña si la hay.
 export function PendingScreen() {
   const { pathname } = useLocation()
+  const role = useSession()?.role ?? 'alumno'
   const title = TITLES[pathname] ?? TITLES[`/${pathname.split('/')[1]}`] ?? 'Kaizen'
-  const block = 'B18.5'
   return (
-    <div className="mx-auto flex max-w-xl flex-col gap-6">
-      <h1 className="font-heading text-[26px] font-bold">{title}</h1>
+    <Page title={title}>
       <Empty className="rounded-2xl border bg-card">
         <EmptyHeader>
-          <EmptyTitle>Esta pantalla llega en {block}</EmptyTitle>
-          <EmptyDescription>La sesión ya funciona: puedes moverte por las pestañas y cerrar sesión desde Cuenta.</EmptyDescription>
+          <EmptyMedia variant="icon">
+            <SearchXIcon />
+          </EmptyMedia>
+          <EmptyTitle>No lo encontramos</EmptyTitle>
+          <EmptyDescription>Puede que esta página ya no exista o que el enlace esté mal.</EmptyDescription>
         </EmptyHeader>
-        {pathname === '/account' && (
-          <EmptyContent>
-            <Button variant="outline" size="xl" onClick={() => logout()}>
-              <LogOutIcon />
-              Cerrar sesión
-            </Button>
-          </EmptyContent>
-        )}
+        <EmptyContent>
+          <Button size="xl" render={<Link to={navFor(role)[0].to} />}>
+            Ir al Inicio
+          </Button>
+        </EmptyContent>
       </Empty>
-    </div>
+    </Page>
   )
 }
