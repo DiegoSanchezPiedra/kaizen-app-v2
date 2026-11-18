@@ -117,7 +117,7 @@ export function AdminShell() {
       </Sidebar>
       <SidebarInset>
         <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b bg-background px-2 lg:hidden">
-          <SidebarTrigger className="size-11" />
+          <SidebarTrigger className="size-11 pointer-fine:after:absolute pointer-fine:after:-inset-2" />
           <span className="font-heading text-lg font-extrabold italic uppercase">Kaizen</span>
         </header>
         <div className="min-w-0 px-4 py-6 lg:px-8 lg:py-8">

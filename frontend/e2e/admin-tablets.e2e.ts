@@ -100,6 +100,18 @@ test('nueva tablet: el código grande se copia y avisa cuando caduca', async ({ 
   await expect(dialog.getByRole('button', { name: /^Cop/ })).toBeDisabled()
 })
 
+test('nueva tablet: sin portapapeles, el código queda seleccionado y se dice', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { value: undefined }))
+  await open(page, '/admin/tablets')
+  await page.getByRole('button', { name: 'Nueva tablet', exact: true }).click()
+  await page.getByLabel('Nombre').fill('Sala 3')
+  await page.getByRole('button', { name: 'Crear y ver el código' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Código de Sala 3' })
+  await dialog.getByRole('button', { name: 'Copiar', exact: true }).click()
+  await expect(dialog.getByRole('status')).toHaveText('No se ha podido copiar: el código está seleccionado, cópialo a mano.')
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('K7QX-M2PA')
+})
+
 test('revocar pide confirmación y solo entonces llama a la API', async ({ page }) => {
   const { writes } = await open(page, '/admin/tablets')
   await page.getByRole('button', { name: 'Revocar Recepción', exact: true }).click()

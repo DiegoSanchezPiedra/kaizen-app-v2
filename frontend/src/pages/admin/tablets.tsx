@@ -157,16 +157,20 @@ function CodeDialog({ issued, onClose }: { issued: Issued; onClose: () => void }
   useEffect(() => () => clearTimeout(timer.current), [])
   const left = issued.expires ? Math.ceil((new Date(issued.expires).getTime() - now) / 60_000) : null
   const gone = left !== null && left <= 0
+  const [manual, setManual] = useState(false)
   const copy = () =>
-    navigator.clipboard.writeText(issued.code).then(
+    // Sin portapapeles (sin permiso o sin HTTPS no existe): lo dejamos seleccionado y lo decimos.
+    (navigator.clipboard?.writeText(issued.code) ?? Promise.reject(new Error('no clipboard'))).then(
       () => {
         toastOk('Código copiado')
         setCopied(true)
         clearTimeout(timer.current)
         timer.current = setTimeout(() => setCopied(false), 2000)
       },
-      // Sin permiso de portapapeles: lo dejamos seleccionado para copiarlo a mano.
-      () => codeRef.current && window.getSelection()?.selectAllChildren(codeRef.current),
+      () => {
+        setManual(true)
+        if (codeRef.current) window.getSelection()?.selectAllChildren(codeRef.current)
+      },
     )
   return (
     <DialogPopup closeProps={{ 'aria-label': 'Cerrar' }}>
@@ -188,6 +192,11 @@ function CodeDialog({ issued, onClose }: { issued: Issued; onClose: () => void }
           {copied ? <CheckIcon aria-hidden="true" /> : <CopyIcon aria-hidden="true" />}
           {copied ? 'Copiado' : 'Copiar'}
         </Button>
+        {manual && !gone && (
+          <p role="status" className="text-center text-sm text-muted-foreground">
+            No se ha podido copiar: el código está seleccionado, cópialo a mano.
+          </p>
+        )}
         <p className="text-sm text-muted-foreground">
           En la tablet, abre <span className="font-mono">/tablet</span> y escribe este código. Sirve una sola vez. Si lo pierdes, revoca esta tablet y crea otra.
         </p>
