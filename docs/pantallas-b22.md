@@ -141,7 +141,7 @@
   Tooltip y tabla de días llevan año si el rango abarca dos. «Ver tabla»: una fila por día o mes hasta `xl` (cifras 3×2),
   la tabla desde `xl`. `invalid_range`: «Revisa las fechas: como mucho 92 días o 24 meses.», sin «Reintentar».
 - **Gráficas** (`MonthBars`, también del profesor): el puntero (ratón o dedo en horizontal) elige la columna por su `x`;
-  con más de 40 columnas, `gap-px`. Props opcionales `gap` y `mark`; /professor/reports queda igual (0 % de diferencia).
+  con más de 40 columnas, `gap-px` y el hueco sin dato es una sola línea de puntos (dos bordes en 2 px parecían una barra). Props opcionales `gap` y `mark`; /professor/reports queda igual (0 % de diferencia).
 - **Alumnos**: por nombre (orden del servidor; ordenar por columna pediría cambiar la API). Línea de periodo como Sesiones.
   Hasta `xl`, una fila por alumno que abre la ficha (cifras en negrita con su palabra: «12 reservas · 1 falta…», nombre
   largo partido); tabla desde `xl`. Paginar atenúa la lista anterior; vacío con «Quitar la disciplina» si la hay.
