@@ -191,11 +191,11 @@ export function Pager({ total, page, href }: { total: number; page: number; href
         Página {page} de {pages} · {total} en total
       </p>
       <div className="flex gap-2">
-        <Button variant="outline" disabled={page <= 1} render={page > 1 ? <Link to={href(page - 1)} /> : undefined}>
+        <Button variant="outline" className="h-11 sm:h-11" disabled={page <= 1} render={page > 1 ? <Link to={href(page - 1)} /> : undefined}>
           <ChevronLeftIcon />
           Anterior
         </Button>
-        <Button variant="outline" disabled={page >= pages} render={page < pages ? <Link to={href(page + 1)} /> : undefined}>
+        <Button variant="outline" className="h-11 sm:h-11" disabled={page >= pages} render={page < pages ? <Link to={href(page + 1)} /> : undefined}>
           Siguiente
           <ChevronRightIcon />
         </Button>

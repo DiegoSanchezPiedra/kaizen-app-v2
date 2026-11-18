@@ -1,4 +1,4 @@
-import { madridDay, addMonths } from '@/lib/dates'
+import { madridDay, addMonths, formatMonth } from '@/lib/dates'
 
 // Tipos y lógica pura del profesor (B18.4). La forma de la API sale de docs/api.md.
 export type TrainerSession = {
@@ -124,6 +124,10 @@ export function periodRange(period: Exclude<Period, 'custom'>, now: Date = new D
   if (period === 'last') return { from: addMonths(cur, -1), to: addMonths(cur, -1) }
   return { from: addMonths(cur, period === 'six' ? -5 : -11), to: cur }
 }
+
+// «Noviembre de 2026», «Junio – noviembre de 2026» o, entre dos años, con los dos años.
+export const periodLabel = (from: string, to: string): string =>
+  from === to ? formatMonth(to) : `${from.slice(0, 4) === to.slice(0, 4) ? formatMonth(from).replace(/ de \d{4}$/, '') : formatMonth(from)} – ${formatMonth(to)}`
 
 export const monthsBetween = (from: string, to: string): number =>
   (Number(to.slice(0, 4)) - Number(from.slice(0, 4))) * 12 + Number(to.slice(5)) - Number(from.slice(5)) + 1
