@@ -1,4 +1,4 @@
-import { CheckIcon, CopyIcon, DownloadIcon, ShieldCheckIcon } from 'lucide-react'
+import { CheckIcon, ShieldCheckIcon } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useBlocker, useLocation, useNavigate } from 'react-router'
@@ -7,6 +7,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Page } from '@/components/page'
 import { PasswordInput } from '@/components/password-input'
 import { QrCode } from '@/components/qr-code'
+import { RecoveryCodes } from '@/components/recovery-codes'
 import { ErrorState, ListSkeleton } from '@/components/screen-state'
 import { FieldMessage } from '@/components/status-alert'
 import { Button } from '@/components/ui/button'
@@ -82,11 +83,9 @@ export function MfaSetupPage() {
   const [error, setError] = useState<string | null>(null)
   const [password, setPassword] = useState<string | undefined>()
   const [load, setLoad] = useState<Load>({ status: 'idle' })
-  const [manualCopy, setManualCopy] = useState(false)
   const started = useRef(false) // StrictMode repite el efecto: sin esto, dos secretos
   const done = useRef(false)
   const firstSlot = useRef<HTMLInputElement>(null)
-  const list = useRef<HTMLOListElement>(null)
 
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/me') })
   const hasPassword = me.data?.has_password === true
@@ -144,26 +143,6 @@ export function MfaSetupPage() {
   })
   const submit = (value: string) => {
     if (value.length === 6 && !activate.isPending) activate.mutate(value)
-  }
-
-  const codes = load.status === 'ok' ? load.data.recovery_codes.join('\n') : ''
-  const copy = () =>
-    Promise.resolve()
-      .then(() => navigator.clipboard.writeText(codes))
-      .then(
-        () => toastOk('Códigos copiados'),
-        () => {
-          // Sin permiso o sin HTTPS: se dejan seleccionados para copiarlos a mano.
-          if (list.current) window.getSelection()?.selectAllChildren(list.current)
-          setManualCopy(true)
-        },
-      )
-  const download = () => {
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(new Blob([`Códigos de recuperación de Kaizen (cada uno sirve una vez)\n\n${codes}\n`], { type: 'text/plain' }))
-    a.download = 'kaizen-codigos-de-recuperacion.txt'
-    a.click()
-    URL.revokeObjectURL(a.href)
   }
 
   let body: React.ReactNode
@@ -230,28 +209,7 @@ export function MfaSetupPage() {
             <p className="text-muted-foreground">
               Si pierdes el móvil, cada uno de estos códigos te deja entrar una vez. Solo se ven ahora: guárdalos fuera de este dispositivo.
             </p>
-            <ol ref={list} className="grid grid-cols-2 gap-x-6 gap-y-1.5 rounded-xl bg-muted px-4 py-3 font-mono text-[15px] tracking-wide">
-              {load.data.recovery_codes.map((c) => (
-                <li key={c}>{c}</li>
-              ))}
-            </ol>
-            <div className="flex flex-col gap-2">
-              <div className="grid grid-cols-2 gap-2 sm:flex">
-                <Button variant="outline" className={TALL} onClick={() => void copy()}>
-                  <CopyIcon />
-                  Copiar
-                </Button>
-                <Button variant="outline" className={TALL} onClick={download}>
-                  <DownloadIcon />
-                  Descargar .txt
-                </Button>
-              </div>
-              {manualCopy && (
-                <p role="status" className="text-sm text-muted-foreground">
-                  No se han podido copiar solos: ya están seleccionados, cópialos con el menú o el teclado.
-                </p>
-              )}
-            </div>
+            <RecoveryCodes codes={load.data.recovery_codes} />
             <label className="flex min-h-11 cursor-pointer items-center gap-3 text-[15px]">
               <Checkbox checked={saved} onCheckedChange={(c) => setSaved(c === true)} />
               Los he guardado

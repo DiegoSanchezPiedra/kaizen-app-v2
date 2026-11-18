@@ -27,6 +27,11 @@ async function open(page: Page, url: string, o: Opts = {}) {
     }
     if (p === '/auth/me') return r.fulfill({ json: { user: { id: 'a-1', role: 'admin' }, mfa_enabled: state.mfa } })
     if (p === '/me/password') return r.fulfill({ json: { token: TOKEN } })
+    if (p === '/auth/mfa/recovery-codes') {
+      if (o.setup === 'reauth') return r.fulfill({ status: 403, json: { code: 'reauth_required' } })
+      if (r.request().postDataJSON()?.password === 'mala') return r.fulfill({ status: 400, json: { code: 'wrong_password' } })
+      return r.fulfill({ status: 201, json: { recovery_codes: CODES.map((c) => `new-${c}`) } })
+    }
     if (p === '/auth/mfa/setup') {
       if (o.setup === 'reauth') return r.fulfill({ status: 403, json: { code: 'reauth_required' } })
       if (o.setup === 'already') return r.fulfill({ status: 409, json: { code: 'mfa_already_enabled' } })
@@ -165,4 +170,39 @@ test('Ya activo: lo dice y vuelve', async ({ page }) => {
   await open(page, '/admin/mfa', { google: true, setup: 'already' })
   await expect(page.getByText('El doble factor ya está activo')).toBeVisible()
   await expect(page).toHaveURL(/\/admin$/)
+})
+
+test('Con MFA: generar códigos nuevos pide la contraseña, los enseña y no se cierra sin «Los he guardado»', async ({ page }) => {
+  const calls = await open(page, '/admin/account', { mfa: true })
+  await main(page).getByRole('button', { name: 'Generar códigos nuevos', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('Los códigos de recuperación que tienes dejarán de valer')
+  await dialog.getByLabel('Contraseña actual').fill('mala')
+  await dialog.getByRole('button', { name: 'Generar códigos', exact: true }).click()
+  await expect(dialog.getByText('La contraseña actual no es correcta.')).toBeVisible({ timeout: 8000 })
+  await dialog.getByLabel('Contraseña actual').fill('buena')
+  await dialog.getByRole('button', { name: 'Generar códigos', exact: true }).click()
+
+  await expect(dialog.getByRole('list', { name: 'Códigos de recuperación' }).getByRole('listitem')).toHaveCount(10)
+  await expect(dialog.getByText(`new-${CODES[0]}`)).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Cerrar' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeVisible() // sin marcar la casilla no se cierra
+  const done = dialog.getByRole('button', { name: 'Hecho', exact: true })
+  await expect(done).toBeDisabled()
+  await dialog.getByText('Los he guardado').click()
+  await done.click()
+  await expect(page.getByText('Códigos nuevos guardados')).toBeVisible()
+  await expect(dialog).toHaveCount(0)
+  expect(calls.filter((c) => c === 'POST /auth/mfa/recovery-codes')).toHaveLength(2)
+})
+
+test('Con MFA y solo Google sin login reciente: «Vuelve a entrar» dentro del diálogo', async ({ page }) => {
+  await open(page, '/admin/account', { mfa: true, google: true, setup: 'reauth' })
+  await main(page).getByRole('button', { name: 'Generar códigos nuevos', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByLabel('Contraseña actual')).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Generar códigos', exact: true }).click()
+  await expect(dialog.getByRole('heading', { name: 'Vuelve a entrar' })).toBeVisible({ timeout: 8000 })
+  await expect(dialog.getByRole('button', { name: 'Cerrar sesión', exact: true })).toBeVisible()
 })

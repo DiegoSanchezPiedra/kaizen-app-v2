@@ -123,6 +123,7 @@ export const AUDIT_CATEGORIES = [
   { value: 'settings', label: 'Ajustes', prefixes: ['settings.'] },
   { value: 'bookings', label: 'Reservas', prefixes: ['booking.'] },
   { value: 'events', label: 'Eventos', prefixes: ['event.', 'event_registration.'] },
+  { value: 'access', label: 'Acceso', prefixes: ['auth.'] },
 ] as const
 // Una categoría desconocida (URL a mano) no filtra.
 export const categoryPrefixes = (value: string | null): string | undefined => AUDIT_CATEGORIES.find((c) => c.value === value)?.prefixes.join(',')
@@ -173,6 +174,9 @@ const AUDIT_LABEL: Record<string, string> = {
   'event_registration.guest': 'Inscribió a un invitado',
   'event_registration.cancel': 'Canceló una inscripción',
   'event_registration.refund': 'Reintentó un reembolso',
+  'auth.password_change': 'Cambió su contraseña',
+  'auth.mfa_enable': 'Activó el doble factor',
+  'auth.mfa_recovery_regenerate': 'Generó códigos de recuperación nuevos',
 }
 export const auditLabel = (action: string): string => AUDIT_LABEL[action] ?? action
 

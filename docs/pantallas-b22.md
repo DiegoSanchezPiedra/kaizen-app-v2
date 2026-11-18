@@ -151,8 +151,10 @@
 
 - El admin viene a **la seguridad**: orden Doble factor · Contraseña · Tus datos · Cerrar sesión. La tarjeta «Doble factor»
   lleva el estado con icono y texto («Activo» o «Sin activar») y, sin MFA, **Activar el doble factor**; sustituye aquí al
-  aviso de `MfaNotice`, que sigue en el Inicio. Con el MFA activo solo se ve el estado: ver o regenerar los códigos y
-  desactivarlo pedirían cambiar la API.
+  aviso de `MfaNotice`, que sigue en el Inicio. Con el MFA activo, **Generar códigos nuevos** (ADR 0031): diálogo con la
+  contraseña (`wrong_password` en el campo; solo Google sin login reciente, «Vuelve a entrar»), los 10 códigos con copiar y
+  descargar, y «Hecho» solo tras «Los he guardado» (sin cerrar con fuera ni sin la casilla). Desactivar el MFA no se ofrece.
+  Auditoría tiene la categoría **Acceso** (`auth.*`) con sus textos.
 - Si cae `/me`, un solo error con «Reintentar» en lugar de Contraseña y Tus datos; «Cerrar sesión» sigue.
 - Cambiar la contraseña se queda en Cuenta con el formulario vacío (`PasswordSection onDone`; /account sigue igual).
   Solo Google: «Contraseña» se queda y explica cómo crearla.
@@ -164,4 +166,5 @@
 - `invalid_totp`: el texto de b19 en el campo, casillas vacías y foco en la primera. `mfa_already_enabled`: «El doble factor
   ya está activo» y vuelta a donde estaba. Al activar, vuelta a donde estaba con el toast; desde Cuenta se ve «Activo».
 - «Copiar» sin portapapeles deja los códigos seleccionados y lo dice. Botones del flujo y de Cuenta a 44 px también con ratón;
-  el ojo de la contraseña, zona de 44 px con ratón (`pointer-fine:after`, 0 % de diferencia en /account).
+  el ojo de la contraseña, zona de 44 px con ratón (`pointer-fine:after`, 0 % de diferencia en /account). En Cuenta, también
+  los campos de los formularios compartidos a 44 px (solo aquí; /account y el Inicio, 0 %).

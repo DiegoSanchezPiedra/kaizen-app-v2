@@ -114,23 +114,32 @@ export async function prepareMfaSetup(profileId, label) {
   const totp = buildTotp(secretBase32, label || profileId);
   const otpauthUri = totp.toString();
 
-  const recoveryCodes = Array.from(
-    { length: MFA_RECOVERY_CODE_COUNT },
-    () => generateRecoveryCode(),
-  );
-  const recoveryHashes = await Promise.all(
-    recoveryCodes.map((c) => hashRecoveryCode(c)),
-  );
-
-  const totpSecretEncrypted = encrypt(secretBase32);
-  const recoveryCodesEncrypted = encrypt(JSON.stringify(recoveryHashes));
-
+  const { recovery_codes, recoveryCodesEncrypted } = await prepareRecoveryCodes();
   return {
     otpauth_uri: otpauthUri,
-    recovery_codes: recoveryCodes,
-    totpSecretEncrypted,
+    recovery_codes,
+    totpSecretEncrypted: encrypt(secretBase32),
     recoveryCodesEncrypted,
   };
+}
+
+// Códigos de recuperación nuevos (en claro, para enseñarlos una vez) y sus hashes cifrados. argon2: fuera de la transacción.
+export async function prepareRecoveryCodes() {
+  const recoveryCodes = Array.from({ length: MFA_RECOVERY_CODE_COUNT }, () => generateRecoveryCode());
+  const recoveryHashes = await Promise.all(recoveryCodes.map((c) => hashRecoveryCode(c)));
+  return { recovery_codes: recoveryCodes, recoveryCodesEncrypted: encrypt(JSON.stringify(recoveryHashes)) };
+}
+
+// ADR 0031: con el MFA activo, sustituye los códigos (los anteriores, usados o no, dejan de valer). Sin MFA → 409.
+export async function regenerateRecoveryCodes(client, profileId, prepared) {
+  const row = await findMfaRow(client, profileId);
+  if (!row || row.mfa_enabled !== true) throw httpError(409, 'mfa_not_enabled', 'MFA not enabled');
+  await client.query(
+    `UPDATE user_mfa SET recovery_codes_encrypted = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`,
+    [prepared.recoveryCodesEncrypted, profileId],
+  );
+  await client.query(`SELECT write_audit($1, 'auth.mfa_recovery_regenerate', 'profile', $2, '{}'::jsonb)`, [profileId, profileId]);
+  return { recovery_codes: prepared.recovery_codes };
 }
 
 export async function setupMfa(client, profileId, prepared) {
