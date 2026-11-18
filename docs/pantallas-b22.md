@@ -101,3 +101,27 @@
 - Al cambiar de página o de filtro se queda la lista anterior atenuada, como en Cobros.
 - **Comunicados** (enviar avisos a los usuarios desde el panel: ventana en la app, email y botón «Compartir en WhatsApp»
   con el texto ya escrito) van en un bloque aparte; serán una tercera pestaña de Avisos.
+
+## Tablets (`/admin/tablets`) y Ajustes (`/admin/settings`) — rediseño 7, 2026-11-18
+
+- **Tablets**: el admin entra a ver si alguna dejó de conectarse y, a veces, a dar de alta una. Hasta `xl`, una fila por
+  tablet (nombre, estado y una línea: cuándo se vio o cuándo caduca, caducó o se revocó); la tabla solo desde `xl`, sin
+  scroll y con el nombre partido en líneas. Fechas con año (`formatLogDate`).
+- Cinco estados con icono y texto (`tabletStatus` en `lib/catalog.ts`): Esperando vinculación, **Código caducado**,
+  Vinculada, **Sin conexión** (vinculada y sin verse más de 24 h; la tablet pide el QR cada pocos segundos, así que noches y
+  domingos caben) y Revocada. Las «Sin conexión» salen también en «Requiere atención» del Inicio («Tablets sin
+  conexión», enlaza aquí; sin email ni push).
+- Sin portapapeles (sin permiso o sin HTTPS), «Copiar» deja el código seleccionado y lo dice en el diálogo.
+- Cierre de Dialog y Sheet, tema y menú del panel: con ratón, zona de 44 px con un `::after` invisible (`pointer-fine`;
+  con dedo ya la daba Button). 0 % de diferencia visual.
+- **Revocar** (borde rojo, 44 px) siempre con confirmación. La revocada no lo tiene.
+- **Código**: grande en Geist Mono, «Copiar» y «Caduca a las 18:40 (en 30 min); solo se ve ahora». Si caduca con el
+  diálogo abierto, lo dice y desactiva «Copiar». El código sigue sin pasar por React Query ni el almacenamiento.
+- **Ajustes**: cuatro grupos (también Rankings), un «Guardar» por grupo (un PUT cada uno). El grupo con cambios lo marca con
+  «Cambios sin guardar» (punto y texto) y «Descartar»; con un valor inválido, «Guardar» desactivado y «Corrige el campo en
+  rojo para guardar». Los `invalid_field` de la API van en su campo con el texto del rango.
+- **Confirman antes del PUT**: el check-in (cambia al momento las listas y el QR de las tablets), el primer precio de la
+  pausa («podrás cambiar el precio, pero no quitarlo»), un precio nuevo (las pausas pedidas siguen con el suyo) y las
+  pausas por año a 0. Vaciar un precio ya puesto se explica en el campo y no se guarda.
+- **Salir con cambios**: «¿Salir sin guardar?» al navegar dentro de la app (`useBlocker`), con los grupos que se pierden;
+  al recargar o cerrar, el aviso del navegador.

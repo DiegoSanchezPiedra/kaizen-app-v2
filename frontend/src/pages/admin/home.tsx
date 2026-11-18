@@ -29,6 +29,7 @@ import {
 } from '@/lib/admin'
 import { api } from '@/lib/api'
 import type { AdminEvent } from '@/lib/events'
+import { tabletStatus, type Tablet } from '@/lib/catalog'
 import { addDays, madridDay } from '@/lib/dates'
 import { formatDate, formatShortDate, formatTime } from '@/lib/format'
 import { phaseOf, plural, type Phase } from '@/lib/professor'
@@ -303,13 +304,15 @@ function Attention({ home, className }: { home: UseQueryResult<AdminHome>; class
     queryKey: ['admin', 'attention', from],
     refetchInterval: 120_000,
     queryFn: async () => {
-      const [delinquents, grace, payerChanges, deliveries] = await Promise.all([
+      const [delinquents, grace, payerChanges, deliveries, offline] = await Promise.all([
         totalOf('/admin/billing/delinquents?limit=1'),
         totalOf('/admin/billing/grace?limit=1'),
         totalOf(path('/admin/payer-changes', { status: 'expired', from, limit: '1' })),
         totalOf(path('/admin/notice-deliveries', { from, limit: '1' })),
+        // Las mismas «Sin conexión» que /admin/tablets (más de 24 h sin verse).
+        api<{ tablets: Tablet[] }>('/admin/tablets').then((r) => r.tablets.filter((t) => tabletStatus(t, Date.now()) === 'offline').length),
       ])
-      return { delinquents, grace, payerChanges, deliveries }
+      return { delinquents, grace, payerChanges, deliveries, offline }
     },
   })
   const notices = useQuery({
@@ -324,6 +327,7 @@ function Attention({ home, className }: { home: UseQueryResult<AdminHome>; class
     { n: counts.data.grace, label: 'En periodo de gracia', hint: 'Stripe sigue reintentando el cobro', to: '/admin/billing?tab=grace' },
     { n: counts.data.payerChanges, label: 'Cambios de pagador caducados', hint: 'en los últimos 30 días', to: '/admin/billing?tab=payer-changes' },
     { n: counts.data.deliveries, label: 'Entregas fallidas', hint: 'en los últimos 30 días', to: '/admin/notices?tab=deliveries' },
+    { n: counts.data.offline, label: 'Tablets sin conexión', hint: 'más de 24 h sin verse: el QR no se ve', to: '/admin/tablets' },
     { n: home.data?.students.inactivos ?? 0, label: 'Sin venir hace 14 días', hint: 'alumnos activos sin asistencia', to: '/admin/users?estado=inactivo' },
   ]
   const pending = items?.filter((i) => i.n > 0) ?? []
