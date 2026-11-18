@@ -91,9 +91,12 @@ Un vistazo y lo que pide atención. Todo enlaza a su pantalla. Sin MFA, el aviso
 | Pantalla | Endpoints | Estados y errores |
 |---|---|---|
 | **Lista** `/admin/users?q&role&page` | `GET /admin/profiles?q&role&limit&offset` (**B19.0**) | búsqueda por nombre o email, filtro por rol (alumno, tutor, profesor, admin). Columnas: nombre, email (un hijo no tiene), rol, marcas «Menor» / «Mayor de edad sin reclamar», estado de la cuota (activa, en gracia, impagada, sin cuota), alta. Vacío con búsqueda: «nadie coincide con …» |
-| **Ficha** `/admin/users/:id` | `GET /admin/profiles/:id` (**B19.0**) | cabecera con nombre, rol, marcas y email. Pestañas abajo. `profile_not_found` → «este perfil no existe» |
+| **Ficha** `/admin/users/:id` | `GET /admin/profiles/:id` (**B19.0**) | cabecera con nombre, rol, marcas, email y, en un alumno, el estado de la cuota con su plan (o «Sin cuota»). Pestañas abajo. `profile_not_found` → «este perfil no existe» |
 
-**Pestañas de la ficha** (`?tab=`):
+**Pestañas de la ficha** (`?tab=`), en este orden: Resumen, Cuota, Reservas y Familia (rediseño 7, 2026-11-18). Familia
+solo si es un hijo o tiene hijos; si solo queda Resumen (profesor o admin sin hijos), sin pestañas. En la Cuota, lo que
+está en curso (cambio de pagador, pausa, bajada o baja programada) sale como aviso con su «Anular…» y las acciones van
+en grupos (Cambios, Pausa, Baja) con el motivo de lo deshabilitado a la vista:
 
 - **Resumen**: alta, cómo entra (contraseña, Google o ninguna en un hijo), perfil público (sí/no) y **Despublicar**
   (`POST /admin/profiles/:id/unpublish`, con confirmación: «el dueño puede volver a publicarlo»). Para un alumno, el

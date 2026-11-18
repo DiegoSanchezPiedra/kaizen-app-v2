@@ -1,10 +1,10 @@
-import { PlusIcon } from 'lucide-react'
+import { BanIcon, CircleCheckIcon, MailIcon, PlusIcon, type LucideIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { Tag } from '@/components/billing-bits'
 import { Filter } from '@/components/filter'
 import { Button } from '@/components/ui/button'
-import { TRAINER_STATE, trainerState, type ProfileFile } from '@/lib/admin'
+import { TRAINER_STATE, trainerState, type ProfileFile, type TrainerState } from '@/lib/admin'
 import { ApiError, api } from '@/lib/api'
 import { EMPLOYMENT_LABEL, type Employment } from '@/lib/clock'
 import { errorText } from '@/lib/errors'
@@ -63,7 +63,7 @@ export function NewTrainer() {
     )
   return (
     <>
-      <Button variant="outline" size="lg" className="w-full sm:w-auto" onClick={() => setOpen(true)}>
+      <Button variant="outline" size="lg" className="max-sm:h-11" onClick={() => setOpen(true)}>
         <PlusIcon aria-hidden="true" />
         Nuevo profesor
       </Button>
@@ -121,17 +121,29 @@ function EditTrainer({ p, open, onClose }: { p: ProfileFile['profile']; open: bo
 }
 
 // En la ficha de un profesor: estado y acciones (reenviar la invitación, editar, desactivar o reactivar).
+const TRAINER_ICON: Record<TrainerState, LucideIcon> = { active: CircleCheckIcon, pending: MailIcon, disabled: BanIcon }
+// Estado de la cuenta del profesor con icono y texto (lista y ficha de Usuarios).
+export function TrainerTag({ state }: { state: TrainerState }) {
+  const [label, variant] = TRAINER_STATE[state]
+  const Icon = TRAINER_ICON[state]
+  return (
+    <Tag variant={variant}>
+      <Icon aria-hidden="true" />
+      {label}
+    </Tag>
+  )
+}
+
 export function TrainerActions({ file, refresh }: { file: ProfileFile; refresh: () => void }) {
   const p = file.profile
   const state = trainerState(p)
   const [editing, setEditing] = useState(false)
   const { ask, dialog } = useConfirm(refresh)
-  const [label, variant] = TRAINER_STATE[state]
   return (
     <div className="flex flex-col gap-3 border-t pt-3">
       <div className="flex items-center gap-2">
         <span className="text-sm text-muted-foreground sm:w-40">Cuenta</span>
-        <Tag variant={variant}>{label}</Tag>
+        <TrainerTag state={state} />
       </div>
       <div className="flex flex-wrap gap-2">
         {state === 'pending' && (

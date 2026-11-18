@@ -37,10 +37,12 @@
 
 ## Usuarios (`/admin/users`)
 
-- **Arriba**: un selector de disciplina y 3 tarjetas (Activos, Impago, Inactivos · 14 días) de
-  `GET /admin/profiles/stats?discipline_id=` (**B22.3**). Pulsar una tarjeta pone `?estado=` en la URL; volver a pulsarla
-  lo quita. En móvil, las tarjetas en una fila desplazable dentro de su marco.
-- **Lista**: búsqueda y filtros de rol, disciplina, plan y estado en la URL (`q`, `role`, `discipline`, `plan`, `estado`,
-  `page`), filtrados en el servidor. Columnas: nombre, rol, plan, estado y última asistencia. En móvil, una tarjeta por
-  persona.
+- **Arriba, la búsqueda** (el admin entra a buscar por nombre o email). Debajo, **chips de estado** (Todos · Activos n ·
+  Impago n · Inactivos · 14 d n · Sin plan) con las cifras de `GET /admin/profiles/stats?discipline_id=` (**B22.3**): pulsar
+  uno pone `?estado=` y volver a pulsarlo lo quita (rediseño 7, 2026-11-18: sustituyen a las 3 tarjetas, que repetían
+  cifras del Inicio). En móvil, en una fila desplazable dentro de su marco. Si falla `/stats`, chips sin cifra.
+- **Filtros**: rol, disciplina y plan (`q`, `role`, `discipline`, `plan`, `estado`, `page` en la URL, filtrados en el
+  servidor); debajo, «N personas» y «Quitar filtros» si hay alguno. Al cambiar un filtro se queda la lista anterior atenuada.
+- **Lista**: columnas nombre, rol (con las marcas), plan, estado (con icono) y última asistencia. La tabla solo desde
+  `xl` (con la barra lateral no cabe antes); por debajo, una fila por persona que abre la ficha. «Nuevo profesor» va junto al título.
 - **Estados**: cargando, sin resultados (con «Quitar filtros»), error, y las cifras a 0 si no hay alumnos.

@@ -24,6 +24,7 @@ import {
   pageHref,
   pageOf,
   payerCandidates,
+  userTabs,
   safeInvoiceUrl,
   showMfaNotice, type DayStat, type ProfileFile,
   hasFilters, lastSeen, profilesQuery, setFilter, toggleEstado, userFilters } from '@/lib/admin'
@@ -134,6 +135,12 @@ describe('usuarios del panel (B19.3)', () => {
     expect(trainerState({ disabled: false, has_password: false })).toBe('pending')
     expect(trainerState({ disabled: true, has_password: false })).toBe('disabled')
     expect(trainerState({ disabled: true, has_password: true })).toBe('disabled')
+  })
+  it('pestañas: Cuota y Reservas de alumno; Familia si es hijo o tiene hijos; Resumen siempre', () => {
+    expect(userTabs(file(adult))).toEqual(['summary', 'billing', 'bookings'])
+    expect(userTabs(file(child))).toEqual(['summary', 'billing', 'bookings', 'family'])
+    expect(userTabs({ profile: { ...adult, role: 'tutor' }, children: [{ id: 'c', display_name: null, pending_claim: false }] } as unknown as ProfileFile)).toEqual(['summary', 'family'])
+    expect(userTabs(file({ ...adult, role: 'profesor' } as unknown as typeof adult))).toEqual(['summary'])
   })
   it('de la edad, solo las marcas', () => {
     expect(ageMarks(adult)).toEqual([])
