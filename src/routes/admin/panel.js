@@ -4,6 +4,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole, withRlsContext } from '../../middleware/auth.js';
 import { getSettings, listAudit, listNotices, listFailedDeliveries, getHome } from '../../services/panel.js';
 import { updateRankingSettings } from '../../services/progress.js';
+import { countAudience, createCommunique, listCommuniques, withdrawCommunique } from '../../services/communiques.js';
 
 const router = Router();
 router.use(requireAuth, requireRole('admin'));
@@ -22,5 +23,21 @@ router.get('/audit', withRlsContext((req, client) => listAudit(client, req.query
 router.get('/notices', withRlsContext((req, client) => listNotices(client, req.query)));
 // GET /admin/notice-deliveries?from&limit&offset → solo las failed
 router.get('/notice-deliveries', withRlsContext((req, client) => listFailedDeliveries(client, req.query)));
+
+// Comunicados (ADR 0030). Escriben con el servicePool (destinatarios y outbox); este router ya exige admin.
+// GET  /admin/communiques?limit&offset → { rows, total, limit, offset } (cada fila con seen)
+router.get('/communiques', withRlsContext((req, client) => listCommuniques(client, req.query)));
+// GET  /admin/communiques/audience?audience&discipline_ids=1,2 → { app, email }: la vista previa antes de enviar
+router.get('/communiques/audience', async (req, res, next) => {
+  try { res.json(await countAudience(req.query)); } catch (err) { next(err); }
+});
+// POST /admin/communiques { title, body, audience, discipline_ids?, channels } → 201 el comunicado
+router.post('/communiques', async (req, res, next) => {
+  try { res.status(201).json(await createCommunique(req.user.id, req.body ?? {})); } catch (err) { next(err); }
+});
+// POST /admin/communiques/:id/withdraw → { withdrawn_at }; 404, 409 communique_withdrawn
+router.post('/communiques/:id/withdraw', async (req, res, next) => {
+  try { res.json(await withdrawCommunique(req.user.id, req.params.id)); } catch (err) { next(err); }
+});
 
 export default router;

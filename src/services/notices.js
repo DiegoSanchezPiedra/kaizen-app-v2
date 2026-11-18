@@ -17,6 +17,7 @@ const CHANNELS = Object.fromEntries([
   'payer_change_requested', 'payer_change_paid', 'payer_change_expired', 'payer_change_cancelled',
   'event_refunded', 'avatar_removed', 'clock_corrected', 'clock_open', 'clock_correction_applied',
   'clock_correction_rejected', 'pause_scheduled', 'pause_started', 'pause_ending_soon', 'pause_ended',
+  'communique',
 ].map((a) => [`notice.${a}`, ['email']]));
 // notice.clock_correction_requested no está: solo va a admins (el panel), que nunca reciben entregas.
 
@@ -384,6 +385,19 @@ async function composeService(db, d) {
   return { to: r.email, ...msg };
 }
 
+// Comunicado del admin (ADR 0030): su título y su texto tal cual, un párrafo por línea. Obligatorio (no está en SERVICE):
+// solo se permiten comunicados de servicio, sin baja (LSSI art. 21).
+async function composeCommunique(db, d) {
+  const { rows: [r] } = await db.query(
+    `SELECT c.title, c.body, pr.display_name AS payer, ac.email
+       FROM communiques c, profiles pr LEFT JOIN auth_credentials ac ON ac.profile_id = pr.id
+      WHERE c.id::text = $1 AND pr.id = $2`, [d.resource_id, d.recipient_id]);
+  if (!r?.email) return null;
+  const paragraphs = r.body.split(/\n+/).map((p) => p.trim()).filter(Boolean);
+  return { to: r.email, ...mail(r.title, r, paragraphs, ['Abrir Kaizen', APP_URL],
+    'Este es un comunicado de servicio de la academia en Kaizen.') };
+}
+
 const PLAN_KEYS = ['plan_id', 'from_plan_id', 'to_plan_id', 'discarded_plan_id'];
 
 /**
@@ -392,6 +406,7 @@ const PLAN_KEYS = ['plan_id', 'from_plan_id', 'to_plan_id', 'discarded_plan_id']
  */
 export async function compose(db, d) {
   if (SERVICE[d.action]) return composeService(db, d);
+  if (d.action === 'notice.communique') return composeCommunique(db, d);
   const { recipient_id: to, action, resource_type: type, resource_id: resId, changes: c } = d;
   const { rows: [r] } = await db.query(
     `SELECT pr.display_name AS payer, ac.email, st.display_name AS student,

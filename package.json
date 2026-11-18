@@ -43,6 +43,7 @@
     "test:trainers": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-trainers.js",
     "test:brevo-webhook": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-brevo-webhook.js",
     "test:avatar": "dotenv -e .env -- node scripts/test-avatar.js",
+    "test:communiques": "JWT_EXPIRES_IN=1h dotenv -e .env -- node scripts/with-temp-db.js scripts/test-communiques.js",
     "test:clock": "dotenv -e .env -- node scripts/with-temp-db.js scripts/test-clock.js",
     "extend-horizon": "dotenv -e .env -- node scripts/extend-horizon.js",
     "nightly": "dotenv -e .env -- node scripts/nightly.js",

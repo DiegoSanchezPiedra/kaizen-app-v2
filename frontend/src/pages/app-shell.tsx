@@ -1,6 +1,7 @@
 import { CalendarCheckIcon, CalendarIcon, ChartColumnIcon, HouseIcon, LogOutIcon, UserIcon, ZapIcon } from 'lucide-react'
 import { NavLink, Outlet, useLocation, useSearchParams } from 'react-router'
 import logo from '@/assets/logo.png'
+import { CommuniqueDialog } from '@/components/communique-dialog'
 import { SubjectPicker } from '@/components/subject-picker'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
@@ -62,6 +63,7 @@ export function AppShell() {
       <main className="min-w-0 flex-1 px-4 pt-6 pb-28 print:p-0 lg:col-start-2 lg:row-start-1 lg:px-10 lg:pb-10">
         {usesSubject(pathname) && <SubjectPicker />}
         {wait ? <ListSkeleton /> : <Outlet />}
+        <CommuniqueDialog />
       </main>
       <nav
         id="menu"

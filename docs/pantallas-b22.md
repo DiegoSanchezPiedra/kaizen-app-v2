@@ -99,5 +99,7 @@
   abre el registro filtrado por ese recurso. El chip de persona toma el nombre de su ficha, también sin filas.
 - `?tab=failed` (nombre antiguo) sigue abriendo las entregas fallidas.
 - Al cambiar de página o de filtro se queda la lista anterior atenuada, como en Cobros.
-- **Comunicados** (enviar avisos a los usuarios desde el panel: ventana en la app, email y botón «Compartir en WhatsApp»
-  con el texto ya escrito) van en un bloque aparte; serán una tercera pestaña de Avisos.
+- **Comunicados** (`?tab=communiques`, ADR 0030): «Nuevo comunicado» abre una hoja con Título, Texto, Para (radio) y, si son
+  socios, sus disciplinas; Canales con la nota LSSI junto al email. «Enviar» confirma con la vista previa de la ventana y
+  «Se enviará a N personas (M por email)». Historial: para, fecha, canales, «Visto por X de Y», «Compartir en WhatsApp» y
+  «Retirar». La ventana del usuario (`CommuniqueDialog`) va en `AppShell`, abajo en móvil, y no sale en `/checkin`.

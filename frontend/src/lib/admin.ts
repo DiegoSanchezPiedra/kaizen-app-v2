@@ -99,6 +99,7 @@ const DELIVERY_LABEL: Record<string, string> = {
   'notice.minor_access_revoked': 'Acceso propio de un hijo retirado',
   'notice.minor_access_changed': 'Acceso propio de un hijo cambiado',
   'notice.minor_avatar_changed': 'Un hijo ha cambiado su foto',
+  'notice.communique': 'Comunicado de la academia',
 }
 export const deliveryLabel = (action: string): string => DELIVERY_LABEL[action] ?? action
 export const CHANNEL_LABEL: Record<string, string> = { email: 'Email', push: 'Push' }
