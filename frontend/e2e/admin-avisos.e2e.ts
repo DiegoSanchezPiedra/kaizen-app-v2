@@ -37,6 +37,7 @@ async function open(page: Page, url: string, o: { empty?: boolean } = {}) {
     const paged = (rows: object[], total = rows.length) => r.fulfill({ json: { rows, total, limit: 25, offset: Number(u.searchParams.get('offset') ?? 0) } })
     if (p === '/me') return r.fulfill({ json: ME })
     if (p === '/auth/me') return r.fulfill({ json: { user: { id: 'a-1', role: 'admin' }, mfa_enabled: true } })
+    if (p.startsWith('/admin/profiles/')) return r.fulfill({ json: { profile: { id: p.split('/').pop(), display_name: p.endsWith('/t1') ? 'Jorge Profesor' : 'Marta Admin' } } })
     if (p === '/admin/notices') return paged(NOTICES)
     if (p === '/admin/notice-deliveries') return u.searchParams.get('limit') === '1' ? paged([], 3) : paged(DELIVERIES)
     if (p === '/admin/audit') {
@@ -80,6 +81,11 @@ test('el enlace del Inicio (?tab=deliveries) abre las entregas fallidas: canal c
   expect(await noHorizontalScroll(page)).toBe(0)
 })
 
+test('un enlace guardado con el nombre antiguo (?tab=failed) también abre las entregas fallidas', async ({ page }) => {
+  await open(page, '/admin/notices?tab=failed')
+  await expect(page.getByRole('tab', { name: /^Entregas fallidas/ })).toHaveAttribute('aria-selected', 'true')
+})
+
 test('entregas fallidas en escritorio: tabla desde xl con el error entero', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await open(page, '/admin/notices?tab=deliveries')
@@ -117,6 +123,12 @@ test('auditoría: el filtro por recurso no enseña el id, y la paginación conse
   await expect(page).toHaveURL(/category=attendance/)
   await expect(page).toHaveURL(/resource_id=7c1f0e7a/)
   await expect(page).toHaveURL(/page=2/)
+})
+
+test('auditoría filtrada por una persona sin filas: el chip dice su nombre igualmente', async ({ page }) => {
+  await open(page, '/admin/audit?actor=t1', { empty: true })
+  await expect(page.getByRole('button', { name: 'Quitar el filtro: solo lo de Jorge Profesor', exact: true })).toBeVisible()
+  await expect(page.getByText('Nada registrado con estos filtros')).toBeVisible()
 })
 
 test('auditoría vacía con filtros: «Quitar los filtros» vuelve al registro entero', async ({ page }) => {

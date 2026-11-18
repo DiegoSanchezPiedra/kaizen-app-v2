@@ -30,7 +30,9 @@ const rowLink = 'relative font-medium text-link underline-offset-3 transition-co
 // docs/pantallas-b19.md § Avisos y docs/pantallas-b22.md § Avisos. Un registro: sin «leído».
 export function AdminNoticesPage() {
   const [params, setParams] = useSearchParams()
-  const tab = TABS.some((t) => t.value === params.get('tab')) ? params.get('tab')! : 'academy'
+  // `failed` era el nombre antiguo de la pestaña: los enlaces guardados siguen abriendo las fallidas.
+  const asked = params.get('tab') === 'failed' ? 'deliveries' : params.get('tab')
+  const tab = TABS.some((t) => t.value === asked) ? asked! : 'academy'
   // La misma cifra que el Inicio: entregas fallidas de los últimos 30 días.
   const from = addDays(madridDay(), -30)
   const recent = useQuery({

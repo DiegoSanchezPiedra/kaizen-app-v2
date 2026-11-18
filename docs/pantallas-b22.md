@@ -95,6 +95,9 @@
   filtros». Hasta `xl`, una fila por línea (qué y fecha; quién · sobre qué; el detalle entero debajo); tabla desde `xl`.
 - Fechas de los registros con año (`formatLogDate`: «18 nov 2026 · 10:30»). El detalle del precio en euros españoles y el
   documento publicado con su nombre («Protección de datos v2.0»). «Vio las fichas de salud» enseña la acción, nunca el dato.
+- **«Ver su auditoría»** (b19) en la cabecera de la ficha y de la sesión (`AuditLink` en `shell.tsx`; a 375 solo el icono):
+  abre el registro filtrado por ese recurso. El chip de persona toma el nombre de su ficha, también sin filas.
+- `?tab=failed` (nombre antiguo) sigue abriendo las entregas fallidas.
 - Al cambiar de página o de filtro se queda la lista anterior atenuada, como en Cobros.
 - **Comunicados** (enviar avisos a los usuarios desde el panel: ventana en la app, email y botón «Compartir en WhatsApp»
   con el texto ya escrito) van en un bloque aparte; serán una tercera pestaña de Avisos.

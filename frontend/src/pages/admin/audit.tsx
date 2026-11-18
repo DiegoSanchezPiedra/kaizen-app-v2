@@ -6,7 +6,7 @@ import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { AUDIT_CATEGORIES, auditDetail, auditLabel, auditScopeLabel, auditTarget, categoryPrefixes, pageHref, pageOf, type AuditRow, type Paged } from '@/lib/admin'
+import { AUDIT_CATEGORIES, auditDetail, auditLabel, auditScopeLabel, auditTarget, categoryPrefixes, pageHref, pageOf, type AuditRow, type Paged, type ProfileFile } from '@/lib/admin'
 import { api } from '@/lib/api'
 import { formatLogDate } from '@/lib/format'
 import { path } from '@/lib/url'
@@ -50,8 +50,13 @@ export function AdminAuditPage() {
     queryFn: () => api<Paged<'rows', AuditRow>>(path('/admin/audit', { ...q, limit: String(PAGE_SIZE), offset: String((page - 1) * PAGE_SIZE) })),
     placeholderData: keepPreviousData,
   })
-  // Todas las filas son de esa persona: su nombre sale de la primera.
-  const actorName = (!list.isPlaceholderData && list.data?.rows[0]?.actor.display_name) || 'esta persona'
+  // El nombre del chip, de su ficha (misma clave que la ficha de Usuarios): también cuando no hay filas.
+  const actor = useQuery({
+    queryKey: ['admin', 'profile', q.actor_id],
+    queryFn: () => api<ProfileFile>(`/admin/profiles/${q.actor_id}`),
+    enabled: !!q.actor_id,
+  })
+  const actorName = actor.data?.profile.display_name ?? 'esta persona'
   const filtered = FILTERS.some((k) => params.has(k))
 
   return (

@@ -55,7 +55,7 @@ import { cn } from '@/lib/utils'
 import { Filter } from '@/components/filter'
 import { useDebounced } from '@/lib/use-debounced'
 import { useAdminPlans } from '@/lib/queries'
-import { PAGE_SIZE, Pager } from '@/pages/admin/shell'
+import { AuditLink, PAGE_SIZE, Pager } from '@/pages/admin/shell'
 import { EmploymentChange } from '@/pages/admin/clock'
 import { NewTrainer, TrainerActions, TrainerTag } from '@/pages/admin/trainers'
 import { BillingTab, del, SubBadge, useConfirm } from '@/pages/admin/user-billing'
@@ -791,7 +791,7 @@ export function UserPage() {
   const summary = <Summary file={file.data} refresh={refresh} />
 
   return (
-    <Page title={name(p)} wide>
+    <Page title={name(p)} wide actions={<AuditLink type="profile" id={p.id} />}>
       <Back to="/admin/users">Usuarios</Back>
       {/* Quién es y, si es alumno, cómo va su cuota: a la vista desde cualquier pestaña. */}
       <div className="flex items-center gap-3">
