@@ -96,10 +96,10 @@ export function AdminMembershipsPage() {
                       <StateTag active={p.is_active} off="Retirada" />
                     </TableCell>
                     <TableCell className="pe-2 text-right">
-                      <Button variant="ghost" size="sm" aria-label={`Editar la membresía ${p.name}`} onClick={() => setEditing(p)}>
+                      <Button variant="ghost" size="sm" className="h-11 sm:h-11" aria-label={`Editar la membresía ${p.name}`} onClick={() => setEditing(p)}>
                         Editar
                       </Button>
-                      <Button variant="ghost" size="sm" aria-label={`Disciplinas de la membresía ${p.name}`} onClick={() => setChoosing(p)}>
+                      <Button variant="ghost" size="sm" className="h-11 sm:h-11" aria-label={`Disciplinas de la membresía ${p.name}`} onClick={() => setChoosing(p)}>
                         Disciplinas
                       </Button>
                     </TableCell>

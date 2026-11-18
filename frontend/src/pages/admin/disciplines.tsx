@@ -88,7 +88,7 @@ export function AdminDisciplinesPage() {
                       <StateTag active={d.is_active} off="Desactivada" />
                     </TableCell>
                     <TableCell className="pe-2 text-right">
-                      <Button variant="ghost" size="sm" aria-label={`Editar ${d.name}`} onClick={() => setEditing(d)}>
+                      <Button variant="ghost" size="sm" className="h-11 sm:h-11" aria-label={`Editar ${d.name}`} onClick={() => setEditing(d)}>
                         Editar
                       </Button>
                     </TableCell>

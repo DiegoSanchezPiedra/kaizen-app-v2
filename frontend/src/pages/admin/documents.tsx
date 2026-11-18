@@ -6,7 +6,6 @@ import { Page } from '@/components/page'
 import { ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import { api, ApiError } from '@/lib/api'
 import { DOC_TYPES, docTitle, groupDocuments, pdfProblem, type AgreementDoc, type DocGroup } from '@/lib/catalog'
 import { formatShortDate } from '@/lib/format'
@@ -104,12 +103,12 @@ function Row({ d, onPublish }: { d: AgreementDoc; onPublish?: () => void }) {
         <span className="text-sm text-muted-foreground first-letter:uppercase">{when(d)}</span>
       </span>
       <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-        <Button variant="ghost" size="sm" aria-label={`Ver el PDF de la versión ${d.version}`} onClick={() => void openPdf(d.id)}>
+        <Button variant="ghost" size="sm" className="h-11 sm:h-11 max-sm:min-w-11" aria-label={`Ver el PDF de la versión ${d.version}`} onClick={() => void openPdf(d.id)}>
           <FileTextIcon />
           <span className="max-sm:sr-only">Ver el PDF</span>
         </Button>
         {onPublish && (
-          <Button size="sm" aria-label={`Publicar la versión ${d.version}`} onClick={onPublish}>
+          <Button size="sm" className="h-11 sm:h-11" aria-label={`Publicar la versión ${d.version}`} onClick={onPublish}>
             Publicar
           </Button>
         )}
@@ -225,18 +224,29 @@ function Upload({ onClose }: { onClose: () => void }) {
               <label htmlFor={pdfId} className="text-sm font-medium">
                 PDF
               </label>
-              <Input
-                id={pdfId}
-                type="file"
-                accept="application/pdf"
-                size="lg"
-                aria-invalid={!!fileError || undefined}
-                aria-describedby={fileError ? pdfErrId : undefined}
-                onChange={(e) => {
-                  setFile(e.target.files?.[0] ?? null)
-                  setServer(null)
-                }}
-              />
+              {/* El botón nativo dice «Choose File» o «Seleccionar archivo» según el navegador: uno propio, en español,
+                  con el input transparente encima (el clic, el teclado y el lector siguen siendo los del input). */}
+              <span className="relative flex min-h-11 items-center gap-3 rounded-lg border border-input bg-background px-1.5 ring-ring/24 transition-shadow has-focus-visible:border-ring has-focus-visible:ring-[3px] has-aria-invalid:border-destructive/36 dark:bg-input/32">
+                <input
+                  id={pdfId}
+                  type="file"
+                  accept="application/pdf"
+                  className="absolute inset-0 cursor-pointer opacity-0"
+                  aria-invalid={!!fileError || undefined}
+                  aria-describedby={fileError ? pdfErrId : undefined}
+                  onChange={(e) => {
+                    setFile(e.target.files?.[0] ?? null)
+                    setServer(null)
+                  }}
+                />
+                <span aria-hidden="true" className="pointer-events-none flex h-8 shrink-0 items-center gap-1.5 rounded-md border bg-secondary px-2.5 text-sm font-medium">
+                  <FileTextIcon className="size-4 opacity-80" />
+                  Elegir el PDF
+                </span>
+                <span aria-hidden="true" className="pointer-events-none min-w-0 truncate text-sm text-muted-foreground">
+                  {file?.name ?? 'Ningún archivo'}
+                </span>
+              </span>
               {fileError ? (
                 <p id={pdfErrId} role="alert" className="text-xs text-destructive-foreground">
                   {fileError}
