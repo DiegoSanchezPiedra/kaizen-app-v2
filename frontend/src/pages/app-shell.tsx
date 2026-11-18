@@ -83,7 +83,7 @@ export function AppShell() {
             end={end}
             className={({ isActive }) =>
               cn(
-                'group flex min-h-13 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-semibold text-muted-foreground transition-transform duration-150 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-95',
+                'group flex min-h-13 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-semibold text-muted-foreground transition-transform duration-150 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96]',
                 'lg:min-h-11 lg:flex-row lg:justify-start lg:gap-3 lg:px-3 lg:text-[15px] lg:active:scale-100',
                 isActive && 'text-link lg:bg-primary/12',
               )
