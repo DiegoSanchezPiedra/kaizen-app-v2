@@ -146,3 +146,22 @@
   Hasta `xl`, una fila por alumno que abre la ficha (cifras en negrita con su palabra: «12 reservas · 1 falta…», nombre
   largo partido); tabla desde `xl`. Paginar atenúa la lista anterior; vacío con «Quitar la disciplina» si la hay.
 - `Pager` del panel: «Anterior» y «Siguiente» a 44 px (Usuarios, Cobros, Avisos y Auditoría también).
+
+## Cuenta (`/admin/account`) y Configurar el MFA (`/admin/mfa`) — rediseño 7, 2026-11-18
+
+- El admin viene a **la seguridad**: orden Doble factor · Contraseña · Tus datos · Cerrar sesión. La tarjeta «Doble factor»
+  lleva el estado con icono y texto («Activo» o «Sin activar») y, sin MFA, **Activar el doble factor**; sustituye aquí al
+  aviso de `MfaNotice`, que sigue en el Inicio. Con el MFA activo solo se ve el estado: ver o regenerar los códigos y
+  desactivarlo pedirían cambiar la API.
+- Si cae `/me`, un solo error con «Reintentar» en lugar de Contraseña y Tus datos; «Cerrar sesión» sigue.
+- Cambiar la contraseña se queda en Cuenta con el formulario vacío (`PasswordSection onDone`; /account sigue igual).
+  Solo Google: «Contraseña» se queda y explica cómo crearla.
+- **MFA**: indicador de 3 pasos (Escanear · Códigos · Activar; `aria-current="step"`, hecho con check) y «Ahora no» en la
+  cabecera. Al cambiar de paso, el foco va al título. En los pasos 2 y 3, salir pide «¿Salir sin activar?» (y el navegador
+  avisa al recargar o cerrar): los códigos solo se ven ahí y el secreto cambia en cada visita.
+- El secreto y los códigos no pasan por React Query ni por el almacenamiento (estado de la página). Solo Google pide el
+  secreto al abrir, una vez (StrictMode incluido).
+- `invalid_totp`: el texto de b19 en el campo, casillas vacías y foco en la primera. `mfa_already_enabled`: «El doble factor
+  ya está activo» y vuelta a donde estaba. Al activar, vuelta a donde estaba con el toast; desde Cuenta se ve «Activo».
+- «Copiar» sin portapapeles deja los códigos seleccionados y lo dice. Botones del flujo y de Cuenta a 44 px también con ratón;
+  el ojo de la contraseña, zona de 44 px con ratón (`pointer-fine:after`, 0 % de diferencia en /account).

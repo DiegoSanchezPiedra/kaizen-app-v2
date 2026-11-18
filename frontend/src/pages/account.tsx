@@ -226,7 +226,7 @@ export function DataPage() {
 }
 
 // ADR 0020: cambiar la contraseña cierra las demás sesiones; la respuesta trae el token que mantiene esta.
-function PasswordForm() {
+function PasswordForm({ onDone }: { onDone?: () => void }) {
   const navigate = useNavigate()
   const [errors, setErrors] = useState<Record<string, string>>({})
   const change = useMutation({
@@ -234,7 +234,8 @@ function PasswordForm() {
     onSuccess: ({ token }) => {
       setToken(token)
       toastOk('Contraseña cambiada. Se han cerrado tus otras sesiones.')
-      void navigate('/account')
+      if (onDone) onDone()
+      else void navigate('/account')
     },
     onError: (err) => {
       const code = errorCode(err)
@@ -303,12 +304,12 @@ function CreatePassword({ email }: { email: string }) {
   )
 }
 
-// También en la Cuenta del admin (pages/admin/account.tsx).
-export function PasswordSection() {
+// También en la Cuenta del admin (pages/admin/account.tsx), que pasa `onDone` para quedarse allí.
+export function PasswordSection({ onDone }: { onDone?: () => void }) {
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/me') })
   if (me.isPending) return <ListSkeleton rows={2} />
   if (me.isError) return <ErrorState error={me.error} onRetry={() => void me.refetch()} />
-  return me.data.has_password ? <PasswordForm /> : <CreatePassword email={me.data.email ?? ''} />
+  return me.data.has_password ? <PasswordForm onDone={onDone} /> : <CreatePassword email={me.data.email ?? ''} />
 }
 
 export function PasswordPage() {
