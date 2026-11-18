@@ -54,5 +54,6 @@ export const up = (pgm) => {
 };
 
 export const down = (pgm) => {
-  pgm.sql(`DROP TABLE communique_views; DROP TABLE communiques;`);
+  // communiques_select depende de communique_views: primero communiques (con su política y la FK de las vistas).
+  pgm.sql(`DROP TABLE communiques CASCADE; DROP TABLE communique_views;`);
 };

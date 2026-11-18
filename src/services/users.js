@@ -1,10 +1,13 @@
 // src/services/users.js — usuarios y roles del panel admin (B19.0; CONTEXT § Cambiar el rol, Tutor).
 // Con el client RLS del admin. Nunca devuelve birth_date ni salud: de la edad, solo is_minor y pending_claim.
+import crypto from 'node:crypto';
 import { httpError } from '../lib/errors.js';
 import { invalid, audit } from './catalog.js';
 import { getProfileStatus } from './profile.js';
-import { getMfaStatus, verifyMfaCode } from './mfa.js';
 import { getSubscription, affectedSql } from './billing.js';
+import { call, normEmail, parseName, newToken } from './trainers.js';
+import { isValidPastDate, isAdultBirthDate, sha256 } from './auth.js';
+import { isCorporateEmail } from '../config/corporate.js';
 
 const LIVE = `('active', 'past_due', 'unpaid')`;
 const ROLES = ['alumno', 'tutor', 'profesor', 'admin'];
@@ -121,6 +124,8 @@ async function profileRow(client, id) {
             c.disabled_at IS NOT NULL AS disabled
        ${FROM} WHERE p.id = $1`, [id]);
   if (!row) throw notFound();
+  // «Nunca activó»: tiene correo pero ni contraseña ni Google (un hijo o un profesor no se invitan por aquí).
+  row.invite_pending = !!row.email && !row.has_password && !row.has_google && !row.is_minor && row.role !== 'profesor';
   return row;
 }
 
@@ -163,10 +168,9 @@ export async function getProfile(client, { id }) {
 
 /**
  * Cambiar el rol entre alumno y tutor, o dar el de admin (CONTEXT § Cambiar el rol; profesor, ADR 0028). Vale al momento
- * (requireAuth). Dar admin exige el doble factor del admin activado, una sesión que entró con él (mfaSession: un token
- * robado de antes de activarlo no basta) y su código en esta petición (B20, B3). Quitar admin no se hace desde la app.
+ * (requireAuth). Dar admin no pide el doble factor (ADR 0032, riesgo aceptado; queda en audit_log). Quitar admin no se hace desde la app.
  */
-export async function changeRole(client, { id, role, actorId, mfaSession, mfaCode }) {
+export async function changeRole(client, { id, role, actorId }) {
   if (!SETTABLE.includes(role)) throw invalid('role', 'role debe ser alumno, tutor o admin');
   const { rows: [p] } = await client.query(
     `SELECT ${ROLE} AS role, c.profile_id IS NOT NULL AND NOT ${MINOR} AS has_access ${FROM} WHERE p.id = $1 FOR UPDATE OF p`, [id]);
@@ -180,19 +184,39 @@ export async function changeRole(client, { id, role, actorId, mfaSession, mfaCod
       `SELECT EXISTS (SELECT 1 FROM subscriptions WHERE student_id = $1 AND status IN ${LIVE}) AS live`, [id]);
     if (live.live) throw conflict('student_has_subscription', 'Tiene una suscripción viva');
   }
-  // El código, lo último: si algo más falla, no se ha probado (un código de recuperación no se gasta sin dar el rol).
-  if (role === 'admin') {
-    if (!(await getMfaStatus(client, actorId)).enabled) {
-      throw httpError(403, 'mfa_required', 'Activa el doble factor para dar el rol de admin');
-    }
-    if (!mfaSession) throw httpError(403, 'mfa_login_required', 'Vuelve a entrar con el doble factor para dar el rol de admin');
-    if (!(await verifyMfaCode(client, actorId, mfaCode))) throw httpError(403, 'invalid_mfa_code', 'El código no es correcto');
-  }
   await client.query(
     `INSERT INTO user_roles (user_id, role) VALUES ($1, $2)
      ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role`, [id, role]);
   await audit(client, actorId, 'profile.role_change', id, { from: p.role, to: role });
   return { profile: await profileRow(client, id) };
+}
+
+/**
+ * Alta de un alumno, tutor o admin por el admin (ADR 0032): invitación de 72 h como a los profesores. Alumno y tutor, adultos
+ * con fecha de nacimiento; los menores los da de alta su tutor. → { profile, invite: { to, name, token } }: el token solo
+ * existe aquí y en el email (la ruta lo envía tras el COMMIT y lo devuelve como invite_url).
+ */
+export async function adminCreateUser(client, { email, display_name: name, role, birth_date: birth } = {}) {
+  if (!SETTABLE.includes(role)) throw invalid('role', 'role debe ser alumno, tutor o admin');
+  const e = normEmail(email);
+  const n = parseName(name);
+  if (isCorporateEmail(e)) throw httpError(409, 'email_domain_reserved', 'ese dominio de email está reservado');
+  if (birth !== undefined || role !== 'admin') { // al admin la fecha le es opcional
+    if (!isValidPastDate(birth)) throw httpError(400, 'invalid_birth_date', 'birth_date (YYYY-MM-DD, pasada) requerido');
+    if (!isAdultBirthDate(birth)) throw httpError(400, 'invalid_birth_date', 'solo adultos: a los menores los da de alta su tutor');
+  }
+  const id = crypto.randomUUID();
+  const token = newToken();
+  await call(client, `SELECT admin_create_user($1, $2, $3, $4, $5, $6)`, [id, e, n, birth ?? null, role, sha256(token)]);
+  return { profile: await profileRow(client, id), invite: { to: e, name: n, token } };
+}
+
+/** Enlace nuevo para quien nunca activó su cuenta (invalida el anterior). 409 already_active | not_invitable. */
+export async function inviteUser(client, { id }) {
+  const token = newToken();
+  await call(client, `SELECT admin_user_invite($1, $2)`, [id, sha256(token)]);
+  const { rows: [c] } = await client.query(`SELECT c.email, p.display_name FROM auth_credentials c JOIN profiles p ON p.id = c.profile_id WHERE c.profile_id = $1`, [id]);
+  return { invite: { to: c.email, name: c.display_name, token } };
 }
 
 /** PUT /admin/profiles/:id/can-create-children { enabled } → { profile } (audit_log profile.can_create_children, en SQL). */

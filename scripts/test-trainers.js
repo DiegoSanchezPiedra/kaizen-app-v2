@@ -74,6 +74,7 @@ try {
     const r = await create({ email: `  ADA-${tag}@Academia.Test `, display_name: 'Ada Profe' });
     assert.equal(r.status, 201, JSON.stringify(r.body));
     ada = r.body.trainer;
+    assert.match(r.body.invite_url, /\/reset-password\?token=[\w-]{43}&invite=1$/);
     assert.deepEqual([ada.display_name, ada.email, ada.employment, ada.has_password, ada.email_verified, ada.disabled],
       ['Ada Profe', mail('ada'), 'self_employed', false, false, false]);
     const { rows: [role] } = await q(`SELECT role FROM user_roles WHERE user_id = $1`, [ada.id]);
@@ -134,14 +135,16 @@ try {
     assert.equal((await accept(token)).status, 204, 'dentro del plazo vale');
   });
 
-  await run('reenviar invalida la anterior (y 204); el reenvío nuevo sí vale', async () => {
+  await run('reenviar invalida la anterior (200 con invite_url); el reenvío nuevo sí vale', async () => {
     const r = await create({ email: mail('re'), display_name: 'Re' });
     const id = r.body.trainer.id;
     const t1 = await waitToken(mail('re'));
-    assert.equal((await http('POST', `/admin/trainers/${id}/invite`, 'admin')).status, 204);
+    const inv = await http('POST', `/admin/trainers/${id}/invite`, 'admin');
+    assert.equal(inv.status, 200);
     let t2;
     for (let i = 0; i < 40 && (t2 = tokenFor(mail('re'))) === t1; i++) await nap(25);
     assert.notEqual(t2, t1);
+    assert.equal(inv.body.invite_url, `${process.env.APP_URL}/reset-password?token=${t2}&invite=1`, 'el mismo enlace que el del email');
     assert.equal(code(await accept(t1)), 'invalid_reset_token');
     assert.equal((await accept(t2)).status, 204);
     assert.equal((await q(`SELECT count(*)::int AS n FROM password_resets WHERE profile_id = $1 AND used_at IS NULL`, [id])).rows[0].n, 0);
@@ -151,7 +154,7 @@ try {
     const r = await create({ email: mail('bomb'), display_name: 'Bomb' });
     const statuses = [];
     for (let i = 0; i < 6; i++) statuses.push((await http('POST', `/admin/trainers/${r.body.trainer.id}/invite`, 'admin')).status);
-    assert.deepEqual(statuses, [204, 204, 204, 204, 204, 429]);
+    assert.deepEqual(statuses, [200, 200, 200, 200, 200, 429]);
     assert.equal((await http('POST', `/admin/trainers/${crypto.randomUUID()}/invite`, 'admin')).status, 404);
     assert.equal((await http('POST', `/admin/trainers/${U.ana}/invite`, 'admin')).status, 404, 'un alumno no es profesor');
     assert.equal((await http('POST', `/admin/trainers/nope/invite`, 'admin')).status, 400);
@@ -221,6 +224,8 @@ try {
 
     const p = await http('PATCH', `/admin/trainers/${id}`, 'admin', { email: mail('mv2'), display_name: 'Mv Nuevo', employment: 'employee' });
     assert.equal(p.status, 200, JSON.stringify(p.body));
+    assert.match(p.body.invite_url, /\/reset-password\?token=[\w-]{43}&invite=1$/);
+    assert.equal((await http('PATCH', `/admin/trainers/${id}`, 'admin', { display_name: 'Mv Nuevo' })).body.invite_url, undefined, 'sin correo nuevo no hay enlace');
     assert.deepEqual([p.body.trainer.id, p.body.trainer.email, p.body.trainer.display_name, p.body.trainer.employment, p.body.trainer.has_password, p.body.trainer.email_verified],
       [id, mail('mv2'), 'Mv Nuevo', 'employee', false, false]);
     assert.equal((await q(`SELECT google_sub FROM auth_credentials WHERE profile_id = $1`, [id])).rows[0].google_sub, null);

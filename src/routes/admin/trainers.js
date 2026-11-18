@@ -5,7 +5,7 @@ import { asyncHandler } from '../../middleware/asyncHandler.js';
 import { httpError } from '../../lib/errors.js';
 import { withRls } from '../../db/rls.js';
 import { trainerInviteLimit } from '../../middleware/rateLimit.js';
-import { createTrainer, inviteTrainer, updateTrainer, setTrainerDisabled, sendInvite } from '../../services/trainers.js';
+import { createTrainer, inviteTrainer, updateTrainer, setTrainerDisabled, sendInvite, inviteUrl } from '../../services/trainers.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -16,21 +16,23 @@ router.param('id', (req, res, next, v) => (UUID_RE.test(v) ? next() : next(httpE
 const run = (req, fn) => withRls({ uid: req.user.id, role: req.user.role }, fn);
 const reply = (status) => (handler) => asyncHandler(async (req, res) => {
   const { trainer, invite } = await handler(req);
-  if (invite) sendInvite(invite); // sin await: un fallo de envío no deshace el cambio (el admin reenvía)
-  res.status(status).json({ trainer });
+  if (!invite) return res.status(status).json({ trainer });
+  sendInvite({ ...invite, as: 'profesor' }); // sin await: un fallo de envío no deshace el cambio (el admin reenvía)
+  // El enlace también va en la respuesta (copiable si el email no llega): nunca en caché, ni en logs ni en audit.
+  res.set('Cache-Control', 'no-store').status(status).json({ trainer, invite_url: inviteUrl(invite.token) });
 });
 
-// POST /admin/trainers { email, display_name, employment? } → 201 { trainer }; 400 email_domain_not_allowed | invalid_field; 409 email_taken
+// POST /admin/trainers { email, display_name, employment? } → 201 { trainer, invite_url }; 400 email_domain_not_allowed | invalid_field; 409 email_taken
 router.post('/trainers', reply(201)((req) => run(req, (c) => createTrainer(c, req.body))));
 
-// POST /admin/trainers/:id/invite → 204 (invalida la anterior); 5 por profesor y hora
+// POST /admin/trainers/:id/invite → 200 { invite_url } (invalida la anterior); 5 por profesor y hora
 router.post('/trainers/:id/invite', trainerInviteLimit, asyncHandler(async (req, res) => {
   const { invite } = await run(req, (c) => inviteTrainer(c, { id: req.params.id }));
-  sendInvite(invite);
-  res.status(204).end();
+  sendInvite({ ...invite, as: 'profesor' });
+  res.set('Cache-Control', 'no-store').json({ invite_url: inviteUrl(invite.token) });
 }));
 
-// PATCH /admin/trainers/:id { display_name?, employment?, email? } → { trainer }; con email nuevo, reinvita
+// PATCH /admin/trainers/:id { display_name?, employment?, email? } → { trainer, invite_url? }; con email nuevo, reinvita
 const emailLimit = (req, res, next) => (req.body?.email !== undefined ? trainerInviteLimit(req, res, next) : next());
 router.patch('/trainers/:id', emailLimit, reply(200)((req) => run(req, (c) => updateTrainer(c, { id: req.params.id, body: req.body ?? {} }))));
 

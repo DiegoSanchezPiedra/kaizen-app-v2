@@ -30,7 +30,7 @@ Decisión del 2026-11-13 (migración 064). Desarrolla el [ADR 0001](0001-rol-uni
 
 - Profesor sin 2FA con fichas de salud de menores (2FA del profesor fuera de alcance). Mitigación operativa: 2FA de Zoho obligatorio.
 - Un buzón Zoho comprometido es una cuenta tomada.
-- El admin no necesita MFA para crear profesores (endurecimiento opcional: exigir su código, como al dar el rol de admin).
+- El admin no necesita MFA para crear profesores (endurecimiento opcional: exigir su código). Desde el [ADR 0032](0032-beta-cerrada-registro-cerrado-y-alta-por-admin.md) tampoco lo pide dar el rol de admin; y el reenvío de la invitación devuelve `200 { invite_url }` en vez de `204`.
 
 ## Antes de producción
 

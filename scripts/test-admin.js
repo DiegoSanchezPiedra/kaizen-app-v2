@@ -18,9 +18,6 @@ const { default: adminCheckinRouter } = await import('../src/routes/admin/checki
 const { default: adminSessionsRouter } = await import('../src/routes/admin/sessions.js');
 const { default: adminAgreementsRouter } = await import('../src/routes/admin/agreements.js');
 const { withRls } = await import('../src/db/rls.js');
-const OTPAuth = await import('otpauth');
-const { encrypt } = await import('../src/services/crypto.js');
-const { MFA_TOTP_ISSUER } = await import('../src/config/mfa.js');
 const { notice } = await import('../src/services/notices.js');
 const { createDocument } = await import('../src/services/agreements.js');
 const { deleteFile } = await import('../src/services/storage.js');
@@ -142,7 +139,7 @@ try {
       assert.ok(!json.includes(k), `la ficha incluye ${k}`);
     }
     assert.deepEqual(Object.keys(r.body.profile).sort(), ['avatar', 'can_create_children', 'created_at', 'disabled', 'display_name', 'email', 'has_google',
-      'has_password', 'id', 'is_minor', 'is_public', 'pending_claim', 'role']);
+      'has_password', 'id', 'invite_pending', 'is_minor', 'is_public', 'pending_claim', 'role']);
   });
   await run('ficha: el padre con sus hijos; status solo de un alumno; 404', async () => {
     const parent = (await http('GET', `/admin/profiles/${U.parent}`, 'admin')).body;
@@ -156,7 +153,6 @@ try {
   await run('rol: errores', async () => {
     const put = (who, role) => http('PUT', `/admin/profiles/${U[who]}/role`, 'admin', { role });
     expectError(await put('stu2', 'root'), 400, 'invalid_field');
-    expectError(await put('stu2', 'admin'), 403, 'mfa_required'); // el admin del test no tiene doble factor
     expectError(await put('stu2', undefined), 400, 'invalid_field');
     expectError(await http('PUT', `/admin/profiles/${crypto.randomUUID()}/role`, 'admin', { role: 'tutor' }), 404,
       'profile_not_found');
@@ -186,41 +182,23 @@ try {
     assert.equal((await http('PUT', `/admin/profiles/${U.norole}/role`, 'admin', { role: 'tutor' })).body.profile.role,
       'tutor');
   });
-  // B20 (B3): un admin con el doble factor activado da el rol admin, confirmándolo con su código; quitarlo, no.
-  // La sesión tiene que haber entrado con el doble factor (amr en el token, /auth/mfa/verify): activarlo a media sesión
-  // con un token robado no basta. Y 10 intentos de dar admin cada 15 min por IP, para no adivinar el código.
-  await run('rol admin: solo un admin que entró con doble factor y su código; desde la app no se quita', async () => {
-    const mfaToken = signToken({ sub: U.admin, role: 'admin', mfa: true });
-    const put = async (who, body, token = mfaToken) => {
-      const res = await fetch(`${base}/admin/profiles/${U[who]}/role`, { method: 'PUT', body: JSON.stringify({ role: 'admin', ...body }),
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` } });
-      return { status: res.status, body: await res.json() };
-    };
-    const secret = new OTPAuth.Secret({ size: 20 });
-    const totp = new OTPAuth.TOTP({ issuer: MFA_TOTP_ISSUER, label: U.admin, algorithm: 'SHA1', digits: 6, period: 30, secret });
-    await servicePool.query(`INSERT INTO user_mfa (id, user_id, totp_secret_encrypted, recovery_codes_encrypted, mfa_enabled)
-                             VALUES ($1, $2, $3, $4, true)`, [crypto.randomUUID(), U.admin, encrypt(secret.base32), encrypt('[]')]);
-    try {
-      // Con el doble factor activado pero un token sin amr (entró antes de activarlo): no.
-      expectError(await put('newadmin', { mfa_code: totp.generate() }, tokenOf('admin')), 403, 'mfa_login_required');
-      expectError(await put('newadmin', {}), 403, 'invalid_mfa_code');
-      expectError(await put('newadmin', { mfa_code: totp.generate() === '000000' ? '111111' : '000000' }), 403, 'invalid_mfa_code');
-      assert.equal(await lastAudit('profile.role_change', U.newadmin), undefined);
-      const r = await put('newadmin', { mfa_code: totp.generate() });
-      assert.deepEqual([r.status, r.body.profile.role], [200, 'admin']);
-      assert.deepEqual(await lastAudit('profile.role_change', U.newadmin),
-        { actor_id: U.admin, resource_type: 'profile', changes: { from: 'alumno', to: 'admin' } });
-      expectError(await http('PUT', `/admin/profiles/${U.newadmin}/role`, 'admin', { role: 'alumno' }), 409, 'admin_role_locked');
-      let limited;
-      for (let i = 0; i < 12 && !limited; i++) {
-        const res = await put('stu2', { mfa_code: 'xxxxxx' });
-        if (res.status === 429) limited = res;
-        else expectError(res, 403, 'invalid_mfa_code');
-      }
-      assert.equal(limited?.body.code, 'rate_limited');
-    } finally {
-      await servicePool.query(`DELETE FROM user_mfa WHERE user_id = $1`, [U.admin]);
+  // Beta cerrada (ADR 0032): dar el rol admin ya no pide doble factor ni código (riesgo aceptado); quitarlo, sigue sin poder.
+  // Siguen los 10 intentos cada 15 min por IP.
+  await run('rol admin: se da sin doble factor ni código; desde la app no se quita', async () => {
+    const put = (who, role = 'admin') => http('PUT', `/admin/profiles/${U[who]}/role`, 'admin', { role });
+    const r = await put('newadmin');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual([r.status, r.body.profile.role], [200, 'admin']);
+    assert.deepEqual(await lastAudit('profile.role_change', U.newadmin),
+      { actor_id: U.admin, resource_type: 'profile', changes: { from: 'alumno', to: 'admin' } });
+    expectError(await put('newadmin', 'alumno'), 409, 'admin_role_locked');
+    let limited;
+    for (let i = 0; i < 12 && !limited; i++) {
+      const res = await put('admin');
+      if (res.status === 429) limited = res;
+      else expectError(res, 409, 'admin_role_locked');
     }
+    assert.equal(limited?.body.code, 'rate_limited');
   });
   await run('alumno y profesor → 403', async () => {
     expectError(await http('GET', '/admin/profiles', 'stu'), 403, 'insufficient_role');

@@ -9,6 +9,7 @@ import { verifyGoogleIdToken } from './google.js';
 import { send } from './email.js';
 import { mail } from './notices.js';
 import { isCorporateEmail } from '../config/corporate.js';
+import { registrationOpen } from '../config/registration.js';
 
 // ---------------------------------------------------------------------------
 // Lectura de credenciales SOLO para login (sin JWT todavía).
@@ -101,11 +102,15 @@ export function assertStrongPassword(password) {
   }
 }
 
+// Registro público cerrado (ADR 0032): también para el alta nueva por Google.
+const closed = () => httpError(403, 'registration_closed', 'el registro está cerrado: te da de alta la academia');
+
 // ---------------------------------------------------------------------------
 // registerLocal — sigue firmando token; un registro nuevo no puede tener MFA.
 // Solo adultos: a los hijos los da de alta su tutor (ADR 0002).
 // ---------------------------------------------------------------------------
 export async function registerLocal({ email, password, displayName, birthDate }) {
+  if (!registrationOpen()) throw closed();
   if (!email || !password) {
     throw httpError(400, 'invalid_payload', 'email and password required');
   }
@@ -194,6 +199,7 @@ export async function loginGoogle({ idToken, verify = verifyGoogleIdToken }) { /
     );
   }
 
+  if (!registrationOpen()) throw closed(); // las cuentas ya vinculadas entraron arriba
   // Alta nueva vía Google: reusamos createUser (que sí devuelve token+user).
   // La ruta descartará el token si MFA aplica (no aplica: usuario nuevo).
   // Para mantener la simetría de loginLocal/loginGoogle, extraemos los campos.
