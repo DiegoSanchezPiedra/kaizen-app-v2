@@ -102,7 +102,8 @@ export function TabsPanel({
 }: TabsPrimitive.Panel.Props): React.ReactElement {
   return (
     <TabsPrimitive.Panel
-      className={cn("flex-1 outline-none", className)}
+      // El panel es enfocable (Base UI): con teclado, anillo como el resto de controles (DESIGN.md: foco visible).
+      className={cn("flex-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background", className)}
       data-slot="tabs-content"
       {...props}
     />
