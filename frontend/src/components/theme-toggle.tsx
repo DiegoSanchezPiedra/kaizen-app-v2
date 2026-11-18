@@ -18,7 +18,7 @@ export function ThemeToggle({ className }: { className?: string }) {
   return (
     <Menu>
       <MenuTrigger
-        render={<Button variant="ghost" size="icon-xl" className={cn('shrink-0 active:not-disabled:scale-[0.96]', className)} aria-label={`Tema: ${current.label}`} />}
+        render={<Button variant="ghost" size="icon-xl" className={cn('shrink-0 active:not-disabled:scale-[0.96] pointer-fine:after:absolute pointer-fine:after:-inset-1', className)} aria-label={`Tema: ${current.label}`} />}
       >
         <current.Icon aria-hidden="true" />
       </MenuTrigger>

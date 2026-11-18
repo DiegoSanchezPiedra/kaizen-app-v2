@@ -119,6 +119,7 @@ async function cleanup() {
     // user_mfa, auth_credentials, user_roles: ON DELETE CASCADE o RESTRICT
     // Borramos en este orden.
     await client.query(`DELETE FROM user_mfa WHERE user_id = $1`, [adminProfileId]);
+    await client.query(`DELETE FROM audit_log WHERE actor_id = $1`, [adminProfileId]); // auth.mfa_enable y auth.mfa_recovery_regenerate
     await client.query(`DELETE FROM auth_credentials WHERE profile_id = $1`, [adminProfileId]);
     await client.query(`DELETE FROM user_roles WHERE user_id = $1`, [adminProfileId]);
     await client.query(`DELETE FROM profiles WHERE id = $1`, [adminProfileId]);
@@ -476,6 +477,29 @@ async function httpCases() {
       const v = await http('POST', '/auth/mfa/verify', { body: { mfa_token: r.body.mfa_token, code: await currentTotpFor(adminProfileId, 1) } });
       assert(v.status === 200 && ttlHours(v.body.token) === 12, `verify ${v.status}`);
       assert((await http('GET', '/admin/profiles?limit=1', { token: v.body.token })).status === 200, '/admin con MFA');
+    });
+    await run('ADR 0031: regenerar los códigos pide la contraseña, invalida los anteriores y queda en la auditoría', async () => {
+      const t = signToken({ sub: adminProfileId, role: 'admin', mfa: true });
+      const none = await http('POST', '/auth/mfa/recovery-codes', { token: t });
+      assert(none.status === 400 && none.body.code === 'invalid_field', `sin contraseña ${none.status} ${none.body?.code}`);
+      const bad = await http('POST', '/auth/mfa/recovery-codes', { token: t, body: { password: 'otra-cosa-1234' } });
+      assert(bad.status === 400 && bad.body.code === 'wrong_password', `otra contraseña ${bad.status} ${bad.body?.code}`);
+      const a = await http('POST', '/auth/mfa/recovery-codes', { token: t, body: { password: ADMIN_PASSWORD } });
+      assert(a.status === 201 && a.body.recovery_codes.length === 10, `primera ${a.status} ${a.body?.code}`);
+      const b = await http('POST', '/auth/mfa/recovery-codes', { token: t, body: { password: ADMIN_PASSWORD } });
+      assert(b.status === 201 && b.body.recovery_codes[0] !== a.body.recovery_codes[0], `segunda ${b.status}`);
+      // Sigue valiendo el token: no cambia el factor ni cierra sesiones.
+      assert((await http('GET', '/auth/me', { token: t })).status === 200, 'el token sigue valiendo');
+      const old = await http('POST', '/auth/mfa/verify', { body: { mfa_token: (await login()).body.mfa_token, code: a.body.recovery_codes[0] } });
+      assert(old.status === 401 && old.body.code === 'invalid_mfa_code', `código anterior ${old.status} ${old.body?.code}`);
+      const now = await http('POST', '/auth/mfa/verify', { body: { mfa_token: (await login()).body.mfa_token, code: b.body.recovery_codes[0] } });
+      assert(now.status === 200 && now.body.token, `código nuevo ${now.status} ${now.body?.code}`);
+      const { rows } = await servicePool.query(
+        `SELECT count(*)::int AS n FROM audit_log WHERE actor_id = $1 AND action = 'auth.mfa_recovery_regenerate'`, [adminProfileId]);
+      assert(rows[0].n === 2, `auditoría: ${rows[0].n}`);
+      await servicePool.query(`UPDATE user_mfa SET mfa_enabled = false WHERE user_id = $1`, [adminProfileId]);
+      const off = await http('POST', '/auth/mfa/recovery-codes', { token: t, body: { password: ADMIN_PASSWORD } });
+      assert(off.status === 409 && off.body.code === 'mfa_not_enabled', `sin MFA ${off.status} ${off.body?.code}`);
     });
     await run('B19.0: alumno, tutor y profesor siguen a 7 días', async () => {
       for (const role of ['alumno', 'tutor', 'profesor']) {

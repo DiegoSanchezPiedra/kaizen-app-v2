@@ -19,6 +19,7 @@ import {
   monthlyTotals,
   niceMax,
   percent,
+  periodLabel,
   shortMonth,
   sumFigures,
   type Figures,
@@ -37,12 +38,17 @@ const nf = new Intl.NumberFormat('es-ES')
 export const SERIES = 'text-foreground [--s-abs:#C8467E] [--s-occ:#0B47F0] [--s-pres:#0B47F0] [--s-unr:color-mix(in_srgb,var(--foreground)_48%,transparent)] dark:[--s-abs:#D55181] dark:[--s-occ:#2F62FF] dark:[--s-pres:#2F62FF]'
 export const HATCH = 'bg-[repeating-linear-gradient(135deg,var(--s-unr)_0_2px,transparent_2px_5px)] shadow-[inset_0_0_0_1px_var(--s-unr)]'
 
-export function Tile({ label, value }: { label: string; value: string }) {
+// Cifras en una sola tarjeta: rejilla de 3 columnas (el informe de sesiones pasa a una fila de 6 desde lg).
+export function StatGrid({ items, className }: { items: [string, string][]; className?: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1 rounded-xl border bg-card p-3">
-      <span className="font-heading text-2xl leading-none font-bold tabular-nums sm:text-3xl">{value}</span>
-      <span className="text-[13px] leading-snug font-medium text-muted-foreground">{label}</span>
-    </div>
+    <dl className={cn('grid grid-cols-3 gap-px overflow-hidden rounded-2xl border bg-border', className)}>
+      {items.map(([label, value]) => (
+        <div key={label} className="flex flex-col-reverse justify-end gap-1 bg-card px-3 py-3.5 sm:px-4">
+          <dt className="text-[13px] leading-snug font-medium text-muted-foreground">{label}</dt>
+          <dd className="font-heading text-[1.75rem] leading-none font-bold tabular-nums sm:text-3xl">{value}</dd>
+        </div>
+      ))}
+    </dl>
   )
 }
 
@@ -139,7 +145,8 @@ function Charts({ months }: { months: Month[] }) {
 }
 
 // Una columna-botón por mes (o día: `name` y `short` dicen cómo se llama), la última etiquetada y el resto por tooltip.
-export function MonthBars<T>({ months, max, ticks, unit, stack, tip, labelLast, name = (m) => formatMonth((m as Month).month), short = (m) => shortMonth((m as Month).month) }: {
+// `gap`: sin dato (contorno punteado, nunca una barra de 0); `mark`: un punto bajo la etiqueta (mes incompleto).
+export function MonthBars<T>({ months, max, ticks, unit, stack, tip, labelLast, gap: isGap, mark, name = (m) => formatMonth((m as Month).month), short = (m) => shortMonth((m as Month).month) }: {
   months: T[]
   max: number
   ticks: number[]
@@ -149,6 +156,8 @@ export function MonthBars<T>({ months, max, ticks, unit, stack, tip, labelLast, 
   labelLast: (m: T) => string
   name?: (m: T) => string
   short?: (m: T) => string
+  gap?: (m: T) => boolean
+  mark?: (m: T) => boolean
 }) {
   const [hover, setHover] = useState<number | null>(null)
   const last = months.length - 1
@@ -161,11 +170,16 @@ export function MonthBars<T>({ months, max, ticks, unit, stack, tip, labelLast, 
     setCur(to)
     ;(e.currentTarget.parentElement!.children[ticks.length + to] as HTMLElement).focus()
   }
-  const gap = months.length > 16 ? 'gap-0.5' : 'gap-2.5'
+  const gap = months.length > 40 ? 'gap-px' : months.length > 16 ? 'gap-0.5' : 'gap-2.5'
+  // Ratón, lápiz o dedo en horizontal: la columna bajo el puntero, aunque sea de 2 px (92 días en el móvil).
+  const scrub = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    setHover(Math.min(last, Math.max(0, Math.floor(((e.clientX - r.left) / r.width) * months.length))))
+  }
   const fits = mobileLabels(months.map(short)) // en el móvil no caben 12 meses: se ocultan sin mover la rejilla
   return (
     <div>
-      <div className={cn('relative ml-10 grid h-42 grid-flow-col auto-cols-fr border-b border-foreground/30', gap)}>
+      <div onPointerMove={scrub} onPointerLeave={() => setHover(null)} className={cn('relative ml-10 grid h-42 touch-pan-y grid-flow-col auto-cols-fr border-b border-foreground/30', gap)}>
         {ticks.map((t) => (
           <div key={t} className="pointer-events-none absolute right-0 -left-10 border-t" style={{ bottom: `${(t / max) * 100}%` }}>
             <span className="absolute -top-2 left-0 w-8.5 text-right text-[11px] text-muted-foreground tabular-nums">{unit(t)}</span>
@@ -178,13 +192,16 @@ export function MonthBars<T>({ months, max, ticks, unit, stack, tip, labelLast, 
             aria-label={`${name(m)}: ${tip(m).join(', ')}`}
             tabIndex={i === Math.min(cur, last) ? 0 : -1}
             onKeyDown={(e) => move(e, i)}
-            onMouseEnter={() => setHover(i)}
-            onMouseLeave={() => setHover(null)}
             onFocus={() => setHover(i)}
             onBlur={() => setHover(null)}
             className="relative flex h-full items-end justify-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <Stack parts={stack(m)} max={max} />
+            {/* Con columnas de 2 px, dos bordes discontinuos se ven casi macizos: una sola línea de puntos. */}
+            {isGap?.(m) ? (
+              <span className={cn('h-full w-full max-w-6', months.length > 40 ? 'mx-auto max-w-px bg-[repeating-linear-gradient(to_top,var(--s-unr)_0_2px,transparent_2px_6px)]' : 'rounded-sm border border-dashed border-(--s-unr)')} />
+            ) : (
+              <Stack parts={stack(m)} max={max} />
+            )}
             {i === last && (
               <span className="pointer-events-none absolute right-0 text-right text-xs font-semibold whitespace-nowrap tabular-nums" style={{ bottom: `calc(${(stack(m).reduce((s, p) => s + p.v, 0) / max) * 100}% + 4px)` }}>
                 {labelLast(m)}
@@ -207,9 +224,12 @@ export function MonthBars<T>({ months, max, ticks, unit, stack, tip, labelLast, 
           </button>
         ))}
       </div>
-      <div className={cn('mt-1.5 ml-10 grid grid-flow-col auto-cols-fr text-center text-xs text-muted-foreground', gap)}>
+      <div className={cn('mt-1.5 ml-10 grid grid-flow-col auto-cols-fr text-center text-xs text-muted-foreground', gap, mark && months.some(mark) && 'pb-2')}>
         {months.map((m, i) => (
-          <span key={name(m)} className={cn('whitespace-nowrap', !fits[i] && 'max-sm:invisible')}>{short(m)}</span>
+          <span key={name(m)} className={cn('relative whitespace-nowrap', !fits[i] && 'max-sm:invisible')}>
+            {short(m)}
+            {mark?.(m) && <i aria-hidden="true" className="visible absolute -bottom-2 left-1/2 size-1.5 -translate-x-1/2 rounded-full bg-foreground/70" />}
+          </span>
         ))}
       </div>
     </div>
@@ -311,16 +331,7 @@ function Summary({ f }: { f: Figures }) {
     ['Sin registrar', nf.format(f.unrecorded)],
     ['Cancelaciones tardías', nf.format(f.late)],
   ]
-  return (
-    <dl className="grid grid-cols-3 gap-px overflow-hidden rounded-2xl border bg-border lg:grid-cols-6">
-      {items.map(([label, value]) => (
-        <div key={label} className="flex flex-col-reverse justify-end gap-1 bg-card px-3 py-3.5 sm:px-4">
-          <dt className="text-[13px] leading-snug font-medium text-muted-foreground">{label}</dt>
-          <dd className="font-heading text-[1.75rem] leading-none font-bold tabular-nums sm:text-3xl">{value}</dd>
-        </div>
-      ))}
-    </dl>
-  )
+  return <StatGrid items={items} className="lg:grid-cols-6" />
 }
 
 function ReportSkeleton() {
@@ -332,10 +343,6 @@ function ReportSkeleton() {
     </div>
   )
 }
-
-// «Noviembre de 2026», «Junio – noviembre de 2026» o, entre dos años, con los dos años.
-const periodLabel = (from: string, to: string) =>
-  from === to ? formatMonth(to) : `${from.slice(0, 4) === to.slice(0, 4) ? formatMonth(from).replace(/ de \d{4}$/, '') : formatMonth(from)} – ${formatMonth(to)}`
 
 const badRange = (e: unknown) => e instanceof ApiError && e.code === 'invalid_range'
 
@@ -355,9 +362,9 @@ export function ProfessorReportsPage() {
 let played = false
 
 // El del profesor (solo sus sesiones) y el del admin (toda la academia): la misma pantalla con otro endpoint.
-export function SessionsReport({ endpoint, trainer = classTrainer }: { endpoint: string; trainer?: (r: ReportRow) => string | null }) {
+export function SessionsReport({ endpoint, trainer = classTrainer, urlFilters }: { endpoint: string; trainer?: (r: ReportRow) => string | null; urlFilters?: boolean }) {
   const [tab, setTab] = useState('discipline')
-  const { ok, base, filters } = useReportFilters()
+  const { ok, base, filters } = useReportFilters({ url: urlFilters })
   const filtered = base.discipline_id !== undefined
   const showClass = filtered || tab === 'class'
   const byDiscipline = useQuery({

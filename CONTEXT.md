@@ -221,7 +221,7 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 - **Jornada**: lo fichado desde una entrada hasta su salida, sin las pausas. Los días y los meses se cortan en la medianoche de Madrid: una jornada que la cruza cuenta en cada día (y en cada mes) lo que trabajó en él. El total del mes suma lo trabajado en sus días, de las jornadas cerradas.
 - **Corrección** (de un fichaje): un fichaje nunca se cambia ni se borra. Corregir es añadir un registro que apunta al fichaje (con otra hora, o anulándolo) o que añade el que falta, siempre con motivo, autor y fecha; un fichaje añadido así también se puede corregir. Solo tiene correcciones el profesor empleado. El profesor la **solicita** y queda pendiente hasta que el admin la **aplica** o la **rechaza** con motivo, y se le avisa de lo que decida (del rechazo, con el motivo); el admin también corrige directamente y entonces se avisa al profesor. Si un fichaje tiene varias correcciones aplicadas, cuenta la última que se aplicó. Lo original sigue a la vista junto a la corrección. Una corrección que dejaría los fichajes fuera de orden no se aplica.
   _Evitar_: edición, ajuste.
-- **Jornada abierta**: una entrada que a las 16 horas sigue sin salida. Se avisa al profesor y al admin para que la corrijan.
+- **Jornada abierta**: una entrada que sigue sin salida pasadas `OPEN_HOURS` horas (el umbral, en `src/services/clock.js`). Se avisa al profesor y al admin para que la corrijan.
 - **Conservación**: el registro se guarda 4 años; lo más antiguo se borra solo, siempre jornadas enteras (una jornada con algo de menos de 4 años se queda entera), y queda constancia de cuántos registros se borraron.
 
 ## Racha y logros

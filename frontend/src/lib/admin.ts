@@ -42,7 +42,8 @@ const NOTICE_LABEL: Record<string, string> = {
   'notice.payer_change_expired': 'Un cambio de pagador ha caducado',
   'notice.event_refund_failed': 'Stripe ha rechazado el reembolso de una inscripción: reintenta el reembolso desde el evento',
   'notice.clock_correction_requested': 'Un profesor ha pedido una corrección de su jornada',
-  'notice.clock_open': 'Un profesor lleva más de 16 horas con la jornada abierta',
+  // Sin el número de horas: el umbral es OPEN_HOURS del servidor (src/services/clock.js) y el aviso solo existe al pasarlo.
+  'notice.clock_open': 'Un profesor no ha fichado la salida y su jornada sigue abierta',
 }
 export const noticeLabel = (action: string): string => NOTICE_LABEL[action] ?? action
 // Los que piden actuar ya (dinero o una jornada sin cerrar): llevan icono de alerta y «Revisar».
@@ -124,6 +125,7 @@ export const AUDIT_CATEGORIES = [
   { value: 'settings', label: 'Ajustes', prefixes: ['settings.'] },
   { value: 'bookings', label: 'Reservas', prefixes: ['booking.'] },
   { value: 'events', label: 'Eventos', prefixes: ['event.', 'event_registration.'] },
+  { value: 'access', label: 'Acceso', prefixes: ['auth.'] },
 ] as const
 // Una categoría desconocida (URL a mano) no filtra.
 export const categoryPrefixes = (value: string | null): string | undefined => AUDIT_CATEGORIES.find((c) => c.value === value)?.prefixes.join(',')
@@ -174,6 +176,9 @@ const AUDIT_LABEL: Record<string, string> = {
   'event_registration.guest': 'Inscribió a un invitado',
   'event_registration.cancel': 'Canceló una inscripción',
   'event_registration.refund': 'Reintentó un reembolso',
+  'auth.password_change': 'Cambió su contraseña',
+  'auth.mfa_enable': 'Activó el doble factor',
+  'auth.mfa_recovery_regenerate': 'Generó códigos de recuperación nuevos',
 }
 export const auditLabel = (action: string): string => AUDIT_LABEL[action] ?? action
 

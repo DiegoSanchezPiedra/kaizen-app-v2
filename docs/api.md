@@ -76,6 +76,7 @@ El backend construye enlaces con `APP_URL`; el frontend **tiene** que servir est
 | `GET /auth/me` | cualquiera | — | `{ user: { id, role }, mfa_enabled, rls_context }` |
 | `POST /auth/mfa/setup` | admin | `{ password }` | `201 { otpauth_uri, recovery_codes }`: el secreto y el `otpauth://` para el QR. Pide la contraseña actual (B20); una cuenta solo con Google no la manda y necesita un token de un login de hace ≤ 10 min. `400 invalid_field`, `wrong_password`; `403 reauth_required` (solo Google, login antiguo: volver a entrar); `409 mfa_already_enabled`. Con el límite del login |
 | `POST /auth/mfa/activate` | admin | `{ code }` | `{ enabled: true, token }`: activa el MFA y, como `POST /me/password` (ADR 0020), da el token nuevo de esta sesión; los anteriores dan `401 session_revoked`. `invalid_totp`, `mfa_not_setup`. `audit_log` `auth.mfa_enable` |
+| `POST /auth/mfa/recovery-codes` | admin | `{ password }` | `201 { recovery_codes }`: 10 códigos nuevos; los anteriores (usados o no) dejan de valer. Misma confirmación que `setup` (`400 invalid_field`, `wrong_password`; `403 reauth_required`); `409 mfa_not_enabled`. No cierra sesiones. Con el límite del login. `audit_log` `auth.mfa_recovery_regenerate` (ADR 0031) |
 
 **Solo un alumno adulto se registra** (un menor lo da de alta su tutor). El rol `tutor`, `profesor` y `admin` no se
 crea por la API (hoy, a mano en la base; la gestión de usuarios es de B19).
@@ -399,7 +400,7 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 | Método y ruta | Cuerpo / query | Respuesta |
 |---|---|---|
 | `PUT /admin/profiles/:id/employment` | `{ employment: 'employee'\|'self_employed' }` | `{ profile_id, employment }` (`audit_log` `profile.employment`). `409 not_professor` |
-| `GET /admin/clock/employees` | — | `{ employees: [{ id, display_name }] }`: solo los profesores con `employment = 'employee'`, por nombre (la lista de «Jornada» del panel) |
+| `GET /admin/clock/employees` | — | `{ employees: [{ id, display_name, pending, open_since, open_late }] }`: solo los profesores con `employment = 'employee'`, por nombre (la lista de «Jornada» del panel). `pending`: correcciones sin resolver; `open_since`: la entrada de la jornada abierta (ISO) o `null`; `open_late`: abierta más de `OPEN_HOURS` (`src/services/clock.js`), el umbral del aviso `notice.clock_open` |
 | `GET /admin/clock?profile_id&month` | — | registro del mes, como `GET /me/clock` (también del autónomo). `409 not_professor`, `404 profile_not_found` |
 | `POST /admin/clock/corrections` | `{ profile_id, event_id, at?, reason }` o `{ profile_id, kind, at, reason }` (solo empleados: `403 not_employee`) | `201` corrección ya `applied`; aviso `notice.clock_corrected` (email) al profesor |
 | `POST /admin/clock/corrections/:id/apply` | — | corrección `applied`; aviso `notice.clock_correction_applied` (email) al profesor si la pidió él |
@@ -409,7 +410,7 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 Errores: `404 correction_not_found`, `409 already_resolved`, `409 invalid_sequence { state }` (aplicada dejaría los
 fichajes fuera de orden; no se guarda), `400 invalid_field`. El PDF es una página imprimible del frontend sobre
 `GET /admin/clock` (sin endpoint propio). Avisos del panel: `notice.clock_correction_requested` y `notice.clock_open`
-(jornada sin salida a las 16 h, la tarea nocturna, también al profesor por email).
+(jornada sin salida pasadas `OPEN_HOURS` horas, la tarea nocturna, también al profesor por email).
 
 **Informes** (B17)
 

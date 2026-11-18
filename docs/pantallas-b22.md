@@ -85,7 +85,7 @@
 - **Avisos** sigue con dos pestañas (`?tab=academy|deliveries`; `deliveries` es lo que enlaza el Inicio). «Entregas
   fallidas» lleva la cifra de los últimos 30 días, la misma consulta que «Requiere atención» del Inicio. Es un registro:
   sin «leído», orden cronológico.
-- **Lo grave** (riesgo de Stripe, reembolso rechazado, jornada abierta más de 16 h; `noticeUrgent` en `lib/admin.ts`):
+- **Lo grave** (riesgo de Stripe, reembolso rechazado, jornada abierta pasado `OPEN_HOURS`; `noticeUrgent` en `lib/admin.ts`):
   icono de alerta y etiqueta «Revisar» con texto, sin sacarlo del orden. El resto, campana atenuada.
 - **Entregas fallidas**: el texto fijo de b19 se queda. Hasta `xl`, una fila por entrega (destinatario → ficha, canal con
   icono y texto, aviso · fecha, «N intentos · error» entero); la tabla solo desde `xl`, con el error partido en líneas.
@@ -103,3 +103,91 @@
   socios, sus disciplinas; Canales con la nota LSSI junto al email. «Enviar» confirma con la vista previa de la ventana y
   «Se enviará a N personas (M por email)». Historial: para, fecha, canales, «Visto por X de Y», «Compartir en WhatsApp» y
   «Retirar». La ventana del usuario (`CommuniqueDialog`) va en `AppShell`, abajo en móvil, y no sale en `/checkin`.
+
+## Tablets (`/admin/tablets`) y Ajustes (`/admin/settings`) — rediseño 7, 2026-11-18
+
+- **Tablets**: el admin entra a ver si alguna dejó de conectarse y, a veces, a dar de alta una. Hasta `xl`, una fila por
+  tablet (nombre, estado y una línea: cuándo se vio o cuándo caduca, caducó o se revocó); la tabla solo desde `xl`, sin
+  scroll y con el nombre partido en líneas. Fechas con año (`formatLogDate`).
+- Cinco estados con icono y texto (`tabletStatus` en `lib/catalog.ts`): Esperando vinculación, **Código caducado**,
+  Vinculada, **Sin conexión** (vinculada y sin verse más de 24 h; la tablet pide el QR cada pocos segundos, así que noches y
+  domingos caben) y Revocada. Las «Sin conexión» salen también en «Requiere atención» del Inicio («Tablets sin
+  conexión», enlaza aquí; sin email ni push).
+- Sin portapapeles (sin permiso o sin HTTPS), «Copiar» deja el código seleccionado y lo dice en el diálogo.
+- Cierre de Dialog y Sheet, tema y menú del panel: con ratón, zona de 44 px con un `::after` invisible (`pointer-fine`;
+  con dedo ya la daba Button). 0 % de diferencia visual.
+- **Revocar** (borde rojo, 44 px) siempre con confirmación. La revocada no lo tiene.
+- **Código**: grande en Geist Mono, «Copiar» y «Caduca a las 18:40 (en 30 min); solo se ve ahora». Si caduca con el
+  diálogo abierto, lo dice y desactiva «Copiar». El código sigue sin pasar por React Query ni el almacenamiento.
+- **Ajustes**: cuatro grupos (también Rankings), un «Guardar» por grupo (un PUT cada uno). El grupo con cambios lo marca con
+  «Cambios sin guardar» (punto y texto) y «Descartar»; con un valor inválido, «Guardar» desactivado y «Corrige el campo en
+  rojo para guardar». Los `invalid_field` de la API van en su campo con el texto del rango.
+- **Confirman antes del PUT**: el check-in (cambia al momento las listas y el QR de las tablets), el primer precio de la
+  pausa («podrás cambiar el precio, pero no quitarlo»), un precio nuevo (las pausas pedidas siguen con el suyo) y las
+  pausas por año a 0. Vaciar un precio ya puesto se explica en el campo y no se guarda.
+- **Salir con cambios**: «¿Salir sin guardar?» al navegar dentro de la app (`useBlocker`), con los grupos que se pierden;
+  al recargar o cerrar, el aviso del navegador.
+
+## Informes (`/admin/reports`) — rediseño 7, 2026-11-18
+
+- El admin viene a ver **cómo va la academia** y a comparar: abre en **Suscripciones**. Sin CSV: basta «Ver tabla».
+- **URL**: `?tab`, `?rango=30d|92d|12m|24m` (Suscripciones) y `?periodo`, `?desde`, `?hasta`, `?disciplina` (Sesiones y
+  Alumnos, compartidos). Cambiar de pestaña los conserva; cambiar un filtro quita `?page`. Un valor desconocido vale el de
+  por defecto (una disciplina que ya no existe, «todas»). El profesor sigue con los filtros en memoria
+  (`useReportFilters({ url })` y `SessionsReport urlFilters`, opcionales).
+- **Suscripciones**: línea de periodo con año; dos tarjetas de 3 cifras, «Última foto · 17 nov 2026» (activas, en gracia,
+  impagadas; «· N de M días» si el mes va incompleto, y «Sin dato de ayer» con icono) y «En el periodo» (altas, bajas,
+  entrenaron). **Sin foto** = columna con contorno punteado (3:1 medido) y «Sin dato» en el tooltip y la tabla, nunca una
+  barra de 0; **mes incompleto** = punto bajo la etiqueta y «N de M días». La leyenda solo lleva las marcas que aparecen.
+  Eje: por meses, el año en enero (« ’26»); 92 días, el mes en su día 1; 30 días, «17 nov» cada 7 sin los extremos.
+  Tooltip y tabla de días llevan año si el rango abarca dos. «Ver tabla»: una fila por día o mes hasta `xl` (cifras 3×2),
+  la tabla desde `xl`. `invalid_range`: «Revisa las fechas: como mucho 92 días o 24 meses.», sin «Reintentar».
+- **Gráficas** (`MonthBars`, también del profesor): el puntero (ratón o dedo en horizontal) elige la columna por su `x`;
+  con más de 40 columnas, `gap-px` y el hueco sin dato es una sola línea de puntos (dos bordes en 2 px parecían una barra). Props opcionales `gap` y `mark`; /professor/reports queda igual (0 % de diferencia).
+- **Alumnos**: por nombre (orden del servidor; ordenar por columna pediría cambiar la API). Línea de periodo como Sesiones.
+  Hasta `xl`, una fila por alumno que abre la ficha (cifras en negrita con su palabra: «12 reservas · 1 falta…», nombre
+  largo partido); tabla desde `xl`. Paginar atenúa la lista anterior; vacío con «Quitar la disciplina» si la hay.
+- `Pager` del panel: «Anterior» y «Siguiente» a 44 px (Usuarios, Cobros, Avisos y Auditoría también).
+
+## Cuenta (`/admin/account`) y Configurar el MFA (`/admin/mfa`) — rediseño 7, 2026-11-18
+
+- El admin viene a **la seguridad**: orden Doble factor · Contraseña · Tus datos · Cerrar sesión. La tarjeta «Doble factor»
+  lleva el estado con icono y texto («Activo» o «Sin activar») y, sin MFA, **Activar el doble factor**; sustituye aquí al
+  aviso de `MfaNotice`, que sigue en el Inicio. Con el MFA activo, **Generar códigos nuevos** (ADR 0031): diálogo con la
+  contraseña (`wrong_password` en el campo; solo Google sin login reciente, «Vuelve a entrar»), los 10 códigos con copiar y
+  descargar, y «Hecho» solo tras «Los he guardado» (sin cerrar con fuera ni sin la casilla). Desactivar el MFA no se ofrece.
+  Auditoría tiene la categoría **Acceso** (`auth.*`) con sus textos.
+- Si cae `/me`, un solo error con «Reintentar» en lugar de Contraseña y Tus datos; «Cerrar sesión» sigue.
+- Cambiar la contraseña se queda en Cuenta con el formulario vacío (`PasswordSection onDone`; /account sigue igual).
+  Solo Google: «Contraseña» se queda y explica cómo crearla.
+- **MFA**: indicador de 3 pasos (Escanear · Códigos · Activar; `aria-current="step"`, hecho con check) y «Ahora no» en la
+  cabecera. Al cambiar de paso, el foco va al título. En los pasos 2 y 3, salir pide «¿Salir sin activar?» (y el navegador
+  avisa al recargar o cerrar): los códigos solo se ven ahí y el secreto cambia en cada visita.
+- El secreto y los códigos no pasan por React Query ni por el almacenamiento (estado de la página). Solo Google pide el
+  secreto al abrir, una vez (StrictMode incluido).
+- `invalid_totp`: el texto de b19 en el campo, casillas vacías y foco en la primera. `mfa_already_enabled`: «El doble factor
+  ya está activo» y vuelta a donde estaba. Al activar, vuelta a donde estaba con el toast; desde Cuenta se ve «Activo».
+- «Copiar» sin portapapeles deja los códigos seleccionados y lo dice. Botones del flujo y de Cuenta a 44 px también con ratón;
+  el ojo de la contraseña, zona de 44 px con ratón (`pointer-fine:after`, 0 % de diferencia en /account). En Cuenta, también
+  los campos de los formularios compartidos a 44 px (solo aquí; /account y el Inicio, 0 %).
+
+## Jornada (`/admin/clock`, `/admin/clock/print`) — rediseño 7, 2026-11-18
+
+- El admin viene a **revisar correcciones**; cerrar e imprimir el mes es secundario.
+- **Lista**: «N profesores empleados» y, en cada fila (enlace de 64 px con chevron), su estado con icono y texto:
+  «N correcciones pendientes» (aviso), «Jornada abierta desde el 17 nov a las 8:00» (aviso, pasado `OPEN_HOURS`, como «Lo grave» del
+  Inicio), «En jornada desde las 16:30» o «Al día» (atenuados). Arriba los que tienen pendientes o una jornada que pasa el umbral;
+  luego, por nombre. `GET /admin/clock/employees` trae `pending`, `open_since` y `open_late` (cambio aditivo; el umbral
+  lo pone la API con `OPEN_HOURS`, el mismo que `notice.clock_open`; el texto del aviso no nombra las horas). Coste medido: ~9 ms por profesor con 4 años de fichajes.
+- **Mes**: el nombre (`h2`, con Empleado/Autónomo) va encima de MonthNav. «Por revisar · N» es lo primero del lateral (en
+  móvil, lo primero de la página); las aplicadas y rechazadas van en «Correcciones del mes», después de las acciones. Aplicar
+  con confirmación (avisa por email); Rechazar, con motivo obligatorio.
+- **Salida olvidada** (jornada abierta de un día anterior, en cualquier mes): el resumen dice «Falta la salida del martes 17 ·
+  Entró a las 08:00» con «Añadir la salida», que abre la hoja con el día y la salida puestos. En el día queda solo el
+  aviso «Falta la salida» (el botón, una vez).
+- **Movimiento**: la corrección recién aplicada o rechazada entra en «Correcciones del mes» con `enter-soft` (200 ms,
+  `--ease-out`; con reduced-motion, solo opacidad). Al cargar no se mueve nada.
+- **Acciones**: «Añadir fichaje» a lo ancho y debajo Imprimir y «Descargar CSV» en dos columnas (`onCsv` de ClockLog; el
+  profesor no lo ve). Autónomo: nota, Imprimir y CSV, sin corregir.
+- **Hoja de imprimir**: la vuelta dice «Jornada de <nombre>». Lo demás, como en el grupo 5. /clock y /clock/print del
+  profesor, 0 % de diferencia.

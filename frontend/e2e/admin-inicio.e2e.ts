@@ -31,6 +31,9 @@ async function open(page: Page, o: Opts = {}, url = '/admin') {
       return r.fulfill({ json: { trained: { last_30: 187, previous_30: 172, series: [] }, students: { activos: 214, impago: none ? 0 : 3, inactivos: none ? 0 : 11 }, attendance: { today: 27, last_week: 31 }, sessions: today, next } })
     }
     if (p === '/admin/billing/delinquents') return r.fulfill({ json: { total: none ? 0 : 3, rows: [] } })
+    // Una tablet vinculada que no se ve desde el día 12 (más de 24 h) y otra al día.
+    const tablet = (id: string, seen: string) => ({ id, name: id, link_expires_at: null, created_at: at('10:00', '2026-10-01'), linked_at: at('10:00', '2026-10-02'), last_seen_at: seen, revoked_at: null })
+    if (p === '/admin/tablets') return r.fulfill({ json: { tablets: [tablet('Recepción', at('18:00')), ...(none ? [] : [tablet('Sala 2', at('21:30', '2026-11-12'))])] } })
     if (p === '/admin/notices') return r.fulfill({ json: { rows: none ? [] : [{ id: 'n1', created_at: at('09:12'), action: 'notice.clock_correction_requested', resource_type: 'clock', resource_id: 'x', details: {} }] } })
     if (p === '/admin/events') return r.fulfill({ json: { events: quiet ? [] : [{ id: 'e1', title: 'Seminario de BJJ', description: null, starts_at: at('11:00', '2026-11-21'), ends_at: at('14:00', '2026-11-21'), location: 'Tatami 1', discipline: null, trainer: null, capacity: 30, taken: 22, audience: 'all', price_cents: 0 }], total: quiet ? 0 : 1 } })
     if (p === '/admin/audit') {
@@ -48,6 +51,9 @@ const section = (page: Page, name: string) => page.getByRole('region', { name, e
 test('lo primero es «Requiere atención», antes que «Ahora»; sin cifra de impago ni atajos', async ({ page }) => {
   await open(page)
   await expect(section(page, 'Requiere atención').getByText('Morosos', { exact: true })).toBeVisible()
+  const offline = section(page, 'Requiere atención').getByRole('link', { name: /Tablets sin conexión/ })
+  await expect(offline).toContainText('1')
+  await expect(offline).toHaveAttribute('href', '/admin/tablets')
   const order = await page.locator('main section[aria-label]').evaluateAll((s) => s.map((e) => e.getAttribute('aria-label')))
   expect(order.slice(0, 4)).toEqual(['Requiere atención', 'Ahora', 'Cifras', 'Hoy'])
   await expect(section(page, 'Cifras').getByRole('link')).toHaveCount(3)
