@@ -1,23 +1,26 @@
-import { useQuery } from '@tanstack/react-query'
-import { FunnelIcon, HistoryIcon, XIcon } from 'lucide-react'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { CogIcon, FunnelIcon, HistoryIcon, XIcon } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router'
 import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { AUDIT_CATEGORIES, auditDetail, auditLabel, auditTarget, categoryPrefixes, pageHref, pageOf, type AuditRow, type Paged } from '@/lib/admin'
+import { AUDIT_CATEGORIES, auditDetail, auditLabel, auditScopeLabel, auditTarget, categoryPrefixes, pageHref, pageOf, type AuditRow, type Paged, type ProfileFile } from '@/lib/admin'
 import { api } from '@/lib/api'
-import { formatDeadline } from '@/lib/format'
+import { formatLogDate } from '@/lib/format'
 import { path } from '@/lib/url'
+import { cn } from '@/lib/utils'
 import { Filter } from '@/components/filter'
 import { PAGE_SIZE, Pager } from '@/pages/admin/shell'
 
 const ALL = 'all'
 const CATEGORIES = [{ value: ALL, label: 'Todas las categorías' }, ...AUDIT_CATEGORIES.map((c) => ({ value: c.value, label: c.label }))]
+const FILTERS = ['category', 'actor', 'resource_type', 'resource_id', 'from', 'to']
+const link = 'relative text-link underline-offset-3 transition-colors duration-150 ease-out after:absolute after:-inset-x-1 after:-inset-y-4 hover:underline'
 
-// docs/pantallas-b19.md § Auditoría. Filtros en la URL: ?category&actor&resource_type&resource_id&from&to&page.
-// Los avisos (notice.*) no salen: la API nunca los devuelve.
+// docs/pantallas-b19.md § Auditoría y docs/pantallas-b22.md § Auditoría. Filtros en la URL: ?category&actor&resource_type&resource_id&from&to&page.
+// Los avisos (notice.*) no salen: la API nunca los devuelve. `health.view` dice la acción, nunca el dato.
 export function AdminAuditPage() {
   const [params, setParams] = useSearchParams()
   const page = pageOf(params)
@@ -30,116 +33,180 @@ export function AdminAuditPage() {
     from: params.get('from') ?? undefined,
     to: params.get('to') ?? undefined,
   }
-  const set = (k: string, v: string) =>
+  const edit = (f: (n: URLSearchParams) => void) =>
     setParams(
       (p) => {
         const n = new URLSearchParams(p)
-        if (v && v !== ALL) n.set(k, v)
-        else n.delete(k)
+        f(n)
         n.delete('page')
         return n
       },
       { replace: true },
     )
+  const set = (k: string, v: string) => edit((n) => (v && v !== ALL ? n.set(k, v) : n.delete(k)))
+  const drop = (...ks: string[]) => edit((n) => ks.forEach((k) => n.delete(k)))
   const list = useQuery({
     queryKey: ['admin', 'audit', q, page],
     queryFn: () => api<Paged<'rows', AuditRow>>(path('/admin/audit', { ...q, limit: String(PAGE_SIZE), offset: String((page - 1) * PAGE_SIZE) })),
+    placeholderData: keepPreviousData,
   })
-  const scoped = q.resource_id ? `${q.resource_type ?? 'recurso'} ${q.resource_id}` : null
+  // El nombre del chip, de su ficha (misma clave que la ficha de Usuarios): también cuando no hay filas.
+  const actor = useQuery({
+    queryKey: ['admin', 'profile', q.actor_id],
+    queryFn: () => api<ProfileFile>(`/admin/profiles/${q.actor_id}`),
+    enabled: !!q.actor_id,
+  })
+  const actorName = actor.data?.profile.display_name ?? 'esta persona'
+  const filtered = FILTERS.some((k) => params.has(k))
 
   return (
     <Page title="Auditoría" wide>
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-        <div className="sm:w-56">
-          <Filter label="Categoría" value={category} onChange={(v) => set('category', v)} items={CATEGORIES} />
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+          <div className="sm:w-56">
+            <Filter label="Categoría" value={category} onChange={(v) => set('category', v)} items={CATEGORIES} />
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:flex">
+            <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+              Desde
+              <Input type="date" className="min-h-11 sm:w-40" value={params.get('from') ?? ''} max={params.get('to') ?? undefined} onChange={(e) => set('from', e.target.value)} />
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+              Hasta
+              <Input type="date" className="min-h-11 sm:w-40" value={params.get('to') ?? ''} min={params.get('from') ?? undefined} onChange={(e) => set('to', e.target.value)} />
+            </label>
+          </div>
         </div>
-        <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          Desde
-          <Input type="date" className="min-h-11 w-40" value={params.get('from') ?? ''} max={params.get('to') ?? undefined} onChange={(e) => set('from', e.target.value)} />
-        </label>
-        <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          Hasta
-          <Input type="date" className="min-h-11 w-40" value={params.get('to') ?? ''} min={params.get('from') ?? undefined} onChange={(e) => set('to', e.target.value)} />
-        </label>
-        {(q.actor_id || scoped) && (
-          <Button variant="outline" size="sm" onClick={() =>
-              setParams(
-                (p) => {
-                  const n = new URLSearchParams(p)
-                  for (const k of ['actor', 'resource_type', 'resource_id', 'page']) n.delete(k)
-                  return n
-                },
-                { replace: true },
-              )
-            }>
-            <XIcon />
-            {q.actor_id ? 'Quitar el filtro de persona' : `Quitar el filtro de ${scoped}`}
-          </Button>
+        {(q.actor_id || q.resource_id) && (
+          <div className="flex flex-wrap gap-2">
+            {q.actor_id && (
+              <Button variant="outline" className="h-11 max-w-full sm:h-11" aria-label={`Quitar el filtro: solo lo de ${actorName}`} onClick={() => drop('actor')}>
+                <span className="truncate">Solo lo de {actorName}</span>
+                <XIcon />
+              </Button>
+            )}
+            {q.resource_id && (
+              <Button variant="outline" className="h-11 max-w-full sm:h-11" aria-label={`Quitar el filtro: solo ${auditScopeLabel(q.resource_type ?? null)}`} onClick={() => drop('resource_type', 'resource_id')}>
+                <span className="truncate">Solo {auditScopeLabel(q.resource_type ?? null)}</span>
+                <XIcon />
+              </Button>
+            )}
+          </div>
         )}
       </div>
       {list.isPending ? (
-        <ListSkeleton rows={6} className="h-10" />
+        <ListSkeleton rows={6} className="h-20" />
       ) : list.isError ? (
         <ErrorState error={list.error} onRetry={() => void list.refetch()} />
       ) : list.data.total === 0 ? (
-        <EmptyState icon={<HistoryIcon />} title="Nada registrado con estos filtros" />
+        filtered ? (
+          <EmptyState
+            icon={<HistoryIcon />}
+            title="Nada registrado con estos filtros"
+            action={
+              <Button variant="outline" className="h-11 sm:h-11" onClick={() => setParams(new URLSearchParams(), { replace: true })}>
+                Quitar los filtros
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState icon={<HistoryIcon />} title="Aún no hay nada registrado" />
+        )
       ) : (
-        <>
-          <div className="overflow-x-auto rounded-2xl border bg-card">
+        <div className={cn('flex flex-col gap-4 transition-opacity duration-150 ease-out', list.isPlaceholderData && 'opacity-60')} aria-busy={list.isPlaceholderData}>
+          {/* Como Usuarios y Cobros: una fila por línea hasta `xl`; antes la tabla no cabe con la barra lateral. */}
+          <ul className="flex flex-col divide-y rounded-2xl border bg-card xl:hidden">
+            {list.data.rows.map((a) => {
+              const detail = auditDetail(a)
+              return (
+                <li key={a.id} className="flex flex-col gap-1 px-4 py-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="min-w-0 font-medium">{auditLabel(a.action)}</span>
+                    <time dateTime={a.created_at} className="shrink-0 text-sm text-muted-foreground tabular-nums">
+                      {formatLogDate(a.created_at)}
+                    </time>
+                  </div>
+                  <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
+                    <Actor a={a} params={params} />
+                    <span className="text-muted-foreground" aria-hidden="true">
+                      ·
+                    </span>
+                    <Target a={a} />
+                  </p>
+                  {detail && <p className="text-sm break-words text-muted-foreground">{detail}</p>}
+                </li>
+              )
+            })}
+          </ul>
+          <div className="hidden overflow-x-auto rounded-2xl border bg-card xl:block">
             <Table>
               <TableHeader className="sticky top-0 bg-card">
                 <TableRow>
                   {['Fecha', 'Quién', 'Qué', 'Sobre qué', 'Detalle'].map((h, i) => (
-                    <TableHead key={h} className={i ? undefined : 'ps-4'}>
+                    <TableHead key={h} className={cn(!i && 'ps-4')}>
                       {h}
                     </TableHead>
                   ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {list.data.rows.map((a) => {
-                  const target = auditTarget(a)
-                  return (
-                    <TableRow key={a.id} className="h-10">
-                      <TableCell className="ps-4 tabular-nums">{formatDeadline(a.created_at)}</TableCell>
-                      <TableCell>
-                        {a.actor.id ? (
-                          <span className="flex items-center gap-1.5">
-                            <Link to={`/admin/users/${a.actor.id}`} className="font-medium text-link underline-offset-3 hover:underline">
-                              {a.actor.display_name ?? 'Sin nombre'}
-                            </Link>
-                            <Link
-                              to={pageHref(new URLSearchParams({ ...Object.fromEntries(params), actor: a.actor.id }), 1)}
-                              aria-label={`Ver solo lo de ${a.actor.display_name ?? 'esta persona'}`}
-                              className="relative grid size-6 place-items-center rounded text-muted-foreground after:absolute after:-inset-x-1 after:-inset-y-2.5 hover:text-foreground"
-                            >
-                              <FunnelIcon className="size-3.5" />
-                            </Link>
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">Sistema</span>
-                        )}
-                      </TableCell>
-                      <TableCell>{auditLabel(a.action)}</TableCell>
-                      <TableCell>
-                        {target.to ? (
-                          <Link to={target.to} className="text-link underline-offset-3 hover:underline">
-                            {target.label}
-                          </Link>
-                        ) : (
-                          target.label
-                        )}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{auditDetail(a) || '—'}</TableCell>
-                    </TableRow>
-                  )
-                })}
+                {list.data.rows.map((a) => (
+                  <TableRow key={a.id}>
+                    <TableCell className="ps-4 tabular-nums">{formatLogDate(a.created_at)}</TableCell>
+                    <TableCell>
+                      <Actor a={a} params={params} />
+                    </TableCell>
+                    <TableCell>{auditLabel(a.action)}</TableCell>
+                    <TableCell>
+                      <Target a={a} />
+                    </TableCell>
+                    <TableCell className="max-w-96 min-w-48 leading-snug break-words whitespace-normal text-muted-foreground">{auditDetail(a) || '—'}</TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           </div>
           <Pager total={list.data.total} page={page} href={(n) => pageHref(params, n)} />
-        </>
+        </div>
       )}
     </Page>
+  )
+}
+
+function Actor({ a, params }: { a: AuditRow; params: URLSearchParams }) {
+  if (!a.actor.id)
+    return (
+      <span className="inline-flex items-center gap-1 text-muted-foreground">
+        <CogIcon aria-hidden="true" className="size-3.5" />
+        Sistema
+      </span>
+    )
+  const name = a.actor.display_name
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Link to={`/admin/users/${a.actor.id}`} className={cn(link, 'font-medium')}>
+        {name ?? <span className="italic">Sin nombre</span>}
+      </Link>
+      {params.get('actor') !== a.actor.id && (
+        <Link
+          to={pageHref(new URLSearchParams({ ...Object.fromEntries(params), actor: a.actor.id }), 1)}
+          aria-label={`Ver solo lo de ${name ?? 'esta persona'}`}
+          className="relative grid size-6 place-items-center rounded text-muted-foreground transition-colors duration-150 ease-out after:absolute after:-inset-2.5 hover:bg-accent hover:text-foreground"
+        >
+          <FunnelIcon className="size-3.5" aria-hidden="true" />
+        </Link>
+      )}
+    </span>
+  )
+}
+
+function Target({ a }: { a: AuditRow }) {
+  const t = auditTarget(a)
+  return t.to ? (
+    <Link to={t.to} className={cn(link, 'after:-inset-x-2.5')}>
+      {t.label}
+    </Link>
+  ) : (
+    <span className="text-muted-foreground">{t.label}</span>
   )
 }

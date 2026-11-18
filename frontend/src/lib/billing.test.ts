@@ -23,7 +23,7 @@ import {
   visiblePlans,
 } from '@/lib/billing'
 import { addDays, madridDay } from '@/lib/dates'
-import { formatDeadline, formatShortDate } from '@/lib/format'
+import { formatDeadline, formatLogDate, formatShortDate } from '@/lib/format'
 import type { Discipline, Pause, Plan, Subscription } from '@/lib/types'
 
 // Fija el «hoy» (Madrid) de las pruebas de edad.
@@ -182,6 +182,7 @@ describe('fechas cortas de Madrid', () => {
     expect(formatShortDate('2026-12-01T09:24:00Z')).toBe('1 dic 2026')
     expect(formatShortDate('2026-10-31T23:30:00Z')).toBe('1 nov 2026')
     expect(formatDeadline('2026-12-01T08:24:00Z')).toBe('1 dic a las 9:24')
+    expect(formatLogDate('2025-12-30T08:24:00Z')).toBe('30 dic 2025 · 9:24')
   })
 })
 

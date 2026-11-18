@@ -13,6 +13,7 @@ import { SessionRow, SessionRows } from '@/components/session-row'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { AuditLink } from '@/pages/admin/shell'
 import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxPopup } from '@/components/ui/combobox'
 import { Textarea } from '@/components/ui/textarea'
 import { WeekBoard } from '@/components/week-board'
@@ -362,7 +363,7 @@ function SessionDetail({ session: s, bookings }: Detail) {
   ]
 
   return (
-    <Page title={s.discipline.name} wide>
+    <Page title={s.discipline.name} wide actions={<AuditLink type="session" id={s.id} />}>
       <Back to={`/admin/sessions?dia=${day}`}>Horario</Back>
       {/* Cuándo, quién, dónde y cómo va de plazas: a la vista en cualquier momento de la sesión. */}
       <div className="enter-soft -mt-2 flex flex-col gap-1">

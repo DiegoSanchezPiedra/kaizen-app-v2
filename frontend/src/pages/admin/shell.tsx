@@ -169,6 +169,17 @@ export function AdminNotFound() {
   )
 }
 
+// «Ver su auditoría» en la cabecera de una ficha o una sesión (b19 § Auditoría): el registro filtrado por ese recurso.
+// A 375 solo el icono (la cabecera lleva el nombre y el tema), con el texto para el lector.
+export function AuditLink({ type, id }: { type: string; id: string }) {
+  return (
+    <Button variant="outline" className="h-11 min-w-11 sm:h-11" render={<Link to={`/admin/audit?resource_type=${type}&resource_id=${id}`} />}>
+      <HistoryIcon aria-hidden="true" />
+      <span className="max-sm:sr-only">Ver su auditoría</span>
+    </Button>
+  )
+}
+
 // Paginación de 25 de las tablas del panel, con la página en la URL (?page=, desde 1) para volver atrás y compartir.
 export const PAGE_SIZE = 25
 export function Pager({ total, page, href }: { total: number; page: number; href: (page: number) => string }) {

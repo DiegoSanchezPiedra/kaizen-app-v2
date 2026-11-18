@@ -36,3 +36,5 @@ const hourFmt = new Intl.DateTimeFormat('es-ES', { timeZone: TZ, hour: 'numeric'
 export const formatShortDate = (iso: string | Date): string => shortFmt.format(new Date(iso)).replace('.', '')
 export const formatDayMonth = (iso: string | Date): string => shortNoYear.format(new Date(iso)).replace('.', '')
 export const formatDeadline = (iso: string | Date): string => `${formatDayMonth(iso)} a las ${hourFmt.format(new Date(iso))}`
+// Registros del panel (avisos, auditoría): con año, que abarcan meses o años. «18 nov 2026 · 10:30».
+export const formatLogDate = (iso: string | Date): string => `${formatShortDate(iso)} · ${hourFmt.format(new Date(iso))}`
