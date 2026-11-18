@@ -29,7 +29,7 @@ export async function requireAuth(req, res, next) {
   // ({ can_book, can_publish }) para los bloqueos de las rutas. La edad y el permiso, de la BD en cada petición.
   try {
     const { rows: [u] } = await withRls({ uid: payload.sub, role: 'alumno' }, (client) => client.query(
-      `SELECT (SELECT role FROM user_roles WHERE user_id = $1) AS role,
+      `SELECT p.id IS NOT NULL AS found, (SELECT role FROM user_roles WHERE user_id = $1) AS role,
               extract(epoch FROM c.credentials_changed_at)::bigint AS changed, c.profile_id IS NOT NULL AS creds,
               c.disabled_at IS NOT NULL AS disabled,
               COALESCE(c.can_book, false) AS can_book,
@@ -38,6 +38,8 @@ export async function requireAuth(req, res, next) {
               p.birth_date <= CURRENT_DATE - make_interval(years => minor_consent_age()) AS can_publish
          FROM (SELECT 1) one LEFT JOIN profiles p ON p.id = $1 LEFT JOIN auth_credentials c ON c.profile_id = $1`,
       [payload.sub]));
+    // Perfil que ya no existe (base vaciada con el mismo JWT_SECRET): token inválido, y el frontend cierra la sesión.
+    if (!u.found) return next(httpError(401, 'invalid_token', 'invalid token'));
     // ADR 0028: un profesor desactivado pierde la sesión viva en la siguiente petición.
     if (u.disabled || (u.ward && !u.creds) || (u.changed !== null && !(payload.iat >= Number(u.changed)))) { // sin iat, también fuera
       return next(httpError(401, 'session_revoked', 'session revoked'));

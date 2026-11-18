@@ -220,6 +220,13 @@ try {
     const i = await http('POST', `/admin/trainers/${c.body.trainer.id}/invite`, 'admin');
     assert.deepEqual([i.status, typeof i.body.invite_url], [200, 'string']);
   });
+
+  // Tras vaciar la base (staging:wipe) el JWT_SECRET sigue: el token de un perfil que ya no existe no puede valer.
+  await run('token de un perfil que no existe → 401 invalid_token (el frontend cierra la sesión)', async () => {
+    const ghost = signToken({ sub: crypto.randomUUID(), role: 'admin' });
+    const r = await app.http('GET', '/admin/profiles', { token: ghost });
+    assert.deepEqual([r.status, code(r)], [401, 'invalid_token']);
+  });
 } finally {
   await app.close();
   await closePools();
