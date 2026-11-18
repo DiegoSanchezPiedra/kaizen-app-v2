@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BookOpenIcon, PlusIcon } from 'lucide-react'
+import { BookOpenIcon, DoorOpenIcon, PlusIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Tag } from '@/components/billing-bits'
 import { Medal } from '@/components/medal'
@@ -16,8 +16,16 @@ import { plural } from '@/lib/professor'
 import { medalOf } from '@/lib/progress'
 import { THEMES, themeOf } from '@/lib/themes'
 import type { Discipline } from '@/lib/types'
-import { CardList, CardRow, Head, refreshCatalog } from '@/pages/admin/catalog-bits'
+import { CatalogRow, CatalogRows, CatalogTable, Head, refreshCatalog, StateTag } from '@/pages/admin/catalog-bits'
 import { FormSheet, SwitchRow, TextField, useAdminDisciplines, useFieldError } from '@/pages/admin/schedule-bits'
+
+// La cubre cualquier cuota sin elegirla.
+const Open = () => (
+  <Tag variant="info">
+    <DoorOpenIcon aria-hidden="true" />
+    Abierta
+  </Tag>
+)
 
 // docs/pantallas-b22.md § Membresías y Disciplinas: una entrada propia del menú (antes, una pestaña de /admin/catalog).
 export function AdminDisciplinesPage() {
@@ -35,44 +43,52 @@ export function AdminDisciplinesPage() {
       }
     >
       {list.isPending ? (
-        <ListSkeleton rows={5} className="h-14" />
+        <ListSkeleton rows={5} className="h-16 xl:h-11" />
       ) : list.isError ? (
         <ErrorState error={list.error} onRetry={() => void list.refetch()} />
       ) : list.data.length === 0 ? (
         <EmptyState icon={<BookOpenIcon />} title="No hay disciplinas" text="Crea la primera con «Nueva disciplina»." />
       ) : (
         <>
-          <CardList>
+          <CatalogRows>
             {list.data.map((d) => (
-              <CardRow
+              <CatalogRow
                 key={d.id}
                 name={d.name}
                 active={d.is_active}
-                activeLabel="Activa"
-                inactiveLabel="Desactivada"
-                lines={[`${ageRangeLabel(d.min_age, d.max_age) ?? 'Todos'} · ${d.is_open ? 'abierta' : 'se elige en la cuota'}`, `Medallas: ${themeOf(d.medal_theme).series}`]}
+                off="Desactivada"
+                marks={d.is_open && <Open />}
+                lines={[
+                  <span key="edad" className="flex items-center gap-1.5">
+                    {ageRangeLabel(d.min_age, d.max_age) ?? 'Todas las edades'} ·
+                    <Medal medal={medalOf(d.medal_theme ?? null, 'first_day')!} earned={d.is_active} className="size-5" />
+                    <span className="truncate">{themeOf(d.medal_theme).series}</span>
+                  </span>,
+                ]}
                 onOpen={() => setEditing(d)}
               />
             ))}
-          </CardList>
-          <div className="hidden overflow-x-auto rounded-2xl border bg-card sm:block">
+          </CatalogRows>
+          <CatalogTable>
             <Table>
-              <Head cols={['Nombre', 'Quién', 'Reserva', 'Medallas', 'Estado', '']} />
+              <Head cols={['Disciplina', 'Edad', 'Reserva', 'Medallas', 'Estado', '']} />
               <TableBody>
                 {list.data.map((d) => (
-                  <TableRow key={d.id} className={d.is_active ? 'h-10' : 'h-10 text-muted-foreground'}>
+                  <TableRow key={d.id} className={d.is_active ? undefined : 'text-muted-foreground'}>
                     <TableCell className="ps-4 font-medium">{d.name}</TableCell>
-                    <TableCell>{ageRangeLabel(d.min_age, d.max_age) ? <Tag variant="info">{ageRangeLabel(d.min_age, d.max_age)}</Tag> : 'Todos'}</TableCell>
-                    <TableCell>{d.is_open ? <Tag variant="secondary">Abierta</Tag> : 'Se elige en la cuota'}</TableCell>
+                    <TableCell>{ageRangeLabel(d.min_age, d.max_age) ?? 'Todas'}</TableCell>
+                    <TableCell>{d.is_open ? <Open /> : 'Se elige en la cuota'}</TableCell>
                     <TableCell>
                       <span className="flex items-center gap-2">
                         <Medal medal={medalOf(d.medal_theme ?? null, 'first_day')!} earned={d.is_active} className="size-7" />
                         {themeOf(d.medal_theme).series}
                       </span>
                     </TableCell>
-                    <TableCell>{d.is_active ? <Tag variant="success">Activa</Tag> : <Tag variant="secondary">Desactivada</Tag>}</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" aria-label={`Editar ${d.name}`} onClick={() => setEditing(d)}>
+                    <TableCell>
+                      <StateTag active={d.is_active} off="Desactivada" />
+                    </TableCell>
+                    <TableCell className="pe-2 text-right">
+                      <Button variant="ghost" size="sm" className="h-11 sm:h-11" aria-label={`Editar ${d.name}`} onClick={() => setEditing(d)}>
                         Editar
                       </Button>
                     </TableCell>
@@ -80,7 +96,7 @@ export function AdminDisciplinesPage() {
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </CatalogTable>
         </>
       )}
       {editing !== undefined && <DisciplineSheet key={editing?.id ?? 'new'} d={editing} onClose={() => setEditing(undefined)} />}

@@ -24,6 +24,15 @@ export const ageOf = (v: string): number | null | undefined => (v.trim() === '' 
 // «1», «2»… o «Todas» (null) en el campo «cuántas disciplinas» de un plan.
 export const maxDisciplinesLabel = (max: number | null): string => (max === null ? 'Todas' : String(max))
 
+// Las elegibles de un plan por su nombre, para verlas sin abrir la hoja: «Elige 1 entre Judo y Grappling», «Judo, Boxeo y 2 más».
+export function eligibleLabel(ids: (number | string)[], all: { id: number | string; name: string }[], max: number | null): string {
+  if (!ids.length) return 'Todas las activas'
+  const names = ids.map((id) => all.find((d) => String(d.id) === String(id))?.name).filter((n): n is string => !!n)
+  if (!names.length) return `${ids.length} ${ids.length === 1 ? 'disciplina' : 'disciplinas'}`
+  const list = names.length <= 2 ? names.join(' y ') : `${names.slice(0, 2).join(', ')} y ${names.length - 2} más`
+  return max !== null && max < names.length ? `Elige ${max} entre ${list}` : list
+}
+
 // El catálogo era /admin/catalog con pestañas (?tab=plans | disciplines); ahora son dos rutas. Un enlace viejo, sin pestaña o con una desconocida, va a Disciplinas.
 export const catalogRedirect = (tab: string | null): string => (tab === 'plans' ? '/admin/memberships' : '/admin/disciplines')
 
