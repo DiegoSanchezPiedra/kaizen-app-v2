@@ -3,6 +3,7 @@ import { CircleAlertIcon, LockIcon, RefreshCwIcon, SearchXIcon, WifiOffIcon } fr
 import type React from 'react'
 import { useEffect, useState } from 'react'
 import { Link, useRouteError } from 'react-router'
+import logo from '@/assets/logo.png'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
@@ -119,8 +120,15 @@ export function AppCrash() {
   const [busy, setBusy] = useState(false)
   useEffect(() => console.error(error), [error])
   return (
-    <div className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center px-4">
-      <Empty role="alert" className="rounded-2xl border bg-card">
+    // Fuera del marco (sin menú): la marca dice dónde se está; la tarjeta mide lo que su contenido, centrada.
+    <div className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-6 px-4 py-8">
+      <div className="flex items-center justify-center gap-2.5">
+        <span className="grid size-10 place-items-center overflow-hidden rounded-lg bg-brand-ink">
+          <img src={logo} alt="" className="w-8.5" />
+        </span>
+        <span className="font-heading text-[22px] font-extrabold italic uppercase">Kaizen</span>
+      </div>
+      <Empty role="alert" className="flex-none rounded-2xl border bg-card">
         <EmptyHeader>
           <EmptyMedia variant="icon">
             <CircleAlertIcon />
@@ -128,9 +136,9 @@ export function AppCrash() {
           <EmptyTitle>Algo ha fallado</EmptyTitle>
           <EmptyDescription>Puede que tengas una versión antigua de la app. Actualízala y vuelve a intentarlo.</EmptyDescription>
           {/* El error real, para poder mandarlo en una captura: en el móvil no hay consola. */}
-          <p className="break-all font-mono text-xs text-muted-foreground">{error instanceof Error ? error.message : String(error)}</p>
+          <p className="mt-3 break-all font-mono text-xs text-muted-foreground">{error instanceof Error ? error.message : String(error)}</p>
         </EmptyHeader>
-        <EmptyContent>
+        <EmptyContent className="gap-3">
           <Button
             size="xl"
             loading={busy}
@@ -141,6 +149,10 @@ export function AppCrash() {
           >
             <RefreshCwIcon />
             Actualizar y recargar
+          </Button>
+          {/* «Ir al inicio» recarga la app entera a propósito (un <a>, no un Link): el router puede ser lo que ha fallado. */}
+          <Button variant="outline" size="xl" render={<a href="/" />}>
+            Ir al inicio
           </Button>
         </EmptyContent>
       </Empty>
