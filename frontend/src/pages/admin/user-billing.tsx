@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { WalletIcon } from 'lucide-react'
+import { ArrowDownIcon, CircleAlertIcon, CircleCheckIcon, CircleDashedIcon, ClockIcon, PauseIcon, UserRoundIcon, WalletIcon, type LucideIcon } from 'lucide-react'
 import type React from 'react'
 import { useState } from 'react'
 import { Link } from 'react-router'
@@ -7,6 +7,7 @@ import { Kv, Tag } from '@/components/billing-bits'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PauseSheet } from '@/components/pause-sheet'
 import { EmptyState } from '@/components/screen-state'
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toastManager } from '@/components/ui/toast'
@@ -39,14 +40,20 @@ import { FormSheet, TextField } from '@/pages/admin/schedule-bits'
 
 type Sub = NonNullable<ProfileFile['subscription']>
 
-const SUB_BADGE: Record<string, [string, 'success' | 'warning' | 'error']> = {
-  active: ['Activa', 'success'],
-  past_due: ['En gracia', 'warning'],
-  unpaid: ['Impagada', 'error'],
+const SUB_BADGE: Record<string, [string, 'success' | 'warning' | 'error', LucideIcon]> = {
+  active: ['Activa', 'success', CircleCheckIcon],
+  past_due: ['En gracia', 'warning', ClockIcon],
+  unpaid: ['Impagada', 'error', CircleAlertIcon],
 }
+// Estado de la cuota con icono y texto (DESIGN.md: nunca solo color).
 export function SubBadge({ status }: { status: string | null | undefined }) {
-  const b = status ? SUB_BADGE[status] : undefined
-  return b ? <Tag variant={b[1]}>{b[0]}</Tag> : <Tag>Sin cuota</Tag>
+  const [label, variant, Icon] = (status && SUB_BADGE[status]) || ['Sin cuota', 'outline' as const, CircleDashedIcon]
+  return (
+    <Tag variant={variant}>
+      <Icon aria-hidden="true" />
+      {label}
+    </Tag>
+  )
 }
 
 const name = (p: { display_name: string | null } | undefined) => p?.display_name ?? 'Sin nombre'
@@ -279,13 +286,28 @@ function ExemptDialog({ pauseId, onClose, refresh }: { pauseId: string; onClose:
   )
 }
 
-function Section({ title, children, actions }: { title: string; children: React.ReactNode; actions?: React.ReactNode }) {
+// Un grupo de acciones de la cuota con su título y, si alguna no se puede, el porqué a la vista (no en un title).
+function Group({ title, children, note }: { title: string; children: React.ReactNode; note?: string | null }) {
   return (
-    <section className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
-      <h2 className="font-semibold">{title}</h2>
-      {children}
-      {actions && <div className="flex flex-wrap gap-2 border-t pt-3">{actions}</div>}
-    </section>
+    <div className="flex flex-col gap-2 border-t pt-3">
+      <h3 className="text-sm font-medium text-muted-foreground">{title}</h3>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">{children}</div>
+      {note && <p className="text-sm text-muted-foreground">{note}</p>}
+    </div>
+  )
+}
+const ACT = 'max-sm:h-11'
+
+// Algo en curso (cambio de pagador, pausa, bajada o baja programada) con su acción al lado.
+function Pending({ icon, title, text, action, variant = 'info' }: { icon: React.ReactNode; title: string; text?: string; action?: React.ReactNode; variant?: 'info' | 'warning' }) {
+  return (
+    // El icono, en la variante «-texto» del color: el de base no llega a 3:1 sobre el aviso claro.
+    <Alert variant={variant} role="status" className={variant === 'info' ? '[&>svg]:text-info-foreground' : '[&>svg]:text-warning-foreground'}>
+      {icon}
+      <AlertTitle>{title}</AlertTitle>
+      {text && <AlertDescription>{text}</AlertDescription>}
+      {action && <AlertAction className="flex-wrap max-sm:flex-col max-sm:items-stretch">{action}</AlertAction>}
+    </Alert>
   )
 }
 
@@ -311,145 +333,138 @@ function Subscription({ file, refresh }: { file: ProfileFile; refresh: () => voi
   const rows: [string, React.ReactNode][] = [
     ['Plan', `${s.plan.name} · ${perMonth(s.plan.price_cents)}`],
     ['Disciplinas', s.plan.max_disciplines === null ? 'Todas' : s.disciplines.map((d) => d.name).join(', ') || '—'],
-    ['Estado', <SubBadge status={s.status} />],
+    ['Estado', <SubBadge key="status" status={s.status} />],
     ['Fin del periodo', end ?? '—'],
-    ['Pagador', <PersonLink p={s.payer} />],
+    ['Pagador', <PersonLink key="payer" p={s.payer} />],
   ]
-  if (s.cancel_at_period_end) rows.push(['Baja programada', end ? `Termina el ${end}` : 'Sí'])
-  if (scheduled) rows.push(['Bajada programada', `A ${scheduled.plan_name} el ${formatShortDate(scheduled.scheduled_at)}`])
   if (s.discipline_changes_left != null) rows.push(['Cambios de disciplina', changesLeft(s.discipline_changes_left)])
-  if (pause) rows.push(['Pausa', pauseTitle(pause)], ['Cuota de mantenimiento', pauseFee(pause)])
-  if (pc) {
-    const to = people.find((p) => p.id === pc.new_payer_id)
-    rows.push([
-      'Cambio de pagador',
-      pc.status === 'paid'
-        ? `Pagado: desde el ${formatShortDate(pc.starts_at)} paga ${name(to)}`
-        : `${name(to)} tiene hasta el ${formatDeadline(pc.deadline)} para pagar`,
-    ])
-  }
+  const to = people.find((p) => p.id === pc?.new_payer_id)
+  const candidates = payerCandidates(file).length > 0
+  const payerNote = !lock && !candidates ? 'Para cambiar de pagador hace falta otro adulto: un tutor vinculado.' : null
+  const btn = (label: string, onClick: () => void, o: { disabled?: boolean; destructive?: boolean; small?: boolean } = {}) => (
+    <Button variant={o.destructive ? 'destructive-outline' : 'outline'} size={o.small ? 'sm' : 'default'} className={ACT} disabled={o.disabled} onClick={onClick}>
+      {label}
+    </Button>
+  )
 
   return (
-    <Section
-      title="Cuota"
-      actions={
-        <>
-          <Button variant="outline" disabled={!!lock} title={lock ?? undefined} onClick={() => setDialog('plan')}>
-            Cambiar de plan
-          </Button>
-          {s.plan.max_disciplines !== null && (
-            <Button variant="outline" disabled={disciplineLocked(s)} onClick={() => setDialog('discipline')}>
-              Cambiar de disciplina
-            </Button>
-          )}
-          <Button variant="outline" disabled={!!pc || !!pause || !!s.cancel_at_period_end || payerCandidates(file).length === 0} onClick={() => setDialog('payer')}>
-            Cambiar de pagador
-          </Button>
-          {!pause && (
-            <Button variant="outline" disabled={!!pLock} onClick={() => setDialog('pause')}>
-              Pausar la membresía
-            </Button>
-          )}
-          {(pause?.status === 'scheduled' || canEndEarly(s)) && (
-            <Button
-              variant="outline"
-              onClick={() =>
-                ask(
-                  pause?.status === 'scheduled'
-                    ? {
-                        title: 'Anular la pausa',
-                        description: `Gratis: sigue en ${s.plan.name} como hasta ahora. Las reservas canceladas al pedirla no vuelven. Se avisa al pagador.`,
-                        label: 'Anular la pausa',
-                        done: 'Pausa anulada',
-                        run: del(`/admin/subscriptions/${s.id}/pause`),
-                      }
-                    : {
-                        title: 'Volver antes de la pausa',
-                        description: `Vuelve a ${s.plan.name} en la siguiente fecha de cobro${end ? `, el ${end}` : ''}, sin prorrateo. Se avisa al pagador.`,
-                        label: 'Volver antes',
-                        done: 'Vuelta anticipada programada',
-                        run: del(`/admin/subscriptions/${s.id}/pause`),
-                      },
-                )
-              }
-            >
-              {pause?.status === 'scheduled' ? 'Anular la pausa' : 'Volver antes'}
-            </Button>
-          )}
-          {pause && !pause.exempt && (
-            <Button variant="outline" onClick={() => setDialog('exempt')}>
-              Eximir de la cuota de mantenimiento
-            </Button>
-          )}
-          {scheduled && (
-            <Button
-              variant="outline"
-              onClick={() =>
-                ask({
-                  title: 'Anular la bajada programada',
-                  description: `Seguirá en ${s.plan.name} al renovar.`,
-                  label: 'Anular la bajada',
-                  done: 'Bajada anulada',
-                  run: del(`/admin/subscriptions/${s.id}/plan/scheduled`),
-                })
-              }
-            >
-              Anular la bajada
-            </Button>
-          )}
-          {pc?.status === 'requested' && (
-            <Button
-              variant="outline"
-              onClick={() =>
+    <section className="flex flex-col gap-3 rounded-2xl border bg-card p-4" aria-labelledby="sub-title">
+      <h2 id="sub-title" className="font-semibold">
+        Cuota
+      </h2>
+      {pc && (
+        <Pending
+          icon={<UserRoundIcon />}
+          title={pc.status === 'paid' ? `Cambio de pagador pagado: desde el ${formatShortDate(pc.starts_at)} paga ${name(to)}` : `Cambio de pagador en curso: ${name(to)} tiene hasta el ${formatDeadline(pc.deadline)} para pagar`}
+          text={pc.status === 'requested' ? `Si no paga a tiempo, sigue pagando ${name(s.payer)}.` : undefined}
+          action={
+            pc.status === 'requested' &&
+            btn(
+              'Anular el cambio',
+              () =>
                 ask({
                   title: 'Anular el cambio de pagador',
                   description: `Sigue pagando ${name(s.payer)}.`,
                   label: 'Anular el cambio',
                   done: 'Cambio de pagador anulado',
                   run: del(`/admin/subscriptions/${s.id}/payer-change`),
-                })
-              }
-            >
-              Anular el cambio de pagador
-            </Button>
-          )}
-          {!s.cancel_at_period_end && (
-            <Button
-              variant="outline"
-              onClick={() =>
-                ask({
-                  title: 'Baja a fin de periodo',
-                  description: `Sigue en vigor hasta ${end ? `el ${end}` : 'el fin del periodo'} y no se renueva. Se avisa al pagador.${scheduled ? ' La bajada programada se descarta.' : ''}${pause ? ' La pausa se descarta.' : ''}${pc ? ' El cambio de pagador se anula.' : ''}`,
-                  label: 'Dar de baja',
-                  done: 'Baja programada',
-                  destructive: true,
-                  run: post(`/admin/subscriptions/${s.id}/cancel-at-period-end`),
-                })
-              }
-            >
-              Baja a fin de periodo
-            </Button>
-          )}
-          <Button
-            variant="destructive-outline"
-            onClick={() =>
+                }),
+              { small: true },
+            )
+          }
+        />
+      )}
+      {pause && (
+        <Pending
+          icon={<PauseIcon />}
+          title={pauseTitle(pause)}
+          text={`${pauseFee(pause)}. ${PAUSE_LOCK}`}
+          action={
+            <>
+              {(pause.status === 'scheduled' || canEndEarly(s)) &&
+                btn(
+                  pause.status === 'scheduled' ? 'Anular la pausa' : 'Volver antes',
+                  () =>
+                    ask(
+                      pause.status === 'scheduled'
+                        ? {
+                            title: 'Anular la pausa',
+                            description: `Gratis: sigue en ${s.plan.name} como hasta ahora. Las reservas canceladas al pedirla no vuelven. Se avisa al pagador.`,
+                            label: 'Anular la pausa',
+                            done: 'Pausa anulada',
+                            run: del(`/admin/subscriptions/${s.id}/pause`),
+                          }
+                        : {
+                            title: 'Volver antes de la pausa',
+                            description: `Vuelve a ${s.plan.name} en la siguiente fecha de cobro${end ? `, el ${end}` : ''}, sin prorrateo. Se avisa al pagador.`,
+                            label: 'Volver antes',
+                            done: 'Vuelta anticipada programada',
+                            run: del(`/admin/subscriptions/${s.id}/pause`),
+                          },
+                    ),
+                  { small: true },
+                )}
+              {!pause.exempt && btn('Eximir de la cuota de mantenimiento', () => setDialog('exempt'), { small: true })}
+            </>
+          }
+        />
+      )}
+      {scheduled && (
+        <Pending
+          icon={<ArrowDownIcon />}
+          title={`Bajada programada a ${scheduled.plan_name} el ${formatShortDate(scheduled.scheduled_at)}`}
+          action={btn(
+            'Anular la bajada',
+            () =>
               ask({
-                title: 'Baja inmediata',
-                description: `Termina ya: anula los recibos pendientes y cancela sus reservas futuras. Se avisa al pagador.${scheduled ? ' La bajada programada se descarta.' : ''}${pause ? ' La pausa se descarta.' : ''}`,
-                label: 'Dar de baja ya',
-                done: 'Cuota dada de baja',
-                destructive: true,
-                run: post(`/admin/subscriptions/${s.id}/cancel-now`),
-              })
-            }
-          >
-            Baja inmediata
-          </Button>
-        </>
-      }
-    >
+                title: 'Anular la bajada programada',
+                description: `Seguirá en ${s.plan.name} al renovar.`,
+                label: 'Anular la bajada',
+                done: 'Bajada anulada',
+                run: del(`/admin/subscriptions/${s.id}/plan/scheduled`),
+              }),
+            { small: true },
+          )}
+        />
+      )}
+      {s.cancel_at_period_end && <Pending variant="warning" icon={<CircleAlertIcon />} title={end ? `Baja programada: termina el ${end}` : 'Baja programada a fin de periodo'} />}
       <Kv rows={rows} />
-      {(pause ? PAUSE_LOCK : pLock) && <p className="text-sm text-muted-foreground">{pause ? PAUSE_LOCK : pLock}</p>}
+      <Group title="Cambios" note={pause ? null : (lock ?? payerNote)}>
+        {btn('Cambiar de plan', () => setDialog('plan'), { disabled: !!lock })}
+        {s.plan.max_disciplines !== null && btn('Cambiar de disciplina', () => setDialog('discipline'), { disabled: disciplineLocked(s) })}
+        {btn('Cambiar de pagador', () => setDialog('payer'), { disabled: !!pc || !!pause || !!s.cancel_at_period_end || !candidates })}
+      </Group>
+      {!pause && (
+        <Group title="Pausa" note={pLock}>
+          {btn('Pausar la membresía', () => setDialog('pause'), { disabled: !!pLock })}
+        </Group>
+      )}
+      <Group title="Baja">
+        {!s.cancel_at_period_end &&
+          btn('Baja a fin de periodo', () =>
+            ask({
+              title: 'Baja a fin de periodo',
+              description: `Sigue en vigor hasta ${end ? `el ${end}` : 'el fin del periodo'} y no se renueva. Se avisa al pagador.${scheduled ? ' La bajada programada se descarta.' : ''}${pause ? ' La pausa se descarta.' : ''}${pc ? ' El cambio de pagador se anula.' : ''}`,
+              label: 'Dar de baja',
+              done: 'Baja programada',
+              destructive: true,
+              run: post(`/admin/subscriptions/${s.id}/cancel-at-period-end`),
+            }),
+          )}
+        {btn(
+          'Baja inmediata',
+          () =>
+            ask({
+              title: 'Baja inmediata',
+              description: `Termina ya: anula los recibos pendientes y cancela sus reservas futuras. Se avisa al pagador.${scheduled ? ' La bajada programada se descarta.' : ''}${pause ? ' La pausa se descarta.' : ''}`,
+              label: 'Dar de baja ya',
+              done: 'Cuota dada de baja',
+              destructive: true,
+              run: post(`/admin/subscriptions/${s.id}/cancel-now`),
+            }),
+          { destructive: true },
+        )}
+      </Group>
       {confirm}
       {dialog === 'plan' && <PlanDialog s={s} minor={minor} onClose={() => setDialog(null)} refresh={refresh} />}
       {dialog === 'discipline' && <DisciplineDialog s={s} onClose={() => setDialog(null)} refresh={refresh} />}
@@ -468,7 +483,7 @@ function Subscription({ file, refresh }: { file: ProfileFile; refresh: () => voi
         />
       )}
       {dialog === 'exempt' && pause && <ExemptDialog pauseId={pause.id} onClose={() => setDialog(null)} refresh={refresh} />}
-    </Section>
+    </section>
   )
 }
 

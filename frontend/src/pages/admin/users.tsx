@@ -1,5 +1,5 @@
-import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
-import { CalendarIcon, SearchIcon, SearchXIcon, UsersIcon } from 'lucide-react'
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
+import { BanIcon, CalendarIcon, ChevronRightIcon, CircleAlertIcon, CircleCheckIcon, CircleDashedIcon, ClockIcon, HourglassIcon, SearchIcon, SearchXIcon, UsersIcon, type LucideIcon } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
@@ -29,7 +29,6 @@ import {
   ROLE_LABEL,
   setFilter,
   toggleEstado,
-  TRAINER_STATE,
   trainerState,
   userFilters,
   type Estado,
@@ -37,8 +36,11 @@ import {
   type ProfileFile,
   type ProfileRow,
   type ProfileStats,
+  type UserTab,
+  userTabs,
 } from '@/lib/admin'
 import { ApiError, api } from '@/lib/api'
+import { isLive } from '@/lib/billing'
 import { addDays, madridDay } from '@/lib/dates'
 import { formatShortDate, formatTime } from '@/lib/format'
 import { queryClient } from '@/lib/logout'
@@ -54,8 +56,8 @@ import { Filter } from '@/components/filter'
 import { useDebounced } from '@/lib/use-debounced'
 import { PAGE_SIZE, Pager } from '@/pages/admin/shell'
 import { EmploymentChange } from '@/pages/admin/clock'
-import { NewTrainer, TrainerActions } from '@/pages/admin/trainers'
-import { BillingTab, del, useConfirm } from '@/pages/admin/user-billing'
+import { NewTrainer, TrainerActions, TrainerTag } from '@/pages/admin/trainers'
+import { BillingTab, del, SubBadge, useConfirm } from '@/pages/admin/user-billing'
 
 const name = (p: { display_name: string | null }) => p.display_name ?? 'Sin nombre'
 const Marks = ({ p }: { p: { is_minor: boolean; pending_claim: boolean } }) => (
@@ -77,64 +79,59 @@ const UserLink = ({ p }: { p: { id: string; display_name: string | null } }) => 
 // ── Lista ────────────────────────────────────────────────────────────────
 
 const ROLES = [{ value: 'all', label: 'Todos los roles' }, ...Object.entries(ROLE_LABEL).map(([value, label]) => ({ value, label }))]
-const STATE_ITEMS = [
-  { value: 'all', label: 'Todos los estados' },
-  { value: 'activo', label: 'Activos' },
-  { value: 'inactivo', label: 'Inactivos' },
-  { value: 'impago', label: 'Impago' },
-  { value: 'sin_plan', label: 'Sin plan' },
-]
-const KPIS: [Estado, string, keyof ProfileStats][] = [
+// Estados de la lista con su cifra (de /stats, por disciplina); «Sin plan» no tiene cifra en la API.
+const CHIPS: [Estado | null, string, keyof ProfileStats | null][] = [
+  [null, 'Todos', null],
   ['activo', 'Activos', 'activos'],
   ['impago', 'Impago', 'impago'],
-  ['inactivo', 'Inactivos ·\u00a014\u00a0d', 'inactivos'],
+  ['inactivo', 'Inactivos · 14 d', 'inactivos'],
+  ['sin_plan', 'Sin plan', null],
 ]
+const ESTADO_ICON: Record<Estado, LucideIcon> = { activo: CircleCheckIcon, inactivo: ClockIcon, impago: CircleAlertIcon, sin_plan: CircleDashedIcon }
 const useAdminPlans = () => useQuery({ queryKey: ['admin', 'plans'], queryFn: () => api<{ plans: Plan[] }>('/admin/plans').then((r) => r.plans) })
 
-// Alumno: su estado de cuota; profesor: el de su cuenta (activo, invitación pendiente, desactivado).
+// Alumno: su estado de cuota; profesor: el de su cuenta (activo, invitación pendiente, desactivado). Icono y texto.
 const EstadoTag = ({ p }: { p: ProfileRow }) => {
-  if (p.role === 'profesor') {
-    const [label, variant] = TRAINER_STATE[trainerState(p)]
-    return <Tag variant={variant}>{label}</Tag>
-  }
-  return p.estado ? <Tag variant={ESTADO_TAG[p.estado][1]}>{ESTADO_TAG[p.estado][0]}</Tag> : null
+  if (p.role === 'profesor') return <TrainerTag state={trainerState(p)} />
+  if (!p.estado) return null
+  const [label, variant] = ESTADO_TAG[p.estado]
+  const Icon = ESTADO_ICON[p.estado]
+  return (
+    <Tag variant={variant}>
+      <Icon aria-hidden="true" />
+      {label}
+    </Tag>
+  )
 }
 const roleLine = (p: ProfileRow) => [ROLE_LABEL[p.role], ...ageMarks(p), p.role === 'alumno' && (p.plan_name ?? 'Sin plan')].filter(Boolean).join(' · ')
 
-// Activos, Impago e Inactivos de los alumnos de la disciplina elegida; pulsar una filtra la lista por ese estado.
-function Kpis({ params, setParams }: { params: URLSearchParams; setParams: (p: URLSearchParams) => void }) {
+// Filtro por estado con la cifra de los alumnos de la disciplina elegida (docs/pantallas-b22.md § Usuarios).
+function EstadoChips({ params, setParams }: { params: URLSearchParams; setParams: (p: URLSearchParams) => void }) {
   const f = userFilters(params)
   const stats = useQuery({
     queryKey: ['admin', 'profiles', 'stats', f.discipline],
     queryFn: () => api<ProfileStats>(path('/admin/profiles/stats', { discipline_id: f.discipline ?? undefined })),
   })
-  if (stats.isError) return <ErrorState error={stats.error} onRetry={() => void stats.refetch()} />
   return (
-    // Caben 3 a 375 px; por debajo de unos 340, scroll dentro de su marco (el margen deja ver el anillo de foco).
-    <div className="-m-1 overflow-x-auto p-1">
-      <div className="grid min-w-[19.25rem] grid-cols-3 gap-2" role="group" aria-label="Alumnos por estado">
-        {KPIS.map(([estado, label, key]) => {
-          const n = stats.data?.[key]
+    // A 375 no caben: scroll dentro de su marco (el margen deja ver el anillo de foco).
+    <div className="-m-1 overflow-x-auto p-1 [scrollbar-width:none]">
+      <div className="flex w-max gap-2" role="group" aria-label="Filtrar por estado">
+        {CHIPS.map(([estado, label, key]) => {
+          const on = f.estado === estado
+          const n = key ? stats.data?.[key] : undefined
           return (
             <button
-              key={estado}
+              key={label}
               type="button"
-              aria-pressed={f.estado === estado}
-              onClick={() => setParams(toggleEstado(params, estado))}
+              aria-pressed={on}
+              onClick={() => setParams(estado ? toggleEstado(params, estado) : setFilter(params, 'estado', null))}
               className={cn(
-                'flex min-h-24 flex-col items-start gap-2 rounded-2xl border bg-card p-3 text-left outline-none transition-[background-color,border-color,box-shadow,transform] duration-150 ease-out hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background active:scale-[0.96] motion-reduce:active:scale-100',
-                f.estado === estado && 'border-primary ring-1 ring-primary',
+                'inline-flex min-h-11 items-center gap-2 rounded-full border bg-card px-4 text-sm font-medium whitespace-nowrap outline-none transition-[background-color,border-color,scale] duration-150 ease-out hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background motion-safe:active:scale-[0.97] sm:min-h-9',
+                on && 'border-primary bg-primary/12 hover:bg-primary/12',
               )}
             >
-              {n === undefined ? (
-                <Skeleton className="h-9 w-12 rounded-md" />
-              ) : (
-                <span className={cn('font-heading text-4xl leading-none font-bold tabular-nums', estado === 'impago' && n > 0 && 'text-destructive-foreground')}>{n}</span>
-              )}
-              <span className="text-sm leading-tight text-muted-foreground">
-                {label}
-                {estado === 'impago' && <span className="mt-0.5 block text-xs text-balance">Por alumno, no pagador</span>}
-              </span>
+              {label}
+              {key && !stats.isError && (n === undefined ? <Skeleton className="h-4 w-6 rounded-sm" /> : <span className={cn('tabular-nums', estado === 'impago' && n > 0 ? 'text-destructive-foreground' : 'text-muted-foreground')}>{n}</span>)}
             </button>
           )
         })}
@@ -143,7 +140,7 @@ function Kpis({ params, setParams }: { params: URLSearchParams; setParams: (p: U
   )
 }
 
-// docs/pantallas-b22.md § Usuarios y docs/auditoria-b22.md § 4: KPIs arriba; búsqueda y filtros en la URL.
+// docs/pantallas-b22.md § Usuarios: se entra a buscar por nombre; estado, filtros y página en la URL.
 export function UsersPage() {
   const [params, setParams] = useSearchParams()
   const f = userFilters(params)
@@ -157,43 +154,37 @@ export function UsersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al cambiar la búsqueda ya escrita
   }, [search])
 
+  // Al filtrar se queda la lista anterior, atenuada, en vez de volver al esqueleto.
   const list = useQuery({
     queryKey: ['admin', 'profiles', f],
     queryFn: () => api<Paged<'profiles', ProfileRow>>(path('/admin/profiles', profilesQuery(f, PAGE_SIZE))),
+    placeholderData: keepPreviousData,
   })
   const clear = () => {
     setQ('')
     setParams(new URLSearchParams())
   }
+  const total = list.data?.total
 
   return (
-    <Page title="Usuarios" wide>
-      <section className="flex flex-col gap-3" aria-label="Resumen de alumnos">
-        <div className="sm:w-64">
+    <Page title="Usuarios" wide actions={<NewTrainer />}>
+      <div className="flex flex-col gap-3">
+        <InputGroup className="**:placeholder:text-muted-foreground!">
+          <InputGroupAddon aria-hidden="true">
+            <SearchIcon />
+          </InputGroupAddon>
+          <InputGroupInput type="search" aria-label="Buscar por nombre o email" placeholder="Buscar por nombre o email" value={q} onChange={(e) => setQ(e.target.value)} />
+        </InputGroup>
+        <EstadoChips params={params} setParams={(p) => setParams(p)} />
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:max-w-2xl">
+          <Filter label="Rol" value={f.role ?? 'all'} onChange={(v) => set('role', v)} items={ROLES} />
           <Filter
             label="Disciplina"
             value={f.discipline ?? 'all'}
             onChange={(v) => set('discipline', v)}
             items={[{ value: 'all', label: 'Todas las disciplinas' }, ...(disciplines.data ?? []).map((d) => ({ value: String(d.id), label: d.name }))]}
           />
-        </div>
-        <Kpis params={params} setParams={(p) => setParams(p)} />
-      </section>
-      <div className="flex flex-col gap-2">
-        <div>
-          <NewTrainer />
-        </div>
-        <InputGroup>
-          <InputGroupAddon aria-hidden="true">
-            <SearchIcon />
-          </InputGroupAddon>
-          <InputGroupInput type="search" aria-label="Buscar por nombre o email" placeholder="Buscar por nombre o email" value={q} onChange={(e) => setQ(e.target.value)} />
-        </InputGroup>
-        <div className="flex flex-wrap gap-2 *:min-w-36 *:flex-1 sm:*:max-w-52">
-          <div>
-            <Filter label="Rol" value={f.role ?? 'all'} onChange={(v) => set('role', v)} items={ROLES} />
-          </div>
-          <div>
+          <div className="col-span-2 sm:col-span-1">
             <Filter
               label="Plan"
               value={f.plan ?? 'all'}
@@ -201,18 +192,25 @@ export function UsersPage() {
               items={[{ value: 'all', label: 'Cualquier plan' }, ...(plans.data ?? []).map((p) => ({ value: String(p.id), label: p.name }))]}
             />
           </div>
-          <div>
-            <Filter label="Estado" value={f.estado ?? 'all'} onChange={(v) => set('estado', v)} items={STATE_ITEMS} />
-          </div>
+        </div>
+        <div className="flex min-h-11 items-center justify-between gap-3 sm:min-h-9">
+          <p className="text-sm text-muted-foreground tabular-nums" aria-live="polite">
+            {total !== undefined && !list.isError && `${total} ${total === 1 ? 'persona' : 'personas'}${f.estado === 'impago' ? ' · impago por alumno, no por pagador' : ''}`}
+          </p>
+          {hasFilters(f) && (
+            <Button variant="ghost" size="sm" className="-me-2 max-sm:min-h-11" onClick={clear}>
+              Quitar filtros
+            </Button>
+          )}
         </div>
       </div>
       {list.isPending ? (
-        <ListSkeleton rows={6} className="h-16 sm:h-10" />
+        <ListSkeleton rows={6} className="h-16 xl:h-11" />
       ) : list.isError ? (
         <ErrorState error={list.error} onRetry={() => void list.refetch()} />
       ) : list.data.total === 0 ? (
         <EmptyState
-          icon={<UsersIcon />}
+          icon={hasFilters(f) ? <SearchXIcon /> : <UsersIcon />}
           title={f.q ? `Nadie coincide con «${f.q}»` : hasFilters(f) ? 'Nadie con estos filtros' : 'Aún no hay usuarios'}
           text={hasFilters(f) ? 'Prueba con otra búsqueda o quita los filtros.' : undefined}
           action={
@@ -224,14 +222,14 @@ export function UsersPage() {
           }
         />
       ) : (
-        <>
-          {/* Móvil: una fila por persona en un solo marco (auditoría § 4); toda la fila abre la ficha. */}
-          <ul className="flex flex-col divide-y overflow-hidden rounded-2xl border bg-card sm:hidden">
+        <div className={cn('flex flex-col gap-5 transition-opacity duration-150 ease-out', list.isPlaceholderData && 'opacity-60')} aria-busy={list.isPlaceholderData}>
+          {/* Hasta xl, una fila por persona en un solo marco (auditoría § 4; la tabla no cabe con la barra lateral); toda la fila abre la ficha. */}
+          <ul className="flex flex-col divide-y overflow-hidden rounded-2xl border bg-card xl:hidden">
             {list.data.profiles.map((p) => (
               <li key={p.id}>
                 <Link
                   to={toFile(p.id)}
-                  className="flex min-h-16 items-center gap-3 px-4 py-2.5 transition-colors duration-150 hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:outline-none active:bg-accent"
+                  className="flex min-h-16 items-center gap-3 py-2.5 ps-4 pe-3 transition-colors duration-150 hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:outline-none active:bg-accent"
                 >
                   <ProfileAvatar name={p.display_name} avatar={p.avatar} className="size-10" />
                   <span className="flex min-w-0 flex-1 flex-col">
@@ -242,42 +240,49 @@ export function UsersPage() {
                     <span className="truncate text-sm text-muted-foreground">{roleLine(p)}</span>
                     {p.role === 'alumno' && <span className="text-sm text-muted-foreground">Última asistencia {lastSeen(p.last_attendance_at)}</span>}
                   </span>
+                  <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                 </Link>
               </li>
             ))}
           </ul>
-          <div className="hidden overflow-x-auto rounded-2xl border bg-card sm:block">
+          <div className="hidden overflow-x-auto rounded-2xl border bg-card xl:block">
             <Table>
-              <TableHeader className="sticky top-0 bg-card">
+              <TableHeader>
                 <TableRow>
-                  {['Nombre', 'Rol', 'Plan', 'Estado', 'Última asistencia'].map((h, i) => (
-                    <TableHead key={h} className={i ? undefined : 'ps-4'}>
-                      {h}
-                    </TableHead>
-                  ))}
+                  <TableHead className="ps-4">Nombre</TableHead>
+                  <TableHead>Rol</TableHead>
+                  <TableHead>Plan</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="pe-4">Última asistencia</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {list.data.profiles.map((p) => (
-                  <TableRow key={p.id} className="h-10">
+                  <TableRow key={p.id} className="h-11">
                     <TableCell className="ps-4">
-                      <span className="flex flex-wrap items-center gap-1.5">
-                        <ProfileAvatar name={p.display_name} avatar={p.avatar} className="me-1 size-7" />
-                        <UserLink p={p} />
+                      <span className="flex max-w-60 items-center gap-2">
+                        <ProfileAvatar name={p.display_name} avatar={p.avatar} className="size-7" />
+                        <span className="min-w-0 truncate">
+                          <UserLink p={p} />
+                        </span>
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="flex items-center gap-1.5">
+                        {ROLE_LABEL[p.role]}
                         <Marks p={p} />
                       </span>
                     </TableCell>
-                    <TableCell>{ROLE_LABEL[p.role]}</TableCell>
                     <TableCell className={p.plan_name ? undefined : 'text-muted-foreground'}>{p.plan_name ?? '—'}</TableCell>
                     <TableCell>{p.estado || p.role === 'profesor' ? <EstadoTag p={p} /> : <span className="text-muted-foreground">—</span>}</TableCell>
-                    <TableCell className="text-muted-foreground tabular-nums">{p.role === 'alumno' ? lastSeen(p.last_attendance_at) : '—'}</TableCell>
+                    <TableCell className="pe-4 text-muted-foreground tabular-nums">{p.role === 'alumno' ? lastSeen(p.last_attendance_at) : '—'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
           <Pager total={list.data.total} page={f.page} href={(n) => pageHref(params, n)} />
-        </>
+        </div>
       )}
     </Page>
   )
@@ -341,7 +346,7 @@ function RoleChange({ file, refresh }: { file: ProfileFile; refresh: () => void 
           items={[{ value: 'none', label: 'Rol nuevo' }, ...options.map((r) => ({ value: r, label: ROLE_LABEL[r] }))]}
         />
       </div>
-      <Button variant="outline" size="lg" disabled={!role} onClick={() => setOpen(true)}>
+      <Button variant="outline" size="lg" className="max-sm:h-11" disabled={!role} onClick={() => setOpen(true)}>
         Cambiar el rol
       </Button>
       <ConfirmDialog
@@ -360,7 +365,7 @@ function RoleChange({ file, refresh }: { file: ProfileFile; refresh: () => void 
         onConfirm={() => change.mutate()}
       >
         {toAdmin && (
-          <OTPField length={6} value={code} onValueChange={setCode} validationType="numeric" autoComplete="one-time-code" aria-label="Código de tu app de autenticación">
+          <OTPField className="justify-center" length={6} value={code} onValueChange={setCode} validationType="numeric" autoComplete="one-time-code" aria-label="Código de tu app de autenticación">
             {[0, 1, 2].map((i) => (
               <OTPFieldInput key={i} className={OTP_SLOT} autoFocus={i === 0} />
             ))}
@@ -400,11 +405,12 @@ function Summary({ file, refresh }: { file: ProfileFile; refresh: () => void }) 
     [
       'Perfil público',
       p.is_public ? (
-        <span className="flex items-center gap-2">
+        <span key="public" className="flex items-center gap-2">
           Sí
           <Button
             variant="outline"
             size="sm"
+            className="max-sm:h-11"
             onClick={() =>
               ask({
                 title: 'Despublicar el perfil',
@@ -430,6 +436,7 @@ function Summary({ file, refresh }: { file: ProfileFile; refresh: () => void }) 
         key="avatar"
         variant="outline"
         size="sm"
+        className="max-sm:h-11"
         onClick={() =>
           ask({
             title: 'Quitar la foto',
@@ -445,18 +452,45 @@ function Summary({ file, refresh }: { file: ProfileFile; refresh: () => void }) 
       </Button>,
     ])
   }
-  if (file.status) {
-    rows.push(['Perfil', file.status.ok ? 'Completo' : `Le falta: ${(file.status.missing ?? []).map((m) => MISSING[m as AgreementType] ?? m).join(', ')}`])
-  }
+  const missing = file.status && !file.status.ok ? (file.status.missing ?? []).map((m) => MISSING[m as AgreementType] ?? m) : []
+  if (file.status)
+    rows.push([
+      'Perfil',
+      file.status.ok ? (
+        'Completo'
+      ) : (
+        <Tag key="missing" variant="warning">
+          <CircleAlertIcon aria-hidden="true" />
+          Le {missing.length === 1 ? 'falta 1 dato' : `faltan ${missing.length} datos`}
+        </Tag>
+      ),
+    ])
+  const actions = [
+    !isChild(p) && !p.is_minor && <CanCreateChildren key="children" file={file} refresh={refresh} />,
+    canChangeRole(p) && <RoleChange key="role" file={file} refresh={refresh} />,
+    p.role === 'profesor' && <TrainerActions key="trainer" file={file} refresh={refresh} />,
+    p.role === 'profesor' && <EmploymentChange key="employment" id={p.id} />,
+  ].filter(Boolean)
+  // Datos a un lado y lo que cambia la cuenta (rol, permisos, profesor) en su propia tarjeta.
   return (
-    <section className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
-      <Kv rows={rows} />
-      {!isChild(p) && !p.is_minor && <CanCreateChildren file={file} refresh={refresh} />}
-      {canChangeRole(p) && <RoleChange file={file} refresh={refresh} />}
-      {p.role === 'profesor' && <TrainerActions file={file} refresh={refresh} />}
-      {p.role === 'profesor' && <EmploymentChange id={p.id} />}
+    <div className="grid items-start gap-4 lg:grid-cols-2">
+      <section className="flex flex-col gap-2 rounded-2xl border bg-card p-4" aria-labelledby="user-data">
+        <h2 id="user-data" className="font-semibold">
+          Datos
+        </h2>
+        <Kv rows={rows} />
+        {missing.length > 0 && <p className="text-sm text-muted-foreground">Le falta: {missing.join(', ')}.</p>}
+      </section>
+      {actions.length > 0 && (
+        <section className="flex flex-col gap-3 rounded-2xl border bg-card p-4" aria-labelledby="user-account">
+          <h2 id="user-account" className="font-semibold">
+            Gestión
+          </h2>
+          <div className="flex flex-col gap-3 *:first:border-t-0 *:first:pt-0">{actions}</div>
+        </section>
+      )}
       {dialog}
-    </section>
+    </div>
   )
 }
 
@@ -517,14 +551,25 @@ function Family({ file, refresh }: { file: ProfileFile; refresh: () => void }) {
     return file.children.length === 0 ? (
       <EmptyState icon={<UsersIcon />} title="No tiene hijos vinculados" />
     ) : (
-      <ul className="flex flex-col divide-y rounded-2xl border bg-card">
-        {file.children.map((c) => (
-          <li key={c.id} className="flex min-h-12 items-center gap-2 px-4">
-            <UserLink p={c} />
-            {c.pending_claim && <Tag variant="secondary">Mayor de edad sin reclamar</Tag>}
-          </li>
-        ))}
-      </ul>
+      <section className="flex flex-col gap-3" aria-labelledby="user-children">
+        <h2 id="user-children" className="font-semibold">
+          Hijos
+        </h2>
+        <ul className="flex flex-col divide-y overflow-hidden rounded-2xl border bg-card">
+          {file.children.map((c) => (
+            <li key={c.id}>
+              <Link
+                to={toFile(c.id)}
+                className="flex min-h-12 items-center gap-2 py-2 ps-4 pe-3 font-medium transition-colors duration-150 hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:outline-none active:bg-accent"
+              >
+                <span className="min-w-0 truncate">{name(c)}</span>
+                {c.pending_claim && <Tag variant="secondary">Mayor de edad sin reclamar</Tag>}
+                <ChevronRightIcon className="ms-auto size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
     )
   }
   return (
@@ -566,32 +611,71 @@ const REASON: Record<string, string> = { ...CANCEL_REASON, student: 'Cancelada p
 const stateText = (b: Booking) =>
   b.status === 'cancelled' ? (b.cancel_reason ? REASON[b.cancel_reason] : 'Cancelada') : b.status === 'waitlisted' ? 'En espera' : 'Confirmada'
 
-function BookingTable({ rows, onCancel }: { rows: Booking[]; onCancel?: (b: Booking) => void }) {
+const BOOKING_TAG = (b: Booking): ['success' | 'warning' | 'secondary', LucideIcon] =>
+  b.status === 'cancelled' ? ['secondary', BanIcon] : b.status === 'waitlisted' ? ['warning', HourglassIcon] : ['success', CircleCheckIcon]
+function BookingState({ b }: { b: Booking }) {
+  const [variant, Icon] = BOOKING_TAG(b)
   return (
-    <div className="overflow-x-auto rounded-2xl border bg-card">
-      <Table>
-        <TableBody>
-          {rows.map((b) => (
-            <TableRow key={b.id} className="h-10">
-              <TableCell className="ps-4 tabular-nums">
-                {formatShortDate(b.starts_at)} · {formatTime(b.starts_at)}
-              </TableCell>
-              <TableCell className="font-medium">{b.discipline_name}</TableCell>
-              <TableCell className={b.status === 'cancelled' ? 'text-muted-foreground' : undefined}>{stateText(b)}</TableCell>
+    <Tag variant={variant}>
+      <Icon aria-hidden="true" />
+      {stateText(b)}
+    </Tag>
+  )
+}
+const when = (b: Booking) => `${formatShortDate(b.starts_at)} · ${formatTime(b.starts_at)}`
+
+// Móvil: filas apiladas (sin tabla cortada); desde sm, tabla con cabecera.
+function BookingTable({ rows, onCancel }: { rows: Booking[]; onCancel?: (b: Booking) => void }) {
+  const cancel = (b: Booking, className?: string) =>
+    onCancel &&
+    b.status !== 'cancelled' && (
+      <Button variant="ghost" size="sm" className={className} onClick={() => onCancel(b)}>
+        Cancelar
+      </Button>
+    )
+  return (
+    <>
+      <ul className="flex flex-col divide-y rounded-2xl border bg-card sm:hidden">
+        {rows.map((b) => (
+          <li key={b.id} className="flex min-h-16 items-center gap-3 py-2.5 ps-4 pe-2">
+            <span className="flex min-w-0 flex-1 flex-col items-start gap-1">
+              <span className="font-semibold">{b.discipline_name}</span>
+              <span className="text-sm text-muted-foreground tabular-nums">{when(b)}</span>
+              <BookingState b={b} />
+            </span>
+            {cancel(b, 'min-h-11 px-3')}
+          </li>
+        ))}
+      </ul>
+      <div className="hidden overflow-x-auto rounded-2xl border bg-card sm:block">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="ps-4">Fecha</TableHead>
+              <TableHead>Disciplina</TableHead>
+              <TableHead>Estado</TableHead>
               {onCancel && (
-                <TableCell className="text-right">
-                  {b.status !== 'cancelled' && (
-                    <Button variant="ghost" size="sm" onClick={() => onCancel(b)}>
-                      Cancelar
-                    </Button>
-                  )}
-                </TableCell>
+                <TableHead className="pe-4">
+                  <span className="sr-only">Acciones</span>
+                </TableHead>
               )}
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+          </TableHeader>
+          <TableBody>
+            {rows.map((b) => (
+              <TableRow key={b.id} className="h-11">
+                <TableCell className="ps-4 tabular-nums">{when(b)}</TableCell>
+                <TableCell className="font-medium">{b.discipline_name}</TableCell>
+                <TableCell>
+                  <BookingState b={b} />
+                </TableCell>
+                {onCancel && <TableCell className="pe-4 text-right">{cancel(b)}</TableCell>}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </>
   )
 }
 
@@ -643,7 +727,7 @@ function Bookings({ id }: { id: string }) {
         <>
           {pastRows.length > 0 && <BookingTable rows={pastRows} />}
           {past.hasNextPage && (
-            <Button variant="outline" className="self-start" loading={past.isFetchingNextPage} onClick={() => void past.fetchNextPage()}>
+            <Button variant="outline" className="self-start max-sm:h-11" loading={past.isFetchingNextPage} onClick={() => void past.fetchNextPage()}>
               Ver más antiguas
             </Button>
           )}
@@ -662,12 +746,26 @@ function Bookings({ id }: { id: string }) {
   )
 }
 
-const TABS = [
-  { value: 'summary', label: 'Resumen' },
-  { value: 'family', label: 'Familia' },
-  { value: 'billing', label: 'Cuota', student: true },
-  { value: 'bookings', label: 'Reservas', student: true },
-]
+const TAB_LABEL: Record<UserTab, string> = { summary: 'Resumen', billing: 'Cuota', bookings: 'Reservas', family: 'Familia' }
+
+// Mientras carga, la misma silueta que la ficha (título, volver, cabecera y pestañas): sin salto al llegar.
+function FileSkeleton() {
+  return (
+    <div className="mx-auto flex max-w-5xl flex-col gap-5" aria-busy="true" aria-label="Cargando la ficha">
+      <Skeleton className="h-10 w-56 rounded-md" />
+      <Skeleton className="h-6 w-24 rounded-md" />
+      <div className="flex items-center gap-3">
+        <Skeleton className="size-14 rounded-full" />
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-6 w-40 rounded-md" />
+          <Skeleton className="h-4 w-52 rounded-md" />
+        </div>
+      </div>
+      <Skeleton className="h-11 rounded-xl" />
+      <Skeleton className="h-64 rounded-2xl" />
+    </div>
+  )
+}
 
 // docs/pantallas-b19.md § Usuarios › Ficha. Nunca salud, edad ni fecha de nacimiento: la API no los da.
 export function UserPage() {
@@ -676,7 +774,7 @@ export function UserPage() {
   const refresh = useRefresh(id)
   const file = useQuery({ queryKey: fileKey(id), queryFn: () => api<ProfileFile>(`/admin/profiles/${id}`) })
 
-  if (file.isPending) return <ListSkeleton rows={3} className="h-32" />
+  if (file.isPending) return <FileSkeleton />
   if (file.isError) {
     const missing = file.error instanceof ApiError && (file.error.code === 'profile_not_found' || file.error.code === 'invalid_id')
     return (
@@ -687,45 +785,56 @@ export function UserPage() {
     )
   }
   const { profile: p } = file.data
-  const tabs = TABS.filter((t) => !t.student || p.role === 'alumno')
-  const tab = tabs.some((t) => t.value === params.get('tab')) ? params.get('tab')! : 'summary'
+  const tabs = userTabs(file.data)
+  const tab = tabs.find((t) => t === params.get('tab')) ?? 'summary'
+  const sub = file.data.subscription && isLive(file.data.subscription.status) ? file.data.subscription : null
+  const summary = <Summary file={file.data} refresh={refresh} />
 
   return (
     <Page title={name(p)} wide>
       <Back to="/admin/users">Usuarios</Back>
-      <div className="-mt-3 flex items-center gap-3">
+      {/* Quién es y, si es alumno, cómo va su cuota: a la vista desde cualquier pestaña. */}
+      <div className="flex items-center gap-3">
         <ProfileAvatar name={p.display_name} avatar={p.avatar} className="size-14" />
-        <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
-          <Tag>{ROLE_LABEL[p.role]}</Tag>
-          <Marks p={p} />
-          {p.email && <span className="min-w-0 text-sm break-all">{p.email}</span>}
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Tag>{ROLE_LABEL[p.role]}</Tag>
+            <Marks p={p} />
+            {p.role === 'alumno' && <SubBadge status={sub?.status} />}
+            {sub && <span className="text-sm font-medium">{sub.plan.name}</span>}
+          </div>
+          {p.email && <span className="text-sm break-all text-muted-foreground">{p.email}</span>}
         </div>
       </div>
-      <Tabs value={tab} onValueChange={(v) => setParams({ tab: String(v) }, { replace: true })} className="gap-5">
-        <TabsList className="w-full sm:w-auto">
-          {tabs.map((t) => (
-            <TabsTab key={t.value} value={t.value} className="min-h-11 flex-1 px-4">
-              {t.label}
-            </TabsTab>
-          ))}
-        </TabsList>
-        <TabsPanel value="summary">
-          <Summary file={file.data} refresh={refresh} />
-        </TabsPanel>
-        <TabsPanel value="family">
-          <Family file={file.data} refresh={refresh} />
-        </TabsPanel>
-        {p.role === 'alumno' && (
-          <>
+      {tabs.length === 1 ? (
+        summary
+      ) : (
+        <Tabs value={tab} onValueChange={(v) => setParams({ tab: String(v) }, { replace: true })} className="gap-5">
+          <TabsList className="w-full sm:w-auto">
+            {tabs.map((t) => (
+              <TabsTab key={t} value={t} className="min-h-11 flex-1 px-2 sm:px-4">
+                {TAB_LABEL[t]}
+              </TabsTab>
+            ))}
+          </TabsList>
+          <TabsPanel value="summary">{summary}</TabsPanel>
+          {tabs.includes('billing') && (
             <TabsPanel value="billing">
               <BillingTab file={file.data} refresh={refresh} />
             </TabsPanel>
+          )}
+          {tabs.includes('bookings') && (
             <TabsPanel value="bookings">
               <Bookings id={p.id} />
             </TabsPanel>
-          </>
-        )}
-      </Tabs>
+          )}
+          {tabs.includes('family') && (
+            <TabsPanel value="family">
+              <Family file={file.data} refresh={refresh} />
+            </TabsPanel>
+          )}
+        </Tabs>
+      )}
     </Page>
   )
 }

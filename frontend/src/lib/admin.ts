@@ -337,6 +337,14 @@ export function payerCandidates(f: ProfileFile): Person[] {
   return [...self, ...f.guardians].filter((p) => p.id !== f.subscription?.payer.id)
 }
 
+// Pestañas de la ficha: Cuota y Reservas solo de un alumno; Familia si es un hijo o tiene hijos.
+export type UserTab = 'summary' | 'billing' | 'bookings' | 'family'
+export function userTabs(f: Pick<ProfileFile, 'profile' | 'children'>): UserTab[] {
+  const student = f.profile.role === 'alumno'
+  const family = isChild(f.profile) || f.children.length > 0
+  return (['summary', 'billing', 'bookings', 'family'] as const).filter((t) => (t === 'billing' || t === 'bookings' ? student : t === 'family' ? family : true))
+}
+
 // Enlace a otra página de una tabla: conserva la pestaña y los filtros de la URL.
 export function pageHref(params: URLSearchParams, page: number): string {
   const n = new URLSearchParams(params)
