@@ -49,6 +49,8 @@ export const useSubscription = (profileId?: string) => {
 }
 
 export const usePlans = () => useQuery({ queryKey: ['plans'], queryFn: () => api<{ plans: Plan[] }>('/plans').then((r) => r.plans) })
+// Los del admin: también los retirados (Membresías y el filtro por plan de Usuarios).
+export const useAdminPlans = () => useQuery({ queryKey: ['admin', 'plans'], queryFn: () => api<{ plans: Plan[] }>('/admin/plans').then((r) => r.plans) })
 export const useDisciplines = () =>
   useQuery({ queryKey: ['disciplines'], queryFn: () => api<{ disciplines: Discipline[] }>('/disciplines').then((r) => r.disciplines) })
 

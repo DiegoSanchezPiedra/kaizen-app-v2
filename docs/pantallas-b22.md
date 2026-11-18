@@ -28,6 +28,13 @@
   endpoints (`/admin/plans`, `/admin/disciplines`, `PUT /admin/plans/:id/disciplines`).
 - Por debajo de `sm`, la tabla pasa a tarjetas. Estados: cargando, vacío con «Crear la primera», error, validación en línea
   en las hojas de crear y editar.
+- Rediseño 7, 2026-11-18: el admin entra a **revisar y retocar**. Como Usuarios, una fila por elemento hasta `xl` (toda la
+  fila abre la hoja) y la tabla solo desde `xl`. En las filas, solo el estado que se sale (Retirada, Desactivada) y las marcas
+  Recomendada y Abierta, con icono; en la tabla, Estado siempre. Las **elegibles por nombre** («Elige 1 entre Judo y
+  Grappling», «Todas las activas»). `plan_has_subscriptions` en el campo que no se puede cambiar; las confirmaciones de
+  precio y de retirar dicen que la app no avisa a los suscriptores.
+- **Documentos** (rediseño 7): por tipo, la vigente y los borradores a la vista y los retirados plegados («N versiones
+  anteriores»). Sin vigente, solo el aviso rojo. Al subir, los errores en su campo y no antes de elegir el PDF.
 
 ## Clases (`/admin/classes`)
 

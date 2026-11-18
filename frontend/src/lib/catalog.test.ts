@@ -4,6 +4,7 @@ import {
   centsToEuros,
   catalogRedirect,
   changed,
+  eligibleLabel,
   checkinBody,
   eurosToCents,
   groupDocuments,
@@ -130,4 +131,13 @@ describe('redirección de /admin/catalog', () => {
     expect(catalogRedirect(null)).toBe('/admin/disciplines')
     expect(catalogRedirect('otra')).toBe('/admin/disciplines')
   })
+})
+
+describe('eligibleLabel', () => {
+  const all = [{ id: 1, name: 'BJJ' }, { id: 2, name: 'Judo' }, { id: 3, name: 'Boxeo' }, { id: 4, name: 'Grappling' }]
+  it('sin elegibles, todas las activas', () => expect(eligibleLabel([], all, 1)).toBe('Todas las activas'))
+  it('elige entre los nombres si incluye menos', () => expect(eligibleLabel(['1', '2'], all, 1)).toBe('Elige 1 entre BJJ y Judo'))
+  it('solo los nombres si las incluye todas', () => expect(eligibleLabel([1, 2], all, null)).toBe('BJJ y Judo'))
+  it('más de dos: las dos primeras y cuántas más', () => expect(eligibleLabel([1, 2, 3, 4], all, 2)).toBe('Elige 2 entre BJJ, Judo y 2 más'))
+  it('ids que no están en la lista: la cuenta', () => expect(eligibleLabel([9], all, 1)).toBe('1 disciplina'))
 })

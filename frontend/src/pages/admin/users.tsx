@@ -50,10 +50,11 @@ import { AGREEMENT_TITLE, type AgreementType } from '@/lib/profile'
 import { bookingsOf, refreshBookings, useBookings, useDisciplines } from '@/lib/queries'
 import { CANCEL_REASON, PAST_CHUNK_DAYS } from '@/lib/sessions'
 import { path } from '@/lib/url'
-import type { Booking, Plan } from '@/lib/types'
+import type { Booking } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { Filter } from '@/components/filter'
 import { useDebounced } from '@/lib/use-debounced'
+import { useAdminPlans } from '@/lib/queries'
 import { PAGE_SIZE, Pager } from '@/pages/admin/shell'
 import { EmploymentChange } from '@/pages/admin/clock'
 import { NewTrainer, TrainerActions, TrainerTag } from '@/pages/admin/trainers'
@@ -88,7 +89,6 @@ const CHIPS: [Estado | null, string, keyof ProfileStats | null][] = [
   ['sin_plan', 'Sin plan', null],
 ]
 const ESTADO_ICON: Record<Estado, LucideIcon> = { activo: CircleCheckIcon, inactivo: ClockIcon, impago: CircleAlertIcon, sin_plan: CircleDashedIcon }
-const useAdminPlans = () => useQuery({ queryKey: ['admin', 'plans'], queryFn: () => api<{ plans: Plan[] }>('/admin/plans').then((r) => r.plans) })
 
 // Alumno: su estado de cuota; profesor: el de su cuenta (activo, invitación pendiente, desactivado). Icono y texto.
 const EstadoTag = ({ p }: { p: ProfileRow }) => {
