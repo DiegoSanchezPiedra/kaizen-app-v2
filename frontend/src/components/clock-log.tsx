@@ -483,7 +483,6 @@ export function ClockLog({ data, admin = false, printTo, onChanged, onCsv, rise 
             icon={<CalendarX2Icon />}
             title="Sin fichajes este mes"
             text={employee && current && !admin ? 'Ficha la entrada desde Sesiones.' : undefined}
-            plainTitle
           />
         ) : (
           days.map((d) => <DayCard key={d.date} d={d} data={data} employee={employee} today={today} onTarget={setTarget} addOut={!admin || d.date !== openPast?.date} />)

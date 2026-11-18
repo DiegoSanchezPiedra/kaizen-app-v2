@@ -186,7 +186,6 @@ export function ProfessorSessionsPage() {
           query={query}
           marked={new Set(byDay.keys())}
           noun="sesiones"
-          plainTitle
           renderDay={(day) => (
             <SessionRows>
               {(byDay.get(day) ?? []).map((it) => (it.kind === 'session' ? <SessionLink key={it.s.id} s={it.s} now={now} /> : <EventLink key={it.e.id} e={it.e} now={now} />))}

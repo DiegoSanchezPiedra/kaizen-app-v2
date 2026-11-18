@@ -113,10 +113,10 @@ function SubscriptionsTab() {
         badRange(report.error) ? (
           <InlineError>Revisa las fechas: como mucho 92 días o 24 meses.</InlineError>
         ) : (
-          <ErrorState plainTitle error={report.error} onRetry={() => void report.refetch()} />
+          <ErrorState error={report.error} onRetry={() => void report.refetch()} />
         )
       ) : !last ? (
-        <EmptyState plainTitle icon={<TableIcon />} title="Sin fotos en este periodo" text="Las cifras salen de la foto de cada noche; prueba con otro periodo." />
+        <EmptyState icon={<TableIcon />} title="Sin fotos en este periodo" text="Las cifras salen de la foto de cada noche; prueba con otro periodo." />
       ) : (
         <div key={range} className="enter-soft flex flex-col gap-4">
           <div className="grid gap-4 lg:grid-cols-2">
@@ -291,10 +291,9 @@ function StudentsTab() {
       {!ok ? null : report.isPending ? (
         <Skeleton className="h-96 rounded-2xl" aria-busy="true" aria-label="Cargando" />
       ) : report.isError && !report.data ? (
-        badRange(report.error) ? <InlineError>{errorText('invalid_range')}</InlineError> : <ErrorState plainTitle error={report.error} onRetry={() => void report.refetch()} />
+        badRange(report.error) ? <InlineError>{errorText('invalid_range')}</InlineError> : <ErrorState error={report.error} onRetry={() => void report.refetch()} />
       ) : report.data.total === 0 ? (
         <EmptyState
-          plainTitle
           icon={<UsersIcon />}
           title="Nadie ha reservado en este periodo"
           text="Cuenta las reservas de sesiones ya celebradas; prueba con otro periodo."

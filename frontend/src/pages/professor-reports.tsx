@@ -347,7 +347,7 @@ function ReportSkeleton() {
 const badRange = (e: unknown) => e instanceof ApiError && e.code === 'invalid_range'
 
 function Failure({ error, retry }: { error: unknown; retry: () => void }) {
-  return badRange(error) ? <InlineError>{errorText('invalid_range')}</InlineError> : <ErrorState plainTitle error={error} onRetry={retry} />
+  return badRange(error) ? <InlineError>{errorText('invalid_range')}</InlineError> : <ErrorState error={error} onRetry={retry} />
 }
 
 export function ProfessorReportsPage() {
@@ -424,7 +424,7 @@ export function SessionsReport({ endpoint, trainer = classTrainer, urlFilters }:
       {ok && data && total && (
         <div key={key} className={cn('flex flex-col gap-4', !rise && 'enter-soft')}>
           {total.sessions === 0 && total.booked === 0 ? (
-            <EmptyState plainTitle icon={<ChartColumnIcon />} title="Sin sesiones en este periodo" text="Cuenta lo que ya se ha celebrado; prueba con otro periodo." />
+            <EmptyState icon={<ChartColumnIcon />} title="Sin sesiones en este periodo" text="Cuenta lo que ya se ha celebrado; prueba con otro periodo." />
           ) : (
             <>
               <Rise on={rise} i={0}>

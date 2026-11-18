@@ -12,11 +12,8 @@ import { errorText } from '@/lib/errors'
 import { updateAndReload } from '@/lib/sw-update'
 
 // Estados comunes de docs/pantallas-b18.md: error, sin conexión y sin permiso. Cargando y vacío los pone cada pantalla.
-// DESIGN.md: los títulos de estado van en sans semibold, no en la condensada. Por defecto se conserva la condensada (las demás
-// pantallas del grupo se pasan a ella al rediseñarlas): `plainTitle` la cambia.
-const PLAIN = 'font-sans! font-semibold! text-lg'
-
-export function ErrorState({ error, onRetry, plainTitle }: { error: unknown; onRetry?: () => void; plainTitle?: boolean }) {
+// Los títulos de estado van en sans semibold (DESIGN.md, la condensada es para títulos de pantalla y cifras): lo da EmptyTitle.
+export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const offline = (error instanceof ApiError && error.code === 'network') || !navigator.onLine
   const forbidden = error instanceof ApiError && error.status === 403 && !offline
   const missing = error instanceof ApiError && error.status === 404
@@ -30,12 +27,13 @@ export function ErrorState({ error, onRetry, plainTitle }: { error: unknown; onR
         ? error.code === 'profile_not_found' ? errorText('profile_not_found') : 'Puede que ya no exista.'
         : 'Inténtalo de nuevo en un momento.'
   return (
-    <Empty role={offline ? 'status' : 'alert'} className="rounded-2xl border bg-card">
+    // Entra suave (enter-soft): sustituye a un esqueleto o a un contenido, sin salto.
+    <Empty role={offline ? 'status' : 'alert'} className="enter-soft rounded-2xl border bg-card">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <Icon />
         </EmptyMedia>
-        <EmptyTitle className={plainTitle ? PLAIN : undefined}>{title}</EmptyTitle>
+        <EmptyTitle>{title}</EmptyTitle>
         <EmptyDescription>{text}</EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
@@ -61,19 +59,17 @@ export function EmptyState({
   title,
   text,
   action,
-  plainTitle,
 }: {
   icon: React.ReactNode
   title: string
   text?: string
   action?: React.ReactNode
-  plainTitle?: boolean
 }) {
   return (
     <Empty className="rounded-2xl border bg-card">
       <EmptyHeader>
         <EmptyMedia variant="icon">{icon}</EmptyMedia>
-        <EmptyTitle className={plainTitle ? PLAIN : undefined}>{title}</EmptyTitle>
+        <EmptyTitle>{title}</EmptyTitle>
         {text && <EmptyDescription>{text}</EmptyDescription>}
       </EmptyHeader>
       {action && <EmptyContent>{action}</EmptyContent>}

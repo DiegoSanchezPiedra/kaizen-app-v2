@@ -109,10 +109,9 @@ export function ClassesView({ onCreate }: { onCreate: () => void }) {
       {list.isPending ? (
         <ListSkeleton rows={5} className="h-14" />
       ) : list.isError ? (
-        <ErrorState plainTitle error={list.error} onRetry={() => void list.refetch()} />
+        <ErrorState error={list.error} onRetry={() => void list.refetch()} />
       ) : list.data.length === 0 ? (
         <EmptyState
-          plainTitle
           icon={<LayersIcon />}
           title="No hay clases"
           text={discipline === 'all' ? 'Una clase se repite cada semana y genera sus sesiones.' : 'Esta disciplina no tiene clases.'}

@@ -217,9 +217,9 @@ export function AdminEventPage() {
       <Page title="Evento" wide>
         <Back to="/admin/sessions">Horario</Back>
         {query.error instanceof ApiError && ['event_not_found', 'invalid_id'].includes(query.error.code) ? (
-          <EmptyState plainTitle icon={<SearchXIcon />} title="Este evento no existe" text="Búscalo en el horario, en su día." />
+          <EmptyState icon={<SearchXIcon />} title="Este evento no existe" text="Búscalo en el horario, en su día." />
         ) : (
-          <ErrorState plainTitle error={query.error} onRetry={() => void query.refetch()} />
+          <ErrorState error={query.error} onRetry={() => void query.refetch()} />
         )}
       </Page>
     )

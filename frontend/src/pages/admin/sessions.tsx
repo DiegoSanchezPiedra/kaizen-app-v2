@@ -122,7 +122,6 @@ export function WeekView({ w }: { w: Week }) {
         noun="clases ni eventos"
         top="top-14"
         cols="xl"
-        plainTitle
         renderDay={(day) => (
           <SessionRows>
             {(byDay.get(day) ?? []).map((x) =>
@@ -289,9 +288,9 @@ export function AdminSessionPage() {
       <Page title="Sesión" wide>
         <Back to="/admin/sessions">Horario</Back>
         {query.error instanceof ApiError && ['session_not_found', 'invalid_id'].includes(query.error.code) ? (
-          <EmptyState plainTitle icon={<SearchXIcon />} title="Esta sesión no existe" text="Búscala en el horario, en su día." />
+          <EmptyState icon={<SearchXIcon />} title="Esta sesión no existe" text="Búscala en el horario, en su día." />
         ) : (
-          <ErrorState plainTitle error={query.error} onRetry={() => void query.refetch()} />
+          <ErrorState error={query.error} onRetry={() => void query.refetch()} />
         )}
       </Page>
     )

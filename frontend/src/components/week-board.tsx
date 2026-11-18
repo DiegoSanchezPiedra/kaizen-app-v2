@@ -120,7 +120,6 @@ export function WeekBoard({
   renderDay,
   noun = 'clases',
   top = 'top-0',
-  plainTitle,
   cols = 'lg',
 }: {
   w: Week
@@ -133,8 +132,6 @@ export function WeekBoard({
   noun?: string
   // Dónde se queda la tira en móvil: bajo lo que ya sea fijo arriba (la cabecera del admin, el selector de sujeto).
   top?: 'top-0' | 'top-14' | 'top-[61px]'
-  // Títulos de vacío y error en sans (DESIGN.md): las pantallas lo adoptan al rediseñarlas.
-  plainTitle?: boolean
   cols?: keyof typeof COLS
 }) {
   const at = COLS[cols]
@@ -164,10 +161,9 @@ export function WeekBoard({
       {query.isPending ? (
         <ListSkeleton rows={3} className="h-16" />
       ) : query.isError ? (
-        <ErrorState plainTitle={plainTitle} error={query.error} onRetry={() => void query.refetch()} />
+        <ErrorState error={query.error} onRetry={() => void query.refetch()} />
       ) : marked.size === 0 ? (
         <EmptyState
-          plainTitle={plainTitle}
           icon={<CalendarIcon />}
           title={`No hay ${noun} esta semana`}
           text="Prueba con la semana siguiente."
@@ -207,7 +203,6 @@ export function WeekBoard({
                     <p className={cn('px-0.5 text-sm text-muted-foreground', at.off)}>Sin {noun}</p>
                     <div className={at.narrow}>
                       <EmptyState
-                        plainTitle={plainTitle}
                         icon={<CalendarIcon />}
                         title={`No hay ${noun} el ${longWeekday(day)}`}
                         action={

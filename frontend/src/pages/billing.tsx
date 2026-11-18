@@ -341,7 +341,6 @@ function Billing({ subject, profileId }: Props) {
           return (
             <EmptyState
               icon={<WalletIcon />}
-              plainTitle
               title={name ? `${name} aún no tiene cuota` : 'Aún no tienes cuota'}
               text={`${name ? 'Para reservar sus sesiones necesita una cuota.' : 'Para reservar sesiones necesitas una cuota.'} Elige plan y disciplinas; se paga con tarjeta en Stripe.`}
               action={contract}
@@ -352,7 +351,6 @@ function Billing({ subject, profileId }: Props) {
           return (
             <EmptyState
               icon={<WalletIcon />}
-              plainTitle
               title={`${name ? `La cuota de ${name}` : 'Tu cuota'} terminó${s.current_period_end ? ` el ${formatShortDate(s.current_period_end)}` : ''}`}
               text="Para volver a reservar, contrata una cuota nueva. Se paga con tarjeta en Stripe."
               action={contract}
