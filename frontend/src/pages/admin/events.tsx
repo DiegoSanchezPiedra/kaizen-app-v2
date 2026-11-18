@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BanIcon, UsersIcon } from 'lucide-react'
+import { BanIcon, CircleAlertIcon, CircleCheckIcon, HourglassIcon, SearchXIcon, UsersIcon, type LucideIcon } from 'lucide-react'
 import { useState } from 'react'
 import type React from 'react'
 import { Link, useParams } from 'react-router'
@@ -7,6 +7,7 @@ import { Back, Kv, Tag } from '@/components/billing-bits'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxPopup } from '@/components/ui/combobox'
 import { Switch } from '@/components/ui/switch'
@@ -14,12 +15,12 @@ import { Textarea } from '@/components/ui/textarea'
 import { toastManager } from '@/components/ui/toast'
 import { useNow } from '@/hooks/use-now'
 import { type Paged, type ProfileRow } from '@/lib/admin'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 import { madridDay } from '@/lib/dates'
 import {
-  attendanceOpen, AUDIENCE_LABEL, cancelResult, cancelSummary, CANCEL_REASON_LABEL, canRefund, canRetryRefund, draftOf, emptyDraft, eventBody, eventErrors, eventSeats,
-  eventPatch, isLive, memberPriceLabel, notifiesOnPatch, payLabel, priceLabel, refundLabel,
-  type AdminEvent, type Audience, type EventDraft, type EventRegistration,
+  attendanceOpen, AUDIENCE_LABEL, cancelResult, cancelSummary, CANCEL_REASON_LABEL, canRefund, canRetryRefund, draftOf, emptyDraft, eventBody, eventErrors,
+  eventPatch, isLive, memberPriceLabel, moneySummary, notifiesOnPatch, payLabel, priceLabel, refundLabel,
+  type AdminEvent, type Audience, type EventDraft, type EventRegistration, type RefundStatus,
 } from '@/lib/events'
 import { formatDate, formatDeadline, formatEuros, formatShortDate, formatTime } from '@/lib/format'
 import { queryClient } from '@/lib/logout'
@@ -42,8 +43,36 @@ function when(e: Pick<AdminEvent, 'starts_at' | 'ends_at'>): string {
   return `${formatShortDate(e.starts_at)}, ${formatTime(e.starts_at)} → ${formatShortDate(e.ends_at)}, ${formatTime(e.ends_at)}`
 }
 
+// Solo lo que se sale lleva insignia, con icono: cancelado o completo (rediseño 7).
 export function StateTag({ e }: { e: Pick<AdminEvent, 'status' | 'taken' | 'capacity'> }) {
-  return e.status === 'cancelled' ? <Tag variant="error">Cancelado</Tag> : e.capacity !== null && e.taken >= e.capacity ? <Tag variant="warning">Completo</Tag> : <Tag>Programado</Tag>
+  if (e.status === 'cancelled')
+    return (
+      <Tag variant="error">
+        <BanIcon aria-hidden="true" />
+        Cancelado
+      </Tag>
+    )
+  if (e.capacity !== null && e.taken >= e.capacity)
+    return (
+      <Tag variant="warning">
+        <UsersIcon aria-hidden="true" />
+        Completo
+      </Tag>
+    )
+  return null
+}
+
+// «Sábado, 21 de noviembre · 10:00–14:00» con las horas en Geist Mono; varios días, como `when`.
+function When({ e }: { e: Pick<AdminEvent, 'starts_at' | 'ends_at'> }) {
+  if (madridDay(e.starts_at) !== madridDay(e.ends_at)) return <span className="tabular-nums">{when(e)}</span>
+  return (
+    <>
+      {formatDate(e.starts_at)} ·{' '}
+      <span className="font-mono tabular-nums">
+        {formatTime(e.starts_at)}–{formatTime(e.ends_at)}
+      </span>
+    </>
+  )
 }
 
 // ── Crear y editar ───────────────────────────────────────────────────────────
@@ -187,7 +216,11 @@ export function AdminEventPage() {
     return (
       <Page title="Evento" wide>
         <Back to="/admin/sessions">Horario</Back>
-        <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+        {query.error instanceof ApiError && ['event_not_found', 'invalid_id'].includes(query.error.code) ? (
+          <EmptyState plainTitle icon={<SearchXIcon />} title="Este evento no existe" text="Búscalo en el horario, en su día." />
+        ) : (
+          <ErrorState plainTitle error={query.error} onRetry={() => void query.refetch()} />
+        )}
       </Page>
     )
   }
@@ -201,26 +234,41 @@ function EventDetail({ event: e, registrations }: Detail) {
   const scheduled = e.status === 'scheduled'
   const member = memberPriceLabel(e)
   const rows: [string, React.ReactNode][] = [
-    ['Cuándo', <span key="w" className="first-letter:uppercase">{when(e)}</span>],
-    ['Lugar', e.location],
     ['Disciplina', e.discipline?.name ?? '—'],
     ['Profesor', e.trainer ? name(e.trainer) : '—'],
-    ['Aforo', eventSeats(e)],
+    ['Aforo', e.capacity === null ? 'Sin límite' : plural(e.capacity, 'plaza', 'plazas')],
     ['Público', AUDIENCE_LABEL[e.audience]],
     ['Precio', priceLabel(e.price_cents)],
     ...(member ? [['Precio de socio', member] as [string, React.ReactNode]] : []),
     ['Inscripciones hasta', e.registration_deadline ? formatDeadline(e.registration_deadline) : 'El inicio del evento'],
   ]
   return (
-    <Page title={e.title} wide actions={<StateTag e={e} />}>
-      <Back to="/admin/sessions">Horario</Back>
-      {!scheduled && (
-        <p className="flex items-center gap-2 rounded-xl border bg-card px-4 py-3 text-sm" role="status">
-          <BanIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <span>Evento cancelado{e.cancel_note ? `: «${e.cancel_note}»` : '.'}</span>
+    <Page title={e.title} wide>
+      <Back to={`/admin/sessions?dia=${madridDay(e.starts_at)}`}>Horario</Back>
+      <div className="enter-soft -mt-2 flex flex-col gap-1">
+        <p className="text-[15px] font-semibold first-letter:uppercase">
+          <When e={e} />
         </p>
+        <p className="text-sm text-muted-foreground">{e.location}</p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-2 empty:hidden">
+          {/* Cancelado: lo dice el aviso de debajo, con el motivo. */}
+          {scheduled && <StateTag e={{ ...e, taken: registrations.filter(isLive).length }} />}
+        </div>
+      </div>
+      {!scheduled && (
+        <Alert variant="error" role="status" className="enter-soft [&>svg]:text-destructive-foreground">
+          <BanIcon />
+          <AlertTitle>Evento cancelado</AlertTitle>
+          <AlertDescription>{e.cancel_note ? `Motivo: «${e.cancel_note}»` : 'Sin motivo anotado.'}</AlertDescription>
+        </Alert>
       )}
-      <section aria-label="Datos" className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
+      <Figures e={e} registrations={registrations} />
+      <Registrations e={e} registrations={registrations} />
+      {attendanceOpen(e, now) && <Attendance e={e} registrations={registrations} />}
+      <section aria-labelledby="ev-datos" className="enter-soft flex flex-col gap-3 rounded-2xl border bg-card p-4">
+        <h2 id="ev-datos" className="font-semibold">
+          Datos del evento
+        </h2>
         {e.description && <p className="text-[15px] whitespace-pre-line">{e.description}</p>}
         <Kv rows={rows} />
         {scheduled && (
@@ -228,17 +276,51 @@ function EventDetail({ event: e, registrations }: Detail) {
             <Button variant="outline" onClick={() => setEditing(true)}>
               Editar
             </Button>
-            <Button variant="outline" onClick={() => setCancelling(true)}>
+            <Button variant="destructive-outline" onClick={() => setCancelling(true)}>
               Cancelar el evento
             </Button>
           </div>
         )}
       </section>
-      <Registrations e={e} registrations={registrations} />
-      {attendanceOpen(e, now) && <Attendance e={e} registrations={registrations} />}
       <EventSheet key={JSON.stringify(draftOf(e))} event={e} open={editing} onClose={() => setEditing(false)} />
       <CancelEventDialog e={e} registrations={registrations} open={cancelling} onClose={() => setCancelling(false)} />
     </Page>
+  )
+}
+
+// Inscritos y dinero de un vistazo. Un evento gratis sin nada cobrado: solo inscritos e invitados.
+function Figures({ e, registrations }: { e: AdminEvent; registrations: EventRegistration[] }) {
+  const m = moneySummary(registrations)
+  const free = e.price_cents === 0 && m.paid + m.pending + m.refunded + m.requested + m.failed === 0
+  const cells: { label: string; value: string; sub?: string; alert?: boolean }[] = [
+    {
+      label: 'Inscritos',
+      value: e.capacity === null ? String(m.live) : `${m.live}/${e.capacity}`,
+      sub: e.capacity === null ? 'Sin límite de plazas' : m.live >= e.capacity ? 'Completo' : plural(e.capacity - m.live, 'plaza libre', 'plazas libres'),
+    },
+    ...(free
+      ? [{ label: 'Invitados', value: String(m.guests), sub: 'No pagan' }]
+      : [
+          { label: 'Cobrado', value: formatEuros(m.paidCents), sub: plural(m.paid, 'pago', 'pagos') },
+          { label: 'Pendiente', value: formatEuros(m.pendingCents), sub: plural(m.pending, 'pago sin hacer', 'pagos sin hacer') },
+          m.failed
+            ? { label: 'Reembolsos', value: plural(m.failed, 'fallido', 'fallidos'), sub: 'Reinténtalo en su inscripción', alert: true }
+            : { label: 'Reembolsos', value: formatEuros(m.refundedCents), sub: m.requested ? plural(m.requested, 'pedido a Stripe', 'pedidos a Stripe') : plural(m.refunded, 'devuelto', 'devueltos') },
+        ]),
+  ]
+  return (
+    <dl aria-label="Cifras" className={cn('enter-soft grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-border', !free && 'sm:grid-cols-4')}>
+      {cells.map((c) => (
+        <div key={c.label} className="flex flex-col gap-1 bg-card px-4 py-3">
+          <dt className="text-[13px] text-muted-foreground">{c.label}</dt>
+          <dd className={cn('flex items-center gap-1.5 font-heading text-2xl leading-none font-bold tabular-nums', c.alert && 'text-destructive-foreground')}>
+            {c.alert && <CircleAlertIcon className="size-5 shrink-0" aria-hidden="true" />}
+            {c.value}
+          </dd>
+          {c.sub && <dd className="text-[13px] text-muted-foreground tabular-nums">{c.sub}</dd>}
+        </div>
+      ))}
+    </dl>
   )
 }
 
@@ -286,10 +368,37 @@ function CancelEventDialog({ e, registrations, open, onClose }: { e: AdminEvent;
 
 // ── Inscritos ────────────────────────────────────────────────────────────────
 
-const STATUS_TAG: Record<EventRegistration['status'], React.ReactNode> = {
-  pending: <Tag variant="warning">Pendiente</Tag>,
-  confirmed: <Tag variant="success">Confirmada</Tag>,
-  cancelled: <Tag variant="secondary">Cancelada</Tag>,
+// Estado de la inscripción con icono y texto, en la línea gris bajo el nombre (no una pila de insignias).
+const REG_STATE: Record<EventRegistration['status'], [LucideIcon, string]> = {
+  pending: [HourglassIcon, 'text-warning-foreground'],
+  confirmed: [CircleCheckIcon, 'text-success-foreground'],
+  cancelled: [BanIcon, 'text-muted-foreground'],
+}
+const REFUND_ICON: Record<RefundStatus, [LucideIcon, string]> = {
+  requested: [HourglassIcon, 'text-muted-foreground'],
+  refunded: [CircleCheckIcon, 'text-success-foreground'],
+  failed: [CircleAlertIcon, 'text-destructive-foreground font-semibold'],
+}
+
+function RegLines({ x }: { x: EventRegistration }) {
+  const [Icon, tone] = REG_STATE[x.status]
+  const status = x.status === 'confirmed' ? 'Confirmada' : x.status === 'cancelled' ? (x.cancel_reason ? (CANCEL_REASON_LABEL[x.cancel_reason] ?? 'Cancelada') : 'Cancelada') : null
+  const refund = refundLabel(x)
+  const [RefundIcon, refundTone] = x.refund_status ? REFUND_ICON[x.refund_status] : [null, '']
+  return (
+    <>
+      <p className="flex items-start gap-1.5 text-[13px] text-muted-foreground tabular-nums">
+        <Icon className={cn('mt-0.5 size-3.5 shrink-0', tone)} aria-hidden="true" />
+        <span>{[status, payLabel(x), x.payer && !x.guest && x.payer.id !== x.student.id ? `paga ${name(x.payer)}` : null].filter(Boolean).join(' · ')}</span>
+      </p>
+      {refund && RefundIcon && (
+        <p className={cn('flex items-center gap-1.5 text-[13px] tabular-nums', refundTone)}>
+          <RefundIcon className="size-3.5 shrink-0" aria-hidden="true" />
+          {refund}
+        </p>
+      )}
+    </>
+  )
 }
 
 function Registrations({ e, registrations }: { e: AdminEvent; registrations: EventRegistration[] }) {
@@ -313,30 +422,27 @@ function Registrations({ e, registrations }: { e: AdminEvent; registrations: Eve
   const live = registrations.filter(isLive)
   const r = target?.r
   return (
-    <section aria-label="Inscritos" className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
-      <h2 className="font-semibold">
-        Inscritos <span className="font-normal text-muted-foreground tabular-nums">{eventSeats({ taken: live.length, capacity: e.capacity })}</span>
+    <section aria-labelledby="ev-inscritos" className="enter-soft flex flex-col gap-3 rounded-2xl border bg-card p-4">
+      <h2 id="ev-inscritos" className="font-semibold">
+        Inscritos <span className="font-normal text-muted-foreground tabular-nums">{live.length}</span>
       </h2>
       {registrations.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nadie se ha inscrito todavía.</p>
       ) : (
         <ul className="divide-y overflow-hidden rounded-xl border">
           {registrations.map((x) => (
-            <li key={x.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5">
-              <div className="min-w-0 flex-1 basis-48">
-                <Link to={`/admin/users/${x.student.id}`} className={cn(userLink, 'block truncate', x.status === 'cancelled' && 'text-muted-foreground')}>
-                  {name(x.student)}
+            <li key={x.id} className="flex items-center gap-3 py-2.5 ps-4 pe-2">
+              <div className="min-w-0 flex-1">
+                {/* El gris va en un span: en el enlace, cn quitaría `text-link`, que es lo que le da los 44 px. */}
+                <Link to={`/admin/users/${x.student.id}`} className={cn(userLink, 'block truncate')}>
+                  <span className={x.status === 'cancelled' ? 'text-muted-foreground' : undefined}>{name(x.student)}</span>
                 </Link>
-                <p className="text-xs text-muted-foreground">
-                  {payLabel(x)}
-                  {x.payer && !x.guest && x.payer.id !== x.student.id && ` · paga ${name(x.payer)}`}
-                  {x.status === 'cancelled' && x.cancel_reason && ` · ${CANCEL_REASON_LABEL[x.cancel_reason] ?? x.cancel_reason}`}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {x.guest && <Tag variant="info">Invitado</Tag>}
-                {STATUS_TAG[x.status]}
-                {refundLabel(x) && <Tag variant={x.refund_status === 'failed' ? 'error' : x.refund_status === 'refunded' ? 'success' : 'warning'}>{refundLabel(x)}</Tag>}
+                <RegLines x={x} />
+                {canRetryRefund(x) && (
+                  <Button variant="outline" size="sm" className="mt-2" aria-label={`Reintentar el reembolso de ${name(x.student)}`} onClick={() => setTarget({ r: x, retry: true })}>
+                    Reintentar el reembolso
+                  </Button>
+                )}
               </div>
               {e.status === 'scheduled' && isLive(x) && (
                 <Button
@@ -349,11 +455,6 @@ function Registrations({ e, registrations }: { e: AdminEvent; registrations: Eve
                   }}
                 >
                   Cancelar
-                </Button>
-              )}
-              {canRetryRefund(x) && (
-                <Button variant="outline" size="sm" aria-label={`Reintentar el reembolso de ${name(x.student)}`} onClick={() => setTarget({ r: x, retry: true })}>
-                  Reintentar el reembolso
                 </Button>
               )}
             </li>
@@ -452,7 +553,7 @@ function Attendance({ e, registrations }: { e: AdminEvent; registrations: EventR
   const rows = registrations.filter((r) => r.status === 'confirmed')
   const present = rows.filter((r) => r.attended === true).length
   return (
-    <section aria-label="Lista de asistencia" className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
+    <section aria-label="Lista de asistencia" className="enter-soft flex flex-col gap-3 rounded-2xl border bg-card p-4">
       <h2 className="font-semibold">Lista de asistencia</h2>
       {rows.length === 0 ? (
         <EmptyState icon={<UsersIcon />} title="No hay inscripciones confirmadas" />

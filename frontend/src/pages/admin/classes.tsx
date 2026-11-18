@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { EllipsisIcon, LayersIcon } from 'lucide-react'
+import { ArchiveIcon, CalendarClockIcon, EllipsisIcon, LayersIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { Tag } from '@/components/billing-bits'
@@ -27,19 +27,64 @@ const intOf = (v: string) => (/^\d+$/.test(v.trim()) ? Number(v) : NaN)
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 
-// docs/pantallas-b19.md § Horario › Clases: la tabla por día de la semana y hora, con la disciplina en la URL.
-export function ClassesView() {
+// Estado de la vigencia con icono y texto; una clase activa no lleva insignia.
+function ClassState({ state }: { state: ReturnType<typeof classState> }) {
+  if (state === 'active') return null
+  return state === 'retired' ? (
+    <Tag variant="secondary">
+      <ArchiveIcon aria-hidden="true" />
+      Retirada
+    </Tag>
+  ) : (
+    <Tag variant="warning">
+      <CalendarClockIcon aria-hidden="true" />
+      Se retira
+    </Tag>
+  )
+}
+
+const validity = (c: AdminClass) => (c.ends_on ? `${formatShortDate(c.starts_on)} – ${formatShortDate(c.ends_on)}` : `Desde ${formatShortDate(c.starts_on)}`)
+
+// «⋯» con Cambiar y Retirar, igual en la tarjeta y en la tabla. Una retirada ya no tiene acciones.
+function ClassActions({ c, state, onChange, onRetire, className }: { c: AdminClass; state: ReturnType<typeof classState>; onChange: () => void; onRetire: () => void; className?: string }) {
+  if (state === 'retired') return null
+  const what = `la clase de ${WEEKDAYS[c.weekday - 1]} a las ${c.start_time}`
+  return (
+    <Menu>
+      <MenuTrigger render={<Button variant="ghost" size="icon-xl" className={className} aria-label={`Acciones de ${what}`} />}>
+        <EllipsisIcon />
+      </MenuTrigger>
+      <MenuPopup align="end">
+        <MenuItem aria-label={`Cambiar ${what}`} onClick={onChange}>
+          Cambiar
+        </MenuItem>
+        {state === 'active' && (
+          <MenuItem aria-label={`Retirar ${what}`} onClick={onRetire}>
+            Retirar
+          </MenuItem>
+        )}
+      </MenuPopup>
+    </Menu>
+  )
+}
+
+// docs/pantallas-b19.md § Horario › Clases y b22.md § Clases: por día de la semana y hora, con la disciplina en la URL.
+// Tarjetas por día hasta xl; la tabla solo desde xl (con la barra lateral no cabe antes; rediseño 7).
+export function ClassesView({ onCreate }: { onCreate: () => void }) {
   const [params, setParams] = useSearchParams()
   const discipline = params.get('disciplina') ?? 'all'
   const disciplines = useAdminDisciplines()
   const [changing, setChanging] = useState<AdminClass | null>(null)
   const [retiring, setRetiring] = useState<AdminClass | null>(null)
   const today = madridDay()
-  const wide = useMediaQuery('sm')
+  const wide = useMediaQuery('xl')
   const list = useQuery({
     queryKey: ['admin', 'classes', discipline],
     queryFn: () => api<{ classes: AdminClass[] }>(path('/admin/classes', { discipline_id: discipline === 'all' ? undefined : discipline })).then((r) => r.classes),
   })
+  const actions = (c: AdminClass, state: ReturnType<typeof classState>, className?: string) => (
+    <ClassActions c={c} state={state} className={className} onChange={() => setChanging(c)} onRetire={() => setRetiring(c)} />
+  )
 
   return (
     <>
@@ -62,55 +107,47 @@ export function ClassesView() {
         />
       </div>
       {list.isPending ? (
-        <ListSkeleton rows={5} className="h-10" />
+        <ListSkeleton rows={5} className="h-14" />
       ) : list.isError ? (
-        <ErrorState error={list.error} onRetry={() => void list.refetch()} />
+        <ErrorState plainTitle error={list.error} onRetry={() => void list.refetch()} />
       ) : list.data.length === 0 ? (
-        <EmptyState icon={<LayersIcon />} title="No hay clases" text={discipline === 'all' ? 'Crea la primera con «Nueva clase».' : 'Esta disciplina no tiene clases.'} />
+        <EmptyState
+          plainTitle
+          icon={<LayersIcon />}
+          title="No hay clases"
+          text={discipline === 'all' ? 'Una clase se repite cada semana y genera sus sesiones.' : 'Esta disciplina no tiene clases.'}
+          action={
+            <Button size="xl" variant="outline" onClick={onCreate}>
+              Nueva clase semanal
+            </Button>
+          }
+        />
       ) : !wide ? (
-        <div className="flex flex-col gap-5">
+        <div className="enter-soft flex flex-col gap-5">
           {groupByWeekday(list.data).map(([weekday, classes]) => (
             <section key={weekday} aria-label={cap(WEEKDAYS[weekday - 1])} className="flex flex-col gap-2">
               <h3 className="px-0.5 text-[13px] font-bold tracking-wide text-muted-foreground uppercase">{WEEKDAYS[weekday - 1]}</h3>
               <ul className="divide-y overflow-hidden rounded-2xl border bg-card">
                 {classes.map((c) => {
                   const state = classState(c, today)
-                  const what = `la clase de ${WEEKDAYS[c.weekday - 1]} a las ${c.start_time}`
                   return (
-                    <li key={c.id} className={cn('flex min-h-14 items-start gap-x-4 py-2 ps-4 pe-4', state === 'retired' && 'text-muted-foreground')}>
-                      <span className="w-14 shrink-0 tabular-nums">
+                    <li key={c.id} className={cn('flex min-h-14 items-start gap-x-3 py-3 ps-3 pe-2', state === 'retired' && 'text-muted-foreground')}>
+                      <span className="w-13 shrink-0 font-mono text-[15px] leading-tight tabular-nums">
                         <span className="block font-semibold">{c.start_time}</span>
-                        <span className="block text-sm text-muted-foreground">{c.duration_min} min</span>
+                        <span className="block text-xs text-muted-foreground">{c.duration_min} min</span>
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="flex items-baseline gap-x-3">
                           <span className="min-w-0 flex-1 font-semibold">{c.discipline_name}</span>
-                          <span className="shrink-0 text-sm text-muted-foreground tabular-nums">{plural(c.capacity, 'plaza', 'plazas')}</span>
+                          <span className="shrink-0 text-[13px] text-muted-foreground tabular-nums">{plural(c.capacity, 'plaza', 'plazas')}</span>
                         </span>
-                        <span className="block text-sm text-muted-foreground">{[c.trainer_name ?? 'Sin nombre', c.location].filter(Boolean).join(' · ')}</span>
-                        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground tabular-nums">
-                          {c.ends_on ? `${formatShortDate(c.starts_on)} – ${formatShortDate(c.ends_on)}` : `Desde ${formatShortDate(c.starts_on)}`}
-                          {state === 'retired' && <Tag variant="secondary">Retirada</Tag>}
-                          {state === 'ending' && <Tag variant="warning">Se retira</Tag>}
+                        <span className="block text-[13px] text-muted-foreground">{[c.trainer_name ?? 'Sin nombre', c.location].filter(Boolean).join(' · ')}</span>
+                        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground tabular-nums">
+                          {validity(c)}
+                          <ClassState state={state} />
                         </span>
                       </span>
-                      {state !== 'retired' && (
-                        <Menu>
-                          <MenuTrigger render={<Button variant="ghost" size="icon-xl" className="-my-1 -me-3" aria-label={`Acciones de ${what}`} />}>
-                            <EllipsisIcon />
-                          </MenuTrigger>
-                          <MenuPopup align="end">
-                            <MenuItem aria-label={`Cambiar ${what}`} onClick={() => setChanging(c)}>
-                              Cambiar
-                            </MenuItem>
-                            {state === 'active' && (
-                              <MenuItem aria-label={`Retirar ${what}`} onClick={() => setRetiring(c)}>
-                                Retirar
-                              </MenuItem>
-                            )}
-                          </MenuPopup>
-                        </Menu>
-                      )}
+                      {actions(c, state, '-my-1.5')}
                     </li>
                   )
                 })}
@@ -119,12 +156,12 @@ export function ClassesView() {
           ))}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border bg-card">
+        <div className="enter-soft overflow-hidden rounded-2xl border bg-card">
           <Table>
-            <TableHeader className="sticky top-0 bg-card">
+            <TableHeader>
               <TableRow>
-                {['Día', 'Hora', 'Disciplina', 'Profesor', 'Aforo', 'Lugar', 'Desde', 'Hasta', ''].map((h, i) => (
-                  <TableHead key={h || 'acciones'} className={i ? undefined : 'ps-4'}>
+                {['Día', 'Hora', 'Disciplina', 'Profesor', 'Aforo', 'Lugar', 'Vigencia', ''].map((h, i) => (
+                  <TableHead key={h || 'acciones'} className={cn(i === 0 && 'ps-4', h === 'Aforo' && 'text-right')}>
                     {h || <span className="sr-only">Acciones</span>}
                   </TableHead>
                 ))}
@@ -134,38 +171,26 @@ export function ClassesView() {
               {list.data.map((c) => {
                 const state = classState(c, today)
                 return (
-                  <TableRow key={c.id} className={state === 'retired' ? 'h-10 text-muted-foreground' : 'h-10'}>
+                  <TableRow key={c.id} className={cn('h-12', state === 'retired' && 'text-muted-foreground')}>
                     <TableCell className="ps-4 first-letter:uppercase">{WEEKDAYS[c.weekday - 1]}</TableCell>
-                    <TableCell className="tabular-nums whitespace-nowrap">
-                      <span className="font-medium">{c.start_time}</span> <span className="text-muted-foreground">· {c.duration_min} min</span>
+                    <TableCell className="font-mono tabular-nums whitespace-nowrap">
+                      <span className="font-semibold">{c.start_time}</span> <span className="text-xs text-muted-foreground">· {c.duration_min} min</span>
                     </TableCell>
-                    <TableCell className="max-w-36 truncate font-medium" title={c.discipline_name}>
+                    <TableCell className="max-w-40 truncate font-medium" title={c.discipline_name}>
                       {c.discipline_name}
                     </TableCell>
                     <TableCell className="max-w-36 truncate" title={c.trainer_name ?? undefined}>
                       {c.trainer_name ?? 'Sin nombre'}
                     </TableCell>
-                    <TableCell className="tabular-nums">{c.capacity}</TableCell>
-                    <TableCell>{c.location ?? '—'}</TableCell>
-                    <TableCell className="tabular-nums">{formatShortDate(c.starts_on)}</TableCell>
-                    <TableCell className="tabular-nums">
-                      {c.ends_on ? formatShortDate(c.ends_on) : '—'} {state === 'retired' && <Tag variant="secondary">Retirada</Tag>}
-                      {state === 'ending' && <Tag variant="warning">Se retira</Tag>}
+                    <TableCell className="text-right tabular-nums">{c.capacity}</TableCell>
+                    <TableCell className="max-w-28 truncate">{c.location ?? '—'}</TableCell>
+                    <TableCell className="tabular-nums whitespace-nowrap">
+                      <span className="inline-flex items-center gap-2">
+                        {validity(c)}
+                        <ClassState state={state} />
+                      </span>
                     </TableCell>
-                    <TableCell className="text-right whitespace-nowrap">
-                      {state !== 'retired' && (
-                        <>
-                          <Button variant="ghost" size="sm" aria-label={`Cambiar la clase de ${WEEKDAYS[c.weekday - 1]} a las ${c.start_time}`} onClick={() => setChanging(c)}>
-                            Cambiar
-                          </Button>
-                          {state === 'active' && (
-                            <Button variant="ghost" size="sm" aria-label={`Retirar la clase de ${WEEKDAYS[c.weekday - 1]} a las ${c.start_time}`} onClick={() => setRetiring(c)}>
-                              Retirar
-                            </Button>
-                          )}
-                        </>
-                      )}
-                    </TableCell>
+                    <TableCell className="w-12 pe-2 text-right">{actions(c, state, '-my-2')}</TableCell>
                   </TableRow>
                 )
               })}

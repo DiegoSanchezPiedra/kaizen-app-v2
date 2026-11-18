@@ -14,6 +14,12 @@ const accents = { success: 'shadow-[inset_3px_0_0_var(--success)]', warning: 'sh
 // transición, para que una fila que cambia de estado funda el color en vez de saltar.
 const tones = { success: 'bg-success/8 dark:bg-success/10', warning: 'bg-warning/5 dark:bg-warning/10', none: '' }
 
+// Dónde se apila (las 7 columnas de WeekBoard): `xl` en el admin. Cadenas enteras para que Tailwind las lea.
+const STACK = {
+  lg: { row: 'lg:flex-col lg:items-stretch lg:gap-y-1 lg:px-2 lg:[&_[data-slot=badge]]:text-xs', time: 'lg:w-auto', main: 'lg:basis-auto', aside: 'lg:ml-0 lg:items-start' },
+  xl: { row: 'xl:flex-col xl:items-stretch xl:gap-y-1 xl:px-2 xl:[&_[data-slot=badge]]:text-xs', time: 'xl:w-auto', main: 'xl:basis-auto', aside: 'xl:ml-0 xl:items-start' },
+}
+
 // Hora en columna fija, nombre en negrita, una línea gris y a la derecha el estado o la acción del rol.
 // Si la derecha no cabe pasa debajo; en las 7 columnas de `lg` todo se apila.
 export function SessionRow({
@@ -27,6 +33,7 @@ export function SessionRow({
   off,
   accent,
   tone,
+  cols = 'lg',
 }: {
   start: string
   end: string
@@ -38,25 +45,28 @@ export function SessionRow({
   off?: boolean
   accent?: keyof typeof accents
   tone?: keyof typeof tones
+  cols?: keyof typeof STACK
 }) {
+  const at = STACK[cols]
   const cls = cn(
-    'flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3 lg:flex-col lg:items-stretch lg:gap-y-1 lg:px-2 lg:[&_[data-slot=badge]]:text-xs',
+    'flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3',
+    at.row,
     accent && accents[accent],
     tone && ['transition-colors duration-200 ease-(--ease-out)', tones[tone]],
     to && 'outline-none hover:bg-accent/40 active:bg-accent/60 focus-visible:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
   )
   const body = (
     <>
-      <div className="w-13 shrink-0 font-mono text-[15px] leading-tight tabular-nums lg:w-auto">
+      <div className={cn('w-13 shrink-0 font-mono text-[15px] leading-tight tabular-nums', at.time)}>
         <div className="font-semibold">{formatTime(start)}</div>
         <div className="text-xs text-muted-foreground">{formatTime(end)}</div>
       </div>
-      <div className="min-w-0 flex-1 basis-28 lg:basis-auto">
+      <div className={cn('min-w-0 flex-1 basis-28', at.main)}>
         <h4 className={cn('text-base break-words leading-snug font-semibold', off && 'text-muted-foreground line-through')}>{title}</h4>
         {meta && <p className="text-[13px] leading-snug text-muted-foreground">{meta}</p>}
         {below && <div className="mt-1.5 flex flex-wrap gap-1.5">{below}</div>}
       </div>
-      {aside && <div className="ml-auto flex shrink-0 flex-col items-end gap-1 lg:ml-0 lg:items-start">{aside}</div>}
+      {aside && <div className={cn('ml-auto flex shrink-0 flex-col items-end gap-1', at.aside)}>{aside}</div>}
     </>
   )
   return <li>{to ? <Link to={to} className={cls}>{body}</Link> : <div className={cls}>{body}</div>}</li>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   amountFor, audienceTag, audienceText, entryStart, eventHeadline, eventSpan, eventDayOf, eventHealthDay, eventWhen, isMember, isUpcomingRegistration, joinState, mergeByStart, priceView, spotsLabel,
-  attendanceOpen, canRefund, canRetryRefund, cancelResult, cancelSummary, draftOf, emptyDraft, eventBody, eventErrors, eventPatch, notifiesOnPatch, refundLabel,
+  attendanceOpen, canRefund, canRetryRefund, cancelResult, cancelSummary, moneySummary, draftOf, emptyDraft, eventBody, eventErrors, eventPatch, notifiesOnPatch, refundLabel,
   type AdminEvent, type EventDraft, type EventInfo, type EventRegistration,
 } from '@/lib/events'
 
@@ -90,6 +90,18 @@ describe('reembolsos', () => {
     const regs = [reg({ amount_cents: 1200 }), reg({ amount_cents: 800 }), reg({ status: 'pending', amount_cents: 1200 }), reg({ amount_cents: 0 }), reg({ status: 'cancelled' })]
     expect(cancelSummary(regs)).toEqual({ live: 4, paid: 2, cents: 2000 })
     expect(cancelSummary([])).toEqual({ live: 0, paid: 0, cents: 0 })
+  })
+  it('las cifras del detalle separan cobrado, pendiente, invitados y reembolsos por estado', () => {
+    const regs = [
+      reg({ amount_cents: 1200 }),
+      reg({ status: 'pending', amount_cents: 1500 }),
+      reg({ guest: true, amount_cents: 0 }),
+      reg({ status: 'cancelled', amount_cents: 1200, refund_status: 'refunded', refunded_cents: 1200 }),
+      reg({ status: 'cancelled', amount_cents: 1200, refund_status: 'failed' }),
+      reg({ status: 'cancelled', amount_cents: 1200, refund_status: 'requested' }),
+    ]
+    expect(moneySummary(regs)).toEqual({ live: 3, guests: 1, paid: 1, paidCents: 1200, pending: 1, pendingCents: 1500, refunded: 1, refundedCents: 1200, requested: 1, failed: 1 })
+    expect(moneySummary([])).toMatchObject({ live: 0, paidCents: 0, failed: 0 })
   })
   it('el aviso de éxito dice reembolsos, fallos y avisos', () => {
     expect(cancelResult({ refunded: 1, refund_failed: 0, notified: 3 })).toBe('1 reembolso · 3 avisos')
