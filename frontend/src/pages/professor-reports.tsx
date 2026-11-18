@@ -196,7 +196,12 @@ export function MonthBars<T>({ months, max, ticks, unit, stack, tip, labelLast, 
             onBlur={() => setHover(null)}
             className="relative flex h-full items-end justify-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {isGap?.(m) ? <span className="h-full w-full max-w-6 rounded-sm border border-dashed border-(--s-unr)" /> : <Stack parts={stack(m)} max={max} />}
+            {/* Con columnas de 2 px, dos bordes discontinuos se ven casi macizos: una sola línea de puntos. */}
+            {isGap?.(m) ? (
+              <span className={cn('h-full w-full max-w-6', months.length > 40 ? 'mx-auto max-w-px bg-[repeating-linear-gradient(to_top,var(--s-unr)_0_2px,transparent_2px_6px)]' : 'rounded-sm border border-dashed border-(--s-unr)')} />
+            ) : (
+              <Stack parts={stack(m)} max={max} />
+            )}
             {i === last && (
               <span className="pointer-events-none absolute right-0 text-right text-xs font-semibold whitespace-nowrap tabular-nums" style={{ bottom: `calc(${(stack(m).reduce((s, p) => s + p.v, 0) / max) * 100}% + 4px)` }}>
                 {labelLast(m)}
