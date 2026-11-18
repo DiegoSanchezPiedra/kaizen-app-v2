@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { formatEuros } from '@/lib/format'
 import {
   ageMarks,
   auditDetail,
+  auditScopeLabel,
+  noticeUrgent,
   auditLabel,
   TODAY_ACTIONS,
   auditTarget,
@@ -112,6 +115,16 @@ describe('avisos de la academia', () => {
     expect(noticeLabel('notice.payer_change_expired')).toBe('Un cambio de pagador ha caducado')
     expect(noticeLabel('notice.algo_nuevo')).toBe('notice.algo_nuevo')
   })
+  it('graves: riesgo de Stripe, reembolso rechazado y jornada abierta; el resto no', () => {
+    expect(['notice.stripe_risk', 'notice.event_refund_failed', 'notice.clock_open'].every(noticeUrgent)).toBe(true)
+    expect(noticeUrgent('notice.payer_change_expired')).toBe(false)
+  })
+  it('auditoría: chip del recurso sin id, y el documento publicado en español', () => {
+    expect(auditScopeLabel('profile')).toBe('esta ficha')
+    expect(auditScopeLabel('raro')).toBe('este elemento')
+    expect(auditScopeLabel(null)).toBe('este elemento')
+    expect(auditDetail({ action: 'agreement_document.publish', changes: { type: 'data_protection', version: '2.0' } })).toBe('Protección de datos v2.0')
+  })
 })
 
 describe('usuarios del panel (B19.3)', () => {
@@ -175,7 +188,7 @@ describe('auditoría, avisos y cobros (B19.4)', () => {
   it('el detalle: corrección, rol y precio; de la salud, nada', () => {
     expect(auditDetail({ action: 'attendance.correct', changes: { from: 'absent', to: 'present', reason: 'llegó tarde' } })).toBe('ausente → presente · llegó tarde')
     expect(auditDetail({ action: 'profile.role_change', changes: { from: 'alumno', to: 'profesor' } })).toBe('Alumno → Profesor')
-    expect(auditDetail({ action: 'plan.price_change', changes: { from: 4500, to: 5000 } })).toBe('45 € → 50 €')
+    expect(auditDetail({ action: 'plan.price_change', changes: { from: 4500, to: 5000 } })).toBe(`${formatEuros(4500)} → ${formatEuros(5000)}`)
     expect(auditDetail({ action: 'health.view', changes: { student_ids: ['x'] } })).toBe('')
     expect(auditDetail({ action: 'class.create', changes: null })).toBe('')
   })

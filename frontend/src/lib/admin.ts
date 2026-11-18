@@ -2,6 +2,7 @@ import { addDays, madridDay } from '@/lib/dates'
 import type { Role } from '@/lib/paths'
 import { formatEuros } from '@/lib/format'
 import { phaseOf, plural } from '@/lib/professor'
+import { AGREEMENT_TITLE, type AgreementType } from '@/lib/profile'
 import type { ProfileStatus, Subscription } from '@/lib/types'
 
 // GET /auth/me (B4): el aviso del MFA sale solo si la API dice que no está activo; mientras carga, no.
@@ -44,6 +45,9 @@ const NOTICE_LABEL: Record<string, string> = {
   'notice.clock_open': 'Un profesor lleva más de 16 horas con la jornada abierta',
 }
 export const noticeLabel = (action: string): string => NOTICE_LABEL[action] ?? action
+// Los que piden actuar ya (dinero o una jornada sin cerrar): llevan icono de alerta y «Revisar».
+const NOTICE_URGENT = new Set(['notice.stripe_risk', 'notice.event_refund_failed', 'notice.clock_open'])
+export const noticeUrgent = (action: string): boolean => NOTICE_URGENT.has(action)
 
 // A quién se abre un aviso de la academia: la ficha del alumno si el aviso la trae (`student_id`).
 export const noticeStudent = (n: AcademyNotice): string | null => (typeof n.details.student_id === 'string' ? n.details.student_id : null)
@@ -206,7 +210,7 @@ export function auditDetail(a: Pick<AuditRow, 'action' | 'changes'>, roleLabel: 
     return `${STATUS_LABEL[from] ?? from} → ${STATUS_LABEL[to] ?? to}${reason ? ` · ${reason}` : ''}`
   }
   if (a.action === 'profile.role_change' && from && to) return `${roleLabel[from] ?? from} → ${roleLabel[to] ?? to}`
-  if (/price_change$/.test(a.action) && typeof c.from === 'number' && typeof c.to === 'number') return `${c.from / 100} € → ${c.to / 100} €`
+  if (/price_change$/.test(a.action) && typeof c.from === 'number' && typeof c.to === 'number') return `${formatEuros(c.from)} → ${formatEuros(c.to)}`
   if (a.action === 'pause.exempt') return str(c.reason) ?? ''
   if (a.action === 'session.cancel') return str(c.note) ?? ''
   if (a.action === 'event.create') return str(c.title) ?? ''
@@ -214,7 +218,10 @@ export function auditDetail(a: Pick<AuditRow, 'action' | 'changes'>, roleLabel: 
   if (a.action === 'event.update') return eventChanges(c.to)
   if (a.action === 'event_registration.cancel') return c.refund === true ? 'Con reembolso' : 'Sin reembolso'
   if (a.action === 'event_registration.refund' && typeof c.amount_cents === 'number') return formatEuros(c.amount_cents)
-  if (a.action === 'agreement_document.publish') return [str(c.type), str(c.version) && `v${c.version}`].filter(Boolean).join(' ')
+  if (a.action === 'agreement_document.publish') {
+    const type = str(c.type)
+    return [type && (AGREEMENT_TITLE[type as AgreementType] ?? type), str(c.version) && `v${c.version}`].filter(Boolean).join(' ')
+  }
   return ''
 }
 
@@ -235,9 +242,12 @@ export function auditTarget(a: Pick<AuditRow, 'resource_type' | 'resource_id'> &
   if (a.resource_type === 'subscription' && student) return { to: `/admin/users/${student}`, label: 'Ficha' }
   if (a.resource_type === 'session') return { to: `/admin/sessions/${a.resource_id}`, label: 'Sesión' }
   if (a.resource_type === 'event') return { to: `/admin/events/${a.resource_id}`, label: 'Evento' }
-  const label: Record<string, string> = { class: 'Clase', plan: 'Plan', discipline: 'Disciplina', subscription: 'Suscripción', pause: 'Pausa', booking: 'Reserva', event_registration: 'Inscripción', agreement_document: 'Documento', settings: 'Ajustes' }
-  return { to: null, label: label[a.resource_type] ?? a.resource_type }
+  return { to: null, label: TARGET_LABEL[a.resource_type] ?? a.resource_type }
 }
+const TARGET_LABEL: Record<string, string> = { class: 'Clase', plan: 'Plan', discipline: 'Disciplina', subscription: 'Suscripción', pause: 'Pausa', booking: 'Reserva', event_registration: 'Inscripción', agreement_document: 'Documento', settings: 'Ajustes' }
+// Chip del registro filtrado por un recurso (?resource_type&resource_id): «Solo esta ficha», nunca el id.
+const SCOPE_LABEL: Record<string, string> = { profile: 'esta ficha', guardian: 'esta ficha', session: 'esta sesión', event: 'este evento', class: 'esta clase', plan: 'este plan', discipline: 'esta disciplina', subscription: 'esta suscripción', pause: 'esta pausa', booking: 'esta reserva', event_registration: 'esta inscripción', agreement_document: 'este documento' }
+export const auditScopeLabel = (type: string | null): string => (type && SCOPE_LABEL[type]) || 'este elemento'
 
 // Cambios de pagador (GET /admin/payer-changes). «En curso» = requested+paid; «Caducados» = expired.
 type PayerRef = { id: string; display_name: string | null }

@@ -79,3 +79,22 @@
 - **Cambios de pagador**: **En curso** primero; En curso | Caducados con los chips de Usuarios (`?view=expired`). Estado
   con icono (Pendiente de pago, Pagado, Caducado). Hasta `xl`, una fila por cambio; la tabla solo desde `xl`.
 - Al cambiar de página se queda la lista anterior atenuada.
+
+## Avisos (`/admin/notices`) y Auditoría (`/admin/audit`) — rediseño 7, 2026-11-18
+
+- **Avisos** sigue con dos pestañas (`?tab=academy|deliveries`; `deliveries` es lo que enlaza el Inicio). «Entregas
+  fallidas» lleva la cifra de los últimos 30 días, la misma consulta que «Requiere atención» del Inicio. Es un registro:
+  sin «leído», orden cronológico.
+- **Lo grave** (riesgo de Stripe, reembolso rechazado, jornada abierta más de 16 h; `noticeUrgent` en `lib/admin.ts`):
+  icono de alerta y etiqueta «Revisar» con texto, sin sacarlo del orden. El resto, campana atenuada.
+- **Entregas fallidas**: el texto fijo de b19 se queda. Hasta `xl`, una fila por entrega (destinatario → ficha, canal con
+  icono y texto, aviso · fecha, «N intentos · error» entero); la tabla solo desde `xl`, con el error partido en líneas.
+- **Auditoría**: el admin viene a buscar quién hizo un cambio. Categoría y Desde/Hasta a la vista (en móvil, fechas en dos
+  columnas con la etiqueta encima). La persona se elige con el embudo de cada fila (44 px); los filtros de persona y de
+  recurso salen como chips «Solo lo de <nombre> ×» y «Solo esta ficha ×» (nunca el id). Vacío con filtros: «Quitar los
+  filtros». Hasta `xl`, una fila por línea (qué y fecha; quién · sobre qué; el detalle entero debajo); tabla desde `xl`.
+- Fechas de los registros con año (`formatLogDate`: «18 nov 2026 · 10:30»). El detalle del precio en euros españoles y el
+  documento publicado con su nombre («Protección de datos v2.0»). «Vio las fichas de salud» enseña la acción, nunca el dato.
+- Al cambiar de página o de filtro se queda la lista anterior atenuada, como en Cobros.
+- **Comunicados** (enviar avisos a los usuarios desde el panel: ventana en la app, email y botón «Compartir en WhatsApp»
+  con el texto ya escrito) van en un bloque aparte; serán una tercera pestaña de Avisos.
