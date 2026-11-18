@@ -197,6 +197,23 @@ En Google Cloud, un cliente OAuth (Web) con `https://TU-MAQUINA.TU-RED.ts.net` c
 | `429` «Demasiados intentos» | límite por IP (30 entradas cada 15 min; 5 «olvidé la contraseña» por hora). Una oficina comparte IP; reiniciar la API pone los contadores a cero |
 | El email no llega | remitente de pruebas de Resend: § Emails. Mira también `storage-staging/emails.log` y la terminal de la API |
 
+### Vaciar staging para la beta cerrada
+
+Deja la base y los ficheros de staging vacíos y un solo admin con invitación. El registro público está cerrado en producción
+(`REGISTRATION_OPEN`, ADR 0032): `staging:seed` ya no sirve en staging porque usa `/auth/register` (da `403 registration_closed`).
+
+```bash
+# 1. Para la API de staging (el wipe se niega si hay otras conexiones a la base)
+npm run staging:wipe                          # 2. dry-run: recuentos por tabla, ficheros y suscripciones reales de Stripe
+npm run staging:wipe -- --yes                 # 3. backup en ~/kaizen-backups/<fecha>/, recrea la base, migra y borra ficheros (pide escribir kaizen_staging)
+npm run staging:admin -- tu@email.com "Tu Nombre"   # 4. crea el admin e imprime el enlace de invitación (72 h, sin enviar email)
+npm run staging:api                           # 5. arranca la API
+npm run staging:build                         # 6. compila el frontend, si hace falta
+```
+
+`--cancel-stripe` (junto a `--yes`) cancela antes en Stripe las suscripciones reales del dry-run; solo con clave `sk_test_`/`rk_test_`.
+Repetirlo sobre una base recién migrada funciona igual.
+
 ### Reiniciar de cero
 
 Borra **solo** el staging (la BD de desarrollo no se toca):

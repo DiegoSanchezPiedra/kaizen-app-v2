@@ -1,5 +1,6 @@
 // Datos de demo del staging, por la API (y roles por la base, que es la única vía: el rol admin nunca se da desde la app).
 // Uso: npm run staging:seed     (con la API de staging arrancada y SEED_PASSWORD en .env.staging)
+// Ya no sirve en staging con el registro cerrado (REGISTRATION_OPEN, ADR 0032): /auth/register da 403. Se usa solo en local.
 // Es repetible: lo que ya existe se deja como está. Stripe: crea Products y Prices en la cuenta de la clave, que tiene
 // que ser de PRUEBA (sk_test_ / rk_test_).
 import pg from 'pg';
