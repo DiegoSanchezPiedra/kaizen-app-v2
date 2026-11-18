@@ -22,10 +22,12 @@ export function AdminClockPrintPage() {
   const [params] = useSearchParams()
   const month = monthParam(params)
   const id = params.get('profile_id') ?? ''
-  // Va fuera del panel, sin menú ni márgenes: los pone aquí.
+  const query = useAdminClock(id, month)
+  const name = query.data?.profile.display_name
+  // Va fuera del panel, sin menú ni márgenes: los pone aquí. La vuelta dice de quién es la hoja.
   return (
     <div className="px-4 py-6 print:p-0">
-      <PrintView query={useAdminClock(id, month)} month={month} back={{ to: `/admin/clock?profile_id=${id}&month=${month}`, label: 'Jornada' }} />
+      <PrintView query={query} month={month} back={{ to: `/admin/clock?profile_id=${id}&month=${month}`, label: name ? `Jornada de ${name}` : 'Jornada' }} />
     </div>
   )
 }

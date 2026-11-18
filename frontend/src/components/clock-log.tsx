@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query'
 import {
   CalendarX2Icon,
   CheckIcon,
+  DownloadIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   Clock3Icon,
@@ -193,10 +194,10 @@ const CORRECTION_TAG = {
   rejected: { variant: 'error', Icon: XIcon },
 } as const
 
-function CorrectionRow({ c, text, admin, onReject, apply }: { c: Correction; text: string; admin: boolean; onReject: () => void; apply: () => void }) {
+function CorrectionRow({ c, text, admin, onReject, apply, className }: { c: Correction; text: string; admin: boolean; onReject: () => void; apply: () => void; className?: string }) {
   const { variant, Icon } = CORRECTION_TAG[c.status]
   return (
-    <li className="flex flex-col gap-1.5 border-b px-4 py-3 last:border-b-0">
+    <li className={cn('flex flex-col gap-1.5 border-b px-4 py-3 last:border-b-0', className)}>
       <div className="flex items-start justify-between gap-2">
         <span className="font-semibold text-pretty">{text}</span>
         <Tag variant={variant}>
@@ -242,10 +243,12 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 const STATE_ICON = { in: TimerIcon, paused: PauseIcon, out: LogOutIcon }
 
 // Total del mes y, en el mes en curso, cómo está la jornada ahora. Una jornada abierta de un día anterior es una salida olvidada.
-function Summary({ data, admin, openPast }: { data: ClockMonth; admin: boolean; openPast?: ClockDay }) {
+// El admin la ve en cualquier mes, con desde cuándo y la acción de añadir la salida (lo que avisa el Inicio a las 16 h).
+function Summary({ data, admin, openPast, onAddOut }: { data: ClockMonth; admin: boolean; openPast?: ClockDay; onAddOut: (day: string) => void }) {
   const employee = data.profile.employment === 'employee'
   const worked = data.days.filter((d) => d.worked_seconds > 0).length
   const StateIcon = openPast ? TriangleAlertIcon : STATE_ICON[data.state]
+  const inAt = openPast?.events.findLast((e) => e.kind === 'in')?.at
   return (
     <section aria-label="Resumen del mes" className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
       <div className="flex items-end justify-between gap-3">
@@ -255,7 +258,27 @@ function Summary({ data, admin, openPast }: { data: ClockMonth; admin: boolean; 
         </div>
         <span className="font-heading text-4xl leading-none font-bold tabular-nums">{formatDuration(data.total_seconds)} h</span>
       </div>
-      {employee && data.month === madridMonth() && (
+      {employee && admin && openPast ? (
+        <div className="flex flex-col gap-2 border-t pt-3">
+          <p className="flex items-start gap-2 font-semibold text-warning-foreground">
+            <TriangleAlertIcon className="mt-1 size-4 shrink-0" aria-hidden />
+            <span className="flex flex-col gap-0.5">
+              Falta la salida del {dayName(openPast.date)}
+              {inAt && (
+                <span className="text-[13px] font-normal text-muted-foreground">
+                  Entró a las <span className="font-mono tabular-nums">{formatTime(inAt)}</span>
+                </span>
+              )}
+            </span>
+          </p>
+          <Button variant="outline" size="xl" className="w-full" onClick={() => onAddOut(openPast.date)}>
+            <PlusIcon />
+            Añadir la salida
+          </Button>
+        </div>
+      ) : (
+        employee &&
+        data.month === madridMonth() && (
         <div className="-mb-1 flex items-center justify-between gap-3 border-t pt-2">
           <p className={cn('flex min-h-11 items-center gap-2 font-semibold', openPast && 'text-warning-foreground')}>
             <StateIcon className={cn('size-4 shrink-0', !openPast && 'text-muted-foreground')} aria-hidden />
@@ -268,6 +291,7 @@ function Summary({ data, admin, openPast }: { data: ClockMonth; admin: boolean; 
             </Link>
           )}
         </div>
+        )
       )}
     </section>
   )
@@ -324,7 +348,8 @@ function EventRow({ e, data, employee, onTarget }: { e: ClockEvent; data: ClockM
   )
 }
 
-function DayCard({ d, data, employee, today, onTarget }: { d: ClockDay; data: ClockMonth; employee: boolean; today: string; onTarget: (t: Target) => void }) {
+// `addOut`: el botón de la salida que falta; el admin lo tiene en el resumen y aquí solo queda el aviso.
+function DayCard({ d, data, employee, today, onTarget, addOut = true }: { d: ClockDay; data: ClockMonth; employee: boolean; today: string; onTarget: (t: Target) => void; addOut?: boolean }) {
   const id = useId()
   const missingOut = d.open && d.date < today
   const paused = d.open && data.state === 'paused'
@@ -359,7 +384,7 @@ function DayCard({ d, data, employee, today, onTarget }: { d: ClockDay; data: Cl
             <TriangleAlertIcon className="size-4 shrink-0" aria-hidden />
             Falta la salida
           </p>
-          {employee && (
+          {employee && addOut && (
             <Button variant="outline" size="xl" onClick={() => onTarget({ mode: 'add', day: d.date, kind: 'out' })}>
               <PlusIcon />
               Añadir la salida
@@ -378,29 +403,59 @@ function DayCard({ d, data, employee, today, onTarget }: { d: ClockDay; data: Cl
 
 // «Mi registro» y la jornada de un profesor en el panel: el mismo mes, con las correcciones. Solo el empleado corrige.
 // En escritorio, el resumen y las correcciones a la derecha (rejilla; el HTML va en el orden del móvil). `rise`: entrada escalonada.
-export function ClockLog({ data, admin = false, printTo, onChanged, rise = false }: { data: ClockMonth; admin?: boolean; printTo: string; onChanged: () => void; rise?: boolean }) {
+// El admin viene a revisar: las pendientes («Por revisar») van las primeras y las resueltas después de las acciones. `onCsv`: «Descargar CSV».
+export function ClockLog({ data, admin = false, printTo, onChanged, onCsv, rise = false }: { data: ClockMonth; admin?: boolean; printTo: string; onChanged: () => void; onCsv?: () => void; rise?: boolean }) {
   const [target, setTarget] = useState<Target | null>(null)
   const { ask, dialog } = useConfirm(onChanged)
   const employee = data.profile.employment === 'employee'
   const pending = data.corrections.filter((c) => c.status === 'pending')
-  const corrections = [...pending, ...data.corrections.filter((c) => c.status !== 'pending')]
+  const resolved = data.corrections.filter((c) => c.status !== 'pending')
+  const corrections = admin ? resolved : [...pending, ...resolved]
   const days = [...data.days].reverse()
   const today = madridDay()
   const openPast = data.days.find((d) => d.open && d.date < today)
   const current = data.month === madridMonth()
+  // La que se acaba de resolver entra en su sección con enter-soft (solo esas: al cargar no se mueve nada).
+  const pendingIds = pending.map((c) => c.id).join()
+  const [moved, setMoved] = useState({ ids: pendingIds, done: new Set<string>() })
+  if (moved.ids !== pendingIds) setMoved({ ids: pendingIds, done: new Set(resolved.filter((c) => moved.ids.split(',').includes(c.id)).map((c) => c.id)) })
+  const row = (c: Correction) => (
+    <CorrectionRow
+      key={c.id}
+      c={c}
+      text={whatOf(c, data)}
+      admin={admin}
+      className={moved.done.has(c.id) ? 'enter-soft' : undefined}
+      onReject={() => setTarget({ mode: 'reject', correction: c })}
+      apply={() =>
+        ask({
+          title: '¿Aplicar la corrección?',
+          description: `${whatOf(c, data)}. Se avisa al profesor por email.`,
+          label: 'Aplicar',
+          done: 'Corrección aplicada',
+          run: post(`/admin/clock/corrections/${c.id}/apply`),
+        })
+      }
+    />
+  )
 
   return (
     <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_21rem] lg:items-start lg:gap-x-8">
       <Rise on={rise} i={0} className="flex flex-col gap-4 lg:sticky lg:top-4 lg:col-start-2 lg:row-start-1">
+        {admin && pending.length > 0 && (
+          <Section title={`Por revisar · ${pending.length}`}>
+            <ul className="overflow-hidden rounded-2xl border bg-card">{pending.map(row)}</ul>
+          </Section>
+        )}
         {!employee && (
           <Note kind="info" title="Autónomo">
             {admin ? 'No ficha ni tiene correcciones; aquí se ve lo que fichó cuando era empleado.' : 'Ya no fichas ni pides correcciones; aquí ves lo que fichaste cuando eras empleado.'}
           </Note>
         )}
-        <Summary data={data} admin={admin} openPast={openPast} />
-        <div className="flex gap-2">
+        <Summary data={data} admin={admin} openPast={openPast} onAddOut={(day) => setTarget({ mode: 'add', day, kind: 'out' })} />
+        <div className={cn('flex gap-2', onCsv && 'grid grid-cols-2')}>
           {employee && (
-            <Button variant="outline" size="xl" className="flex-1" onClick={() => setTarget({ mode: 'add' })}>
+            <Button variant="outline" size="xl" className={cn('flex-1', onCsv && 'col-span-2')} onClick={() => setTarget({ mode: 'add' })}>
               <PlusIcon />
               Añadir fichaje
             </Button>
@@ -409,29 +464,16 @@ export function ClockLog({ data, admin = false, printTo, onChanged, rise = false
             <PrinterIcon />
             Imprimir
           </Button>
+          {onCsv && (
+            <Button variant="outline" size="xl" onClick={onCsv}>
+              <DownloadIcon />
+              Descargar CSV
+            </Button>
+          )}
         </div>
         {corrections.length > 0 && (
-          <Section title={pending.length > 0 ? `Correcciones · ${plural(pending.length, 'pendiente', 'pendientes')}` : 'Correcciones'}>
-            <ul className="overflow-hidden rounded-2xl border bg-card">
-              {corrections.map((c) => (
-                <CorrectionRow
-                  key={c.id}
-                  c={c}
-                  text={whatOf(c, data)}
-                  admin={admin}
-                  onReject={() => setTarget({ mode: 'reject', correction: c })}
-                  apply={() =>
-                    ask({
-                      title: '¿Aplicar la corrección?',
-                      description: `${whatOf(c, data)}. Se avisa al profesor por email.`,
-                      label: 'Aplicar',
-                      done: 'Corrección aplicada',
-                      run: post(`/admin/clock/corrections/${c.id}/apply`),
-                    })
-                  }
-                />
-              ))}
-            </ul>
+          <Section title={admin ? 'Correcciones del mes' : pending.length > 0 ? `Correcciones · ${plural(pending.length, 'pendiente', 'pendientes')}` : 'Correcciones'}>
+            <ul className="overflow-hidden rounded-2xl border bg-card">{corrections.map(row)}</ul>
           </Section>
         )}
       </Rise>
@@ -444,7 +486,7 @@ export function ClockLog({ data, admin = false, printTo, onChanged, rise = false
             plainTitle
           />
         ) : (
-          days.map((d) => <DayCard key={d.date} d={d} data={data} employee={employee} today={today} onTarget={setTarget} />)
+          days.map((d) => <DayCard key={d.date} d={d} data={data} employee={employee} today={today} onTarget={setTarget} addOut={!admin || d.date !== openPast?.date} />)
         )}
       </Rise>
       {target && (

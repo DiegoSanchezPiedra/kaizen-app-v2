@@ -76,7 +76,8 @@ try {
     assert.equal(r.status, 200);
     const mine = r.body.employees.filter((e) => e.display_name.startsWith(tag));
     assert.deepEqual(mine.map((e) => e.id).sort(), ['emp', 'emp2', 'emp3', 'emp4', 'emp5'].map((k) => U[k]).sort());
-    assert.deepEqual(Object.keys(mine[0]).sort(), ['display_name', 'id']);
+    assert.deepEqual(Object.keys(mine[0]).sort(), ['display_name', 'id', 'open_late', 'open_since', 'pending']);
+    assert.ok(mine.every((e) => e.pending === 0 && e.open_since === null && e.open_late === false)); // aún no han fichado
     assert.deepEqual(mine.map((e) => e.display_name), [...mine.map((e) => e.display_name)].sort());
     assert.equal((await http('GET', '/admin/clock/employees', 'emp')).status, 403);
   });
@@ -333,6 +334,18 @@ try {
     assert.equal((await notices('emp4')).length, 0);
     await warnOpenDays();
     assert.equal((await notices('emp3')).length, 1);
+
+    // La lista del panel: la jornada abierta (la entrada) y las correcciones sin resolver de cada uno.
+    const list = Object.fromEntries((await http('GET', '/admin/clock/employees', 'admin')).body.employees.map((e) => [e.id, e]));
+    const { rows: [inEv] } = await q(`SELECT at FROM clock_events WHERE id = $1`, [inId]);
+    assert.equal(list[U.emp3].open_since, inEv.at.toISOString());
+    assert.equal(list[U.emp3].open_late, true); // 17 h: el mismo umbral que el aviso
+    assert.ok(list[U.emp4].open_since);
+    assert.equal(list[U.emp4].open_late, false); // 15 h
+    const pendingOf = async (k) => (await q(`SELECT count(*)::int AS n FROM clock_corrections c WHERE profile_id = $1
+      AND NOT EXISTS (SELECT 1 FROM clock_correction_resolutions r WHERE r.correction_id = c.id)`, [U[k]])).rows[0].n;
+    for (const k of ['emp', 'emp2', 'emp3', 'emp4', 'emp5']) assert.equal(list[U[k]].pending, await pendingOf(k), k);
+    assert.ok(list[U.emp5].pending > 0);
   });
 
   await run('conservación: se purga una jornada solo si todas sus filas tienen más de 4 años; lo deja en audit_log', async () => {
