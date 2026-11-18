@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BanIcon, UsersIcon } from 'lucide-react'
+import { BanIcon, HourglassIcon, PencilIcon, SearchXIcon, TicketIcon, UsersIcon } from 'lucide-react'
 import { useState } from 'react'
 import type React from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
@@ -7,8 +7,11 @@ import { attKey, AttendanceItem, CorrectDialog, useCloseList } from '@/component
 import { Back, Kv, Tag } from '@/components/billing-bits'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Page } from '@/components/page'
+import { Seats } from '@/components/seats'
+import { StateBadge } from '@/components/session-card'
 import { SessionRow, SessionRows } from '@/components/session-row'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxPopup } from '@/components/ui/combobox'
 import { Textarea } from '@/components/ui/textarea'
@@ -54,9 +57,13 @@ const userLink = 'font-medium text-link underline-offset-3 hover:underline'
 const refreshSchedule = (id?: string) =>
   Promise.all([['calendar'], ['admin', 'session'], ...(id ? [attKey(id)] : [])].map((queryKey) => queryClient.invalidateQueries({ queryKey })))
 
-// Programada, cancelada o celebrada. Los ajustes solo se ven en el detalle: el calendario no los da.
-function StateTag({ s }: { s: Pick<CalendarSession, 'status' | 'held'> }) {
-  return s.status === 'cancelled' ? <Tag variant="error">Cancelada</Tag> : s.held ? <Tag variant="success">Celebrada</Tag> : <Tag>Programada</Tag>
+// Solo lo que se sale de lo normal lleva insignia (con icono): cancelada, celebrada (`held`: ya terminó) o en curso. Lo
+// programado va sin ella; «llena» lo dice `Seats`. Los ajustes solo se ven en el detalle: el calendario no los da.
+const adminState = (s: Pick<CalendarSession, 'status' | 'held' | 'starts_at'>, now: number): 'cancelled' | 'held' | 'started' | null =>
+  s.status === 'cancelled' ? 'cancelled' : s.held ? 'held' : Date.parse(s.starts_at) <= now ? 'started' : null
+function StateTag({ s }: { s: Pick<CalendarSession, 'status' | 'held' | 'starts_at'> }) {
+  const state = adminState(s, useNow())
+  return state && <StateBadge state={state} />
 }
 
 // ── Semana ───────────────────────────────────────────────────────────────────
@@ -99,18 +106,13 @@ export function WeekView({ w }: { w: Week }) {
 
   return (
     <>
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div className="w-full sm:w-56">
-          <Filter
-            label="Disciplina"
-            value={discipline}
-            onChange={setDiscipline}
-            items={[{ value: 'all', label: 'Todas las disciplinas' }, ...(disciplines.data ?? []).map((d) => ({ value: String(d.id), label: d.name }))]}
-          />
-        </div>
-        <Link to="/admin/sessions?vista=clases" className="font-semibold text-link underline underline-offset-3">
-          Gestionar clases
-        </Link>
+      <div className="sm:w-64">
+        <Filter
+          label="Disciplina"
+          value={discipline}
+          onChange={setDiscipline}
+          items={[{ value: 'all', label: 'Todas las disciplinas' }, ...(disciplines.data ?? []).map((d) => ({ value: String(d.id), label: d.name }))]}
+        />
       </div>
       <WeekBoard
         w={w}
@@ -118,30 +120,42 @@ export function WeekView({ w }: { w: Week }) {
         marked={new Set(byDay.keys())}
         noun="clases ni eventos"
         top="top-14"
+        cols="xl"
+        plainTitle
         renderDay={(day) => (
           <SessionRows>
             {(byDay.get(day) ?? []).map((x) =>
               x.kind === 'event' ? (
                 <SessionRow
                   key={`e-${x.e.id}`}
+                  cols="xl"
                   to={`/admin/events/${x.e.id}`}
                   start={x.e.starts_at}
                   end={x.e.ends_at}
                   title={x.e.title}
                   meta={[x.e.location, madridDay(x.e.starts_at) !== madridDay(x.e.ends_at) ? `hasta el ${formatShortDate(x.e.ends_at)}` : null].filter(Boolean).join(' · ')}
-                  below={<Tag variant="info">Evento</Tag>}
+                  below={
+                    <Tag variant="info">
+                      <TicketIcon aria-hidden="true" />
+                      Evento
+                    </Tag>
+                  }
                   accent="primary"
                   off={x.e.status === 'cancelled'}
                   aside={
-                    <>
+                    x.e.status === 'cancelled' ? (
                       <EventStateTag e={x.e} />
-                      <span className="text-sm text-muted-foreground tabular-nums">{eventSeats(x.e)}</span>
-                    </>
+                    ) : x.e.capacity !== null ? (
+                      <Seats taken={x.e.taken} capacity={x.e.capacity} fullText="Completo" />
+                    ) : (
+                      <span className="text-xs text-muted-foreground tabular-nums">{eventSeats(x.e)}</span>
+                    )
                   }
                 />
               ) : (
                 <SessionRow
                   key={x.s.id}
+                  cols="xl"
                   to={`/admin/sessions/${x.s.id}`}
                   start={x.s.starts_at}
                   end={x.s.ends_at}
@@ -152,7 +166,7 @@ export function WeekView({ w }: { w: Week }) {
                   aside={
                     <>
                       <StateTag s={x.s} />
-                      <span className="text-sm text-muted-foreground tabular-nums">{plural(x.s.capacity, 'plaza', 'plazas')}</span>
+                      {x.s.status === 'scheduled' && <Seats taken={x.s.taken} capacity={x.s.capacity} fullText="Llena" />}
                     </>
                   }
                 />
@@ -273,7 +287,11 @@ export function AdminSessionPage() {
     return (
       <Page title="Sesión" wide>
         <Back to="/admin/sessions">Horario</Back>
-        <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+        {query.error instanceof ApiError && ['session_not_found', 'invalid_id'].includes(query.error.code) ? (
+          <EmptyState plainTitle icon={<SearchXIcon />} title="Esta sesión no existe" text="Búscala en el horario, en su día." />
+        ) : (
+          <ErrorState plainTitle error={query.error} onRetry={() => void query.refetch()} />
+        )}
       </Page>
     )
   }
@@ -294,24 +312,33 @@ function SessionDetail({ session: s, bookings }: Detail) {
   const waiting = bookings.filter((b) => b.status === 'waitlisted')
 
   const when = `${formatDay(day)} · ${formatTime(s.starts_at)}–${formatTime(s.ends_at)}`
+  const state = adminState(s, now)
+  const scheduled = s.status === 'scheduled'
   const rows: [string, React.ReactNode][] = [
-    ['Disciplina', s.discipline.name],
     ...(['trainer_id', 'starts_at', 'duration_min', 'capacity', 'location'] as Field[]).map((f): [string, React.ReactNode] => {
       const isAdjusted = marked.includes(f)
       const shown = f === 'starts_at' ? when : fieldValue(s, f)
       const theirs = isAdjusted ? classValue(s, f, trainerName(s.class_values!.trainer_id)) : null
       return [
         FIELD_LABEL[f],
-        <span key={f} className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
-          <span className={f === 'starts_at' ? 'first-letter:uppercase' : undefined}>{shown}</span>
+        // Ajustado: el valor con su marca y, debajo, lo que dice la clase y «Deshacer».
+        <span key={f} className="flex flex-col items-end gap-1">
+          <span className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+            <span className={f === 'starts_at' ? 'inline-block first-letter:uppercase' : undefined}>{shown}</span>
+            {isAdjusted && (
+              <Tag variant="info">
+                <PencilIcon aria-hidden="true" />
+                Ajustado
+              </Tag>
+            )}
+          </span>
           {isAdjusted && (
-            <>
-              <Tag variant="info">Ajustado</Tag>
-              <span className="text-xs font-normal text-muted-foreground">{theirs ? `La clase dice: ${theirs}` : 'La clase dice otro profesor'}</span>
+            <span className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[13px] font-normal text-muted-foreground">
+              {theirs ? `La clase dice: ${theirs}` : 'La clase dice otro profesor'}
               {canAdjust(s, now) && (
                 <Button
-                  size="xs"
-                  variant="ghost"
+                  size="sm"
+                  variant="outline"
                   aria-label={`Deshacer el ajuste: ${FIELD_LABEL[f]}`}
                   onClick={() =>
                     ask({
@@ -326,7 +353,7 @@ function SessionDetail({ session: s, bookings }: Detail) {
                   Deshacer
                 </Button>
               )}
-            </>
+            </span>
           )}
         </span>,
       ]
@@ -334,30 +361,54 @@ function SessionDetail({ session: s, bookings }: Detail) {
   ]
 
   return (
-    <Page title={s.discipline.name} wide actions={<StateTag s={s} />}>
+    <Page title={s.discipline.name} wide>
       <Back to={`/admin/sessions?dia=${day}`}>Horario</Back>
-      {s.status === 'cancelled' && (
-        <p className="flex items-center gap-2 rounded-xl border bg-card px-4 py-3 text-sm" role="status">
-          <BanIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <span>Sesión cancelada{s.cancel_note ? `: «${s.cancel_note}»` : '.'}</span>
+      {/* Cuándo, quién, dónde y cómo va de plazas: a la vista en cualquier momento de la sesión. */}
+      <div className="enter-soft -mt-2 flex flex-col gap-1">
+        <p className="text-[15px] font-semibold first-letter:uppercase">
+          {formatDay(day)} ·{' '}
+          <span className="font-mono tabular-nums">
+            {formatTime(s.starts_at)}–{formatTime(s.ends_at)}
+          </span>
         </p>
+        <p className="text-sm text-muted-foreground">{[s.trainer ? name(s.trainer) : 'Sin profesor', s.location].filter(Boolean).join(' · ')}</p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+          {state && <StateBadge state={state} />}
+          {s.class_id === null && <Tag variant="secondary">Suelta</Tag>}
+          {scheduled && <Seats taken={confirmed.length} capacity={s.capacity} fullText="Llena" />}
+          {scheduled && waiting.length > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
+              <HourglassIcon className="size-3.5" aria-hidden="true" />
+              {waiting.length} en espera
+            </span>
+          )}
+        </div>
+      </div>
+      {!scheduled && (
+        <Alert variant="error" role="status" className="enter-soft [&>svg]:text-destructive-foreground">
+          <BanIcon />
+          <AlertTitle>Sesión cancelada</AlertTitle>
+          <AlertDescription>{s.cancel_note ? `Motivo: «${s.cancel_note}»` : 'Sin motivo anotado.'}</AlertDescription>
+        </Alert>
       )}
 
-      <section aria-label="Datos" className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
-        {s.class_id === null && (
-          <div>
-            <Tag variant="secondary">Sesión suelta</Tag>
-          </div>
-        )}
+      {/* Antes de empezar, las reservas; desde el inicio, la lista (que ya tiene a todos). */}
+      {scheduled && !started && <Bookings s={s} confirmed={confirmed} waiting={waiting} ask={ask} />}
+      {scheduled && started && <AdminAttendance s={s} />}
+
+      <section aria-labelledby="ses-datos" className="enter-soft flex flex-col gap-3 rounded-2xl border bg-card p-4">
+        <h2 id="ses-datos" className="font-semibold">
+          Datos de la sesión
+        </h2>
         <Kv rows={rows} />
-        <div className="flex flex-wrap gap-2 border-t pt-3">
+        <div className="flex flex-wrap gap-2 border-t pt-3 empty:hidden">
           {canAdjust(s, now) && (
             <Button variant="outline" onClick={() => setAdjusting(true)}>
               Ajustar
             </Button>
           )}
-          {s.status === 'scheduled' && (
-            <Button variant="outline" onClick={() => setCancelling(true)}>
+          {scheduled && (
+            <Button variant="destructive-outline" onClick={() => setCancelling(true)}>
               Cancelar la sesión
             </Button>
           )}
@@ -380,11 +431,6 @@ function SessionDetail({ session: s, bookings }: Detail) {
         </div>
       </section>
 
-      {s.status === 'scheduled' && (
-        <Bookings s={s} confirmed={confirmed} waiting={waiting} started={started} ask={ask} />
-      )}
-      {s.status === 'scheduled' && started && <AdminAttendance s={s} />}
-
       <AdjustSheet key={[s.trainer?.id, s.starts_at, s.duration_min, s.capacity, s.location].join('|')} s={s} open={adjusting} onClose={() => setAdjusting(false)} />
       <CancelDialog s={s} bookings={bookings.length} open={cancelling} onClose={() => setCancelling(false)} />
       {dialog}
@@ -392,8 +438,8 @@ function SessionDetail({ session: s, bookings }: Detail) {
   )
 }
 
-// Reservas y lista de espera (en orden de llegada) y «Reservar a un alumno».
-function Bookings({ s, confirmed, waiting, started, ask }: { s: AdminSession; confirmed: SessionBooking[]; waiting: SessionBooking[]; started: boolean; ask: ReturnType<typeof useConfirm>['ask'] }) {
+// Reservas y lista de espera (en orden de llegada) y «Reservar a un alumno». Solo antes de empezar: después, la lista.
+function Bookings({ s, confirmed, waiting, ask }: { s: AdminSession; confirmed: SessionBooking[]; waiting: SessionBooking[]; ask: ReturnType<typeof useConfirm>['ask'] }) {
   const cancel = (b: SessionBooking) =>
     ask({
       title: b.status === 'waitlisted' ? '¿Sacarle de la lista de espera?' : '¿Cancelar la reserva?',
@@ -406,34 +452,36 @@ function Bookings({ s, confirmed, waiting, started, ask }: { s: AdminSession; co
   const list = (items: SessionBooking[], numbered: boolean) => (
     <ul className="divide-y overflow-hidden rounded-xl border">
       {items.map((b, i) => (
-        <li key={b.id} className="flex min-h-12 items-center gap-3 px-4 py-1.5">
-          {numbered && <span className="w-5 text-sm text-muted-foreground tabular-nums">{i + 1}.</span>}
-          <Link to={`/admin/users/${b.student.id}`} className={cn(userLink, 'min-w-0 flex-1 truncate')}>
-            {name(b.student)}
-          </Link>
-          <span className="hidden text-sm text-muted-foreground tabular-nums sm:inline">desde {formatDeadline(b.created_at)}</span>
-          {!started && (
-            <Button variant="ghost" size="sm" aria-label={`Cancelar la reserva de ${name(b.student)}`} onClick={() => cancel(b)}>
-              Cancelar
-            </Button>
-          )}
+        <li key={b.id} className="flex min-h-14 items-center gap-3 py-2 ps-4 pe-2">
+          {numbered && <span className="w-5 shrink-0 font-mono text-sm text-muted-foreground tabular-nums">{i + 1}</span>}
+          <div className="min-w-0 flex-1">
+            <Link to={`/admin/users/${b.student.id}`} className={cn(userLink, 'block truncate')}>
+              {name(b.student)}
+            </Link>
+            <p className="text-xs text-muted-foreground tabular-nums">Reservó el {formatDeadline(b.created_at)}</p>
+          </div>
+          <Button variant="ghost" size="sm" aria-label={`Cancelar la reserva de ${name(b.student)}`} onClick={() => cancel(b)}>
+            Cancelar
+          </Button>
         </li>
       ))}
     </ul>
   )
   return (
-    <section aria-label="Reservas" className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
-      <h2 className="font-semibold">
-        Reservas <span className="font-normal text-muted-foreground tabular-nums">{confirmed.length} de {plural(s.capacity, 'plaza', 'plazas')}</span>
+    <section aria-labelledby="ses-reservas" className="enter-soft flex flex-col gap-3 rounded-2xl border bg-card p-4">
+      <h2 id="ses-reservas" className="font-semibold">
+        Reservas <span className="font-normal text-muted-foreground tabular-nums">{confirmed.length}</span>
       </h2>
       {confirmed.length === 0 ? <p className="text-sm text-muted-foreground">Nadie ha reservado todavía.</p> : list(confirmed, false)}
       {waiting.length > 0 && (
         <>
-          <h3 className="text-sm font-semibold">Lista de espera</h3>
+          <h3 className="text-sm font-semibold">
+            Lista de espera <span className="font-normal text-muted-foreground tabular-nums">{waiting.length}</span>
+          </h3>
           {list(waiting, true)}
         </>
       )}
-      {!started && <BookFor s={s} booked={[...confirmed, ...waiting].map((b) => b.student.id)} ask={ask} />}
+      <BookFor s={s} booked={[...confirmed, ...waiting].map((b) => b.student.id)} ask={ask} />
     </section>
   )
 }
@@ -510,7 +558,7 @@ function AdminAttendance({ s }: { s: AdminSession }) {
   const present = presentCount(rows)
   const missing = unmarked(rows)
   return (
-    <section aria-label="Lista de asistencia" className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
+    <section aria-label="Lista de asistencia" className="enter-soft flex flex-col gap-3 rounded-2xl border bg-card p-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="font-semibold">Lista de asistencia</h2>
         {att.data && !closed && rows.length > 0 && (

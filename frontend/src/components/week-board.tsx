@@ -86,6 +86,29 @@ function Strip({ w, marked, booked, tint, top }: { w: Week; marked: ReadonlySet<
 
 type Query = { isPending: boolean; isError: boolean; error: unknown; refetch: () => unknown }
 
+// Desde dónde van las 7 columnas. `xl`: el admin, que con la barra lateral en lg solo tiene ~700 px (rediseño 7).
+// Cadenas enteras por variante: Tailwind solo genera las clases que lee tal cual.
+const COLS = {
+  lg: {
+    grid: 'lg:grid lg:animate-day-in lg:grid-cols-[repeat(7,minmax(0,1fr))] lg:items-start lg:gap-1',
+    col: 'lg:scroll-mt-4 lg:rounded-3xl lg:p-1.5',
+    on: 'max-lg:animate-day-in max-lg:motion-reduce:animate-none lg:bg-accent lg:ring-2 lg:ring-primary/40',
+    off: 'max-lg:hidden',
+    narrow: 'lg:hidden',
+    wide: 'hidden lg:inline',
+    mq: '(min-width: 1024px)',
+  },
+  xl: {
+    grid: 'xl:grid xl:animate-day-in xl:grid-cols-[repeat(7,minmax(0,1fr))] xl:items-start xl:gap-1',
+    col: 'xl:scroll-mt-4 xl:rounded-3xl xl:p-1.5',
+    on: 'max-xl:animate-day-in max-xl:motion-reduce:animate-none xl:bg-accent xl:ring-2 xl:ring-primary/40',
+    off: 'max-xl:hidden',
+    narrow: 'xl:hidden',
+    wide: 'hidden xl:inline',
+    mq: '(min-width: 1280px)',
+  },
+}
+
 // El calendario semanal de los tres roles: la tira y, debajo, el día elegido (móvil) o los 7 días en columnas (`lg`).
 // Cada pantalla pone los datos (`marked`: días con clases) y las filas de un día (`renderDay`).
 export function WeekBoard({
@@ -98,6 +121,7 @@ export function WeekBoard({
   noun = 'clases',
   top = 'top-0',
   plainTitle,
+  cols = 'lg',
 }: {
   w: Week
   query: Query
@@ -111,7 +135,9 @@ export function WeekBoard({
   top?: 'top-0' | 'top-14' | 'top-[61px]'
   // Títulos de vacío y error en sans (DESIGN.md): las pantallas lo adoptan al rediseñarlas.
   plainTitle?: boolean
+  cols?: keyof typeof COLS
 }) {
+  const at = COLS[cols]
   // Al elegir un día: en escritorio, su columna a la vista; en móvil, si se quedó bajo la tira, su cabecera justo debajo.
   const first = useRef(true)
   useEffect(() => {
@@ -121,7 +147,7 @@ export function WeekBoard({
     }
     const el = document.getElementById(`dia-${w.day}`)
     if (!el) return
-    if (matchMedia('(min-width: 1024px)').matches) el.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+    if (matchMedia(at.mq).matches) el.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
     else {
       const below = (document.querySelector('[data-week-strip]')?.getBoundingClientRect().bottom ?? 0) + 8
       if (el.getBoundingClientRect().top < below) {
@@ -129,7 +155,7 @@ export function WeekBoard({
         el.scrollIntoView({ block: 'start' })
       }
     }
-  }, [w.day])
+  }, [w.day, at.mq])
 
   const next = nextMarked(w, marked)
   return (
@@ -152,7 +178,7 @@ export function WeekBoard({
           }
         />
       ) : (
-        <div key={w.week} className="flex flex-col lg:grid lg:animate-day-in lg:grid-cols-[repeat(7,minmax(0,1fr))] lg:items-start lg:gap-1 motion-reduce:animate-none" style={{ '--day-dx': `${w.dir * 10}px` } as React.CSSProperties}>
+        <div key={w.week} className={cn('flex flex-col motion-reduce:animate-none', at.grid)} style={{ '--day-dx': `${w.dir * 10}px` } as React.CSSProperties}>
           {w.days.map((day) => {
             const has = marked.has(day)
             const selected = day === w.day
@@ -162,13 +188,14 @@ export function WeekBoard({
                 id={`dia-${day}`}
                 aria-label={formatDay(day)}
                 className={cn(
-                  'flex flex-col gap-2 lg:scroll-mt-4 lg:rounded-3xl lg:p-1.5',
-                  selected ? 'max-lg:animate-day-in max-lg:motion-reduce:animate-none lg:bg-accent lg:ring-2 lg:ring-primary/40' : 'max-lg:hidden',
+                  'flex flex-col gap-2',
+                  at.col,
+                  selected ? at.on : at.off,
                 )}
               >
                 <h3 className={cn('px-0.5 text-[13px] font-bold tracking-wide text-muted-foreground uppercase', day === w.today && 'text-link')}>
-                  <span className="first-letter:uppercase lg:hidden">{formatDay(day)}</span>
-                  <span className="hidden lg:inline">
+                  <span className={cn('first-letter:uppercase', at.narrow)}>{formatDay(day)}</span>
+                  <span className={at.wide}>
                     {shortWeekday(day)} {Number(day.slice(8))}
                   </span>
                   {day === w.today && <span> · hoy</span>}
@@ -177,8 +204,8 @@ export function WeekBoard({
                   renderDay(day)
                 ) : (
                   <>
-                    <p className="px-0.5 text-sm text-muted-foreground max-lg:hidden">Sin {noun}</p>
-                    <div className="lg:hidden">
+                    <p className={cn('px-0.5 text-sm text-muted-foreground', at.off)}>Sin {noun}</p>
+                    <div className={at.narrow}>
                       <EmptyState
                         plainTitle={plainTitle}
                         icon={<CalendarIcon />}

@@ -206,7 +206,27 @@ export function cancelSummary(regs: Pick<EventRegistration, 'status' | 'amount_c
   return { live: regs.filter(isLive).length, paid: paid.length, cents: paid.reduce((n, r) => n + r.amount_cents, 0) }
 }
 
-export const payLabel = (r: EventRegistration): string =>
+// Las cifras de arriba del detalle (rediseño 7): cobrado = las confirmadas con importe (como lo que devolvería cancelar);
+// pendiente = las pendientes de pago; los reembolsos, por estado, de cualquier inscripción.
+export function moneySummary(regs: Pick<EventRegistration, 'status' | 'amount_cents' | 'guest' | 'refund_status' | 'refunded_cents'>[]) {
+  const { live, paid, cents } = cancelSummary(regs)
+  const pending = regs.filter((r) => r.status === 'pending')
+  const refunded = regs.filter((r) => r.refund_status === 'refunded')
+  return {
+    live,
+    guests: regs.filter((r) => isLive(r) && r.guest).length,
+    paid,
+    paidCents: cents,
+    pending: pending.length,
+    pendingCents: pending.reduce((n, r) => n + r.amount_cents, 0),
+    refunded: refunded.length,
+    refundedCents: refunded.reduce((n, r) => n + r.refunded_cents, 0),
+    requested: regs.filter((r) => r.refund_status === 'requested').length,
+    failed: regs.filter((r) => r.refund_status === 'failed').length,
+  }
+}
+
+export const payLabel =(r: EventRegistration): string =>
   r.guest ? 'Invitado' : r.amount_cents === 0 ? 'Gratis' : r.status === 'pending' ? `Pago pendiente · ${formatEuros(r.amount_cents)}` : r.status === 'confirmed' ? `Pagado · ${formatEuros(r.amount_cents)}` : r.refund_status ? `Pagado · ${formatEuros(r.amount_cents)}` : `Sin devolver · ${formatEuros(r.amount_cents)}`
 
 export const refundLabel = (r: Pick<EventRegistration, 'refund_status' | 'refunded_cents'>): string | null =>

@@ -31,9 +31,21 @@
 
 ## Clases (`/admin/classes`)
 
-- Mismos datos y hojas (crear, cambiar, retirar). Por debajo de `sm`, tarjetas agrupadas por día de la semana (hora,
-  disciplina, profesor, aforo y lugar; vigencia debajo) en vez de la tabla de 9 columnas. La composición exacta, según la
-  auditoría de B22.0.
+- Mismos datos y hojas (crear, cambiar, retirar). Hasta `xl`, tarjetas agrupadas por día de la semana (hora,
+  disciplina, profesor, aforo y lugar; vigencia debajo); la tabla (8 columnas, con «Vigencia» y las acciones en «⋯») solo
+  desde `xl`: con la barra lateral no cabe antes (rediseño 7, 2026-11-18).
+
+## Horario del admin (`/admin/sessions`, el detalle de sesión y el de evento) — rediseño 7, 2026-11-18
+
+- El admin entra a mirar hoy y abrir una sesión. Un solo **«Nuevo»** con menú (Clase semanal · Clase suelta · Evento, con
+  una línea cada una) y un selector **Semana | Clases semanales** (`?vista=clases`, conserva la disciplina).
+- Semana en 7 columnas solo desde `xl` (prop `cols="xl"` de `WeekBoard` y `SessionRow`). En las filas, insignia solo para lo
+  que se sale (En curso, Celebrada, Cancelada; con icono) y la ocupación con `Seats` («20/20 · Llena»).
+- **Detalle de sesión** según el momento: cabecera (cuándo, profesor, lugar, ocupación, espera); antes de empezar, las
+  reservas y la espera; desde el inicio, la lista de asistencia (sin repetir las reservas); los datos y Ajustar/Cancelar,
+  debajo. Una sesión o un evento que no existe: «Esta sesión no existe» / «Este evento no existe», sin reintentar.
+- **Detalle de evento**: cabecera y cifras (inscritos/aforo, cobrado, pendiente, reembolsos con los fallidos en rojo; un
+  evento gratis, inscritos e invitados), luego inscritos (estado con icono en la línea gris), asistencia y los datos.
 
 ## Usuarios (`/admin/users`)
 
