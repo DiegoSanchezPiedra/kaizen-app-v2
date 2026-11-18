@@ -58,3 +58,17 @@
 - **Lista**: columnas nombre, rol (con las marcas), plan, estado (con icono) y última asistencia. La tabla solo desde
   `xl` (con la barra lateral no cabe antes); por debajo, una fila por persona que abre la ficha. «Nuevo profesor» va junto al título.
 - **Estados**: cargando, sin resultados (con «Quitar filtros»), error, y las cifras a 0 si no hay alumnos.
+
+## Cobros (`/admin/billing`) — rediseño 7, 2026-11-18
+
+- El admin entra a **ver cuánto se debe y quién**; enviar el recibo y la baja son secundarias. Siguen las **tres
+  pestañas** (`?tab=delinquents|grace|payer-changes`).
+- **Morosos y En gracia**: arriba, «N pagadores deben» / «N pagadores en gracia» (el `total` de la API; el importe de
+  todas las páginas no lo da). Un bloque por pagador con **su total** (suma de sus recibos abiertos) y «N recibos» a la
+  derecha del nombre, o «Sin recibos abiertos». Debajo, cada cuota (alumno → ficha, estado con icono, plan y fin de periodo
+  o «Stripe sigue reintentando…») con **sus recibos debajo** (importe, intentos, siguiente, «Último error: …» y «Abrir el
+  recibo», que avisa de que abre otra pestaña). La baja inmediata solo en Morosos, en pequeño, y su confirmación nombra al
+  alumno, el plan y a quién se avisa.
+- **Cambios de pagador**: **En curso** primero; En curso | Caducados con los chips de Usuarios (`?view=expired`). Estado
+  con icono (Pendiente de pago, Pagado, Caducado). Hasta `xl`, una fila por cambio; la tabla solo desde `xl`.
+- Al cambiar de página se queda la lista anterior atenuada.
