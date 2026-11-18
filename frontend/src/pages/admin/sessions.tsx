@@ -315,7 +315,8 @@ function SessionDetail({ session: s, bookings }: Detail) {
   const state = adminState(s, now)
   const scheduled = s.status === 'scheduled'
   const rows: [string, React.ReactNode][] = [
-    ...(['trainer_id', 'starts_at', 'duration_min', 'capacity', 'location'] as Field[]).map((f): [string, React.ReactNode] => {
+    // El inicio ya está en la cabecera: aquí solo si está ajustado (para ver lo que dice la clase y deshacerlo).
+    ...(['trainer_id', 'starts_at', 'duration_min', 'capacity', 'location'] as Field[]).filter((f) => f !== 'starts_at' || marked.includes(f)).map((f): [string, React.ReactNode] => {
       const isAdjusted = marked.includes(f)
       const shown = f === 'starts_at' ? when : fieldValue(s, f)
       const theirs = isAdjusted ? classValue(s, f, trainerName(s.class_values!.trainer_id)) : null
@@ -373,7 +374,8 @@ function SessionDetail({ session: s, bookings }: Detail) {
         </p>
         <p className="text-sm text-muted-foreground">{[s.trainer ? name(s.trainer) : 'Sin profesor', s.location].filter(Boolean).join(' · ')}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-2">
-          {state && <StateBadge state={state} />}
+          {/* Cancelada: lo dice el aviso de debajo, con el motivo. */}
+          {state && state !== 'cancelled' && <StateBadge state={state} />}
           {s.class_id === null && <Tag variant="secondary">Suelta</Tag>}
           {scheduled && <Seats taken={confirmed.length} capacity={s.capacity} fullText="Llena" />}
           {scheduled && waiting.length > 0 && (

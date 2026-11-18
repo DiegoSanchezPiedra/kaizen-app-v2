@@ -251,7 +251,8 @@ function EventDetail({ event: e, registrations }: Detail) {
         </p>
         <p className="text-sm text-muted-foreground">{e.location}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-2 empty:hidden">
-          <StateTag e={{ ...e, taken: registrations.filter(isLive).length }} />
+          {/* Cancelado: lo dice el aviso de debajo, con el motivo. */}
+          {scheduled && <StateTag e={{ ...e, taken: registrations.filter(isLive).length }} />}
         </div>
       </div>
       {!scheduled && (
