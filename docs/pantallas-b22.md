@@ -168,3 +168,20 @@
 - «Copiar» sin portapapeles deja los códigos seleccionados y lo dice. Botones del flujo y de Cuenta a 44 px también con ratón;
   el ojo de la contraseña, zona de 44 px con ratón (`pointer-fine:after`, 0 % de diferencia en /account). En Cuenta, también
   los campos de los formularios compartidos a 44 px (solo aquí; /account y el Inicio, 0 %).
+
+## Jornada (`/admin/clock`, `/admin/clock/print`) — rediseño 7, 2026-11-18
+
+- El admin viene a **revisar correcciones**; cerrar e imprimir el mes es secundario.
+- **Lista**: «N profesores empleados» y, en cada fila (enlace de 64 px con chevron), su estado con icono y texto:
+  «N correcciones pendientes» (aviso), «Jornada abierta desde el 17 nov a las 8:00» (aviso, más de 16 h, como «Lo grave» del
+  Inicio), «En jornada desde las 16:30» o «Al día» (atenuados). Arriba los que tienen pendientes o una jornada de más de 16 h;
+  luego, por nombre. `GET /admin/clock/employees` trae `pending` y `open_since` (cambio aditivo).
+- **Mes**: el nombre (`h2`, con Empleado/Autónomo) va encima de MonthNav. «Por revisar · N» es lo primero del lateral (en
+  móvil, lo primero de la página); las aplicadas y rechazadas van en «Correcciones del mes», después de las acciones. Aplicar
+  con confirmación (avisa por email); Rechazar, con motivo obligatorio.
+- **Salida olvidada** (jornada abierta de un día anterior, en cualquier mes): el resumen dice «Falta la salida del martes 17 ·
+  Entró a las 08:00» con «Añadir la salida», que abre la hoja con el día y la salida puestos. El día sigue marcado igual.
+- **Acciones**: «Añadir fichaje» a lo ancho y debajo Imprimir y «Descargar CSV» en dos columnas (`onCsv` de ClockLog; el
+  profesor no lo ve). Autónomo: nota, Imprimir y CSV, sin corregir.
+- **Hoja de imprimir**: la vuelta dice «Jornada de <nombre>». Lo demás, como en el grupo 5. /clock y /clock/print del
+  profesor, 0 % de diferencia.

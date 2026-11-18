@@ -56,12 +56,26 @@ async function professor(client, profileId) {
   return { id: p.id, display_name: p.display_name, employment: p.employment };
 }
 
-/** Los profesores empleados (los únicos con jornada nueva), por nombre: la lista del panel. */
+/**
+ * Los profesores empleados (los únicos con jornada nueva), por nombre: la lista del panel. Con lo que pide mirarlos:
+ * `pending` (correcciones sin resolver) y `open_since` (la entrada de la jornada abierta, como warnOpenDays; o null).
+ */
 export async function listEmployees(client) {
   const { rows } = await client.query(
-    `SELECT p.id, p.display_name FROM profiles p
+    `SELECT p.id, p.display_name,
+            (SELECT count(*)::int FROM clock_corrections c
+              WHERE c.profile_id = p.id
+                AND NOT EXISTS (SELECT 1 FROM clock_correction_resolutions r WHERE r.correction_id = c.id)) AS pending,
+            o.at AS open_since
+       FROM profiles p
        JOIN user_roles ur ON ur.user_id = p.id AND ur.role = 'profesor'
        JOIN teacher_employment te ON te.profile_id = p.id AND te.employment = 'employee'
+       LEFT JOIN LATERAL (
+         SELECT i.at
+           FROM (SELECT kind, at FROM clock_effective WHERE profile_id = p.id ORDER BY at DESC, id DESC LIMIT 1) l
+           JOIN LATERAL (SELECT at FROM clock_effective WHERE profile_id = p.id AND kind = 'in' AND at <= l.at
+                          ORDER BY at DESC LIMIT 1) i ON true
+          WHERE l.kind <> 'out') o ON true
       ORDER BY p.display_name, p.id`);
   return { employees: rows };
 }
