@@ -400,7 +400,7 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 | Método y ruta | Cuerpo / query | Respuesta |
 |---|---|---|
 | `PUT /admin/profiles/:id/employment` | `{ employment: 'employee'\|'self_employed' }` | `{ profile_id, employment }` (`audit_log` `profile.employment`). `409 not_professor` |
-| `GET /admin/clock/employees` | — | `{ employees: [{ id, display_name, pending, open_since, open_late }] }`: solo los profesores con `employment = 'employee'`, por nombre (la lista de «Jornada» del panel). `pending`: correcciones sin resolver; `open_since`: la entrada de la jornada abierta (ISO) o `null`; `open_late`: abierta más de 16 h (el umbral del aviso `notice.clock_open`) |
+| `GET /admin/clock/employees` | — | `{ employees: [{ id, display_name, pending, open_since, open_late }] }`: solo los profesores con `employment = 'employee'`, por nombre (la lista de «Jornada» del panel). `pending`: correcciones sin resolver; `open_since`: la entrada de la jornada abierta (ISO) o `null`; `open_late`: abierta más de `OPEN_HOURS` (`src/services/clock.js`), el umbral del aviso `notice.clock_open` |
 | `GET /admin/clock?profile_id&month` | — | registro del mes, como `GET /me/clock` (también del autónomo). `409 not_professor`, `404 profile_not_found` |
 | `POST /admin/clock/corrections` | `{ profile_id, event_id, at?, reason }` o `{ profile_id, kind, at, reason }` (solo empleados: `403 not_employee`) | `201` corrección ya `applied`; aviso `notice.clock_corrected` (email) al profesor |
 | `POST /admin/clock/corrections/:id/apply` | — | corrección `applied`; aviso `notice.clock_correction_applied` (email) al profesor si la pidió él |
@@ -410,7 +410,7 @@ Stripe) lo pide la tarea nocturna. En el extracto, el cobro sale con el prefijo 
 Errores: `404 correction_not_found`, `409 already_resolved`, `409 invalid_sequence { state }` (aplicada dejaría los
 fichajes fuera de orden; no se guarda), `400 invalid_field`. El PDF es una página imprimible del frontend sobre
 `GET /admin/clock` (sin endpoint propio). Avisos del panel: `notice.clock_correction_requested` y `notice.clock_open`
-(jornada sin salida a las 16 h, la tarea nocturna, también al profesor por email).
+(jornada sin salida pasadas `OPEN_HOURS` horas, la tarea nocturna, también al profesor por email).
 
 **Informes** (B17)
 

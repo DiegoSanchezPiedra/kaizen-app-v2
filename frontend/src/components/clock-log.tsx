@@ -243,7 +243,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 const STATE_ICON = { in: TimerIcon, paused: PauseIcon, out: LogOutIcon }
 
 // Total del mes y, en el mes en curso, cómo está la jornada ahora. Una jornada abierta de un día anterior es una salida olvidada.
-// El admin la ve en cualquier mes, con desde cuándo y la acción de añadir la salida (lo que avisa el Inicio a las 16 h).
+// El admin la ve en cualquier mes, con desde cuándo y la acción de añadir la salida (lo que avisa el Inicio al pasar OPEN_HOURS).
 function Summary({ data, admin, openPast, onAddOut }: { data: ClockMonth; admin: boolean; openPast?: ClockDay; onAddOut: (day: string) => void }) {
   const employee = data.profile.employment === 'employee'
   const worked = data.days.filter((d) => d.worked_seconds > 0).length
