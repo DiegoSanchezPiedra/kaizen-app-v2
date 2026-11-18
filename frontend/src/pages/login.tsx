@@ -181,12 +181,8 @@ export function LoginPage() {
           <GoogleButton disabled={loading} onCredential={(idToken) => run('/auth/google', { id_token: idToken })} />
         </>
       )}
-      <p className="flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
-        ¿No tienes cuenta?
-        <Link to="/register" className="inline-flex min-h-11 items-center font-semibold text-link underline underline-offset-3">
-          Crear cuenta
-        </Link>
-      </p>
+      {/* Sin registro público (ADR 0032): las cuentas las crea la academia. */}
+      <p className="flex min-h-11 items-center justify-center text-sm text-muted-foreground">¿No tienes cuenta? Pídesela a la academia.</p>
     </AuthLayout>
   )
 }

@@ -179,24 +179,24 @@ try {
     assert.deepEqual(statuses, [200, 200, 200, 200, 200, 429]);
   });
 
-  await run('registro: abierto fuera de producción; cerrado en producción (403 registration_closed); REGISTRATION_OPEN manda', async () => {
+  await run('registro: abierto fuera de producción; cerrado en producción (403 signup_closed); REGISTRATION_OPEN manda', async () => {
     const reg = (k) => http('POST', '/auth/register', null, { email: mail(k), password: PASS, displayName: k, birthDate: yearsAgo(30) });
     await withEnv({ NODE_ENV: undefined, REGISTRATION_OPEN: undefined }, async () => assert.equal((await reg('reg-dev')).status, 201));
     await withEnv({ NODE_ENV: 'production', REGISTRATION_OPEN: undefined }, async () => {
       const r = await reg('reg-prod');
-      assert.deepEqual([r.status, code(r)], [403, 'registration_closed']);
+      assert.deepEqual([r.status, code(r)], [403, 'signup_closed']);
       assert.equal((await q(`SELECT 1 FROM auth_credentials WHERE email = $1`, [mail('reg-prod')])).length, 0);
     });
     await withEnv({ NODE_ENV: 'production', REGISTRATION_OPEN: 'true' }, async () => assert.equal((await reg('reg-open')).status, 201));
-    await withEnv({ NODE_ENV: undefined, REGISTRATION_OPEN: 'false' }, async () => assert.equal(code(await reg('reg-off')), 'registration_closed'));
+    await withEnv({ NODE_ENV: undefined, REGISTRATION_OPEN: 'false' }, async () => assert.equal(code(await reg('reg-off')), 'signup_closed'));
     // El login de siempre sigue con el registro cerrado.
     await withEnv({ NODE_ENV: 'production' }, async () => assert.equal((await login(mail('reg-dev'))).status, 200));
   });
 
-  await run('Google: cuenta nueva cerrada → 403 registration_closed; la ya vinculada sigue entrando; abierto la crea', async () => {
+  await run('Google: cuenta nueva cerrada → 403 signup_closed; la ya vinculada sigue entrando; abierto la crea', async () => {
     const verify = (email, sub) => async () => ({ email, sub, name: 'G' });
     await withEnv({ NODE_ENV: 'production', REGISTRATION_OPEN: undefined }, async () => {
-      await assert.rejects(loginGoogle({ idToken: 't', verify: verify(mail('g-new'), `sub-new-${tag}`) }), (e) => [e.status, e.code].join() === '403,registration_closed');
+      await assert.rejects(loginGoogle({ idToken: 't', verify: verify(mail('g-new'), `sub-new-${tag}`) }), (e) => [e.status, e.code].join() === '403,signup_closed');
       assert.equal((await q(`SELECT 1 FROM auth_credentials WHERE email = $1`, [mail('g-new')])).length, 0);
       await q(`UPDATE auth_credentials SET google_sub = $2 WHERE profile_id = $1`, [U.ana, `sub-ana-${tag}`]);
       const r = await loginGoogle({ idToken: 't', verify: verify(mail('base-ana'), `sub-ana-${tag}`) });

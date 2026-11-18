@@ -320,7 +320,7 @@ export type ProfileRow = {
   last_attendance_at: string | null
 }
 export type ProfileFile = {
-  profile: Omit<ProfileRow, 'subscription_status' | 'plan_id' | 'plan_name' | 'estado' | 'last_attendance_at'> & { is_public: boolean; has_password: boolean; has_google: boolean; can_create_children: boolean }
+  profile: Omit<ProfileRow, 'subscription_status' | 'plan_id' | 'plan_name' | 'estado' | 'last_attendance_at'> & { is_public: boolean; has_password: boolean; has_google: boolean; can_create_children: boolean; invite_pending: boolean }
   status: ProfileStatus | null
   guardians: Person[]
   children: { id: string; display_name: string | null; pending_claim: boolean }[]

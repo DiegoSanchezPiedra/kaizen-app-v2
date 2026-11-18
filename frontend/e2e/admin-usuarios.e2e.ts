@@ -117,16 +117,14 @@ test('ficha: perfil que no existe', async ({ page }) => {
   await expect(page.getByText('Este perfil no existe', { exact: true })).toBeVisible()
 })
 
-test('pasar a admin pide el código del doble factor; si falla al guardar, aviso de error', async ({ page }) => {
+test('pasar a admin no pide el doble factor (ADR 0032); si falla al guardar, aviso de error', async ({ page }) => {
   const { writes } = await open(page, '/admin/users/u1', { save: 'error' })
   await page.getByRole('combobox', { name: 'Rol nuevo' }).click()
   await page.getByRole('option', { name: 'Admin', exact: true }).click()
   await page.getByRole('button', { name: 'Cambiar el rol', exact: true }).click()
   const dialog = page.getByRole('alertdialog')
   const confirm = dialog.getByRole('button', { name: 'Cambiar el rol', exact: true })
-  await expect(confirm).toBeDisabled()
-  await page.keyboard.type('123456')
-  await expect(confirm).toBeEnabled()
+  await expect(dialog.getByLabel('Código de tu app de autenticación')).toHaveCount(0)
   await confirm.click()
   await expect.poll(() => writes).toContain('PUT /admin/profiles/u1/role')
   await expect(page.getByRole('alertdialog')).toHaveCount(0)

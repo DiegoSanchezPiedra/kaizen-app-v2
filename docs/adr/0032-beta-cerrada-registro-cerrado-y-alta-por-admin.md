@@ -3,7 +3,7 @@
 Decisión del 2026-11-18 (migración 072). Desarrolla el [ADR 0028](0028-alta-de-profesores-por-el-admin.md).
 
 - **Registro cerrado**: `REGISTRATION_OPEN` (`true`/`false`); sin ella, abierto fuera de producción y **cerrado con `NODE_ENV=production`**.
-  Cerrado, `POST /auth/register` y el alta nueva por Google dan `403 registration_closed`; las cuentas ya vinculadas siguen entrando.
+  Cerrado, `POST /auth/register` y el alta nueva por Google dan `403 signup_closed`; las cuentas ya vinculadas siguen entrando.
 - **Alta por el admin** (`POST /admin/users`): alumno, tutor o admin, con nombre, email (no del dominio corporativo de los
   profesores) y fecha de nacimiento de adulto (opcional solo para el admin). Mismo mecanismo que los profesores: sin contraseña, invitación
   de 72 h en `password_resets` (`kind` `invite`; en la BD solo el SHA-256), aceptar con `POST /auth/password/reset`, que verifica el

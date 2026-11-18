@@ -63,7 +63,13 @@
 - **Filtros**: rol, disciplina y plan (`q`, `role`, `discipline`, `plan`, `estado`, `page` en la URL, filtrados en el
   servidor); debajo, «N personas» y «Quitar filtros» si hay alguno. Al cambiar un filtro se queda la lista anterior atenuada.
 - **Lista**: columnas nombre, rol (con las marcas), plan, estado (con icono) y última asistencia. La tabla solo desde
-  `xl` (con la barra lateral no cabe antes); por debajo, una fila por persona que abre la ficha. «Nuevo profesor» va junto al título.
+  `xl` (con la barra lateral no cabe antes); por debajo, una fila por persona que abre la ficha. «Nuevo usuario» va junto al título (y en el vacío sin filtros).
+- **Alta** (ADR 0032, beta cerrada): una hoja con el rol primero (alumno, tutor, profesor o admin; una línea dice qué implica),
+  nombre y email; alumno y tutor, fecha de nacimiento (solo adultos); el profesor, correo corporativo y tipo de relación (va por
+  `/admin/trainers`). Sin contraseña: al dar de alta, un diálogo enseña el enlace de un solo uso (72 h) con «Copiar enlace»
+  (sin portapapeles queda seleccionado, como en Tablets), «Ver ficha» y «Hecho»; también se envía por email. En la ficha de
+  quien no ha entrado, «Invitación pendiente» y «Nuevo enlace» (confirma: el anterior deja de valer). Dar el rol admin ya no pide
+  el código del doble factor. `/login` dice «¿No tienes cuenta? Pídesela a la academia.» y `/register` lleva a `/login`.
 - **Estados**: cargando, sin resultados (con «Quitar filtros»), error, y las cifras a 0 si no hay alumnos.
 
 ## Cobros (`/admin/billing`) — rediseño 7, 2026-11-18

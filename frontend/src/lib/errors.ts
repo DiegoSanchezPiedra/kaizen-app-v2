@@ -26,6 +26,7 @@ const TEXTS: Record<string, string> = {
   weak_password: 'Usa al menos 8 caracteres.', // propuesto (el backend pide ≥ 8)
   invalid_birth_date: 'Revisa la fecha de nacimiento.', // propuesto
   minor_cannot_register: 'Un menor lo da de alta su padre, madre o tutor.',
+  signup_closed: 'Aún no tienes cuenta. Pídesela a la academia.', // ADR 0032
   invalid_reset_token: 'El enlace ha caducado o ya se ha usado. Pide otro.',
 }
 
@@ -120,6 +121,8 @@ const TRAINER_TEXTS = {
   email_domain_not_allowed: 'Usa el correo corporativo de la academia.',
   email_domain_reserved: 'Ese dominio es de la academia. Usa tu email personal.',
   same_email: 'Ya tiene ese correo.',
+  already_active: 'Ya entró con su contraseña: no necesita enlace.', // ADR 0032
+  not_invitable: 'A esta persona no se le puede mandar un enlace.',
   same_state: 'Ya estaba así.',
   trainer_disabled: 'Está desactivado: reactívalo antes.',
   trainer_not_found: 'No lo encontramos.',

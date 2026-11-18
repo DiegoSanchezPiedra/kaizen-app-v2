@@ -27,7 +27,6 @@ import { ProgressPage } from '@/pages/progress'
 import { AppShell, PendingScreen } from '@/pages/app-shell'
 import { LoginPage } from '@/pages/login'
 import { ForgotPasswordPage, ResetPasswordPage } from '@/pages/password'
-import { RegisterPage } from '@/pages/register'
 
 // Sin sesión. Al entrar (o si ya la hay) es la única que redirige: a ?volver= o al inicio.
 function PublicOnly() {
@@ -67,7 +66,7 @@ export const router = createBrowserRouter([
     errorElement: <AppCrash />,
     children: [
       { path: '/login', element: <LoginPage /> },
-      { path: '/register', element: <RegisterPage /> },
+      { path: '/register', element: <Navigate to="/login" replace /> }, // sin registro público (ADR 0032)
       { path: '/forgot-password', element: <ForgotPasswordPage /> },
     ],
   },

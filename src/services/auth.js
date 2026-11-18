@@ -103,7 +103,7 @@ export function assertStrongPassword(password) {
 }
 
 // Registro público cerrado (ADR 0032): también para el alta nueva por Google.
-const closed = () => httpError(403, 'registration_closed', 'el registro está cerrado: te da de alta la academia');
+const closed = () => httpError(403, 'signup_closed', 'el registro está cerrado: te da de alta la academia');
 
 // ---------------------------------------------------------------------------
 // registerLocal — sigue firmando token; un registro nuevo no puede tener MFA.

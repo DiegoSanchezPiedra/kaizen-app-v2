@@ -2,7 +2,7 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from '@tans
 import { BanIcon, CalendarIcon, ChevronRightIcon, CircleAlertIcon, CircleCheckIcon, CircleDashedIcon, ClockIcon, HourglassIcon, SearchIcon, SearchXIcon, UsersIcon, type LucideIcon } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
+import { Link, useParams, useSearchParams } from 'react-router'
 import { Back, Kv, Tag } from '@/components/billing-bits'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { ProfileAvatar } from '@/components/profile-avatar'
@@ -15,7 +15,6 @@ import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, Com
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
-import { OTPField, OTPFieldInput, OTPFieldSeparator } from '@/components/ui/otp-field'
 import {
   ageMarks,
   ASSIGNABLE_ROLES,
@@ -57,7 +56,7 @@ import { useDebounced } from '@/lib/use-debounced'
 import { useAdminPlans } from '@/lib/queries'
 import { AuditLink, PAGE_SIZE, Pager } from '@/pages/admin/shell'
 import { EmploymentChange } from '@/pages/admin/clock'
-import { NewTrainer, TrainerActions, TrainerTag } from '@/pages/admin/trainers'
+import { NewInviteLink, NewUser, TrainerActions, TrainerTag } from '@/pages/admin/trainers'
 import { BillingTab, del, SubBadge, useConfirm } from '@/pages/admin/user-billing'
 
 const name = (p: { display_name: string | null }) => p.display_name ?? 'Sin nombre'
@@ -167,7 +166,7 @@ export function UsersPage() {
   const total = list.data?.total
 
   return (
-    <Page title="Usuarios" wide actions={<NewTrainer />}>
+    <Page title="Usuarios" wide actions={<NewUser />}>
       <div className="flex flex-col gap-3">
         <InputGroup className="**:placeholder:text-muted-foreground!">
           <InputGroupAddon aria-hidden="true">
@@ -212,12 +211,14 @@ export function UsersPage() {
         <EmptyState
           icon={hasFilters(f) ? <SearchXIcon /> : <UsersIcon />}
           title={f.q ? `Nadie coincide con «${f.q}»` : hasFilters(f) ? 'Nadie con estos filtros' : 'Aún no hay usuarios'}
-          text={hasFilters(f) ? 'Prueba con otra búsqueda o quita los filtros.' : undefined}
+          text={hasFilters(f) ? 'Prueba con otra búsqueda o quita los filtros.' : 'Da de alta a la primera persona: le llegará un enlace para elegir su contraseña.'}
           action={
-            hasFilters(f) && (
+            hasFilters(f) ? (
               <Button variant="outline" onClick={clear}>
                 Quitar filtros
               </Button>
+            ) : (
+              <NewUser />
             )
           }
         />
@@ -308,30 +309,21 @@ const MISSING: Record<string, string> = {
 const access = (p: ProfileFile['profile']) =>
   p.has_password && p.has_google ? 'Contraseña y Google' : p.has_password ? 'Contraseña' : p.has_google ? 'Google' : p.email ? 'Pendiente de aceptar la invitación' : 'Sin acceso propio'
 
-const OTP_SLOT = 'h-12 w-10 font-mono text-xl'
 
 function RoleChange({ file, refresh }: { file: ProfileFile; refresh: () => void }) {
   const p = file.profile
   const [role, setRole] = useState<Role | ''>('')
   const [open, setOpen] = useState(false)
-  // Dar admin se confirma con el código del doble factor de quien lo da (B20): un token robado no basta.
-  const [code, setCode] = useState('')
   const toAdmin = role === 'admin'
-  const navigate = useNavigate()
   const change = useMutation({
-    mutationFn: () => api(`/admin/profiles/${p.id}/role`, { method: 'PUT', body: { role, ...(toAdmin && { mfa_code: code }) } }),
+    mutationFn: () => api(`/admin/profiles/${p.id}/role`, { method: 'PUT', body: { role } }),
     onSuccess: () => {
       toastOk(`Ahora es ${ROLE_LABEL[role as Role].toLowerCase()}`)
       setRole('')
     },
-    onError: (err) => {
-      const errCode = err instanceof ApiError ? err.code : null
-      const go = (label: string, to: string) => ({ label, onClick: () => navigate(to) })
-      toastError(err, errCode === 'mfa_required' ? go('Activar el doble factor', '/admin/mfa') : undefined)
-    },
+    onError: (err) => toastError(err),
     onSettled: () => {
       setOpen(false)
-      setCode('')
       refresh()
     },
   })
@@ -355,27 +347,14 @@ function RoleChange({ file, refresh }: { file: ProfileFile; refresh: () => void 
         title={role ? `¿Pasar a ${name(p)} a ${ROLE_LABEL[role].toLowerCase()}?` : ''}
         description={
           toAdmin
-            ? 'Podrá hacer todo lo que haces tú y desde la app no se le podrá quitar. Confírmalo con el código de tu app de autenticación.'
+            ? 'Podrá hacer todo lo que haces tú y desde la app no se le podrá quitar.'
             : 'El cambio es inmediato; si tiene la app abierta, tendrá que volver a entrar.'
         }
         confirmLabel="Cambiar el rol"
         variant="default"
         loading={change.isPending}
-        disabled={toAdmin && code.length < 6}
-        onConfirm={() => change.mutate()}
-      >
-        {toAdmin && (
-          <OTPField className="justify-center" length={6} value={code} onValueChange={setCode} validationType="numeric" autoComplete="one-time-code" aria-label="Código de tu app de autenticación">
-            {[0, 1, 2].map((i) => (
-              <OTPFieldInput key={i} className={OTP_SLOT} autoFocus={i === 0} />
-            ))}
-            <OTPFieldSeparator />
-            {[3, 4, 5].map((i) => (
-              <OTPFieldInput key={i} className={OTP_SLOT} />
-            ))}
-          </OTPField>
-        )}
-      </ConfirmDialog>
+                onConfirm={() => change.mutate()}
+      />
     </div>
   )
 }
@@ -469,6 +448,12 @@ function Summary({ file, refresh }: { file: ProfileFile; refresh: () => void }) 
     !isChild(p) && !p.is_minor && <CanCreateChildren key="children" file={file} refresh={refresh} />,
     canChangeRole(p) && <RoleChange key="role" file={file} refresh={refresh} />,
     p.role === 'profesor' && <TrainerActions key="trainer" file={file} refresh={refresh} />,
+    p.invite_pending && p.role !== 'profesor' && (
+      <div key="invite" className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+        <TrainerTag state="pending" />
+        <NewInviteLink id={p.id} name={name(p)} endpoint={`/admin/users/${p.id}/invite`} refresh={refresh} />
+      </div>
+    ),
     p.role === 'profesor' && <EmploymentChange key="employment" id={p.id} />,
   ].filter(Boolean)
   // Datos a un lado y lo que cambia la cuenta (rol, permisos, profesor) en su propia tarjeta.
