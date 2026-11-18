@@ -7,7 +7,6 @@ import { ClockLog, MonthNav } from '@/components/clock-log'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton, QueryView } from '@/components/screen-state'
-import { useNow } from '@/hooks/use-now'
 import { api } from '@/lib/api'
 import { EMPLOYMENT_LABEL, monthParam, type Employment } from '@/lib/clock'
 import { madridMonth } from '@/lib/dates'
@@ -46,18 +45,15 @@ export function AdminClockPage() {
   )
 }
 
-// Como el aviso «Lo grave» del Inicio (notice.clock_open): una jornada abierta más de 16 h es una salida olvidada.
-const OPEN_MS = 16 * 3600_000
-
-// El admin viene a revisar: arriba los que tienen correcciones pendientes o una salida olvidada; luego, por nombre.
+// El admin viene a revisar: arriba los que tienen correcciones pendientes o una salida olvidada (`open_late`, el umbral
+// del aviso «Lo grave» del Inicio, lo pone la API); luego, por nombre.
 function Professors() {
   const list = useEmployees()
-  const now = useNow()
   if (list.isPending) return <ListSkeleton rows={4} className="h-14" />
   if (list.isError) return <ErrorState error={list.error} onRetry={() => void list.refetch()} />
   if (list.data.employees.length === 0) return <EmptyState icon={<UsersIcon />} title="No hay profesores empleados" text="Marca a un profesor como empleado en su ficha de Usuarios." />
-  const rows = list.data.employees.map((p) => ({ ...p, late: !!p.open_since && now - Date.parse(p.open_since) > OPEN_MS }))
-  const urgent = (p: (typeof rows)[number]) => (p.pending > 0 || p.late ? 0 : 1)
+  const rows = [...list.data.employees]
+  const urgent = (p: (typeof rows)[number]) => (p.pending > 0 || p.open_late ? 0 : 1)
   rows.sort((a, b) => urgent(a) - urgent(b)) // estable: dentro de cada grupo sigue el orden por nombre del servidor
   return (
     <div className="flex max-w-2xl flex-col gap-2">
@@ -78,13 +74,13 @@ function Professors() {
                       {plural(p.pending, 'corrección pendiente', 'correcciones pendientes')}
                     </Tag>
                   )}
-                  {p.late && (
+                  {p.open_late && (
                     <span className="flex items-center gap-1.5 font-semibold text-warning-foreground">
                       <TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden />
                       Jornada abierta desde el {formatDeadline(p.open_since!)}
                     </span>
                   )}
-                  {p.open_since && !p.late && (
+                  {p.open_since && !p.open_late && (
                     <span className="flex items-center gap-1.5 text-muted-foreground">
                       <TimerIcon className="size-3.5 shrink-0" aria-hidden />
                       En jornada desde las <span className="font-mono tabular-nums">{formatTime(p.open_since)}</span>

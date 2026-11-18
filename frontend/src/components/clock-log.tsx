@@ -194,10 +194,10 @@ const CORRECTION_TAG = {
   rejected: { variant: 'error', Icon: XIcon },
 } as const
 
-function CorrectionRow({ c, text, admin, onReject, apply }: { c: Correction; text: string; admin: boolean; onReject: () => void; apply: () => void }) {
+function CorrectionRow({ c, text, admin, onReject, apply, className }: { c: Correction; text: string; admin: boolean; onReject: () => void; apply: () => void; className?: string }) {
   const { variant, Icon } = CORRECTION_TAG[c.status]
   return (
-    <li className="flex flex-col gap-1.5 border-b px-4 py-3 last:border-b-0">
+    <li className={cn('flex flex-col gap-1.5 border-b px-4 py-3 last:border-b-0', className)}>
       <div className="flex items-start justify-between gap-2">
         <span className="font-semibold text-pretty">{text}</span>
         <Tag variant={variant}>
@@ -348,7 +348,8 @@ function EventRow({ e, data, employee, onTarget }: { e: ClockEvent; data: ClockM
   )
 }
 
-function DayCard({ d, data, employee, today, onTarget }: { d: ClockDay; data: ClockMonth; employee: boolean; today: string; onTarget: (t: Target) => void }) {
+// `addOut`: el botón de la salida que falta; el admin lo tiene en el resumen y aquí solo queda el aviso.
+function DayCard({ d, data, employee, today, onTarget, addOut = true }: { d: ClockDay; data: ClockMonth; employee: boolean; today: string; onTarget: (t: Target) => void; addOut?: boolean }) {
   const id = useId()
   const missingOut = d.open && d.date < today
   const paused = d.open && data.state === 'paused'
@@ -383,7 +384,7 @@ function DayCard({ d, data, employee, today, onTarget }: { d: ClockDay; data: Cl
             <TriangleAlertIcon className="size-4 shrink-0" aria-hidden />
             Falta la salida
           </p>
-          {employee && (
+          {employee && addOut && (
             <Button variant="outline" size="xl" onClick={() => onTarget({ mode: 'add', day: d.date, kind: 'out' })}>
               <PlusIcon />
               Añadir la salida
@@ -414,12 +415,17 @@ export function ClockLog({ data, admin = false, printTo, onChanged, onCsv, rise 
   const today = madridDay()
   const openPast = data.days.find((d) => d.open && d.date < today)
   const current = data.month === madridMonth()
+  // La que se acaba de resolver entra en su sección con enter-soft (solo esas: al cargar no se mueve nada).
+  const pendingIds = pending.map((c) => c.id).join()
+  const [moved, setMoved] = useState({ ids: pendingIds, done: new Set<string>() })
+  if (moved.ids !== pendingIds) setMoved({ ids: pendingIds, done: new Set(resolved.filter((c) => moved.ids.split(',').includes(c.id)).map((c) => c.id)) })
   const row = (c: Correction) => (
     <CorrectionRow
       key={c.id}
       c={c}
       text={whatOf(c, data)}
       admin={admin}
+      className={moved.done.has(c.id) ? 'enter-soft' : undefined}
       onReject={() => setTarget({ mode: 'reject', correction: c })}
       apply={() =>
         ask({
@@ -480,7 +486,7 @@ export function ClockLog({ data, admin = false, printTo, onChanged, onCsv, rise 
             plainTitle
           />
         ) : (
-          days.map((d) => <DayCard key={d.date} d={d} data={data} employee={employee} today={today} onTarget={setTarget} />)
+          days.map((d) => <DayCard key={d.date} d={d} data={data} employee={employee} today={today} onTarget={setTarget} addOut={!admin || d.date !== openPast?.date} />)
         )}
       </Rise>
       {target && (
