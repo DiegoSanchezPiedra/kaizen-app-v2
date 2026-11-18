@@ -125,3 +125,24 @@
   pausas por año a 0. Vaciar un precio ya puesto se explica en el campo y no se guarda.
 - **Salir con cambios**: «¿Salir sin guardar?» al navegar dentro de la app (`useBlocker`), con los grupos que se pierden;
   al recargar o cerrar, el aviso del navegador.
+
+## Informes (`/admin/reports`) — rediseño 7, 2026-11-18
+
+- El admin viene a ver **cómo va la academia** y a comparar: abre en **Suscripciones**. Sin CSV: basta «Ver tabla».
+- **URL**: `?tab`, `?rango=30d|92d|12m|24m` (Suscripciones) y `?periodo`, `?desde`, `?hasta`, `?disciplina` (Sesiones y
+  Alumnos, compartidos). Cambiar de pestaña los conserva; cambiar un filtro quita `?page`. Un valor desconocido vale el de
+  por defecto (una disciplina que ya no existe, «todas»). El profesor sigue con los filtros en memoria
+  (`useReportFilters({ url })` y `SessionsReport urlFilters`, opcionales).
+- **Suscripciones**: línea de periodo con año; dos tarjetas de 3 cifras, «Última foto · 17 nov 2026» (activas, en gracia,
+  impagadas; «· N de M días» si el mes va incompleto, y «Sin dato de ayer» con icono) y «En el periodo» (altas, bajas,
+  entrenaron). **Sin foto** = columna con contorno punteado (3:1 medido) y «Sin dato» en el tooltip y la tabla, nunca una
+  barra de 0; **mes incompleto** = punto bajo la etiqueta y «N de M días». La leyenda solo lleva las marcas que aparecen.
+  Eje: por meses, el año en enero (« ’26»); 92 días, el mes en su día 1; 30 días, «17 nov» cada 7 sin los extremos.
+  Tooltip y tabla de días llevan año si el rango abarca dos. «Ver tabla»: una fila por día o mes hasta `xl` (cifras 3×2),
+  la tabla desde `xl`. `invalid_range`: «Revisa las fechas: como mucho 92 días o 24 meses.», sin «Reintentar».
+- **Gráficas** (`MonthBars`, también del profesor): el puntero (ratón o dedo en horizontal) elige la columna por su `x`;
+  con más de 40 columnas, `gap-px` y el hueco sin dato es una sola línea de puntos (dos bordes en 2 px parecían una barra). Props opcionales `gap` y `mark`; /professor/reports queda igual (0 % de diferencia).
+- **Alumnos**: por nombre (orden del servidor; ordenar por columna pediría cambiar la API). Línea de periodo como Sesiones.
+  Hasta `xl`, una fila por alumno que abre la ficha (cifras en negrita con su palabra: «12 reservas · 1 falta…», nombre
+  largo partido); tabla desde `xl`. Paginar atenúa la lista anterior; vacío con «Quitar la disciplina» si la hay.
+- `Pager` del panel: «Anterior» y «Siguiente» a 44 px (Usuarios, Cobros, Avisos y Auditoría también).
