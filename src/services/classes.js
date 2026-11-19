@@ -31,7 +31,7 @@ async function getClass(client, id) {
 }
 
 const overlap = (err) =>
-  err.code === '23P01' ? httpError(409, 'trainer_overlap', 'El profesor ya imparte otra sesión a esa hora') : err;
+  err.code === '23P01' ? httpError(409, 'trainer_overlap', 'El profesor ya imparte otra sesión a esa hora; solo puede coincidir con la misma hora, duración y lugar') : err;
 
 export async function createClass(client, { body, actorId }) {
   const data = validate(body, CLASS_SPEC, false);

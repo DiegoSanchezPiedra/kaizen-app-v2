@@ -128,7 +128,8 @@ Para un **hijo**, los acuerdos los firma y la ficha la rellena un tutor vinculad
 - **Aforo**: número de plazas de una sesión. Siempre existe y es mayor que 0; no hay sesiones ilimitadas. Nunca puede quedar por debajo de las reservas de la sesión.
 - **Duración**: obligatoria en toda clase y sesión; fija la hora de fin.
 - **Lugar**: texto libre opcional de una sesión (p. ej. «tatami 2»). No hay salas definidas.
-- **Solape**: un profesor no puede impartir dos sesiones que se solapen en el tiempo. No se controlan solapes de lugar.
+- **Solape**: un profesor no puede impartir dos sesiones que se solapen en el tiempo, salvo que sean **simultáneas**. No se controlan solapes de lugar entre profesores.
+- **Sesiones simultáneas**: dos sesiones del mismo profesor con la misma hora de inicio, la misma duración y el mismo lugar (p. ej. boxeo y muay thai en el mismo tatami). El lugar se compara sin mayúsculas ni espacios en los extremos, y dos sesiones sin lugar están en el mismo. Cada una tiene su aforo y un alumno no puede reservar las dos (ver «Solape de reservas»). Se crean como clases separadas (ADR 0034).
 - **Profesor de la sesión**: quien la imparte: el profesor habitual de su clase o, si hay un ajuste, el **sustituto**. Las **sesiones de un profesor** son las que imparte, sustituciones incluidas. El profesor solo ve en el calendario sus sesiones y no crea ni ajusta clases ni sesiones: eso es del admin.
 - **Baja de un profesor**: no se permite mientras sea profesor habitual de alguna clase no retirada o profesor de alguna sesión futura; antes hay que reasignarlas (cambio de clase, ajuste de sesión) o retirarlas.
 - **Ajuste de sesión**: cambio hecho a mano en una sesión concreta que no ha empezado (cancelarla, profesor sustituto, otro inicio, también otro día, otra duración, otro aforo, otro lugar). Gana sobre los cambios de su clase, campo a campo. Las reservas siguen a su sesión, como en un cambio de clase.

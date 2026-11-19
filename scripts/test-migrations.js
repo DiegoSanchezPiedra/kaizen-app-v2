@@ -14,10 +14,10 @@ let failed = 0;
 try {
   const [{ name }] = (await c.query(`SELECT name FROM pgmigrations ORDER BY id DESC LIMIT 1`)).rows;
   // B31, B30 y B32: la 059 (registro de jornada), la 060 (pausas), la 061 (acceso del menor), la 062 (permiso de crear hijos), la 063 (JIT
-  // apagado) la 065 (supresiones de email; su down/up se prueba abajo), la 067 (check-in idempotente), la 068, la 069, la 070 (plan destacado), la 071 (comunicados) y la 072 (alta de usuarios por el admin)
+  // apagado) la 065 (supresiones de email; su down/up se prueba abajo), la 067 (check-in idempotente), la 068, la 069, la 070 (plan destacado), la 071 (comunicados), la 072 (alta de usuarios por el admin) y la 074 (sesiones simultáneas)
   // no tienen datos que migrar; se bajan con la 058 y vuelven a subir (la 060 y la 061 deshacen y rehacen sus parches de funciones).
-  assert.equal(name, '073_multi_role', 'el test baja las dieciséis últimas: actualízalo si hay otra después');
-  migrate('down', 16);
+  assert.equal(name, '074_simultaneous_sessions', 'el test baja las diecisiete últimas: actualízalo si hay otra después');
+  migrate('down', 17);
   await c.query(`INSERT INTO plans (name, price_cents, minors_only) VALUES ('T-Mig-PKids', 1000, true), ('T-Mig-PAll', 1000, false)`);
   await c.query(`INSERT INTO disciplines (name, minors_only) VALUES ('T-Mig-Kids', true), ('T-Mig-BJJ', false)`);
   // 062: quien ya es tutor conserva el permiso de crear hijos; el resto empieza sin él.
@@ -47,7 +47,7 @@ try {
   // 064: alta de profesores. Bajar borra las invitaciones (kind desaparece) y deja la contraseña restablecible; subir la vuelve a dejar.
   await c.query(`INSERT INTO password_resets (profile_id, token_hash, expires_at, kind) VALUES ($1, 't-mig-inv', now() + interval '1 day', 'invite')`, [solo.id]);
   await c.query(`INSERT INTO password_resets (profile_id, token_hash, expires_at) VALUES ($1, 't-mig-reset', now() + interval '1 day')`, [solo.id]);
-  migrate('down', 10); // de la 073 a la 064
+  migrate('down', 11); // de la 074 a la 064
   assert.equal((await c.query(`SELECT to_regclass('email_suppressions') AS t`)).rows[0].t, null, '065 down: sin tabla de supresiones');
   const cols = async () => (await c.query(
     `SELECT table_name || '.' || column_name AS col FROM information_schema.columns
@@ -59,7 +59,7 @@ try {
   assert.equal((await c.query(`SELECT kind FROM password_resets WHERE token_hash = 't-mig-reset'`)).rows[0].kind, 'reset');
   assert.equal((await c.query(`SELECT to_regclass('email_suppressions') AS t`)).rows[0].t, 'email_suppressions', '065 up: tabla de supresiones');
   // 066 down: minors_only = máxima ≤ 17 (la mínima se pierde); up de nuevo.
-  migrate('down', 8); // de la 073 a la 066
+  migrate('down', 9); // de la 074 a la 066
   assert.deepEqual((await c.query(`SELECT name, minors_only FROM plans WHERE name LIKE 'T-Mig-%' ORDER BY name`)).rows,
     [{ name: 'T-Mig-PAll', minors_only: false }, { name: 'T-Mig-PKids', minors_only: true }], '066 down');
   migrate('up');

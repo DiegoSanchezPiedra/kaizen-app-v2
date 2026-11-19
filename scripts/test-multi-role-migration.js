@@ -9,8 +9,11 @@ import crypto from 'node:crypto';
 import { servicePool, appPool, closePools } from '../src/config/database.js';
 import { withRls } from '../src/db/rls.js';
 
-const migrate = (dir) => {
-  const r = spawnSync('node_modules/.bin/node-pg-migrate', [dir, ...(dir === 'down' ? ['1'] : [])], { encoding: 'utf8' });
+// down: hasta la 072, bajando también las que vengan después de la 073 (sin datos que migrar; up las vuelve a subir).
+const migrate = async (dir) => {
+  const n = dir === 'down'
+    ? (await servicePool.query(`SELECT count(*)::int n FROM pgmigrations WHERE name >= '073_multi_role'`)).rows[0].n : 0;
+  const r = spawnSync('node_modules/.bin/node-pg-migrate', [dir, ...(n ? [String(n)] : [])], { encoding: 'utf8' });
   assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
 };
 const q = (sql, params) => servicePool.query(sql, params).then((r) => r.rows);
@@ -39,12 +42,12 @@ const email = (k) => q(`INSERT INTO auth_credentials (profile_id, email, passwor
 const give = (k, ...roles) => Promise.all(roles.map((r) => q(`INSERT INTO user_roles (user_id, role) VALUES ($1, $2)`, [ids[k], r])));
 
 try {
-  migrate('down'); // 073 → 072
+  await migrate('down'); // 073 (y las siguientes) → 072
   const before = await snapshot();
   assert.equal((await q(`SELECT 1 FROM pg_attribute WHERE attrelid = 'profiles'::regclass AND attname = 'last_role'`)).length, 0);
   await adult('sinfila');
   await adult('prof'); await give('prof', 'profesor');
-  migrate('up');
+  await migrate('up');
 
   await run('backfill: el perfil sin fila pasa a alumno y el que tenía una la conserva', async () => {
     assert.deepEqual(await rolesOf(ids.sinfila), ['alumno']);
@@ -143,7 +146,7 @@ try {
     await denied(ctx(ids.prof, 'profesor', (c) => c.query(`INSERT INTO user_roles (user_id, role) VALUES ($1, 'alumno')`, [ids.viewer])));
   });
 
-  migrate('down');
+  await migrate('down');
   await run('down: una fila por usuario con el rol de mayor prioridad y la constraint vieja', async () => {
     assert.deepEqual(await rolesOf(ids.multi), ['profesor']);
     assert.deepEqual(await rolesOf(ids.nuevo), ['tutor']);
@@ -155,7 +158,7 @@ try {
     assert.deepEqual(await snapshot(), before, 'políticas, register_event, public_disciplines y public_profiles como en la 072');
   });
 
-  migrate('up');
+  await migrate('up');
   await run('up de nuevo: vuelven los varios roles', async () => {
     await give('multi', 'alumno');
     assert.deepEqual(await rolesOf(ids.multi), ['alumno', 'profesor']);

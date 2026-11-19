@@ -231,13 +231,13 @@ try {
   assert.ok(D, 'ya hay foto de ayer y de hoy: el test necesita un día libre');
 
   await run('job: con extend-horizon fallando (una clase rota) la foto se hace igual y sale con 1; relanzado, «ya existía»', async () => {
-    // La clase choca con una sesión suelta de su profesor a la misma hora: generateSessions falla en ella.
+    // La clase choca con una sesión suelta de su profesor a la misma hora en otro lugar: generateSessions falla en ella.
     await q(`INSERT INTO profiles (id, display_name) VALUES ($1, $2)`, [trainer, `${tag}-profesor`]);
     await q(`INSERT INTO user_roles (user_id, role) VALUES ($1, 'profesor')`, [trainer]);
     [disc] = await q(`INSERT INTO disciplines (name) VALUES ($1) RETURNING id`, [`${tag}-BJJ`]);
     const at = local(`${day(1)} 19:00`);
-    await q(`INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, status)
-             VALUES ($1, $2, ${at}, ${at} + interval '1 hour', 60, 5, 'scheduled')`, [disc.id, trainer]);
+    await q(`INSERT INTO class_sessions (discipline_id, trainer_id, starts_at, ends_at, duration_min, capacity, location, status)
+             VALUES ($1, $2, ${at}, ${at} + interval '1 hour', 60, 5, 'tatami 9', 'scheduled')`, [disc.id, trainer]);
     const [k] = await q(
       `INSERT INTO classes (discipline_id, trainer_id, weekday, start_time, duration_min, capacity, starts_on, ends_on)
        VALUES ($1, $2, $3, '19:00', 60, 5, $4, $4) RETURNING id`, [disc.id, trainer, dow(day(1)), day(1)]);

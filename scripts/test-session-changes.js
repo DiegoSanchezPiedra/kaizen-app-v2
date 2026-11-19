@@ -255,7 +255,8 @@ try {
   await run('solape del profesor → 409 trainer_overlap sin cambiar nada', async () => {
     const k = await mkClass({ weeks: 2 });
     const other = await mkClass({ weeks: 2 }); // otro profesor, misma hora
-    await rejects(change(k.id, { trainer_id: other.trainer, capacity: 9 }), 409, 'trainer_overlap');
+    // Con otro lugar: en la misma franja y el mismo lugar serían simultáneas, que se permiten (ADR 0034).
+    await rejects(change(k.id, { trainer_id: other.trainer, capacity: 9, location: 'tatami 9' }), 409, 'trainer_overlap');
     const [{ trainer_id: t, capacity }] = await q(`SELECT trainer_id, capacity FROM classes WHERE id = $1`, [k.id]);
     assert.deepEqual([t, capacity], [k.trainer, 5]);
     for (const s of await sessionsOf(k.id)) assert.deepEqual([s.trainer_id, s.capacity], [k.trainer, 5]);
