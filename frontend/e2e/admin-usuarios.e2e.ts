@@ -9,7 +9,7 @@ const TOKEN = `${b64({ alg: 'none' })}.${b64({ sub: 'a-1', role: 'admin', exp: 4
 const ME = { id: 'a-1', display_name: 'Marta Admin', email: 'admin@example.invalid', username: null, birth_date: null, has_password: true, avatar: null, can_create_children: false, minor: null, role: 'admin' }
 
 const row = (id: string, display_name: string, extra: object = {}) => ({
-  id, display_name, avatar: null, email: `${id}@example.invalid`, role: 'alumno', is_minor: false, pending_claim: false, disabled: false, has_password: true,
+  id, display_name, avatar: null, email: `${id}@example.invalid`, roles: ['alumno'], is_minor: false, pending_claim: false, disabled: false, has_password: true,
   created_at: at('10:00', '2025-09-01'), subscription_status: 'active', plan_id: '1', plan_name: 'Ilimitado', estado: 'activo', last_attendance_at: at('19:00', '2026-11-17'), ...extra,
 })
 const ROWS = [row('u1', 'Lucía Pérez'), row('u2', 'Hugo Sánchez', { estado: 'impago', subscription_status: 'unpaid' }), row('u3', 'Martina López', { is_minor: true, email: null })]
@@ -21,24 +21,34 @@ const SUB = {
 const profile = (extra: object = {}) => ({ ...row('u1', 'Lucía Pérez'), is_public: true, has_google: false, can_create_children: false, ...extra })
 const FILES: Record<string, object> = {
   u1: { profile: profile(), status: { ok: true }, guardians: [], children: [], subscription: SUB },
+  u4: { profile: profile({ id: 'u4', display_name: 'Ada Admin', roles: ['alumno', 'admin'], plan_name: null, estado: null }), status: { ok: true }, guardians: [], children: [], subscription: null },
+  'a-1': { profile: profile({ id: 'a-1', display_name: 'Marta Admin', roles: ['admin'], plan_name: null, estado: null }), status: { ok: true }, guardians: [], children: [], subscription: null },
   u3: { profile: profile({ id: 'u3', display_name: 'Martina López', is_minor: true, email: null, has_password: false }), status: { ok: true }, guardians: [{ id: 'u9', display_name: 'Carlos Vidal', email: 'u9@example.invalid' }], children: [], subscription: null },
 }
 
-type Opts = { total?: number; save?: 'ok' | 'error' }
+type Opts = { total?: number; save?: 'ok' | 'error' | 'locked' }
 async function open(page: Page, url: string, o: Opts = {}) {
   const { total = ROWS.length, save = 'ok' } = o
   await page.clock.setFixedTime(NOW)
   await page.addInitScript((t) => localStorage.setItem('kz.token', t), TOKEN)
   const writes: string[] = []
+  const files = structuredClone(FILES) as Record<string, { profile: { roles: string[] } }>
   const lists: URLSearchParams[] = []
   await page.route('**/api/**', (r) => {
     const u = new URL(r.request().url())
     const p = u.pathname.replace(/^\/api/, '')
     const m = r.request().method()
     if (p === '/me') return r.fulfill({ json: ME })
-    if (p === '/auth/me') return r.fulfill({ json: { user: { id: 'a-1', role: 'admin' }, mfa_enabled: true } })
+    if (p === '/auth/me') return r.fulfill({ json: { user: { id: 'a-1', role: 'admin', roles: ['admin'] }, mfa_enabled: true } })
     if (m !== 'GET') {
       writes.push(`${m} ${p}`)
+      const roles = p.match(/^\/admin\/profiles\/([^/]+)\/roles(?:\/(\w+))?$/)
+      if (roles && save === 'locked') return r.fulfill({ status: 409, json: { code: 'student_has_subscription' } })
+      if (roles && save === 'ok') {
+        const prof = files[roles[1]].profile
+        prof.roles = m === 'POST' ? [...prof.roles, r.request().postDataJSON().role] : prof.roles.filter((x) => x !== roles[2])
+        return r.fulfill({ json: { profile: prof } })
+      }
       return r.fulfill(save === 'error' ? { status: 500, json: { code: 'internal' } } : { json: { ok: true } })
     }
     if (p === '/admin/profiles/stats') return r.fulfill({ json: { activos: 214, impago: 3, inactivos: 11 } })
@@ -48,7 +58,7 @@ async function open(page: Page, url: string, o: Opts = {}) {
       return r.fulfill({ json: { profiles: empty ? [] : ROWS, total: empty ? 0 : total } })
     }
     const f = p.match(/^\/admin\/profiles\/([^/]+)$/)
-    if (f) return FILES[f[1]] ? r.fulfill({ json: FILES[f[1]] }) : r.fulfill({ status: 404, json: { code: 'profile_not_found' } })
+    if (f) return files[f[1]] ? r.fulfill({ json: files[f[1]] }) : r.fulfill({ status: 404, json: { code: 'profile_not_found' } })
     if (p === '/bookings') return r.fulfill({ json: { bookings: [] } })
     return r.fulfill({ json: { plans: [], disciplines: [], rows: [], total: 0 } })
   })
@@ -117,20 +127,67 @@ test('ficha: perfil que no existe', async ({ page }) => {
   await expect(page.getByText('Este perfil no existe', { exact: true })).toBeVisible()
 })
 
-test('pasar a admin pide el código del doble factor; si falla al guardar, aviso de error', async ({ page }) => {
-  const { writes } = await open(page, '/admin/users/u1', { save: 'error' })
-  await page.getByRole('combobox', { name: 'Rol nuevo' }).click()
-  await page.getByRole('option', { name: 'Admin', exact: true }).click()
-  await page.getByRole('button', { name: 'Cambiar el rol', exact: true }).click()
+const roleBox = (page: Page, name: string) => page.getByRole('checkbox', { name, exact: true })
+
+test('roles de la ficha: añadir «Tutor» pide confirmar, llama a POST /roles y actualiza las etiquetas', async ({ page }) => {
+  const { writes } = await open(page, '/admin/users/u1')
+  await expect(page.getByText('Alumno', { exact: true }).first()).toBeVisible()
+  await expect(roleBox(page, 'Alumno')).toBeChecked()
+  await expect(roleBox(page, 'Tutor')).not.toBeChecked()
+  await expect(roleBox(page, 'Tutor')).toBeEnabled()
+  await expect(page.getByRole('checkbox', { name: 'Profesor' })).toHaveCount(0) // profesor solo sale si lo tiene
+  await roleBox(page, 'Tutor').click()
   const dialog = page.getByRole('alertdialog')
-  const confirm = dialog.getByRole('button', { name: 'Cambiar el rol', exact: true })
-  await expect(confirm).toBeDisabled()
-  await page.keyboard.type('123456')
-  await expect(confirm).toBeEnabled()
-  await confirm.click()
-  await expect.poll(() => writes).toContain('PUT /admin/profiles/u1/role')
+  await expect(dialog.getByText('¿Dar el rol de tutor a Lucía Pérez?')).toBeVisible()
+  expect(writes).toEqual([]) // nada hasta confirmar
+  await dialog.getByRole('button', { name: 'Dar el rol', exact: true }).click()
+  await expect.poll(() => writes).toEqual(['POST /admin/profiles/u1/roles'])
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
-  await expect(page.getByText(/algo ha fallado|no se ha podido|error/i).first()).toBeVisible()
+  await expect(roleBox(page, 'Tutor')).toBeChecked()
+  await expect(page.getByText('Alumno', { exact: true })).toHaveCount(2) // cabecera: una etiqueta por rol (más la casilla)
+  await expect(page.getByText('Tutor', { exact: true })).toHaveCount(2)
+})
+
+test('roles de la ficha: quitar un rol (hay otro) pide confirmar y llama a DELETE', async ({ page }) => {
+  const { writes } = await open(page, '/admin/users/u4')
+  await roleBox(page, 'Alumno').click()
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog.getByText('¿Quitar el rol de alumno a Ada Admin?')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Volver', exact: true }).click() // cancelar no escribe
+  expect(writes).toEqual([])
+  await roleBox(page, 'Alumno').click()
+  await dialog.getByRole('button', { name: 'Quitar el rol', exact: true }).click()
+  await expect.poll(() => writes).toEqual(['DELETE /admin/profiles/u4/roles/alumno'])
+})
+
+test('roles de la ficha: la casilla admin de un admin está deshabilitada y dice por qué', async ({ page }) => {
+  await open(page, '/admin/users/u4')
+  const admin = roleBox(page, 'Admin')
+  await expect(admin).toBeChecked()
+  await expect(admin).toBeDisabled()
+  await expect(admin).toHaveAccessibleDescription('El rol de administración no se quita desde la app.')
+  await expect(roleBox(page, 'Tutor')).toBeEnabled()
+})
+
+test('roles de la ficha: el propio perfil no se cambia (un motivo para todas) y un hijo solo es alumno', async ({ page }) => {
+  await open(page, '/admin/users/a-1')
+  for (const n of ['Alumno', 'Tutor', 'Admin']) {
+    await expect(roleBox(page, n)).toBeDisabled()
+    await expect(roleBox(page, n)).toHaveAccessibleDescription('No puedes cambiar tus propios roles.')
+  }
+  await expect(page.getByText('No puedes cambiar tus propios roles.')).toHaveCount(1)
+  await open(page, '/admin/users/u3')
+  await expect(roleBox(page, 'Tutor')).toBeDisabled()
+  await expect(roleBox(page, 'Tutor')).toHaveAccessibleDescription('Un hijo solo es alumno.')
+})
+
+test('roles de la ficha: si el servidor lo rechaza, se avisa con su texto y nada cambia', async ({ page }) => {
+  await open(page, '/admin/users/u1', { save: 'locked' })
+  await roleBox(page, 'Admin').click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Dar el rol', exact: true }).click()
+  await expect(page.getByText('Tiene una cuota viva; dala de baja antes.')).toBeVisible()
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  await expect(roleBox(page, 'Admin')).not.toBeChecked()
 })
 
 test('baja inmediata: confirmación que dice qué pasa y a quién se avisa', async ({ page }) => {

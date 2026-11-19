@@ -204,7 +204,8 @@ async function matrix() {
     // /me cerrado por defecto: toda ruta del router que no esté en la lista blanca da minor_restricted (también una nueva).
     const { default: meRouter } = await import('../src/routes/me.js');
     const ALLOWED = ['GET /', 'GET /profile-status', 'GET /profile', 'PATCH /profile', 'GET /progress', 'POST /progress/seen',
-      'POST /push-subscriptions', 'DELETE /push-subscriptions', 'POST /password', 'PUT /avatar', 'DELETE /avatar'];
+      'POST /push-subscriptions', 'DELETE /push-subscriptions', 'POST /password', 'PUT /avatar', 'DELETE /avatar',
+      'GET /communiques', 'POST /communiques/seen']; // comunicados: también el menor (ADR 0030)
     const routes = meRouter.stack.filter((l) => l.route).flatMap((l) => Object.keys(l.route.methods)
       .map((m) => `${m.toUpperCase()} ${l.route.path}`));
     assert.ok(ALLOWED.every((r) => routes.includes(r)), 'la lista blanca existe');

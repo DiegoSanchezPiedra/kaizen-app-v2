@@ -5,6 +5,7 @@ import type React from 'react'
 import { Link, useNavigate, type LinkProps } from 'react-router'
 import { PasswordInput } from '@/components/password-input'
 import { AvatarEditor } from '@/components/avatar-editor'
+import { RoleSwitcher } from '@/components/role-switcher'
 import { AgreementsPanel } from '@/components/agreements-panel'
 import { HealthForm } from '@/components/health-form'
 import { MyDataForm } from '@/components/my-data-form'
@@ -21,12 +22,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
 import { errorText } from '@/lib/errors'
 import { logout } from '@/lib/logout'
+import { rolesOf } from '@/lib/admin'
 import { agreementsFor } from '@/lib/profile'
 import { madridMonth } from '@/lib/dates'
 import { minorView } from '@/lib/minor'
 import { minorNotice } from '@/lib/minor-access'
 import { accountBadges, list, type AccountBadge } from '@/lib/notices'
-import { useClock, useMe, useProfileStatus, useSubscription } from '@/lib/queries'
+import { useAuthMe, useClock, useMe, useProfileStatus, useSubscription } from '@/lib/queries'
 import { errorCode, toastError, toastOk } from '@/lib/notify'
 import { setToken, useSession } from '@/lib/session'
 import type { Me } from '@/lib/types'
@@ -148,6 +150,7 @@ export function AccountPage() {
   useEffect(() => {
     played = true
   }, [])
+  const roles = rolesOf(useAuthMe().data)
   const family = role === 'alumno' || role === 'tutor'
   // B32: un menor con acceso propio no ve lo que su tutor lleva (cuota, acuerdos, salud, hijos, su nombre).
   const view = minorView(me.data?.minor)
@@ -174,6 +177,11 @@ export function AccountPage() {
           </AvatarEditor>
         </div>
       </Rise>
+      {roles.length > 1 && (
+        <Rise on={first} i={i++} className="lg:hidden">
+          <RoleSwitcher />
+        </Rise>
+      )}
       {me.data?.minor && (
         <Rise on={first} i={i++}>
           <MinorCard canPublish={me.data.minor.can_publish} />

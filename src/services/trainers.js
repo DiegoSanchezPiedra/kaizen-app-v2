@@ -13,14 +13,19 @@ import { mail } from './notices.js';
 
 const EMPLOYMENTS = ['employee', 'self_employed'];
 const SQL_ERRORS = {
-  '42501': [403, 'insufficient_role', 'Solo el admin gestiona profesores'],
+  '42501': [403, 'insufficient_role', 'Solo el admin da de alta y reinvita'],
+  // Alta de usuarios (072, ADR 0032):
+  invalid_role: [400, 'invalid_field', 'role debe ser alumno, tutor o admin'],
+  profile_not_found: [404, 'profile_not_found', 'Perfil no encontrado'],
+  already_active: [409, 'already_active', 'Ya entró en su cuenta: no hace falta invitarle'],
+  not_invitable: [409, 'not_invitable', 'No se puede invitar a este perfil (menor, desactivado o profesor)'],
   trainer_not_found: [404, 'trainer_not_found', 'Profesor no encontrado'],
   trainer_disabled: [409, 'trainer_disabled', 'El profesor está desactivado: reactívalo antes'],
   same_email: [409, 'same_email', 'El profesor ya tiene ese correo'],
   same_state: [409, 'same_state', 'El profesor ya está en ese estado'],
 };
 
-async function call(client, sql, params) {
+export async function call(client, sql, params) {
   try {
     await client.query(sql, params);
   } catch (err) {
@@ -31,16 +36,20 @@ async function call(client, sql, params) {
   }
 }
 
-/** Correo en minúsculas, con forma de email y del dominio corporativo (si está fijado). */
-function parseEmail(v) {
+/** Correo en minúsculas y con forma de email. */
+export function normEmail(v) {
   if (typeof v !== 'string' || v.length > 254 || !EMAIL_RE.test(v.trim())) throw invalid('email', 'email debe ser un correo');
-  const email = v.trim().toLowerCase();
+  return v.trim().toLowerCase();
+}
+/** Además, del dominio corporativo (si está fijado). */
+function parseEmail(v) {
+  const email = normEmail(v);
   if (CORPORATE_EMAIL_DOMAIN && email.slice(email.lastIndexOf('@') + 1) !== CORPORATE_EMAIL_DOMAIN) {
     throw httpError(400, 'email_domain_not_allowed', `El correo tiene que ser de @${CORPORATE_EMAIL_DOMAIN}`);
   }
   return email;
 }
-const parseName = (v) => {
+export const parseName = (v) => {
   if (typeof v !== 'string' || !v.trim() || v.trim().length > 100) throw invalid('display_name', 'display_name debe ser un texto de 1 a 100 caracteres');
   return v.trim();
 };
@@ -48,7 +57,7 @@ const parseEmployment = (v) => {
   if (!EMPLOYMENTS.includes(v)) throw invalid('employment', 'employment debe ser employee o self_employed');
   return v;
 };
-const newToken = () => crypto.randomBytes(32).toString('base64url');
+export const newToken = () => crypto.randomBytes(32).toString('base64url');
 
 export async function getTrainer(client, id) {
   const { rows: [t] } = await client.query(
@@ -105,15 +114,16 @@ export async function setTrainerDisabled(client, { id, disabled }) {
   return { trainer: await getTrainer(client, id) };
 }
 
-/** Directo y no por el outbox (como recuperar contraseña): el outbox obligaría a guardar el token en claro. */
-export function sendInvite({ to, name, token }) {
-  const url = `${APP_URL}/reset-password?token=${token}&invite=1`;
+export const inviteUrl = (token) => `${APP_URL}/reset-password?token=${token}&invite=1`;
+
+/** Directo y no por el outbox (como recuperar contraseña): el outbox obligaría a guardar el token en claro. `as`: «profesor», etc. */
+export function sendInvite({ to, name, token, as }) {
   return send({
     to,
     ...mail('Te damos la bienvenida a Kaizen: elige tu contraseña', { payer: name }, [
-      'La academia te ha dado de alta como profesor en Kaizen.',
+      `La academia te ha dado de alta${as ? ` como ${as}` : ''} en Kaizen.`,
       'Con este enlace eliges tu contraseña y entras. Vale durante 72 horas y una sola vez; si caduca, pide a administración que te lo reenvíe.',
-    ], ['Elegir mi contraseña', url], 'Este es un email de servicio sobre tu cuenta en Kaizen.'),
+    ], ['Elegir mi contraseña', inviteUrl(token)], 'Este es un email de servicio sobre tu cuenta en Kaizen.'),
     idempotencyKey: crypto.randomUUID(),
   }).catch((err) => console.error('[trainers] email de invitación:', err.message));
 }

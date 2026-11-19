@@ -74,6 +74,11 @@ try {
     for (const action of ['notice.no_coverage', 'notice.booking_promoted', 'notice.session_cancelled', 'notice.discipline_change']) {
       assert.deepEqual(await deliveries(await emit(action, { type: 'booking' }, [U.child, U.tutor])), [], action);
     }
+    // ADR 0033: un admin que también es tutor recibe lo suyo
+    await q(`INSERT INTO user_roles (user_id, role) VALUES ($1, 'tutor')`, [U.admin]);
+    const dual = await emit('notice.checkout_race_refunded', { student_id: U.child }, [U.admin]);
+    assert.deepEqual((await deliveries(dual)).map((x) => x.recipient_id), [U.admin]);
+    await q(`DELETE FROM user_roles WHERE user_id = $1 AND role = 'tutor'`, [U.admin]);
     assert.deepEqual(await deliveries(await emit('notice.stripe_risk', { type: 'charge' }, [U.admin])), []);
   });
 

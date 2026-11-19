@@ -63,7 +63,13 @@
 - **Filtros**: rol, disciplina y plan (`q`, `role`, `discipline`, `plan`, `estado`, `page` en la URL, filtrados en el
   servidor); debajo, «N personas» y «Quitar filtros» si hay alguno. Al cambiar un filtro se queda la lista anterior atenuada.
 - **Lista**: columnas nombre, rol (con las marcas), plan, estado (con icono) y última asistencia. La tabla solo desde
-  `xl` (con la barra lateral no cabe antes); por debajo, una fila por persona que abre la ficha. «Nuevo profesor» va junto al título.
+  `xl` (con la barra lateral no cabe antes); por debajo, una fila por persona que abre la ficha. «Nuevo usuario» va junto al título (y en el vacío sin filtros).
+- **Alta** (ADR 0032, beta cerrada): una hoja con el rol primero (alumno, tutor, profesor o admin; una línea dice qué implica),
+  nombre y email; alumno y tutor, fecha de nacimiento (solo adultos); el profesor, correo corporativo y tipo de relación (va por
+  `/admin/trainers`). Sin contraseña: al dar de alta, un diálogo enseña el enlace de un solo uso (72 h) con «Copiar enlace»
+  (sin portapapeles queda seleccionado, como en Tablets), «Ver ficha» y «Hecho»; también se envía por email. En la ficha de
+  quien no ha entrado, «Invitación pendiente» y «Nuevo enlace» (confirma: el anterior deja de valer). Dar el rol admin ya no pide
+  el código del doble factor. `/login` dice «¿No tienes cuenta? Pídesela a la academia.» y `/register` lleva a `/login`.
 - **Estados**: cargando, sin resultados (con «Quitar filtros»), error, y las cifras a 0 si no hay alumnos.
 
 ## Cobros (`/admin/billing`) — rediseño 7, 2026-11-18
@@ -99,8 +105,10 @@
   abre el registro filtrado por ese recurso. El chip de persona toma el nombre de su ficha, también sin filas.
 - `?tab=failed` (nombre antiguo) sigue abriendo las entregas fallidas.
 - Al cambiar de página o de filtro se queda la lista anterior atenuada, como en Cobros.
-- **Comunicados** (enviar avisos a los usuarios desde el panel: ventana en la app, email y botón «Compartir en WhatsApp»
-  con el texto ya escrito) van en un bloque aparte; serán una tercera pestaña de Avisos.
+- **Comunicados** (`?tab=communiques`, ADR 0030): «Nuevo comunicado» abre una hoja con Título, Texto, Para (radio) y, si son
+  socios, sus disciplinas; Canales con la nota LSSI junto al email. «Enviar» confirma con la vista previa de la ventana y
+  «Se enviará a N personas (M por email)». Historial: para, fecha, canales, «Visto por X de Y», «Compartir en WhatsApp» y
+  «Retirar». La ventana del usuario (`CommuniqueDialog`) va en `AppShell`, abajo en móvil, y no sale en `/checkin`.
 
 ## Tablets (`/admin/tablets`) y Ajustes (`/admin/settings`) — rediseño 7, 2026-11-18
 

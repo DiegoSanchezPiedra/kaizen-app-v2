@@ -1,13 +1,16 @@
 // src/services/users.js — usuarios y roles del panel admin (B19.0; CONTEXT § Cambiar el rol, Tutor).
 // Con el client RLS del admin. Nunca devuelve birth_date ni salud: de la edad, solo is_minor y pending_claim.
+import crypto from 'node:crypto';
 import { httpError } from '../lib/errors.js';
 import { invalid, audit } from './catalog.js';
 import { getProfileStatus } from './profile.js';
-import { getMfaStatus, verifyMfaCode } from './mfa.js';
 import { getSubscription, affectedSql } from './billing.js';
+import { call, normEmail, parseName, newToken } from './trainers.js';
+import { isValidPastDate, isAdultBirthDate, sha256 } from './auth.js';
+import { isCorporateEmail } from '../config/corporate.js';
+import { rolesSql, ROLES } from '../lib/roles.js';
 
 const LIVE = `('active', 'past_due', 'unpaid')`;
-const ROLES = ['alumno', 'tutor', 'profesor', 'admin'];
 // ADR 0028: profesor no se da por aquí; lo da de alta el admin (POST /admin/trainers).
 const SETTABLE = ['alumno', 'tutor', 'admin'];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -18,9 +21,9 @@ const MINOR = `COALESCE(p.birth_date > CURRENT_DATE - interval '18 years', false
 // Hijo que cumplió 18 sin acceso propio (D16). Un hijo es un perfil sin credenciales con algún tutor (ADR 0002).
 const PENDING_CLAIM = `(c.profile_id IS NULL AND NOT ${MINOR}
                         AND EXISTS (SELECT 1 FROM guardianships g WHERE g.minor_id = p.id))`;
-const FROM = `FROM profiles p LEFT JOIN auth_credentials c ON c.profile_id = p.id
-              LEFT JOIN user_roles r ON r.user_id = p.id`;
-const ROLE = `COALESCE(r.role::text, 'alumno')`;
+const FROM = `FROM profiles p LEFT JOIN auth_credentials c ON c.profile_id = p.id`;
+// ADR 0033: los roles como array por prioridad (sin JOIN: un perfil con varios roles saldría varias veces).
+const ROLES_SQL = rolesSql('p.id');
 
 const notFound = () => httpError(404, 'profile_not_found', 'Perfil no encontrado');
 const conflict = (code, message) => httpError(409, code, message);
@@ -28,7 +31,7 @@ const conflict = (code, message) => httpError(409, code, message);
 // Alumno de la disciplina $1 (NULL = cualquiera) por su suscripción viva.
 // shortcut: copia la regla de covers() (migrations/058 y 066) pero sobre la suscripción viva (covers solo mira la en vigor y
 // así un impagado no sería de ninguna disciplina); unificar en una función común la próxima vez que se migre covers.
-const IN_DISCIPLINE = `($1::bigint IS NULL OR EXISTS (
+export const IN_DISCIPLINE = `($1::bigint IS NULL OR EXISTS (
   SELECT 1 FROM subscriptions s JOIN plans pl ON pl.id = s.plan_id JOIN disciplines d ON d.id = $1 AND d.is_active
    WHERE s.student_id = p.id AND s.status IN ${LIVE}
      AND in_age_range(p.birth_date, NULL, pl.max_age, now())
@@ -47,9 +50,9 @@ const PEOPLE = `${affectedSql('true')},
   la AS MATERIALIZED (SELECT a.student_id, max(cs.starts_at) AS at FROM attendance a JOIN class_sessions cs ON cs.id = a.session_id
           WHERE a.status = 'present' AND cs.status <> 'cancelled' GROUP BY 1),
   people AS (
-    SELECT p.id, p.display_name, p.avatar, c.email, ${ROLE} AS role, ${MINOR} AS is_minor, ${PENDING_CLAIM} AS pending_claim,
+    SELECT p.id, p.display_name, p.avatar, c.email, ${ROLES_SQL} AS roles, ${MINOR} AS is_minor, ${PENDING_CLAIM} AS pending_claim,
            c.disabled_at IS NOT NULL AS disabled, COALESCE(c.has_password, false) AS has_password, p.created_at, ls.status AS subscription_status, ls.plan_id, ls.plan_name, la.at AS last_attendance_at,
-           CASE WHEN ${ROLE} <> 'alumno' THEN NULL
+           CASE WHEN NOT EXISTS (SELECT 1 FROM user_roles x WHERE x.user_id = p.id AND x.role = 'alumno') THEN NULL
                 WHEN p.id IN (SELECT student_id FROM impago) THEN 'impago'
                 WHEN ls.status IN ('active', 'past_due')
                   THEN CASE WHEN la.at >= now() - interval '14 days' THEN 'activo' ELSE 'inactivo' END
@@ -83,13 +86,13 @@ export async function listProfiles(client, { q, role, discipline_id: disciplineI
     throw invalid('estado', 'estado debe ser activo, impago, inactivo o sin_plan');
   }
   const where = `WHERE ($2::text IS NULL OR display_name ILIKE '%' || $2 || '%' OR email ILIKE '%' || $2 || '%')
-                   AND ($3::text IS NULL OR role = $3) AND ($4::bigint IS NULL OR plan_id = $4)
+                   AND ($3::text IS NULL OR $3 = ANY(roles)) AND ($4::bigint IS NULL OR plan_id = $4)
                    AND ($5::text IS NULL OR estado = $5 OR ($5 = 'activo' AND estado = 'inactivo'))`;
   const params = [idParam('discipline_id', disciplineId), q ? q.replace(/[\\%_]/g, '\\$&') : null, role ?? null,
     idParam('plan_id', planId), estado ?? null];
   const { rows } = await client.query(
     `WITH ${PEOPLE}
-     SELECT id, display_name, avatar, email, role, is_minor, pending_claim, disabled, has_password, created_at, subscription_status, plan_id, plan_name,
+     SELECT id, display_name, avatar, email, roles, is_minor, pending_claim, disabled, has_password, created_at, subscription_status, plan_id, plan_name,
             estado, last_attendance_at, count(*) OVER ()::int AS total
        FROM people ${where}
       ORDER BY display_name, id LIMIT $6 OFFSET $7`, [...params, limit, offset]);
@@ -107,13 +110,13 @@ export async function getProfileStats(client, { discipline_id: disciplineId }) {
      SELECT count(*) FILTER (WHERE estado IN ('activo', 'inactivo'))::int AS activos,
             count(*) FILTER (WHERE estado = 'impago')::int AS impago,
             count(*) FILTER (WHERE estado = 'inactivo')::int AS inactivos
-       FROM people WHERE role = 'alumno'`, [idParam('discipline_id', disciplineId)]);
+       FROM people WHERE 'alumno' = ANY(roles)`, [idParam('discipline_id', disciplineId)]);
   return stats;
 }
 
 async function profileRow(client, id) {
   const { rows: [row] } = await client.query(
-    `SELECT p.id, p.display_name, p.avatar, c.email, ${ROLE} AS role, p.created_at, ${MINOR} AS is_minor,
+    `SELECT p.id, p.display_name, p.avatar, c.email, ${ROLES_SQL} AS roles, p.created_at, ${MINOR} AS is_minor,
             ${PENDING_CLAIM} AS pending_claim, COALESCE(p.is_public, false) AS is_public,
             COALESCE(c.has_password, false) AS has_password,
             COALESCE(c.google_sub IS NOT NULL, false) AS has_google,
@@ -121,6 +124,8 @@ async function profileRow(client, id) {
             c.disabled_at IS NOT NULL AS disabled
        ${FROM} WHERE p.id = $1`, [id]);
   if (!row) throw notFound();
+  // «Nunca activó»: tiene correo pero ni contraseña ni Google (un hijo o un profesor no se invitan por aquí).
+  row.invite_pending = !!row.email && !row.has_password && !row.has_google && !row.is_minor && !row.roles.includes('profesor');
   return row;
 }
 
@@ -154,45 +159,90 @@ export async function getProfile(client, { id }) {
   if (subscription) subscription.payer = await payerOf(client, subscription.id);
   return {
     profile,
-    status: profile.role === 'alumno' ? await getProfileStatus(client, id, 'alumno') : null,
+    status: profile.roles.includes('alumno') ? await getProfileStatus(client, id, 'alumno') : null,
     guardians: await listGuardians(client, id),
     children,
     subscription,
   };
 }
 
-/**
- * Cambiar el rol entre alumno y tutor, o dar el de admin (CONTEXT § Cambiar el rol; profesor, ADR 0028). Vale al momento
- * (requireAuth). Dar admin exige el doble factor del admin activado, una sesión que entró con él (mfaSession: un token
- * robado de antes de activarlo no basta) y su código en esta petición (B20, B3). Quitar admin no se hace desde la app.
- */
-export async function changeRole(client, { id, role, actorId, mfaSession, mfaCode }) {
-  if (!SETTABLE.includes(role)) throw invalid('role', 'role debe ser alumno, tutor o admin');
+// Un perfil con el que el admin puede tocar roles (ADR 0033): ni el suyo, ni un hijo (sin acceso propio o menor). Lo bloquea
+// (FOR UPDATE) y, ya bloqueado, devuelve sus roles.
+async function lockForRoles(client, { id, role, actorId }) {
+  if (!ROLES.includes(role)) throw invalid('role', 'role debe ser alumno, tutor, profesor o admin');
+  if (id === actorId) throw conflict('self_role_locked', 'El admin no cambia sus propios roles');
+  if (role === 'profesor') throw conflict('trainer_role_locked', 'Profesor se da con el Alta de profesor y se quita desactivándolo, desde Profesores');
   const { rows: [p] } = await client.query(
-    `SELECT ${ROLE} AS role, c.profile_id IS NOT NULL AND NOT ${MINOR} AS has_access ${FROM} WHERE p.id = $1 FOR UPDATE OF p`, [id]);
+    `SELECT c.profile_id IS NOT NULL AND NOT ${MINOR} AS has_access ${FROM} WHERE p.id = $1 FOR UPDATE OF p`, [id]);
   if (!p) throw notFound();
-  if (p.role === 'admin') throw conflict('admin_role_locked', 'El rol admin no se quita desde la app');
   if (!p.has_access) throw conflict('child_role_locked', 'Un hijo siempre es alumno');
-  if (p.role === role) throw conflict('same_role', 'El perfil ya tiene ese rol');
-  if (p.role === 'profesor') throw conflict('trainer_role_locked', 'Un profesor se gestiona desde Profesores: desactívalo, no le cambies el rol');
-  if (p.role === 'alumno') {
+  // Aparte del bloqueo: en la misma sentencia los roles saldrían del snapshot previo a esperarlo.
+  const { rows: [{ roles }] } = await client.query(`SELECT ${ROLES_SQL} AS roles FROM profiles p WHERE p.id = $1`, [id]);
+  return roles;
+}
+
+/**
+ * Dar el rol alumno, tutor o admin a un adulto con acceso propio (ADR 0033; profesor, ADR 0028). Se suma a los que tiene; no
+ * pide el doble factor (ADR 0032, riesgo aceptado; queda en audit_log). → { profile }
+ */
+export async function addRole(client, { id, role, actorId }) {
+  const roles = await lockForRoles(client, { id, role, actorId });
+  if (roles.includes(role)) throw conflict('role_already_assigned', 'El perfil ya tiene ese rol');
+  try {
+    await client.query(`INSERT INTO user_roles (user_id, role) VALUES ($1, $2)`, [id, role]);
+  } catch (err) {
+    throw err.code === '23505' && err.constraint === 'user_roles_user_id_role_key'
+      ? conflict('role_already_assigned', 'El perfil ya tiene ese rol') : err;
+  }
+  await audit(client, actorId, 'profile.role_add', id, { role });
+  return { profile: await profileRow(client, id) };
+}
+
+/**
+ * Quitar el rol alumno o tutor (ADR 0033). Admin no se quita desde la app, alumno no con una suscripción viva y siempre
+ * queda uno. Si era el rol activo del afectado, su siguiente petición da 401 (requireAuth). → { profile }
+ */
+export async function removeRole(client, { id, role, actorId }) {
+  const roles = await lockForRoles(client, { id, role, actorId });
+  if (role === 'admin') throw conflict('admin_role_locked', 'El rol admin no se quita desde la app');
+  if (!roles.includes(role)) throw httpError(404, 'role_not_assigned', 'El perfil no tiene ese rol');
+  if (roles.length === 1) throw conflict('last_role', 'Un perfil siempre tiene al menos un rol');
+  if (role === 'alumno') {
     const { rows: [live] } = await client.query(
       `SELECT EXISTS (SELECT 1 FROM subscriptions WHERE student_id = $1 AND status IN ${LIVE}) AS live`, [id]);
     if (live.live) throw conflict('student_has_subscription', 'Tiene una suscripción viva');
   }
-  // El código, lo último: si algo más falla, no se ha probado (un código de recuperación no se gasta sin dar el rol).
-  if (role === 'admin') {
-    if (!(await getMfaStatus(client, actorId)).enabled) {
-      throw httpError(403, 'mfa_required', 'Activa el doble factor para dar el rol de admin');
-    }
-    if (!mfaSession) throw httpError(403, 'mfa_login_required', 'Vuelve a entrar con el doble factor para dar el rol de admin');
-    if (!(await verifyMfaCode(client, actorId, mfaCode))) throw httpError(403, 'invalid_mfa_code', 'El código no es correcto');
-  }
-  await client.query(
-    `INSERT INTO user_roles (user_id, role) VALUES ($1, $2)
-     ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role`, [id, role]);
-  await audit(client, actorId, 'profile.role_change', id, { from: p.role, to: role });
+  await client.query(`DELETE FROM user_roles WHERE user_id = $1 AND role = $2`, [id, role]);
+  await audit(client, actorId, 'profile.role_remove', id, { role });
   return { profile: await profileRow(client, id) };
+}
+
+/**
+ * Alta de un alumno, tutor o admin por el admin (ADR 0032): invitación de 72 h como a los profesores. Alumno y tutor, adultos
+ * con fecha de nacimiento; los menores los da de alta su tutor. → { profile, invite: { to, name, token } }: el token solo
+ * existe aquí y en el email (la ruta lo envía tras el COMMIT y lo devuelve como invite_url).
+ */
+export async function adminCreateUser(client, { email, display_name: name, role, birth_date: birth } = {}) {
+  if (!SETTABLE.includes(role)) throw invalid('role', 'role debe ser alumno, tutor o admin');
+  const e = normEmail(email);
+  const n = parseName(name);
+  if (isCorporateEmail(e)) throw httpError(409, 'email_domain_reserved', 'ese dominio de email está reservado');
+  if (birth !== undefined || role !== 'admin') { // al admin la fecha le es opcional
+    if (!isValidPastDate(birth)) throw httpError(400, 'invalid_birth_date', 'birth_date (YYYY-MM-DD, pasada) requerido');
+    if (!isAdultBirthDate(birth)) throw httpError(400, 'invalid_birth_date', 'solo adultos: a los menores los da de alta su tutor');
+  }
+  const id = crypto.randomUUID();
+  const token = newToken();
+  await call(client, `SELECT admin_create_user($1, $2, $3, $4, $5, $6)`, [id, e, n, birth ?? null, role, sha256(token)]);
+  return { profile: await profileRow(client, id), invite: { to: e, name: n, token } };
+}
+
+/** Enlace nuevo para quien nunca activó su cuenta (invalida el anterior). 409 already_active | not_invitable. */
+export async function inviteUser(client, { id }) {
+  const token = newToken();
+  await call(client, `SELECT admin_user_invite($1, $2)`, [id, sha256(token)]);
+  const { rows: [c] } = await client.query(`SELECT c.email, p.display_name FROM auth_credentials c JOIN profiles p ON p.id = c.profile_id WHERE c.profile_id = $1`, [id]);
+  return { invite: { to: c.email, name: c.display_name, token } };
 }
 
 /** PUT /admin/profiles/:id/can-create-children { enabled } → { profile } (audit_log profile.can_create_children, en SQL). */

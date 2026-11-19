@@ -1,4 +1,4 @@
-// B19.0: usuarios y roles del panel (GET /admin/profiles[/:id], PUT …/role, POST/DELETE …/guardians) y el rol de la
+// B19.0: usuarios y roles del panel (GET /admin/profiles[/:id], POST/DELETE …/roles, POST/DELETE …/guardians) y el rol de la
 // base en requireAuth. B19.1: las lecturas del panel (ajustes, auditoría, avisos, entregas, cambios de pagador, detalle de
 // sesión y PDF de un documento). Como app_user por HTTP con un express en memoria y JWT firmados (como test:account).
 import assert from 'node:assert/strict';
@@ -18,9 +18,6 @@ const { default: adminCheckinRouter } = await import('../src/routes/admin/checki
 const { default: adminSessionsRouter } = await import('../src/routes/admin/sessions.js');
 const { default: adminAgreementsRouter } = await import('../src/routes/admin/agreements.js');
 const { withRls } = await import('../src/db/rls.js');
-const OTPAuth = await import('otpauth');
-const { encrypt } = await import('../src/services/crypto.js');
-const { MFA_TOTP_ISSUER } = await import('../src/config/mfa.js');
 const { notice } = await import('../src/services/notices.js');
 const { createDocument } = await import('../src/services/agreements.js');
 const { deleteFile } = await import('../src/services/storage.js');
@@ -32,12 +29,12 @@ async function run(name, fn) {
 const yearsAgo = (n) => new Date(Date.now() - n * 365.25 * 864e5).toISOString().slice(0, 10);
 
 const tag = `tadm${crypto.randomBytes(3).toString('hex')}`;
-// [rol en user_roles (null = sin fila), fecha de nacimiento, con credenciales]
+// [rol en user_roles, fecha de nacimiento, con credenciales]
 const people = {
   admin: ['admin', null, true], stu: ['alumno', yearsAgo(30), true], stu2: ['alumno', yearsAgo(25), true],
   prof: ['profesor', null, true], prof2: ['profesor', null, true], parent: ['alumno', yearsAgo(40), true],
   tutor2: ['tutor', yearsAgo(42), true], child: ['alumno', yearsAgo(10), false], child2: ['alumno', yearsAgo(8), false],
-  grown: ['alumno', yearsAgo(19), false], norole: [null, yearsAgo(35), true], newadmin: ['alumno', yearsAgo(33), true],
+  grown: ['alumno', yearsAgo(19), false], plain: ['alumno', yearsAgo(35), true], newadmin: ['alumno', yearsAgo(33), true],
 };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 const ids = Object.values(U);
@@ -123,10 +120,10 @@ try {
   await run('lista: un hijo sin email, menor; el de 18 sin reclamar; cuota viva', async () => {
     const { profiles } = (await http('GET', `/admin/profiles?q=${tag}&limit=100`, 'admin')).body;
     const by = Object.fromEntries(profiles.map((p) => [p.id, p]));
-    const pick = (p) => [p.email, p.role, p.is_minor, p.pending_claim, p.subscription_status];
-    assert.deepEqual(pick(by[U.child]), [null, 'alumno', true, false, 'active']);
-    assert.deepEqual(pick(by[U.grown]), [null, 'alumno', false, true, null]);
-    assert.deepEqual(pick(by[U.norole]), [email('norole'), 'alumno', false, false, null]);
+    const pick = (p) => [p.email, p.roles, p.is_minor, p.pending_claim, p.subscription_status];
+    assert.deepEqual(pick(by[U.child]), [null, ['alumno'], true, false, 'active']);
+    assert.deepEqual(pick(by[U.grown]), [null, ['alumno'], false, true, null]);
+    assert.deepEqual(pick(by[U.plain]), [email('plain'), ['alumno'], false, false, null]);
     for (const p of profiles) assert.ok(!('birth_date' in p));
   });
   await run('ficha: el hijo con su pagador, sus tutores y su estado; sin birth_date ni salud', async () => {
@@ -142,7 +139,7 @@ try {
       assert.ok(!json.includes(k), `la ficha incluye ${k}`);
     }
     assert.deepEqual(Object.keys(r.body.profile).sort(), ['avatar', 'can_create_children', 'created_at', 'disabled', 'display_name', 'email', 'has_google',
-      'has_password', 'id', 'is_minor', 'is_public', 'pending_claim', 'role']);
+      'has_password', 'id', 'invite_pending', 'is_minor', 'is_public', 'pending_claim', 'roles']);
   });
   await run('ficha: el padre con sus hijos; status solo de un alumno; 404', async () => {
     const parent = (await http('GET', `/admin/profiles/${U.parent}`, 'admin')).body;
@@ -153,79 +150,66 @@ try {
     expectError(await http('GET', `/admin/profiles/${crypto.randomUUID()}`, 'admin'), 404, 'profile_not_found');
     expectError(await http('GET', '/admin/profiles/nope', 'admin'), 400, 'invalid_id');
   });
-  await run('rol: errores', async () => {
-    const put = (who, role) => http('PUT', `/admin/profiles/${U[who]}/role`, 'admin', { role });
-    expectError(await put('stu2', 'root'), 400, 'invalid_field');
-    expectError(await put('stu2', 'admin'), 403, 'mfa_required'); // el admin del test no tiene doble factor
-    expectError(await put('stu2', undefined), 400, 'invalid_field');
-    expectError(await http('PUT', `/admin/profiles/${crypto.randomUUID()}/role`, 'admin', { role: 'tutor' }), 404,
+  await run('roles: errores', async () => {
+    const add = (who, role) => http('POST', `/admin/profiles/${U[who]}/roles`, 'admin', { role });
+    const del = (who, role) => http('DELETE', `/admin/profiles/${U[who]}/roles/${role}`, 'admin');
+    expectError(await add('stu2', 'root'), 400, 'invalid_field');
+    expectError(await add('stu2', undefined), 400, 'invalid_field');
+    expectError(await http('POST', `/admin/profiles/${crypto.randomUUID()}/roles`, 'admin', { role: 'tutor' }), 404,
       'profile_not_found');
-    expectError(await put('stu2', 'alumno'), 409, 'same_role');
-    expectError(await put('admin', 'alumno'), 409, 'admin_role_locked');
-    expectError(await put('child', 'tutor'), 409, 'child_role_locked');
-    expectError(await put('prof', 'alumno'), 409, 'trainer_role_locked'); // ADR 0028: un profesor se desactiva, no cambia de rol
-    expectError(await put('stu', 'profesor'), 400, 'invalid_field'); // y el rol profesor ya no se da por aquí
-    expectError(await put('stu', 'tutor'), 409, 'student_has_subscription');
-    assert.equal(await lastAudit('profile.role_change', U.stu), undefined);
+    expectError(await add('stu2', 'alumno'), 409, 'role_already_assigned');
+    expectError(await add('admin', 'alumno'), 409, 'self_role_locked');
+    expectError(await del('admin', 'admin'), 409, 'self_role_locked');
+    expectError(await add('child', 'tutor'), 409, 'child_role_locked');
+    expectError(await del('child', 'alumno'), 409, 'child_role_locked');
+    expectError(await add('stu2', 'profesor'), 409, 'trainer_role_locked'); // ADR 0028: profesor, solo con el Alta de profesor
+    expectError(await del('prof', 'profesor'), 409, 'trainer_role_locked');
+    expectError(await del('newadmin', 'admin'), 409, 'admin_role_locked');
+    expectError(await del('stu2', 'tutor'), 404, 'role_not_assigned');
+    expectError(await del('stu2', 'alumno'), 409, 'last_role');
+    expectError(await add('stu', 'tutor').then(() => del('stu', 'alumno')), 409, 'student_has_subscription');
+    await servicePool.query(`DELETE FROM user_roles WHERE user_id = $1 AND role = 'tutor'`, [U.stu]);
+    assert.equal(await lastAudit('profile.role_remove', U.stu), undefined);
   });
-  // ADR 0028: el rol profesor ya no se cambia por la API; el cambio lo hacemos por SQL para probar que requireAuth lee el rol de la base.
-  await run('rol: un profesor que deja de serlo pierde /professor con el mismo token; un alumno que lo es, lo gana', async () => {
+  // ADR 0028: el rol profesor ya no se da por la API; el cambio lo hacemos por SQL para probar que requireAuth lee los roles de la base.
+  await run('rol: un profesor que deja de serlo pierde la sesión con el mismo token (401); un alumno que lo es, lo gana', async () => {
     assert.equal((await http('GET', '/professor/reports/sessions?by=discipline', 'prof2')).status, 200);
     await servicePool.query(`UPDATE user_roles SET role = 'alumno' WHERE user_id = $1`, [U.prof2]);
-    expectError(await http('GET', '/professor/reports/sessions?by=discipline', 'prof2'), 403, 'insufficient_role');
-    assert.equal((await http('GET', '/auth/me', 'prof2')).body.user.role, 'alumno');
+    expectError(await http('GET', '/professor/reports/sessions?by=discipline', 'prof2'), 401, 'role_revoked');
+    assert.equal((await http('GET', '/auth/me', 'prof2', undefined, 'alumno')).body.user.role, 'alumno');
     expectError(await http('GET', '/professor/sessions', 'stu2'), 403, 'insufficient_role');
-    await servicePool.query(`UPDATE user_roles SET role = 'profesor' WHERE user_id = $1`, [U.stu2]);
-    assert.equal((await http('GET', '/professor/sessions', 'stu2')).status, 200);
-    await servicePool.query(`UPDATE user_roles SET role = 'alumno' WHERE user_id = $1`, [U.stu2]);
+    await servicePool.query(`INSERT INTO user_roles (user_id, role) VALUES ($1, 'profesor')`, [U.stu2]);
+    assert.equal((await http('GET', '/professor/sessions', 'stu2', undefined, 'profesor')).status, 200);
+    await servicePool.query(`DELETE FROM user_roles WHERE user_id = $1 AND role = 'profesor'`, [U.stu2]);
   });
-  await run('rol: sin fila en user_roles actúa como alumno aunque el token diga admin', async () => {
-    assert.equal((await http('GET', '/auth/me', 'norole', undefined, 'admin')).body.user.role, 'alumno');
-    expectError(await http('GET', '/admin/profiles', 'norole', undefined, 'admin'), 403, 'insufficient_role');
-    // Y se le puede dar un rol: la fila se crea.
-    assert.equal((await http('PUT', `/admin/profiles/${U.norole}/role`, 'admin', { role: 'tutor' })).body.profile.role,
-      'tutor');
+  await run('rol: un token con un rol que el perfil no tiene → 401 role_revoked, aunque diga admin', async () => {
+    expectError(await http('GET', '/auth/me', 'plain', undefined, 'admin'), 401, 'role_revoked');
+    expectError(await http('GET', '/admin/profiles', 'plain', undefined, 'admin'), 401, 'role_revoked');
+    assert.deepEqual((await http('POST', `/admin/profiles/${U.plain}/roles`, 'admin', { role: 'tutor' })).body.profile.roles,
+      ['tutor', 'alumno']);
   });
-  // B20 (B3): un admin con el doble factor activado da el rol admin, confirmándolo con su código; quitarlo, no.
-  // La sesión tiene que haber entrado con el doble factor (amr en el token, /auth/mfa/verify): activarlo a media sesión
-  // con un token robado no basta. Y 10 intentos de dar admin cada 15 min por IP, para no adivinar el código.
-  await run('rol admin: solo un admin que entró con doble factor y su código; desde la app no se quita', async () => {
-    const mfaToken = signToken({ sub: U.admin, role: 'admin', mfa: true });
-    const put = async (who, body, token = mfaToken) => {
-      const res = await fetch(`${base}/admin/profiles/${U[who]}/role`, { method: 'PUT', body: JSON.stringify({ role: 'admin', ...body }),
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` } });
-      return { status: res.status, body: await res.json() };
-    };
-    const secret = new OTPAuth.Secret({ size: 20 });
-    const totp = new OTPAuth.TOTP({ issuer: MFA_TOTP_ISSUER, label: U.admin, algorithm: 'SHA1', digits: 6, period: 30, secret });
-    await servicePool.query(`INSERT INTO user_mfa (id, user_id, totp_secret_encrypted, recovery_codes_encrypted, mfa_enabled)
-                             VALUES ($1, $2, $3, $4, true)`, [crypto.randomUUID(), U.admin, encrypt(secret.base32), encrypt('[]')]);
-    try {
-      // Con el doble factor activado pero un token sin amr (entró antes de activarlo): no.
-      expectError(await put('newadmin', { mfa_code: totp.generate() }, tokenOf('admin')), 403, 'mfa_login_required');
-      expectError(await put('newadmin', {}), 403, 'invalid_mfa_code');
-      expectError(await put('newadmin', { mfa_code: totp.generate() === '000000' ? '111111' : '000000' }), 403, 'invalid_mfa_code');
-      assert.equal(await lastAudit('profile.role_change', U.newadmin), undefined);
-      const r = await put('newadmin', { mfa_code: totp.generate() });
-      assert.deepEqual([r.status, r.body.profile.role], [200, 'admin']);
-      assert.deepEqual(await lastAudit('profile.role_change', U.newadmin),
-        { actor_id: U.admin, resource_type: 'profile', changes: { from: 'alumno', to: 'admin' } });
-      expectError(await http('PUT', `/admin/profiles/${U.newadmin}/role`, 'admin', { role: 'alumno' }), 409, 'admin_role_locked');
-      let limited;
-      for (let i = 0; i < 12 && !limited; i++) {
-        const res = await put('stu2', { mfa_code: 'xxxxxx' });
-        if (res.status === 429) limited = res;
-        else expectError(res, 403, 'invalid_mfa_code');
-      }
-      assert.equal(limited?.body.code, 'rate_limited');
-    } finally {
-      await servicePool.query(`DELETE FROM user_mfa WHERE user_id = $1`, [U.admin]);
+  // Beta cerrada (ADR 0032): dar el rol admin ya no pide doble factor ni código (riesgo aceptado); quitarlo, sigue sin poder.
+  // Siguen los 10 intentos cada 15 min por IP.
+  await run('rol admin: se da sin doble factor ni código; desde la app no se quita', async () => {
+    const put = (who, role = 'admin') => http('POST', `/admin/profiles/${U[who]}/roles`, 'admin', { role });
+    const r = await put('newadmin');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual([r.status, r.body.profile.roles], [200, ['admin', 'alumno']]);
+    assert.deepEqual(await lastAudit('profile.role_add', U.newadmin),
+      { actor_id: U.admin, resource_type: 'profile', changes: { role: 'admin' } });
+    expectError(await http('DELETE', `/admin/profiles/${U.newadmin}/roles/admin`, 'admin'), 409, 'admin_role_locked');
+    let limited;
+    for (let i = 0; i < 12 && !limited; i++) {
+      const res = await put('newadmin');
+      if (res.status === 429) limited = res;
+      else expectError(res, 409, 'role_already_assigned');
     }
+    assert.equal(limited?.body.code, 'rate_limited');
   });
   await run('alumno y profesor → 403', async () => {
     expectError(await http('GET', '/admin/profiles', 'stu'), 403, 'insufficient_role');
     expectError(await http('GET', '/admin/profiles', 'prof'), 403, 'insufficient_role');
-    expectError(await http('GET', '/admin/profiles', 'stu2', undefined, 'admin'), 403, 'insufficient_role');
+    expectError(await http('GET', '/admin/profiles', 'stu2', undefined, 'admin'), 401, 'role_revoked'); // un rol que no tiene
   });
   await run('tutores: errores al vincular', async () => {
     const post = (who, tutor) => http('POST', `/admin/profiles/${U[who]}/guardians`, 'admin', { tutor_id: tutor });

@@ -103,8 +103,8 @@ export function ForgotPasswordPage() {
   )
 }
 
-// /reset-password?token= — POST /auth/password/reset (B18.0); al acabar, a /login. Con &invite=1 es la bienvenida de un
-// profesor dado de alta por el admin (ADR 0028): la misma ruta, otro texto.
+// /reset-password?token= — POST /auth/password/reset (B18.0); al acabar, a /login. Con &invite=1 es la bienvenida de quien
+// da de alta el admin (ADR 0028 y 0032): la misma ruta, otro texto.
 export function ResetPasswordPage() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
@@ -180,7 +180,7 @@ export function ResetPasswordPage() {
     <AuthLayout>
       <h1 className={headingClass}>{invite ? 'Te damos la bienvenida' : 'Nueva contraseña'}</h1>
       <p className="text-muted-foreground">
-        {invite ? 'La academia te ha dado de alta como profesor. Elige la contraseña con la que entrarás.' : 'Elige la contraseña con la que entrarás a partir de ahora.'}
+        {invite ? 'La academia te ha dado de alta en Kaizen. Elige la contraseña con la que entrarás.' : 'Elige la contraseña con la que entrarás a partir de ahora.'}
       </p>
       {notice && <StatusAlert notice={notice} />}
       <Form ref={form} className="flex flex-col gap-4" errors={errors} onFormSubmit={submit}>

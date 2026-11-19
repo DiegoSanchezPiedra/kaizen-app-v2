@@ -265,7 +265,7 @@ try {
       await rejects(c, () => book(c, 'overlap', 'child'), 403, 'not_allowed');
       await rejects(c, () => cancelBooking(c, b.id), 404, 'booking_not_found');
       await as(c, U.prof2, 'profesor');
-      await rejects(c, () => book(c, 'overlap', 'prof2'), 403, 'not_allowed');
+      await rejects(c, () => book(c, 'full', 'prof2'), 403, 'not_allowed'); // prof1 imparte 'full'; la propia sería own_session (ADR 0033)
       await rejects(c, () => cancelBooking(c, b.id), 404, 'booking_not_found');
       assert.equal((await c.query(`SELECT 1 FROM bookings WHERE id = $1`, [b.id])).rowCount, 1); // ve las de su sesión
       await as(c, U.tutor2, 'tutor');

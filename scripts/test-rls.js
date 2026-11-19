@@ -443,12 +443,9 @@ async function main() {
       });
     });
 
-    // B20 (B3): el rol admin solo lo da un admin con el doble factor activado; una fila admin no se cambia ni se borra.
-    await run('B20 — el rol admin solo lo da un admin con doble factor; nadie quita el de un admin por SQL', async () => {
-      await expectDenied(withCtx(admin, (c) => c.query(`UPDATE user_roles SET role = 'admin' WHERE user_id = $1`, [ids.b])));
+    // B20 (B3), sin doble factor desde la 072 (ADR 0032): un admin da el rol admin; una fila admin no se cambia ni se borra.
+    await run('B20 — un admin da el rol admin (sin doble factor); nadie quita el de un admin por SQL', async () => {
       await withCtx(admin, async (c) => {
-        await c.query(`INSERT INTO user_mfa (id, user_id, totp_secret_encrypted, recovery_codes_encrypted, mfa_enabled)
-                       VALUES ($1, $2, 'x', 'x', true)`, [crypto.randomUUID(), ids.admin]);
         assert.equal((await c.query(`UPDATE user_roles SET role = 'admin' WHERE user_id = $1`, [ids.b])).rowCount, 1);
         assert.equal((await c.query(`UPDATE user_roles SET role = 'alumno' WHERE user_id = $1`, [ids.b])).rowCount, 0);
         assert.equal((await c.query(`DELETE FROM user_roles WHERE user_id = $1`, [ids.b])).rowCount, 0);

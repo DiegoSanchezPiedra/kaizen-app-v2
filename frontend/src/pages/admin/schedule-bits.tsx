@@ -82,7 +82,7 @@ export function FormSheet({
   submitLabel: string
   disabled?: boolean
   loading?: boolean
-  confirm?: { title: string; description: string; destructive?: boolean }
+  confirm?: { title: string; description: string; destructive?: boolean; children?: React.ReactNode }
   // Lo que pasa al guardar. Si falla, la hoja se queda abierta para corregir; el aviso del error lo da quien llama.
   onSubmit: () => Promise<unknown>
   children: React.ReactNode
@@ -128,7 +128,9 @@ export function FormSheet({
           variant={confirm.destructive ? 'destructive' : 'default'}
           loading={loading}
           onConfirm={() => void run()}
-        />
+        >
+          {confirm.children}
+        </ConfirmDialog>
       )}
     </Sheet>
   )

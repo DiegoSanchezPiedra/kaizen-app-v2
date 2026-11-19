@@ -2,6 +2,7 @@
 import express, { Router } from 'express';
 import { httpError } from '../lib/errors.js';
 import { requireAuth, requireRole, withRlsContext, minorAllowlist } from '../middleware/auth.js';
+import { pendingFor, markSeen } from '../services/communiques.js';
 import {
   getProfileStatus,
   getMe,
@@ -32,7 +33,12 @@ const router = Router();
 // también en una ruta nueva). Salud, acuerdos, sus datos y su familia, nunca.
 router.use(requireAuth, minorAllowlist(['GET /', 'GET /profile-status', 'GET /profile', 'PATCH /profile', 'GET /progress',
   'POST /progress/seen', 'POST /push-subscriptions', 'DELETE /push-subscriptions', 'POST /password', 'PUT /avatar',
-  'DELETE /avatar']));
+  'DELETE /avatar', 'GET /communiques', 'POST /communiques/seen']));
+
+// Comunicados (ADR 0030): GET /me/communiques → { communiques: [{ id, title, body, created_at }] } (ventanas pendientes);
+// POST /me/communiques/seen { id } → 204 («Entendido»). También el menor con acceso propio.
+router.get('/communiques', withRlsContext((req, client) => pendingFor(client)));
+router.post('/communiques/seen', withRlsContext((req, client) => markSeen(client, req.body ?? {})));
 
 // profile_id (opcional, body o query): hijo por el que actúa un tutor vinculado.
 // Sin él, el sujeto es el propio usuario. La RLS decide si el tutor puede.

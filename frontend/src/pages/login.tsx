@@ -51,13 +51,15 @@ export function LoginPage() {
   const [notice, setNotice] = useState<Notice | null>(() =>
     params.get('acceso')
       ? { kind: 'info', title: 'Tu acceso ha cambiado', text: 'Vuelve a entrar.' }
-      : params.get('caducada')
-        ? { kind: 'info', icon: 'clock', title: 'Tu sesión ha caducado', text: 'Vuelve a entrar y seguirás donde estabas.' }
-        : params.get('clave')
-          ? { kind: 'info', title: 'Tu acceso ha cambiado', text: 'Vuelve a entrar.' }
-          : params.get('cambiada')
-            ? { kind: 'success', title: 'Contraseña cambiada', text: 'Ya puedes entrar con la nueva.' }
-            : null,
+      : params.get('rol')
+        ? { kind: 'info', title: 'Cambio de rol', text: 'Vuelve a entrar para usar este rol.' }
+        : params.get('caducada')
+          ? { kind: 'info', icon: 'clock', title: 'Tu sesión ha caducado', text: 'Vuelve a entrar y seguirás donde estabas.' }
+          : params.get('clave')
+            ? { kind: 'info', title: 'Tu acceso ha cambiado', text: 'Vuelve a entrar.' }
+            : params.get('cambiada')
+              ? { kind: 'success', title: 'Contraseña cambiada', text: 'Ya puedes entrar con la nueva.' }
+              : null,
   )
 
   function finish(res: AuthResponse) {
@@ -181,12 +183,8 @@ export function LoginPage() {
           <GoogleButton disabled={loading} onCredential={(idToken) => run('/auth/google', { id_token: idToken })} />
         </>
       )}
-      <p className="flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
-        ¿No tienes cuenta?
-        <Link to="/register" className="inline-flex min-h-11 items-center font-semibold text-link underline underline-offset-3">
-          Crear cuenta
-        </Link>
-      </p>
+      {/* Sin registro público (ADR 0032): las cuentas las crea la academia. */}
+      <p className="flex min-h-11 items-center justify-center text-sm text-muted-foreground">¿No tienes cuenta? Pídesela a la academia.</p>
     </AuthLayout>
   )
 }

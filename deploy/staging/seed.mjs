@@ -1,5 +1,6 @@
 // Datos de demo del staging, por la API (y roles por la base, que es la única vía: el rol admin nunca se da desde la app).
 // Uso: npm run staging:seed     (con la API de staging arrancada y SEED_PASSWORD en .env.staging)
+// Ya no sirve en staging con el registro cerrado (REGISTRATION_OPEN, ADR 0032): /auth/register da 403. Se usa solo en local.
 // Es repetible: lo que ya existe se deja como está. Stripe: crea Products y Prices en la cuenta de la clave, que tiene
 // que ser de PRUEBA (sk_test_ / rk_test_).
 import pg from 'pg';
@@ -40,7 +41,9 @@ for (const [n, name] of USERS) {
 const db = new pg.Client({ connectionString: process.env.DATABASE_URL_SERVICE });
 await db.connect();
 for (const [n, , role] of USERS.filter((u) => u[2])) {
-  await db.query(`insert into user_roles(user_id, role) select profile_id, $2 from auth_credentials where email = $1 on conflict (user_id) do update set role = excluded.role`, [email(n), role]);
+  // 073: varios roles por perfil; el sembrado acaba con ese rol como único.
+  await db.query(`delete from user_roles where user_id in (select profile_id from auth_credentials where email = $1)`, [email(n)]);
+  await db.query(`insert into user_roles(user_id, role) select profile_id, $2 from auth_credentials where email = $1`, [email(n), role]);
 }
 // 062: crear hijos es un permiso que da el admin; el tutor sembrado lo tiene.
 await db.query(`update auth_credentials set can_create_children = true where email = $1`, [email('tutor')]);

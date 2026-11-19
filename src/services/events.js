@@ -102,6 +102,12 @@ export async function getEvent(client, user, id, profileId) {
   return e;
 }
 
+// ADR 0033: un profesor que también entrena no se inscribe en el evento que imparte él.
+async function assertNotOwnEvent(client, eventId, subjectId) {
+  const { rowCount } = await client.query(`SELECT 1 FROM events WHERE id = $1 AND trainer_id = $2`, [eventId, subjectId]);
+  if (rowCount) throw httpError(409, 'own_event', 'No puedes inscribirte en un evento que impartes tú');
+}
+
 const REG_COLS = 'id, event_id, profile_id, actor_id, payer_id, status, amount_cents, guest, created_at';
 const pick = (r) => Object.fromEntries(REG_COLS.split(', ').map((k) => [k, r[k]]));
 
@@ -112,9 +118,10 @@ const pick = (r) => Object.fromEntries(REG_COLS.split(', ').map((k) => [k, r[k]]
  * Checkout (pago único, ADR 0018). El Checkout se abre dentro de la transacción: si Stripe falla, no queda inscripción.
  */
 export async function registerEvent(client, { eventId, subjectId, actorId, minor = false }) {
+  await assertNotOwnEvent(client, eventId, subjectId);
+  const { rows: [e] } = await client.query(`SELECT title, price_cents FROM events WHERE id = $1`, [eventId]);
   // El cliente de Stripe del pagador (el actor), antes de inscribir: ensureCustomer guarda el cus_ con otra conexión, y
   // la inscripción deja un FOR KEY SHARE sobre su perfil (FK) que bloquearía ese UPDATE hasta el COMMIT (cuelgue).
-  const { rows: [e] } = await client.query(`SELECT title, price_cents FROM events WHERE id = $1`, [eventId]);
   // Un menor no paga (B32): sin cliente; si le toca pagar, register_event lo rechaza (minor_restricted).
   const customer = e?.price_cents > 0 && !minor ? await ensureCustomer(client, actorId) : null;
   const [reg] = await callFn(client, `SELECT * FROM register_event($1, $2, false)`, [eventId, subjectId]);
@@ -366,6 +373,7 @@ export async function cancelEvent(user, { id, body }) {
 /** POST /admin/events/:id/registrations { profile_id } → 201 invitado (sin cobro, con requisitos y aforo). */
 export async function registerGuest(client, { eventId, body, actorId }) {
   if (!isUuid(body.profile_id)) throw invalid('profile_id', 'profile_id debe ser un uuid');
+  await assertNotOwnEvent(client, eventId, body.profile_id);
   const [reg] = await callFn(client, `SELECT * FROM register_event($1, $2, true)`, [eventId, body.profile_id]);
   await audit(client, actorId, 'event_registration.guest', reg.id, { event_id: eventId, profile_id: reg.profile_id });
   return pick(reg);

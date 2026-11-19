@@ -1,12 +1,15 @@
 // src/routes/auth.js
 import { Router } from 'express';
+import jwt from 'jsonwebtoken';
 
 import { httpError } from '../lib/errors.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { authLimit, forgotLimit, loginAccountLimit } from '../middleware/rateLimit.js';
+import { authLimit, forgotLimit, loginAccountLimit, roleSwitchLimit } from '../middleware/rateLimit.js';
 import { withRls } from '../db/rls.js';
 import { registerLocal, loginLocal, loginGoogle, requestPasswordReset, resetPassword } from '../services/auth.js';
 import { signToken } from '../services/jwt.js';
+import { invalid } from '../services/catalog.js';
+import { ROLES } from '../lib/roles.js';
 import {
   assertMfaReauth,
   readOwnPasswordHash,
@@ -130,6 +133,38 @@ router.get(
       user: req.user,
       mfa_enabled: enabled,
       rls_context: rows[0],
+    };
+  })
+);
+
+// POST /auth/role { role } → 200 { token, user: { id, email, role } } (como /auth/login): cambia el rol activo (ADR 0033).
+// 400 invalid_field; 403 role_not_assigned. Conserva el doble factor, el iat y recalcula la caducidad (la de admin es
+// más corta): no renueva la sesión. Si con ese iat el token ya nace caducado, 401 reauth_required. Guarda el rol como
+// último usado (también en ese caso), con el que entrará en el próximo login.
+router.post(
+  '/role',
+  requireAuth,
+  roleSwitchLimit,
+  withRlsContext(async (req, client) => {
+    const { role } = req.body ?? {};
+    if (!ROLES.includes(role)) throw invalid('role', 'role debe ser alumno, tutor, profesor o admin');
+    const notAssigned = httpError(403, 'role_not_assigned', 'No tienes ese rol');
+    if (!req.user.roles.includes(role)) throw notAssigned;
+    try {
+      await client.query(`SELECT set_last_role($1)`, [role]); // SECURITY DEFINER: solo la fila propia y con un rol asignado
+    } catch (err) {
+      throw err.code === '42501' ? notAssigned : err;
+    }
+    const { rows: [c] } = await client.query(`SELECT email FROM auth_credentials WHERE profile_id = $1`, [req.user.id]);
+    // Mismo iat que el token actual: cambiar de rol no renueva la sesión (tope de 12 h del admin, assertMfaReauth).
+    const token = signToken({ sub: req.user.id, role, iat: req.user.iat, mfa: req.user.mfa, minor: !!req.user.minor });
+    // Se responde (no se lanza) para que el COMMIT conserve el último rol.
+    if (jwt.decode(token).exp <= Date.now() / 1000) {
+      return { status: 401, body: { error: 'unauthorized', code: 'reauth_required', message: 'Vuelve a entrar para usar este rol' } };
+    }
+    return {
+      token,
+      user: { id: req.user.id, email: c?.email ?? null, role },
     };
   })
 );

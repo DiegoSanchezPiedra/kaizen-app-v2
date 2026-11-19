@@ -271,6 +271,12 @@ Una fila por día con el estado de las suscripciones; no cambia nunca y un día 
 
 Índice: `(profile_id)`. Sin acceso para `app_user`: solo `create_password_reset(email, token_hash)` y `consume_password_reset(token_hash, password_hash)` (`SECURITY DEFINER`, owner `service_role`).
 
+### communiques y communique_views (`071`, ADR 0030)
+`communiques`: título, texto, `audience` (`all|members|trainers`), `discipline_ids`, `channels` (`app|email|whatsapp`),
+`app_count`, `email_count`, `created_by`, `withdrawn_at/by`. `communique_views (communique_id, profile_id, seen_at)`: los
+destinatarios de la ventana, fijados al enviar. RLS: el admin lee todo; el usuario lee sus filas y su comunicado y solo
+actualiza `seen_at` de las suyas. Escribe el servicePool.
+
 ## Vistas
 - `public_profiles`: expone solo columnas públicas de filas con is_public=true y flags activos.
 

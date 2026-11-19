@@ -13,12 +13,14 @@ import { addDays, madridDay } from '@/lib/dates'
 import { formatLogDate } from '@/lib/format'
 import { path } from '@/lib/url'
 import { cn } from '@/lib/utils'
+import { Communiques } from '@/pages/admin/communiques'
 import { PAGE_SIZE, Pager } from '@/pages/admin/shell'
 
 // `deliveries` es lo que enlaza el Inicio («Requiere atención»).
 const TABS = [
   { value: 'academy', label: 'De la academia' },
   { value: 'deliveries', label: 'Entregas fallidas' },
+  { value: 'communiques', label: 'Comunicados' },
 ]
 
 // Al cambiar de página se queda la lista anterior atenuada, como en Cobros.
@@ -60,6 +62,9 @@ export function AdminNoticesPage() {
         </TabsPanel>
         <TabsPanel value="deliveries">
           <Failed />
+        </TabsPanel>
+        <TabsPanel value="communiques">
+          <Communiques />
         </TabsPanel>
       </Tabs>
     </Page>

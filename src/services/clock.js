@@ -49,11 +49,12 @@ const sequenceError = (state) => httpError(409, 'invalid_sequence', 'El fichaje 
 // Perfil del profesor (404 / 409 not_professor) con su tipo de relación; sin fila, autónomo.
 async function professor(client, profileId) {
   const { rows: [p] } = await client.query(
-    `SELECT p.id, p.display_name, ur.role, COALESCE(te.employment, 'self_employed') AS employment
-       FROM profiles p LEFT JOIN user_roles ur ON ur.user_id = p.id
+    `SELECT p.id, p.display_name, EXISTS (SELECT 1 FROM user_roles WHERE user_id = p.id AND role = 'profesor') AS is_trainer,
+            COALESCE(te.employment, 'self_employed') AS employment
+       FROM profiles p
        LEFT JOIN teacher_employment te ON te.profile_id = p.id WHERE p.id = $1`, [profileId]);
   if (!p) throw httpError(404, 'profile_not_found', 'Perfil no encontrado');
-  if (p.role !== 'profesor') throw httpError(409, 'not_professor', 'Solo los profesores tienen tipo de relación');
+  if (!p.is_trainer) throw httpError(409, 'not_professor', 'Solo los profesores tienen tipo de relación');
   return { id: p.id, display_name: p.display_name, employment: p.employment };
 }
 

@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../config/auth.js';
 import { withRls } from '../db/rls.js';
 import { httpError } from '../lib/errors.js';
+import { rolesSql } from '../lib/roles.js';
 
 export async function requireAuth(req, res, next) {
   // Varios routers montados en el mismo prefijo (/admin, /sessions) lo repiten: una consulta por petición.
@@ -22,14 +23,15 @@ export async function requireAuth(req, res, next) {
   if (payload.mfa === 'pending' || !payload.sub || !payload.role) {
     return next(httpError(401, 'invalid_token', 'invalid token'));
   }
-  // B19: el rol es el de user_roles en cada petición, no el del token (un cambio de rol vale al momento).
-  // Se lee con el contexto RLS del propio perfil (user_roles_select deja leer la fila propia); sin fila, alumno.
+  // ADR 0033: el rol activo es el del token, pero los asignados se leen de user_roles en cada petición: si el activo ya no
+  // está asignado, 401 role_revoked y el frontend cierra la sesión con «tu acceso ha cambiado». Se lee con el contexto RLS del propio perfil (user_roles_select deja
+  // leer las filas propias). Toda alta inserta su fila de rol, así que no hay «sin fila = alumno».
   // ADR 0020: un token emitido antes del último cambio de contraseña ya no vale (auth_credentials propia, también por RLS).
   // B32 (ADR 0026): un hijo sin credenciales (acceso revocado) no tiene sesión; el menor con acceso lleva `minor`
   // ({ can_book, can_publish }) para los bloqueos de las rutas. La edad y el permiso, de la BD en cada petición.
   try {
     const { rows: [u] } = await withRls({ uid: payload.sub, role: 'alumno' }, (client) => client.query(
-      `SELECT (SELECT role FROM user_roles WHERE user_id = $1) AS role,
+      `SELECT p.id IS NOT NULL AS found, ${rolesSql('$1')} AS roles,
               extract(epoch FROM c.credentials_changed_at)::bigint AS changed, c.profile_id IS NOT NULL AS creds,
               c.disabled_at IS NOT NULL AS disabled,
               COALESCE(c.can_book, false) AS can_book,
@@ -38,11 +40,14 @@ export async function requireAuth(req, res, next) {
               p.birth_date <= CURRENT_DATE - make_interval(years => minor_consent_age()) AS can_publish
          FROM (SELECT 1) one LEFT JOIN profiles p ON p.id = $1 LEFT JOIN auth_credentials c ON c.profile_id = $1`,
       [payload.sub]));
+    // Perfil que ya no existe (base vaciada con el mismo JWT_SECRET): token inválido, y el frontend cierra la sesión.
+    if (!u.found) return next(httpError(401, 'invalid_token', 'invalid token'));
     // ADR 0028: un profesor desactivado pierde la sesión viva en la siguiente petición.
     if (u.disabled || (u.ward && !u.creds) || (u.changed !== null && !(payload.iat >= Number(u.changed)))) { // sin iat, también fuera
       return next(httpError(401, 'session_revoked', 'session revoked'));
     }
-    req.user = { id: payload.sub, role: u.role ?? 'alumno', mfa: Array.isArray(payload.amr) && payload.amr.includes('mfa'),
+    if (!u.roles.includes(payload.role)) return next(httpError(401, 'role_revoked', 'role revoked'));
+    req.user = { id: payload.sub, role: payload.role, roles: u.roles, mfa: Array.isArray(payload.amr) && payload.amr.includes('mfa'),
       iat: payload.iat, minor: u.minor ? { can_book: u.can_book, can_publish: u.can_publish } : null };
   } catch (err) {
     return next(err);

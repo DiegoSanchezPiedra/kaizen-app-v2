@@ -33,8 +33,10 @@ async function callFn(client, sql, params) {
   }
 }
 
-// Llena → queda en espera (status 'waitlisted').
-export function bookSession(client, { sessionId, studentId }) {
+// Llena → queda en espera (status 'waitlisted'). ADR 0033: un profesor que también entrena no reserva la sesión que imparte él.
+export async function bookSession(client, { sessionId, studentId }) {
+  const own = await callFn(client, `SELECT 1 FROM class_sessions WHERE id = $1 AND trainer_id = $2`, [sessionId, studentId]);
+  if (own) throw httpError(409, 'own_session', 'No puedes reservar una sesión que impartes tú');
   return callFn(client, `SELECT * FROM book_session($1, $2)`, [sessionId, studentId]);
 }
 

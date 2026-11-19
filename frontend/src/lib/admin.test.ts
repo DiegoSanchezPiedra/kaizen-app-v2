@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { formatEuros } from '@/lib/format'
 import {
   ageMarks,
+  roleBoxes,
+  rolesLabel,
+  rolesOf,
   auditDetail,
   auditScopeLabel,
   noticeUrgent,
@@ -9,8 +12,6 @@ import {
   TODAY_ACTIONS,
   auditTarget,
   canCancelPayerChange,
-  ASSIGNABLE_ROLES,
-  canChangeRole,
   categoryPrefixes,
   deliveryError,
   deliveryLabel,
@@ -31,7 +32,7 @@ import {
   safeInvoiceUrl,
   showMfaNotice, type DayStat, type ProfileFile,
   hasFilters, lastSeen, profilesQuery, setFilter, toggleEstado, userFilters } from '@/lib/admin'
-import { loginPath, redirectFor } from '@/lib/paths'
+import { homeFor, loginPath, redirectFor } from '@/lib/paths'
 
 describe('a dónde va cada rol (B19)', () => {
   it('el admin, siempre dentro de /admin', () => {
@@ -51,6 +52,9 @@ describe('a dónde va cada rol (B19)', () => {
     expect(redirectFor('profesor', '/')).toBe('/professor')
     expect(redirectFor('profesor', '/professor/reports')).toBeNull()
   })
+  it('al cambiar de rol activo se aterriza en el inicio del nuevo (ADR 0033)', () => {
+    expect([homeFor('alumno'), homeFor('tutor'), homeFor('profesor'), homeFor('admin')]).toEqual(['/', '/', '/professor', '/admin'])
+  })
   it('el profesor no entra en las pantallas que actúan por un alumno (la API le da 403): a lo suyo', () => {
     for (const p of ['/calendar', '/bookings', '/progress', '/account/health', '/agreements', '/billing/plan', '/events/5']) {
       expect(redirectFor('profesor', p)).toBe('/professor')
@@ -61,11 +65,12 @@ describe('a dónde va cada rol (B19)', () => {
   })
   it('con el acceso cambiado, a /login con su motivo y sin volver a la ruta del rol viejo', () => {
     expect(loginPath('role_changed', '/admin/reports')).toBe('/login?acceso=1')
+    expect(loginPath('role_reauth', '/admin/reports')).toBe('/login?rol=1')
   })
 })
 
 describe('aviso del MFA (ADR 0016)', () => {
-  const me = (mfa_enabled: boolean) => ({ user: { id: '1', role: 'admin' }, mfa_enabled })
+  const me = (mfa_enabled: boolean) => ({ user: { id: '1', role: 'admin', roles: ['admin' as const] }, mfa_enabled })
   it('sale solo si GET /auth/me dice que no está activo', () => {
     expect(showMfaNotice(me(false))).toBe(true)
     expect(showMfaNotice(me(true))).toBe(false)
@@ -128,20 +133,49 @@ describe('avisos de la academia', () => {
 })
 
 describe('usuarios del panel (B19.3)', () => {
-  const adult = { id: 'a', display_name: 'Ana', email: 'ana@x.es', role: 'alumno' as const, is_minor: false, pending_claim: false, created_at: '', is_public: false, has_password: true, has_google: false, can_create_children: false }
+  const adult = { id: 'a', display_name: 'Ana', email: 'ana@x.es', roles: ['alumno' as const], is_minor: false, pending_claim: false, created_at: '', is_public: false, has_password: true, has_google: false, can_create_children: false }
   const child = { ...adult, id: 'h', display_name: 'Hijo', email: null, is_minor: true, has_password: false }
   const tutor = { id: 't', display_name: 'Tutora', email: 't@x.es' }
   const file = (profile: typeof adult | typeof child, payer?: string) =>
     ({ profile, status: null, guardians: profile.email ? [] : [tutor, { id: 't2', display_name: 'Otro', email: 'o@x.es' }], children: [], subscription: payer ? { payer: { id: payer, display_name: '' } } : null }) as unknown as ProfileFile
 
-  it('el rol no se cambia a un admin, a un profesor ni a un hijo', () => {
-    expect(canChangeRole(adult)).toBe(true)
-    expect(canChangeRole({ ...adult, role: 'admin' })).toBe(false)
-    expect(canChangeRole({ ...adult, role: 'profesor' })).toBe(false)
-    expect(canChangeRole(child)).toBe(false)
+  const box = (boxes: ReturnType<typeof roleBoxes>, role: string) => boxes.find((b) => b.role === role)!
+  it('casillas de roles: un adulto con acceso propio puede con alumno, tutor y admin; profesor no sale', () => {
+    const boxes = roleBoxes({ ...adult, roles: ['alumno', 'tutor'] }, 'yo')
+    expect(boxes.map((b) => [b.role, b.checked, b.disabled])).toEqual([['alumno', true, false], ['tutor', true, false], ['admin', false, false]])
   })
-  it('profesor no es un rol asignable: se da de alta (ADR 0028)', () => {
-    expect(ASSIGNABLE_ROLES).toEqual(['alumno', 'tutor', 'admin'])
+  it('profesor se enseña, fijo y con su motivo, solo si lo tiene; puede recibir alumno, tutor o admin', () => {
+    const boxes = roleBoxes({ ...adult, roles: ['profesor'] }, 'yo')
+    expect(box(boxes, 'profesor')).toMatchObject({ checked: true, disabled: true, reason: 'El profesor se gestiona en Profesores.' })
+    expect(boxes.filter((b) => b.role !== 'profesor').every((b) => !b.disabled)).toBe(true)
+  })
+  it('el propio perfil: todo deshabilitado con el mismo motivo', () => {
+    const boxes = roleBoxes({ ...adult, id: 'yo', roles: ['alumno', 'admin'] }, 'yo')
+    expect(boxes.every((b) => b.disabled && b.reason === 'No puedes cambiar tus propios roles.')).toBe(true)
+  })
+  it('un hijo solo es alumno: todo deshabilitado', () => {
+    const boxes = roleBoxes({ ...child, roles: ['alumno'] }, 'yo')
+    expect(boxes.every((b) => b.disabled && b.reason === 'Un hijo solo es alumno.')).toBe(true)
+  })
+  it('admin no se quita desde la app, pero dar admin sí', () => {
+    const boxes = roleBoxes({ ...adult, roles: ['alumno', 'admin'] }, 'yo')
+    expect(box(boxes, 'admin')).toMatchObject({ checked: true, disabled: true })
+    expect(box(boxes, 'alumno').disabled).toBe(false)
+    expect(box(roleBoxes(adult, 'yo'), 'admin').disabled).toBe(false)
+  })
+  it('siempre queda un rol: el único marcado no se quita', () => {
+    const boxes = roleBoxes({ ...adult, roles: ['tutor'] }, 'yo')
+    expect(box(boxes, 'tutor')).toMatchObject({ checked: true, disabled: true, reason: 'Debe quedarle al menos un rol.' })
+    expect(box(boxes, 'alumno').disabled).toBe(false)
+  })
+  it('alumno con una cuota viva no se quita (y sin cuota, sí)', () => {
+    const p = { ...adult, roles: ['alumno', 'tutor'] as ('alumno' | 'tutor')[] }
+    expect(box(roleBoxes(p, 'yo', true), 'alumno')).toMatchObject({ disabled: true, reason: 'Tiene una cuota viva; dala de baja antes.' })
+    expect(box(roleBoxes(p, 'yo', false), 'alumno').disabled).toBe(false)
+  })
+  it('etiquetas de roles: siempre en el mismo orden', () => {
+    expect(rolesLabel(['admin', 'alumno', 'profesor'])).toBe('Alumno, Profesor, Admin')
+    expect(rolesOf(undefined)).toEqual([])
   })
   it('estado de la cuenta del profesor: desactivado gana a invitación pendiente, que gana a activo', () => {
     expect(trainerState({ disabled: false, has_password: true })).toBe('active')
@@ -152,8 +186,8 @@ describe('usuarios del panel (B19.3)', () => {
   it('pestañas: Cuota y Reservas de alumno; Familia si es hijo o tiene hijos; Resumen siempre', () => {
     expect(userTabs(file(adult))).toEqual(['summary', 'billing', 'bookings'])
     expect(userTabs(file(child))).toEqual(['summary', 'billing', 'bookings', 'family'])
-    expect(userTabs({ profile: { ...adult, role: 'tutor' }, children: [{ id: 'c', display_name: null, pending_claim: false }] } as unknown as ProfileFile)).toEqual(['summary', 'family'])
-    expect(userTabs(file({ ...adult, role: 'profesor' } as unknown as typeof adult))).toEqual(['summary'])
+    expect(userTabs({ profile: { ...adult, roles: ['tutor'] }, children: [{ id: 'c', display_name: null, pending_claim: false }] } as unknown as ProfileFile)).toEqual(['summary', 'family'])
+    expect(userTabs(file({ ...adult, roles: ['profesor'] } as unknown as typeof adult))).toEqual(['summary'])
   })
   it('de la edad, solo las marcas', () => {
     expect(ageMarks(adult)).toEqual([])
@@ -188,6 +222,7 @@ describe('auditoría, avisos y cobros (B19.4)', () => {
   it('el detalle: corrección, rol y precio; de la salud, nada', () => {
     expect(auditDetail({ action: 'attendance.correct', changes: { from: 'absent', to: 'present', reason: 'llegó tarde' } })).toBe('ausente → presente · llegó tarde')
     expect(auditDetail({ action: 'profile.role_change', changes: { from: 'alumno', to: 'profesor' } })).toBe('Alumno → Profesor')
+    expect(auditDetail({ action: 'profile.role_add', changes: { role: 'tutor' } })).toBe('Tutor')
     expect(auditDetail({ action: 'plan.price_change', changes: { from: 4500, to: 5000 } })).toBe(`${formatEuros(4500)} → ${formatEuros(5000)}`)
     expect(auditDetail({ action: 'health.view', changes: { student_ids: ['x'] } })).toBe('')
     expect(auditDetail({ action: 'class.create', changes: null })).toBe('')
