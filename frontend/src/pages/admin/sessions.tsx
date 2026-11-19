@@ -224,7 +224,7 @@ export function LooseSession({ open, onClose, defaultDay, onCreated }: { open: b
       onCreated(f.day)
     },
     onError: (err) => {
-      if (err instanceof ApiError && err.code === 'trainer_overlap') setServer({ field: 'trainer', text: 'Ese profesor ya imparte otra sesión a esa hora.' })
+      if (err instanceof ApiError && err.code === 'trainer_overlap') setServer({ field: 'trainer', text: 'Ese profesor ya imparte otra sesión a esa hora. Solo puede coincidir con otra de la misma hora, duración y lugar.' })
       else if (err instanceof ApiError && err.code === 'invalid_field' && err.field === 'starts_at') setServer({ field: 'time', text: 'Revisa la fecha y la hora.' })
       else toastError(err)
     },

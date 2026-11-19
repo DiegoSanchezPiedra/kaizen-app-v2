@@ -4,7 +4,9 @@ import crypto from 'node:crypto';
 import { servicePool, closePools } from '../src/config/database.js';
 import { withRls } from '../src/db/rls.js';
 import { createClass, updateClass, retireClass, listClasses } from '../src/services/classes.js';
-import { generateSessions, listTrainerSessions, getTrainerSession } from '../src/services/sessions.js';
+import {
+  generateSessions, listTrainerSessions, getTrainerSession, adjustSession, createSession,
+} from '../src/services/sessions.js';
 
 const rejects = (p, status, code) => assert.rejects(p, (e) => e.status === status && e.code === code);
 const sp = async (c, fn) => { // savepoint: un error SQL no aborta el resto de la transacción
@@ -25,7 +27,8 @@ await servicePool.query(
   `INSERT INTO profiles (id, display_name) VALUES ($1,'admin-t'),($2,'prof1-t'),($3,'prof2-t'),($4,'alumno-t')`, ids);
 await servicePool.query(
   `INSERT INTO user_roles (user_id, role) VALUES ($1,'admin'),($2,'profesor'),($3,'profesor'),($4,'alumno')`, ids);
-const { rows: [disc] } = await servicePool.query(`INSERT INTO disciplines (name) VALUES ('T-Classes') RETURNING id`);
+const { rows: [disc, disc2] } = await servicePool.query(
+  `INSERT INTO disciplines (name) VALUES ('T-Classes'), ('T-Classes-2') RETURNING id`);
 
 const base = { discipline_id: String(disc.id), trainer_id: prof1, weekday: 1, start_time: '19:00', duration_min: 60, capacity: 20 };
 
@@ -91,6 +94,51 @@ try {
       assert.equal(await generateSessions(c, cls.id), 0); // no regenera tras retirar
     });
 
+    // ADR 0034: el mismo profesor da dos clases a la vez (boxeo y muay thai) solo en la misma franja y el mismo lugar.
+    const sim = { ...base, trainer_id: prof2, weekday: 4, start_time: '18:00', location: 'Tatami 1' };
+    const muay = { ...sim, discipline_id: String(disc2.id) };
+    const sessionsOf = async (classId) =>
+      (await c.query(`SELECT id, starts_at FROM class_sessions WHERE class_id = $1 AND starts_at > now() ORDER BY starts_at`,
+        [classId])).rows;
+    await run('simultáneas: mismo profesor, misma franja y mismo lugar (sin mayúsculas ni espacios) → se crean', async () => {
+      await sp(c, async () => {
+        await createClass(c, { body: sim, actorId: admin });
+        const other = await createClass(c, { body: { ...muay, location: ' tatami 1 ' }, actorId: admin });
+        assert.ok(other.sessions_created >= 52, `sesiones: ${other.sessions_created}`);
+      });
+    });
+    await run('simultáneas: las dos sin lugar cuentan como el mismo', async () => {
+      await sp(c, async () => {
+        await createClass(c, { body: { ...sim, location: undefined }, actorId: admin });
+        assert.ok((await createClass(c, { body: { ...muay, location: undefined }, actorId: admin })).sessions_created >= 52);
+      });
+    });
+    await run('simultáneas: solape parcial, otra duración, otro lugar o un lugar vacío → 409 trainer_overlap', async () => {
+      await sp(c, async () => {
+        await createClass(c, { body: sim, actorId: admin });
+        for (const body of [{ ...muay, start_time: '18:30' }, { ...muay, duration_min: 90 }, { ...muay, location: 'Tatami 2' },
+          { ...muay, location: undefined }]) {
+          await sp(c, () => rejects(createClass(c, { body, actorId: admin }), 409, 'trainer_overlap'));
+        }
+      });
+    });
+    await run('simultáneas: mover, alargar o cambiar el lugar de una sola → 409; clase suelta en la misma franja y lugar sí', async () => {
+      await sp(c, async () => {
+        const a = await createClass(c, { body: sim, actorId: admin });
+        const b = await createClass(c, { body: muay, actorId: admin });
+        const [s] = await sessionsOf(b.id);
+        const later = new Date(s.starts_at.getTime() + 30 * 60_000).toISOString();
+        await sp(c, () => rejects(adjustSession(c, { id: s.id, body: { starts_at: later } }), 409, 'trainer_overlap'));
+        await sp(c, () => rejects(adjustSession(c, { id: s.id, body: { duration_min: 90 } }), 409, 'trainer_overlap'));
+        await sp(c, () => rejects(adjustSession(c, { id: s.id, body: { location: 'Tatami 2' } }), 409, 'trainer_overlap'));
+        await sp(c, () => rejects(updateClass(c, { id: b.id, body: { start_time: '18:30' } }), 409, 'trainer_overlap'));
+        const [sa] = await sessionsOf(a.id);
+        const loose = await createSession(c, {
+          body: { discipline_id: String(disc.id), trainer_id: prof2, starts_at: sa.starts_at.toISOString(),
+            duration_min: 60, capacity: 5, location: 'TATAMI 1' }, actorId: admin });
+        assert.equal(loose.trainer_id, prof2);
+      });
+    });
     await as(c, prof1, 'profesor');
     await run('profesor ve solo sus sesiones; ajena → 404; sin escribir', async () => {
       const mine = await listTrainerSessions(c, prof1);
@@ -146,7 +194,7 @@ try {
     });
   }, { commit: false });
 } finally {
-  await servicePool.query(`DELETE FROM disciplines WHERE id = $1`, [disc.id]);
+  await servicePool.query(`DELETE FROM disciplines WHERE id = ANY($1::bigint[])`, [[disc.id, disc2.id]]);
   await servicePool.query(`DELETE FROM profiles WHERE id = ANY($1::uuid[])`, [ids]);
   await closePools();
 }

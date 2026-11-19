@@ -162,7 +162,7 @@ Object.assign(TEXTS, TRAINER_TEXTS, {
 // B19.5 (docs/pantallas-b19.md § Horario). Los marcados «propuesto» no tienen texto en el documento.
 Object.assign(TEXTS, {
   capacity_below_bookings: 'Hay más reservas que ese aforo.',
-  trainer_overlap: 'Ese profesor ya tiene otra sesión a esa hora.',
+  trainer_overlap: 'Ese profesor ya tiene otra sesión a esa hora. Solo puede coincidir con otra de la misma hora, duración y lugar.',
   session_not_adjustable: 'La sesión está cancelada o ya ha empezado: no se puede ajustar.', // propuesto
   session_not_cancelled: 'La sesión no está cancelada.', // propuesto
   slot_passed: 'La hora que le toca según su clase ya ha pasado.', // propuesto

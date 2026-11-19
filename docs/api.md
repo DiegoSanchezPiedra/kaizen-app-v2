@@ -326,7 +326,7 @@ Todas exigen `role = admin` (y el admin entra con MFA si lo tiene activado). El 
 
 El admin ve el calendario con `GET /sessions/calendar` (y el de un alumno con `profile_id`), pasa lista con las rutas
 de `/sessions/:id/attendance` y reserva por cualquiera con `POST /bookings { profile_id }`.
-Errores: `409 trainer_overlap`, `409 capacity_below_bookings { sessions, fits_from }`, `409 session_not_adjustable`,
+Errores: `409 trainer_overlap` (el mismo profesor solo puede tener dos sesiones a la vez si coinciden en inicio, duración y lugar; ADR 0034), `409 capacity_below_bookings { sessions, fits_from }`, `409 session_not_adjustable`,
 `409 class_retired`, `409 discipline_inactive`, `409 slot_passed`, `409 already_retired`, `409 loose_session`.
 
 **Eventos** (B21.0). Cada acción queda en `audit_log` (`event.create`, `event.update` `{ from, to }`, `event.cancel`,

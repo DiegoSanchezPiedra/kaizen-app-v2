@@ -135,7 +135,7 @@ export async function callChange(client, sql, params) {
     if (known) {
       throw httpError(known[0], known[2] ?? err.message, known[1], known[3] ?? (err.detail ? JSON.parse(err.detail) : undefined));
     }
-    if (err.code === '23P01') throw httpError(409, 'trainer_overlap', 'El profesor ya imparte otra sesión a esa hora');
+    if (err.code === '23P01') throw httpError(409, 'trainer_overlap', 'El profesor ya imparte otra sesión a esa hora; solo puede coincidir con la misma hora, duración y lugar');
     // Promociones cruzadas entre sesiones pueden bloquearse mutuamente (como en services/bookings.js).
     if (err.code === '40P01') throw httpError(409, 'booking_conflict_retry', 'Operación concurrente, vuelve a intentarlo');
     throw err;

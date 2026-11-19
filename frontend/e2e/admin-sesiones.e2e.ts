@@ -23,6 +23,9 @@ const CAL = [
   ses('full', '2026-11-18', '19:30', '20:30', 'Judo', { taken: 20 }),
   ses('off', '2026-11-18', '20:30', '21:30', 'Muay Thai', { status: 'cancelled', taken: 0 }),
   ses('next', '2026-11-19', '19:00', '20:00', 'Judo', { taken: 2 }),
+  // Simultáneas (ADR 0034): el mismo profesor, a la misma hora y en el mismo lugar.
+  ses('twin-a', '2026-11-18', '21:30', '22:30', 'Judo', { taken: 3 }),
+  ses('twin-b', '2026-11-18', '21:30', '22:30', 'Muay Thai', { taken: 7 }),
 ]
 const detail = (s: (typeof CAL)[number], extra: object = {}) => ({ ...s, duration_min: 60, adjusted_fields: [], class_values: { trainer_id: 't1', starts_at: s.starts_at, duration_min: 60, capacity: 20, location: 'Tatami 1' }, cancel_note: null, ...extra })
 const bk = (id: string, name: string, status = 'confirmed') => ({ id, student: { id: `u-${id}`, display_name: name }, status, created_at: at('09:10', '2026-11-10') })
@@ -86,6 +89,18 @@ test('semana: hoy abierto; solo lo que se sale lleva insignia (en curso, celebra
   await expect(d.getByText('20/20 · Llena')).toBeVisible()
   await expect(d.getByText('5/20 plazas')).toBeVisible()
   await expect(page.getByText('Programada', { exact: true })).toHaveCount(0)
+})
+
+test('semana: dos sesiones simultáneas del mismo profesor salen como dos filas, cada una con su aforo', async ({ page }) => {
+  await open(page, '/admin/sessions')
+  const d = today(page)
+  const twins = d.locator('a[href^="/admin/sessions/twin-"]')
+  await expect(twins).toHaveCount(2)
+  await expect(twins.nth(0)).toContainText('Judo')
+  await expect(twins.nth(1)).toContainText('Muay Thai')
+  for (const t of await twins.all()) await expect(t).toContainText('Kenji Sato · Tatami 1')
+  await expect(d.getByText('3/20 plazas')).toBeVisible()
+  await expect(d.getByText('7/20 plazas')).toBeVisible()
 })
 
 test('«Nuevo» abre un menú con las tres cosas; «Clase suelta» abre su hoja y valida al crear', async ({ page }) => {

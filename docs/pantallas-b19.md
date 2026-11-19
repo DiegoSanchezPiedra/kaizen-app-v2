@@ -221,6 +221,6 @@ Los de B18 siguen valiendo. Texto de la UI para los nuevos y los del admin que l
 | `guardian_is_payer` | «paga su cuota: cambia antes el pagador» |
 | `requires_payer_action` | «el pagador recibirá un email para autorizar el pago» |
 | `capacity_below_bookings` | «hay más reservas que ese aforo» (con `fits_from`: «cabe desde el …») |
-| `trainer_overlap` | «ese profesor ya tiene otra sesión a esa hora» |
+| `trainer_overlap` | «ese profesor ya tiene otra sesión a esa hora. Solo puede coincidir con otra de la misma hora, duración y lugar» |
 | `duplicate_document` | «ese PDF ya está subido» |
 | `version_exists_different_content` | «esa versión ya existe con otro PDF; usa otra versión» |
