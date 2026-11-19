@@ -51,13 +51,15 @@ export function LoginPage() {
   const [notice, setNotice] = useState<Notice | null>(() =>
     params.get('acceso')
       ? { kind: 'info', title: 'Tu acceso ha cambiado', text: 'Vuelve a entrar.' }
-      : params.get('caducada')
-        ? { kind: 'info', icon: 'clock', title: 'Tu sesión ha caducado', text: 'Vuelve a entrar y seguirás donde estabas.' }
-        : params.get('clave')
-          ? { kind: 'info', title: 'Tu acceso ha cambiado', text: 'Vuelve a entrar.' }
-          : params.get('cambiada')
-            ? { kind: 'success', title: 'Contraseña cambiada', text: 'Ya puedes entrar con la nueva.' }
-            : null,
+      : params.get('rol')
+        ? { kind: 'info', title: 'Cambio de rol', text: 'Vuelve a entrar para usar este rol.' }
+        : params.get('caducada')
+          ? { kind: 'info', icon: 'clock', title: 'Tu sesión ha caducado', text: 'Vuelve a entrar y seguirás donde estabas.' }
+          : params.get('clave')
+            ? { kind: 'info', title: 'Tu acceso ha cambiado', text: 'Vuelve a entrar.' }
+            : params.get('cambiada')
+              ? { kind: 'success', title: 'Contraseña cambiada', text: 'Ya puedes entrar con la nueva.' }
+              : null,
   )
 
   function finish(res: AuthResponse) {

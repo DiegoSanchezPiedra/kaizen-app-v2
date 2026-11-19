@@ -10,6 +10,7 @@ import { send } from './email.js';
 import { mail } from './notices.js';
 import { isCorporateEmail } from '../config/corporate.js';
 import { registrationOpen } from '../config/registration.js';
+import { rolesSql } from '../lib/roles.js';
 
 // ---------------------------------------------------------------------------
 // Lectura de credenciales SOLO para login (sin JWT todavía).
@@ -131,6 +132,19 @@ export async function registerLocal({ email, password, displayName, birthDate })
   return createUser({ email, passwordHash, googleSub: null, displayName, birthDate });
 }
 
+// ADR 0033: con el que entra: el último rol usado si sigue asignado; si no, el de mayor prioridad. `trainer`: tiene el rol
+// profesor (ADR 0028: entra solo con email y contraseña, tenga además otros roles).
+async function loginRole(profileId) {
+  const { rows: [r] } = await servicePool.query(
+    `SELECT COALESCE((SELECT p.last_role::text FROM profiles p WHERE p.id = $1
+                        AND EXISTS (SELECT 1 FROM user_roles x WHERE x.user_id = p.id AND x.role = p.last_role)),
+                     (${rolesSql('$1')})[1]) AS role,
+            EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'profesor') AS trainer, is_minor($1) AS minor`,
+    [profileId]);
+  if (!r.role) throw httpError(401, 'invalid_credentials', 'invalid credentials'); // sin ningún rol: no debería existir
+  return r;
+}
+
 // ---------------------------------------------------------------------------
 // loginLocal — CAMBIO: no firma token. Devuelve { profileId, email, role }
 // para que la ruta decida (JWT normal vs mfa_token).
@@ -149,12 +163,8 @@ export async function loginLocal({ email, password }) {
   if (!cred?.password_hash || !ok || cred.disabled_at) { // desactivado: el mismo error que una contraseña mala
     throw httpError(401, 'invalid_credentials', 'invalid credentials');
   }
-  const { rows } = await servicePool.query(
-    `SELECT (SELECT role FROM user_roles WHERE user_id = $1 ORDER BY id LIMIT 1) AS role, is_minor($1) AS minor`,
-    [cred.profile_id]
-  );
-  const role = rows[0]?.role ?? 'alumno';
-  return { profileId: cred.profile_id, email: cred.email, role, minor: rows[0].minor };
+  const { role, minor } = await loginRole(cred.profile_id);
+  return { profileId: cred.profile_id, email: cred.email, role, minor };
 }
 
 // ---------------------------------------------------------------------------
@@ -177,12 +187,8 @@ export async function loginGoogle({ idToken, verify = verifyGoogleIdToken }) { /
 
   const bySub = await findCredentialsByGoogleSub(googleSub);
   if (bySub) {
-    const { rows } = await servicePool.query(
-      `SELECT role FROM user_roles WHERE user_id = $1 ORDER BY id LIMIT 1`,
-      [bySub.profile_id]
-    );
-    const role = rows[0]?.role ?? 'alumno';
-    if (role === 'profesor') throw notAllowed();
+    const { role, trainer } = await loginRole(bySub.profile_id);
+    if (trainer) throw notAllowed();
     if (bySub.disabled_at) throw httpError(401, 'invalid_credentials', 'invalid credentials');
     return { profileId: bySub.profile_id, email: bySub.email, role };
   }

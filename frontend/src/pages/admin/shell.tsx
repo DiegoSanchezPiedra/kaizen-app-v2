@@ -21,6 +21,7 @@ import {
 import { Link, NavLink, Outlet, useLocation } from 'react-router'
 import logo from '@/assets/logo.png'
 import { Page } from '@/components/page'
+import { RoleSwitcher } from '@/components/role-switcher'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
@@ -110,6 +111,7 @@ export function AdminShell() {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter className="border-t">
+          <RoleSwitcher side="top" />
           <SidebarMenu>
             <NavItem item={ACCOUNT} />
           </SidebarMenu>

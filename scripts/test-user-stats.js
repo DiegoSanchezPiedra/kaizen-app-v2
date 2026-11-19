@@ -20,12 +20,12 @@ const yearsAgo = (n) => new Date(Date.now() - n * 365.25 * 864e5).toISOString().
 const q = (sql, params) => servicePool.query(sql, params);
 
 const tag = `tust${crypto.randomBytes(3).toString('hex')}`;
-// [rol en user_roles (null = sin fila, cuenta como alumno), fecha de nacimiento]
+// [rol en user_roles, fecha de nacimiento]
 const people = {
   admin: ['admin', null], prof: ['profesor', null], tutor: ['tutor', yearsAgo(40)],
   act: ['alumno', yearsAgo(30)], idle: ['alumno', yearsAgo(30)], all: ['alumno', yearsAgo(30)],
   grace: ['alumno', yearsAgo(30)], ins: ['alumno', yearsAgo(30)], other: ['alumno', yearsAgo(30)],
-  gone: ['alumno', yearsAgo(30)], kid: [null, yearsAgo(10)], kid2: [null, yearsAgo(9)],
+  gone: ['alumno', yearsAgo(30)], kid: ['alumno', yearsAgo(10)], kid2: ['alumno', yearsAgo(9)],
 };
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 const twinTag = `twin${crypto.randomBytes(3).toString('hex')}`; // dos profesores con el mismo nombre: desempate por id
@@ -175,7 +175,7 @@ const names = (r) => r.body.profiles.map((p) => p.display_name.slice(tag.length 
       assert.deepEqual((await http(`/admin/profiles?q=${encodeURIComponent(lit)}`)).body.total, 0, lit);
     }
     assert.deepEqual(names(await http(`/admin/profiles?q=${tag}&role=tutor`)), ['tutor']);
-    assert.equal((await http(`/admin/profiles?q=${tag}&role=alumno`)).body.total, 9); // los menores sin fila de rol también
+    assert.equal((await http(`/admin/profiles?q=${tag}&role=alumno`)).body.total, 9); // los menores también
     const tw = await http(`/admin/profiles?q=${twinTag}`);
     assert.deepEqual(tw.body.profiles.map((p) => p.id), twins);
     const last = await http(`/admin/profiles?q=${tag}&limit=5&offset=10`);

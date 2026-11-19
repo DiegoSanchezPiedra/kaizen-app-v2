@@ -8,7 +8,7 @@ import { adminGrantLimit, trainerInviteLimit } from '../../middleware/rateLimit.
 import { asyncHandler } from '../../middleware/asyncHandler.js';
 import { sendInvite, inviteUrl } from '../../services/trainers.js';
 import { setAvatar, deleteAvatarFile, noticeAvatarRemoved } from '../../services/avatar.js';
-import { listProfiles, getProfileStats, getProfile, changeRole, adminCreateUser, inviteUser, setCanCreateChildren, addGuardian, removeGuardian } from '../../services/users.js';
+import { listProfiles, getProfileStats, getProfile, addRole, removeRole, adminCreateUser, inviteUser, setCanCreateChildren, addGuardian, removeGuardian } from '../../services/users.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const checkId = (req, res, next, v) => (UUID_RE.test(v) ? next() : next(httpError(400, 'invalid_id', 'id inválido')));
@@ -27,11 +27,15 @@ router.get('/profiles/stats', withRlsContext((req, client) => getProfileStats(cl
 // GET /admin/profiles/:id → { profile, status, guardians, children, subscription } (sin birth_date ni salud)
 router.get('/profiles/:id', withRlsContext((req, client) => getProfile(client, { id: req.params.id })));
 
-// PUT /admin/profiles/:id/role { role } → { profile } (audit_log profile.role_change); sin doble factor (ADR 0032);
-// dar admin, como mucho 10 veces cada 15 min por IP.
+// POST /admin/profiles/:id/roles { role } → { profile } (audit_log profile.role_add); DELETE …/roles/:role → { profile }
+// (profile.role_remove). ADR 0033; sin doble factor (ADR 0032). 409 self_role_locked | trainer_role_locked | child_role_locked |
+// role_already_assigned | admin_role_locked | student_has_subscription | last_role; 404 role_not_assigned.
+// Dar admin, como mucho 10 veces cada 15 min por IP.
 const grantLimit = (req, res, next) => (req.body?.role === 'admin' ? adminGrantLimit(req, res, next) : next());
-router.put('/profiles/:id/role', grantLimit, withRlsContext((req, client) => changeRole(client, {
+router.post('/profiles/:id/roles', grantLimit, withRlsContext((req, client) => addRole(client, {
   id: req.params.id, role: req.body?.role, actorId: req.user.id })));
+router.delete('/profiles/:id/roles/:role', withRlsContext((req, client) => removeRole(client, {
+  id: req.params.id, role: req.params.role, actorId: req.user.id })));
 
 // El email sale tras el COMMIT y sin await (un fallo de envío no deshace el alta: el admin copia el enlace o reinvita).
 // El enlace va también en la respuesta, nunca en caché, ni en logs ni en audit.

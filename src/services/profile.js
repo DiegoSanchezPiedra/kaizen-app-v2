@@ -61,7 +61,7 @@ export async function getMe(client, user) {
     [user.id, user.role]
   );
   if (!rows[0]) throw httpError(404, 'profile_not_found', 'Perfil no encontrado');
-  return { ...rows[0], minor: user.minor ?? null };
+  return { ...rows[0], roles: user.roles, minor: user.minor ?? null };
 }
 
 /** B32: el adulto que entró con el usuario de su tutor añade su email, una vez (409 email_already_set, email_taken). */

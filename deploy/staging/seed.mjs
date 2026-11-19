@@ -41,7 +41,9 @@ for (const [n, name] of USERS) {
 const db = new pg.Client({ connectionString: process.env.DATABASE_URL_SERVICE });
 await db.connect();
 for (const [n, , role] of USERS.filter((u) => u[2])) {
-  await db.query(`insert into user_roles(user_id, role) select profile_id, $2 from auth_credentials where email = $1 on conflict (user_id) do update set role = excluded.role`, [email(n), role]);
+  // 073: varios roles por perfil; el sembrado acaba con ese rol como único.
+  await db.query(`delete from user_roles where user_id in (select profile_id from auth_credentials where email = $1)`, [email(n)]);
+  await db.query(`insert into user_roles(user_id, role) select profile_id, $2 from auth_credentials where email = $1`, [email(n), role]);
 }
 // 062: crear hijos es un permiso que da el admin; el tutor sembrado lo tiene.
 await db.query(`update auth_credentials set can_create_children = true where email = $1`, [email('tutor')]);

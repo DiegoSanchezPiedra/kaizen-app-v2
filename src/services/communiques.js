@@ -32,7 +32,8 @@ const AUDIENCE_SQL = `
   SELECT c.profile_id AS id, c.email IS NOT NULL AND NOT is_minor(c.profile_id) AS email
     FROM people JOIN auth_credentials c ON c.profile_id = people.id
    WHERE c.disabled_at IS NULL
-     AND NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = c.profile_id AND r.role = 'admin')`;
+     AND (NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = c.profile_id AND r.role = 'admin')
+          OR EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = c.profile_id AND r.role IN ('alumno', 'tutor')))`; // ADR 0033: admin que también es alumno o tutor sí
 
 function parseAudience({ audience, discipline_ids: ids }) {
   if (!AUDIENCES.includes(audience)) throw invalid('audience', 'Elige a quién va');

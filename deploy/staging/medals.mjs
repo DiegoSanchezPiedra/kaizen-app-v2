@@ -41,8 +41,9 @@ const db = new pg.Client({ connectionString: process.env.DATABASE_URL_SERVICE })
 await db.connect();
 const one = async (sql, p) => (await db.query(sql, p)).rows[0];
 try {
-  await db.query(`INSERT INTO user_roles (user_id, role) SELECT profile_id, 'tutor' FROM auth_credentials WHERE email = $1
-                  ON CONFLICT (user_id) DO UPDATE SET role = excluded.role`, [TUTOR]);
+  // 073: varios roles por perfil; el tutor sembrado acaba con ese rol como único.
+  await db.query(`DELETE FROM user_roles WHERE user_id IN (SELECT profile_id FROM auth_credentials WHERE email = $1)`, [TUTOR]);
+  await db.query(`INSERT INTO user_roles (user_id, role) SELECT profile_id, 'tutor' FROM auth_credentials WHERE email = $1`, [TUTOR]);
   await db.query(`UPDATE auth_credentials SET can_create_children = true WHERE email = $1`, [TUTOR]); // 062
   const { token } = await call('/auth/login', { method: 'POST', body: { email: TUTOR, password: PASSWORD } });
   let nico = (await call('/me/children', { token })).children.find((c) => c.display_name === 'Nico');

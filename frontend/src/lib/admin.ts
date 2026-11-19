@@ -6,7 +6,9 @@ import { AGREEMENT_TITLE, type AgreementType } from '@/lib/profile'
 import type { ProfileStatus, Subscription } from '@/lib/types'
 
 // GET /auth/me (B4): el aviso del MFA sale solo si la API dice que no está activo; mientras carga, no.
-export type AuthMe = { user: { id: string; role: string }; mfa_enabled: boolean }
+// `role`: el rol activo de la sesión; `roles`: todos los asignados (ADR 0033).
+export type AuthMe = { user: { id: string; role: string; roles: Role[] }; mfa_enabled: boolean }
+export const rolesOf = (me: AuthMe | undefined): Role[] => me?.user?.roles ?? [] // sin respuesta aún (o vacía), ninguno
 export const showMfaNotice = (me: AuthMe | undefined): boolean => me?.mfa_enabled === false
 
 // GET /admin/reports/subscriptions: un día o un mes sin foto llega con las cifras a null, salvo `trained` (sale de las asistencias, no de la foto: nunca es null).
@@ -162,6 +164,8 @@ const AUDIT_LABEL: Record<string, string> = {
   'subscription.pause_end_early': 'Volvió antes de una pausa',
   'pause.exempt': 'Eximió una pausa de la cuota de mantenimiento',
   'profile.role_change': 'Cambió el rol',
+  'profile.role_add': 'Dio un rol',
+  'profile.role_remove': 'Quitó un rol',
   'profile.unpublish': 'Despublicó un perfil',
   'guardian.add': 'Vinculó un tutor',
   'guardian.remove': 'Desvinculó un tutor',
@@ -215,6 +219,7 @@ export function auditDetail(a: Pick<AuditRow, 'action' | 'changes'>, roleLabel: 
     const reason = str(c.reason)
     return `${STATUS_LABEL[from] ?? from} → ${STATUS_LABEL[to] ?? to}${reason ? ` · ${reason}` : ''}`
   }
+  if ((a.action === 'profile.role_add' || a.action === 'profile.role_remove') && str(c.role)) return roleLabel[str(c.role)!] ?? str(c.role)!
   if (a.action === 'profile.role_change' && from && to) return `${roleLabel[from] ?? from} → ${roleLabel[to] ?? to}`
   if (/price_change$/.test(a.action) && typeof c.from === 'number' && typeof c.to === 'number') return `${formatEuros(c.from)} → ${formatEuros(c.to)}`
   if (a.action === 'pause.exempt') return str(c.reason) ?? ''
@@ -300,6 +305,11 @@ export const safeInvoiceUrl = (u: string | null): string | null => (u && /^https
 
 // Usuarios (B19.0). Nunca llegan la fecha de nacimiento ni la salud: de la edad, solo las dos marcas.
 export const ROLE_LABEL: Record<Role, string> = { alumno: 'Alumno', tutor: 'Tutor', profesor: 'Profesor', admin: 'Admin' }
+// Los roles de un perfil siempre en este orden, venga como venga de la API.
+// Orden de presentación (selector, filtros); el de prioridad (login) es el de ROLES en src/lib/roles.js.
+export const ROLE_ORDER: Role[] = ['alumno', 'tutor', 'profesor', 'admin']
+export const sortRoles = (roles: Role[]): Role[] => ROLE_ORDER.filter((r) => roles.includes(r))
+export const rolesLabel = (roles: Role[]): string => sortRoles(roles).map((r) => ROLE_LABEL[r]).join(', ')
 
 type Person = { id: string; display_name: string | null; email?: string | null }
 export type ProfileRow = {
@@ -307,7 +317,7 @@ export type ProfileRow = {
   display_name: string | null
   avatar: string | null
   email: string | null
-  role: Role
+  roles: Role[]
   is_minor: boolean
   pending_claim: boolean
   disabled: boolean
@@ -329,11 +339,31 @@ export type ProfileFile = {
 
 // Un hijo es un perfil sin acceso propio: sin credenciales, así que sin email.
 export const isChild = (p: { email: string | null }): boolean => p.email === null
-// El rol admin no se quita desde la app (admin_role_locked) y un hijo siempre es alumno (child_role_locked); dar admin sí (B20).
-// Un profesor tampoco cambia de rol (trainer_role_locked, ADR 0028): se desactiva.
-export const canChangeRole = (p: { role: Role; email: string | null }): boolean => p.role !== 'admin' && p.role !== 'profesor' && !isChild(p)
-// El rol profesor ya no se da por aquí: se da de alta al profesor (POST /admin/trainers).
-export const ASSIGNABLE_ROLES = ['alumno', 'tutor', 'admin'] as const
+// Roles de la ficha (ADR 0033): una casilla por rol. El admin no se puede cambiar los suyos, un hijo solo es alumno, admin no se quita
+// desde la app, siempre queda un rol, no se quita alumno con una cuota viva y profesor va por Profesores (solo se enseña si lo tiene).
+// `reason` explica por qué una casilla está deshabilitada; el servidor repite estas reglas (los mismos códigos).
+export type RoleBox = { role: Role; checked: boolean; disabled: boolean; reason: string | null }
+export function roleBoxes(p: { id: string; roles: Role[]; email: string | null }, selfId: string | undefined, liveSubscription = false): RoleBox[] {
+  const child = isChild(p)
+  return ROLE_ORDER.filter((r) => r !== 'profesor' || p.roles.includes(r)).map((role) => {
+    const checked = p.roles.includes(role)
+    const reason =
+      p.id === selfId
+        ? 'No puedes cambiar tus propios roles.'
+        : role === 'profesor'
+          ? 'El profesor se gestiona en Profesores.'
+          : child
+            ? 'Un hijo solo es alumno.'
+            : checked && role === 'admin'
+              ? 'El rol de administración no se quita desde la app.'
+              : checked && p.roles.length === 1
+                ? 'Debe quedarle al menos un rol.'
+                : checked && role === 'alumno' && liveSubscription
+                  ? 'Tiene una cuota viva; dala de baja antes.'
+                  : null
+    return { role, checked, disabled: reason !== null, reason }
+  })
+}
 
 // Estado de la cuenta de un profesor: desactivado, con la invitación sin aceptar (aún sin contraseña) o activo.
 export type TrainerState = 'disabled' | 'pending' | 'active'
@@ -356,7 +386,7 @@ export function payerCandidates(f: ProfileFile): Person[] {
 // Pestañas de la ficha: Cuota y Reservas solo de un alumno; Familia si es un hijo o tiene hijos.
 export type UserTab = 'summary' | 'billing' | 'bookings' | 'family'
 export function userTabs(f: Pick<ProfileFile, 'profile' | 'children'>): UserTab[] {
-  const student = f.profile.role === 'alumno'
+  const student = f.profile.roles.includes('alumno')
   const family = isChild(f.profile) || f.children.length > 0
   return (['summary', 'billing', 'bookings', 'family'] as const).filter((t) => (t === 'billing' || t === 'bookings' ? student : t === 'family' ? family : true))
 }

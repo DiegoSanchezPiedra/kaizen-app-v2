@@ -29,6 +29,8 @@ export const authLimit = rateLimit({ name: 'auth', max: 30, windowMs: 15 * MIN }
 // B32: el mismo límite por cuenta (email o usuario), aunque cambie la IP: frena adivinar la contraseña de un menor.
 export const loginAccountLimit = rateLimit({ name: 'auth', max: 30, windowMs: 15 * MIN,
   key: (req) => (typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : undefined) });
+// ADR 0033: cambiar de rol activo, por perfil (varios en una misma casa comparten IP); frena el martilleo, no el uso normal.
+export const roleSwitchLimit = rateLimit({ name: 'role_switch', max: 60, windowMs: 15 * MIN, key: (req) => req.user?.id });
 export const forgotLimit = rateLimit({ name: 'password_forgot', max: 5, windowMs: 60 * MIN });
 export const tabletLinkLimit = rateLimit({ name: 'tablet_link', max: 10, windowMs: 15 * MIN });
 export const avatarLimit = rateLimit({ name: 'avatar', max: 20, windowMs: 60 * MIN });

@@ -8,7 +8,7 @@ const ME = { id: 'a-1', display_name: 'Ada Admin', email: 'admin@example.invalid
 const URL_1 = 'https://kaizen.example/reset-password?token=uno&invite=1'
 const URL_2 = 'https://kaizen.example/reset-password?token=dos&invite=1'
 const PROFILE = {
-  id: 'u1', display_name: 'Lucía Pérez', avatar: null, email: 'lucia@example.invalid', role: 'tutor', is_minor: false, pending_claim: false, disabled: false,
+  id: 'u1', display_name: 'Lucía Pérez', avatar: null, email: 'lucia@example.invalid', roles: ['tutor'], is_minor: false, pending_claim: false, disabled: false,
   has_password: false, has_google: false, invite_pending: true, created_at: '2026-11-18T10:00:00Z', is_public: false, can_create_children: true,
 }
 
@@ -20,14 +20,13 @@ async function open(page: Page, url: string, fail?: { status: number; code: stri
     const p = new URL(r.request().url()).pathname.replace(/^\/api/, '')
     const method = r.request().method()
     if (p === '/me') return r.fulfill({ json: ME })
-    if (p === '/auth/me') return r.fulfill({ json: { user: { id: 'a-1', role: 'admin' }, mfa_enabled: false } })
+    if (p === '/auth/me') return r.fulfill({ json: { user: { id: 'a-1', role: 'admin', roles: ['admin'] }, mfa_enabled: false } })
     if (method !== 'GET') {
       writes.push({ method, path: p, body: r.request().postDataJSON() })
       if (fail) return r.fulfill({ status: fail.status, json: { code: fail.code } })
       if (p === '/admin/users') return r.fulfill({ status: 201, json: { profile: PROFILE, invite_url: URL_1 } })
-      if (p === '/admin/trainers') return r.fulfill({ status: 201, json: { trainer: { ...PROFILE, id: 't1', role: 'profesor' }, invite_url: URL_1 } })
+      if (p === '/admin/trainers') return r.fulfill({ status: 201, json: { trainer: { ...PROFILE, id: 't1', roles: ['profesor'] }, invite_url: URL_1 } })
       if (p.endsWith('/invite')) return r.fulfill({ json: { invite_url: URL_2 } })
-      if (p.endsWith('/role')) return r.fulfill({ json: { profile: { ...PROFILE, role: 'admin' } } })
       return r.fulfill({ json: {} })
     }
     if (p === '/admin/profiles/stats') return r.fulfill({ json: { activos: 0, impago: 0, inactivos: 0 } })

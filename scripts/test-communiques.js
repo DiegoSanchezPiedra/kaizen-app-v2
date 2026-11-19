@@ -20,12 +20,13 @@ const q = async (sql, params) => (await servicePool.query(sql, params)).rows;
 
 // ana: socia adulta (solo D1); tutor: dos hijos socios, kid (con acceso propio y email) y baby (sin acceso);
 // free: alumno sin cuota; prof: profesor; off: cuenta deshabilitada con cuota; admin.
-const people = { admin: 'admin', ana: 'alumno', tutor: 'tutor', kid: 'alumno', baby: 'alumno', free: 'alumno', prof: 'profesor', off: 'alumno' };
+const people = { admin: 'admin', ana: 'alumno', tutor: 'tutor', kid: 'alumno', baby: 'alumno', free: 'alumno', prof: 'profesor', off: 'alumno', admtut: 'admin' }; // admtut: admin que también es tutor (ADR 0033)
 const U = Object.fromEntries(Object.keys(people).map((k) => [k, crypto.randomUUID()]));
 for (const [k, role] of Object.entries(people)) {
   await q(`INSERT INTO profiles (id, display_name, birth_date) VALUES ($1, $2, $3)`,
     [U[k], `T ${k}`, ['kid', 'baby'].includes(k) ? '2014-03-03' : null]);
   await q(`INSERT INTO user_roles (user_id, role) VALUES ($1, $2)`, [U[k], role]);
+  if (k === 'admtut') await q(`INSERT INTO user_roles (user_id, role) VALUES ($1, 'tutor')`, [U[k]]);
   if (k === 'baby') continue;
   await q(`INSERT INTO auth_credentials (profile_id, email, username, password_hash, disabled_at) VALUES ($1, $2, $3, 'x', $4)`,
     [U[k], `${k}-${U[k]}@communiques.test`, k === 'kid' ? `kid${U[k].slice(0, 6)}` : null, k === 'off' ? new Date() : null]);
@@ -67,13 +68,13 @@ const mailed = async (id) => (await q(
 const pending = async (k) => (await http('GET', '/me/communiques', k)).body.communiques.map((c) => c.id);
 
 try {
-  await run('todos: cuentas activas no admin; ventana al hijo con acceso, email solo a adultos', async () => {
+  await run('todos: cuentas activas no solo-admin (un admin que es tutor sí); ventana al hijo con acceso, email solo a adultos', async () => {
     const r = await send({ audience: 'all', channels: ['app', 'email'] });
     assert.equal(r.status, 201, JSON.stringify(r.body));
-    assert.deepEqual(await viewers(r.body.id), ['ana', 'free', 'kid', 'prof', 'tutor']);
-    assert.deepEqual((await mailed(r.body.id)).map((m) => m.who).sort(), ['ana', 'free', 'prof', 'tutor']);
-    assert.equal(r.body.app_count, 5);
-    assert.equal(r.body.email_count, 4);
+    assert.deepEqual(await viewers(r.body.id), ['admtut', 'ana', 'free', 'kid', 'prof', 'tutor']);
+    assert.deepEqual((await mailed(r.body.id)).map((m) => m.who).sort(), ['admtut', 'ana', 'free', 'prof', 'tutor']);
+    assert.equal(r.body.app_count, 6);
+    assert.equal(r.body.email_count, 5);
   });
 
   await run('socios: en vigor (también en gracia); un hijo cuenta por su tutor (una vez) y él si tiene acceso', async () => {

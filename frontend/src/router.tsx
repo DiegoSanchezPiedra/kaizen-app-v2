@@ -1,9 +1,9 @@
 import { useEffect } from 'react'
 import { AppCrash } from '@/components/screen-state'
 import { createBrowserRouter, Navigate, Outlet, redirect, useLocation, useSearchParams } from 'react-router'
-import { setUnauthorizedHandler, setWrongRoleHandler } from '@/lib/api'
+import { setUnauthorizedHandler } from '@/lib/api'
 import { catalogRedirect } from '@/lib/catalog'
-import { checkRole, logout } from '@/lib/logout'
+import { logout } from '@/lib/logout'
 import { redirectForMinor } from '@/lib/minor'
 import { loginPath, redirectFor, safeReturnPath } from '@/lib/paths'
 import { useMinor } from '@/lib/queries'
@@ -35,21 +35,16 @@ function PublicOnly() {
   return session && !isExpired(session) ? <Navigate to={safeReturnPath(params.get('volver'))} replace /> : <Outlet />
 }
 
-// Con sesión: cada rol a lo suyo (el admin, al panel). Al abrir, el rol de GET /me tiene que ser el del token.
+// Con sesión: cada rol a lo suyo (el admin, al panel).
 function RequireSession() {
   const session = useSession()
   const location = useLocation()
   const expired = session ? isExpired(session) : false
-  const token = expired ? null : session?.token
   const minor = useMinor()
 
   useEffect(() => {
     if (expired) logout({ expired: true })
   }, [expired])
-
-  useEffect(() => {
-    if (token) void checkRole()
-  }, [token])
 
   if (!session) return <Navigate to={loginPath(getEndReason(), location.pathname + location.search)} replace />
   if (expired) return null
@@ -152,4 +147,3 @@ export const router = createBrowserRouter([
 ])
 
 setUnauthorizedHandler((reason) => void logout({ expired: true, reason }))
-setWrongRoleHandler(() => void checkRole())

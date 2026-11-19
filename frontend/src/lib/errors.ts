@@ -126,7 +126,7 @@ const TRAINER_TEXTS = {
   same_state: 'Ya estaba así.',
   trainer_disabled: 'Está desactivado: reactívalo antes.',
   trainer_not_found: 'No lo encontramos.',
-  trainer_role_locked: 'Un profesor se desactiva desde su ficha; no cambia de rol.',
+  trainer_role_locked: 'El rol de profesor se gestiona en Profesores.',
   google_login_not_allowed: 'Los profesores entran con email y contraseña.',
 }
 
@@ -134,11 +134,16 @@ const TRAINER_TEXTS = {
 Object.assign(TEXTS, TRAINER_TEXTS, {
   insufficient_role: 'No tienes acceso a esto.',
   invalid_totp: 'El código no es correcto; revisa la hora del móvil.',
-  same_role: 'Ya tiene ese rol.',
+  own_session: 'No puedes reservar una sesión que impartes tú.',
+  own_event: 'No puedes inscribirte en un evento que impartes tú.',
   admin_role_locked: 'El rol de administración no se quita desde la app.',
   mfa_required: 'Para dar el rol de administración, activa antes el doble factor en tu cuenta.',
   mfa_login_required: 'Para dar el rol de administración, sal y vuelve a entrar con el código del doble factor.',
-  child_role_locked: 'Un hijo siempre es alumno.',
+  child_role_locked: 'Un hijo solo es alumno.',
+  self_role_locked: 'No puedes cambiar tus propios roles.', // ADR 0033
+  last_role: 'Debe quedarle al menos un rol.',
+  role_already_assigned: 'Ya tiene ese rol.',
+  role_not_assigned: 'Ese rol no está asignado.',
   trainer_has_sessions: 'Antes, reasigna o retira sus clases y sesiones futuras.',
   student_has_subscription: 'Tiene una cuota viva; dala de baja antes.',
   not_a_child: 'Solo se vincula un adulto con acceso propio a un menor.',

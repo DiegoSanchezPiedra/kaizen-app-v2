@@ -1,7 +1,7 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { BanIcon, CalendarIcon, ChevronRightIcon, CircleAlertIcon, CircleCheckIcon, CircleDashedIcon, ClockIcon, HourglassIcon, SearchIcon, SearchXIcon, UsersIcon, type LucideIcon } from 'lucide-react'
 import type React from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { Back, Kv, Tag } from '@/components/billing-bits'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -9,6 +9,7 @@ import { ProfileAvatar } from '@/components/profile-avatar'
 import { Page } from '@/components/page'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxPopup } from '@/components/ui/combobox'
@@ -17,8 +18,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
 import {
   ageMarks,
-  ASSIGNABLE_ROLES,
-  canChangeRole,
   ESTADO_TAG,
   hasFilters,
   isChild,
@@ -26,7 +25,10 @@ import {
   pageHref,
   profilesQuery,
   ROLE_LABEL,
+  roleBoxes,
+  rolesLabel,
   setFilter,
+  sortRoles,
   toggleEstado,
   trainerState,
   userFilters,
@@ -48,6 +50,7 @@ import type { Role } from '@/lib/paths'
 import { AGREEMENT_TITLE, type AgreementType } from '@/lib/profile'
 import { bookingsOf, refreshBookings, useBookings, useDisciplines } from '@/lib/queries'
 import { CANCEL_REASON, PAST_CHUNK_DAYS } from '@/lib/sessions'
+import { useSession } from '@/lib/session'
 import { path } from '@/lib/url'
 import type { Booking } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -89,20 +92,23 @@ const CHIPS: [Estado | null, string, keyof ProfileStats | null][] = [
 ]
 const ESTADO_ICON: Record<Estado, LucideIcon> = { activo: CircleCheckIcon, inactivo: ClockIcon, impago: CircleAlertIcon, sin_plan: CircleDashedIcon }
 
-// Alumno: su estado de cuota; profesor: el de su cuenta (activo, invitación pendiente, desactivado). Icono y texto.
+// Alumno: su estado de cuota; profesor: el de su cuenta (activo, invitación pendiente, desactivado); con los dos roles, ambos. Icono y texto.
 const EstadoTag = ({ p }: { p: ProfileRow }) => {
-  if (p.role === 'profesor') return <TrainerTag state={trainerState(p)} />
-  if (!p.estado) return null
+  const trainer = p.roles.includes('profesor') && <TrainerTag state={trainerState(p)} />
+  if (!p.estado) return trainer || null
   const [label, variant] = ESTADO_TAG[p.estado]
   const Icon = ESTADO_ICON[p.estado]
   return (
-    <Tag variant={variant}>
-      <Icon aria-hidden="true" />
-      {label}
-    </Tag>
+    <>
+      {trainer}
+      <Tag variant={variant}>
+        <Icon aria-hidden="true" />
+        {label}
+      </Tag>
+    </>
   )
 }
-const roleLine = (p: ProfileRow) => [ROLE_LABEL[p.role], ...ageMarks(p), p.role === 'alumno' && (p.plan_name ?? 'Sin plan')].filter(Boolean).join(' · ')
+const roleLine = (p: ProfileRow) => [rolesLabel(p.roles), ...ageMarks(p), p.roles.includes('alumno') && (p.plan_name ?? 'Sin plan')].filter(Boolean).join(' · ')
 
 // Filtro por estado con la cifra de los alumnos de la disciplina elegida (docs/pantallas-b22.md § Usuarios).
 function EstadoChips({ params, setParams }: { params: URLSearchParams; setParams: (p: URLSearchParams) => void }) {
@@ -239,7 +245,7 @@ export function UsersPage() {
                       <EstadoTag p={p} />
                     </span>
                     <span className="truncate text-sm text-muted-foreground">{roleLine(p)}</span>
-                    {p.role === 'alumno' && <span className="text-sm text-muted-foreground">Última asistencia {lastSeen(p.last_attendance_at)}</span>}
+                    {p.roles.includes('alumno') && <span className="text-sm text-muted-foreground">Última asistencia {lastSeen(p.last_attendance_at)}</span>}
                   </span>
                   <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                 </Link>
@@ -270,13 +276,13 @@ export function UsersPage() {
                     </TableCell>
                     <TableCell>
                       <span className="flex items-center gap-1.5">
-                        {ROLE_LABEL[p.role]}
+                        {rolesLabel(p.roles)}
                         <Marks p={p} />
                       </span>
                     </TableCell>
                     <TableCell className={p.plan_name ? undefined : 'text-muted-foreground'}>{p.plan_name ?? '—'}</TableCell>
-                    <TableCell>{p.estado || p.role === 'profesor' ? <EstadoTag p={p} /> : <span className="text-muted-foreground">—</span>}</TableCell>
-                    <TableCell className="pe-4 text-muted-foreground tabular-nums">{p.role === 'alumno' ? lastSeen(p.last_attendance_at) : '—'}</TableCell>
+                    <TableCell>{p.estado || p.roles.includes('profesor') ? <EstadoTag p={p} /> : <span className="text-muted-foreground">—</span>}</TableCell>
+                    <TableCell className="pe-4 text-muted-foreground tabular-nums">{p.roles.includes('alumno') ? lastSeen(p.last_attendance_at) : '—'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -310,50 +316,70 @@ const access = (p: ProfileFile['profile']) =>
   p.has_password && p.has_google ? 'Contraseña y Google' : p.has_password ? 'Contraseña' : p.has_google ? 'Google' : p.email ? 'Pendiente de aceptar la invitación' : 'Sin acceso propio'
 
 
-function RoleChange({ file, refresh }: { file: ProfileFile; refresh: () => void }) {
+// ADR 0033: una casilla por rol; marcar o quitar pide confirmación. Las deshabilitadas dicen por qué (la misma razón, una vez, si es de todas).
+function RoleBoxes({ file, refresh }: { file: ProfileFile; refresh: () => void }) {
   const p = file.profile
-  const [role, setRole] = useState<Role | ''>('')
-  const [open, setOpen] = useState(false)
-  const toAdmin = role === 'admin'
+  const selfId = useSession()?.id
+  const id = useId()
+  const [ask, setAsk] = useState<{ role: Role; add: boolean } | null>(null)
+  const boxes = roleBoxes(p, selfId, !!file.subscription && isLive(file.subscription.status))
+  const shared = boxes.every((b) => b.disabled && b.reason === boxes[0].reason) ? boxes[0].reason : null
   const change = useMutation({
-    mutationFn: () => api(`/admin/profiles/${p.id}/role`, { method: 'PUT', body: { role } }),
-    onSuccess: () => {
-      toastOk(`Ahora es ${ROLE_LABEL[role as Role].toLowerCase()}`)
-      setRole('')
-    },
+    mutationFn: ({ role, add }: { role: Role; add: boolean }) =>
+      add ? api(`/admin/profiles/${p.id}/roles`, { method: 'POST', body: { role } }) : api(`/admin/profiles/${p.id}/roles/${role}`, { method: 'DELETE' }),
+    onSuccess: (_, { role, add }) => toastOk(`${add ? 'Ahora también es' : 'Ya no es'} ${ROLE_LABEL[role].toLowerCase()}`),
     onError: (err) => toastError(err),
     onSettled: () => {
-      setOpen(false)
+      setAsk(null)
       refresh()
     },
   })
-  const options = ASSIGNABLE_ROLES.filter((r) => r !== p.role)
+  const label = ask ? ROLE_LABEL[ask.role].toLowerCase() : ''
   return (
-    <div className="flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center">
-      <div className="sm:w-52">
-        <Filter
-          label="Rol nuevo"
-          value={role || 'none'}
-          onChange={(v) => setRole(v === 'none' ? '' : (v as Role))}
-          items={[{ value: 'none', label: 'Rol nuevo' }, ...options.map((r) => ({ value: r, label: ROLE_LABEL[r] }))]}
-        />
-      </div>
-      <Button variant="outline" size="lg" className="max-sm:h-11" disabled={!role} onClick={() => setOpen(true)}>
-        Cambiar el rol
-      </Button>
+    <div className="flex flex-col gap-2 border-t pt-3">
+      <fieldset className="flex flex-col gap-2">
+        <legend className="mb-1 text-sm font-medium">Roles</legend>
+        {boxes.map((b) => (
+          <div key={b.role} className="flex flex-col gap-1">
+            <label className="flex min-h-11 items-center gap-3 rounded-lg border px-3 has-data-disabled:bg-muted/40">
+              <Checkbox
+                checked={b.checked}
+                disabled={b.disabled || change.isPending}
+                aria-describedby={b.reason ? `${id}-${shared ? 'all' : b.role}` : undefined}
+                onCheckedChange={(c) => setAsk({ role: b.role, add: c === true })}
+              />
+              <span className="flex-1">{ROLE_LABEL[b.role]}</span>
+            </label>
+            {b.reason && !shared && (
+              <p id={`${id}-${b.role}`} className="px-1 text-xs text-muted-foreground">
+                {b.reason}
+              </p>
+            )}
+          </div>
+        ))}
+      </fieldset>
+      {shared && (
+        <p id={`${id}-all`} className="text-sm text-muted-foreground">
+          {shared}
+        </p>
+      )}
       <ConfirmDialog
-        open={open}
-        onOpenChange={(o) => !o && !change.isPending && setOpen(false)}
-        title={role ? `¿Pasar a ${name(p)} a ${ROLE_LABEL[role].toLowerCase()}?` : ''}
+        open={!!ask}
+        onOpenChange={(o) => !o && !change.isPending && setAsk(null)}
+        title={ask ? (ask.add ? `¿Dar el rol de ${label} a ${name(p)}?` : `¿Quitar el rol de ${label} a ${name(p)}?`) : ''}
         description={
-          toAdmin
-            ? 'Podrá hacer todo lo que haces tú y desde la app no se le podrá quitar.'
-            : 'El cambio es inmediato; si tiene la app abierta, tendrá que volver a entrar.'
+          !ask
+            ? ''
+            : ask.add
+              ? ask.role === 'admin'
+                ? 'Podrá hacer todo lo que haces tú y desde la app no se le podrá quitar.'
+                : 'El cambio es inmediato; podrá cambiar a este rol desde su cuenta.'
+              : 'El cambio es inmediato; si tiene la app abierta con este rol, tendrá que volver a entrar.'
         }
-        confirmLabel="Cambiar el rol"
-        variant="default"
+        confirmLabel={ask?.add ? 'Dar el rol' : 'Quitar el rol'}
+        variant={ask?.add ? 'default' : 'destructive'}
         loading={change.isPending}
-                onConfirm={() => change.mutate()}
+        onConfirm={() => ask && change.mutate(ask)}
       />
     </div>
   )
@@ -446,15 +472,15 @@ function Summary({ file, refresh }: { file: ProfileFile; refresh: () => void }) 
     ])
   const actions = [
     !isChild(p) && !p.is_minor && <CanCreateChildren key="children" file={file} refresh={refresh} />,
-    canChangeRole(p) && <RoleChange key="role" file={file} refresh={refresh} />,
-    p.role === 'profesor' && <TrainerActions key="trainer" file={file} refresh={refresh} />,
-    p.invite_pending && p.role !== 'profesor' && (
+    <RoleBoxes key="role" file={file} refresh={refresh} />,
+    p.roles.includes('profesor') && <TrainerActions key="trainer" file={file} refresh={refresh} />,
+    p.invite_pending && !p.roles.includes('profesor') && (
       <div key="invite" className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
         <TrainerTag state="pending" />
         <NewInviteLink id={p.id} name={name(p)} endpoint={`/admin/users/${p.id}/invite`} refresh={refresh} />
       </div>
     ),
-    p.role === 'profesor' && <EmploymentChange key="employment" id={p.id} />,
+    p.roles.includes('profesor') && <EmploymentChange key="employment" id={p.id} />,
   ].filter(Boolean)
   // Datos a un lado y lo que cambia la cuenta (rol, permisos, profesor) en su propia tarjeta.
   return (
@@ -783,9 +809,11 @@ export function UserPage() {
         <ProfileAvatar name={p.display_name} avatar={p.avatar} className="size-14" />
         <div className="flex min-w-0 flex-col gap-1.5">
           <div className="flex flex-wrap items-center gap-1.5">
-            <Tag>{ROLE_LABEL[p.role]}</Tag>
+            {sortRoles(p.roles).map((r) => (
+              <Tag key={r}>{ROLE_LABEL[r]}</Tag>
+            ))}
             <Marks p={p} />
-            {p.role === 'alumno' && <SubBadge status={sub?.status} />}
+            {p.roles.includes('alumno') && <SubBadge status={sub?.status} />}
             {sub && <span className="text-sm font-medium">{sub.plan.name}</span>}
           </div>
           {p.email && <span className="text-sm break-all text-muted-foreground">{p.email}</span>}

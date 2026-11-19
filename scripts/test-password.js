@@ -39,6 +39,7 @@ const login = async (password) => (await http('POST', '/auth/login', null, { ema
 
 try {
   await q(`INSERT INTO profiles (id, display_name) VALUES ($1, 'Ana'), ($2, 'Goo')`, [U.ana, U.goo]);
+  await q(`INSERT INTO user_roles (user_id, role) VALUES ($1, 'alumno'), ($2, 'alumno')`, [U.ana, U.goo]); // todo perfil tiene un rol (073)
   await q(`INSERT INTO auth_credentials (profile_id, email, password_hash) VALUES ($1, $2, $3)`,
     [U.ana, email('ana'), await hashPassword('vieja-1234')]);
   await q(`INSERT INTO auth_credentials (profile_id, email, google_sub) VALUES ($1, $2, $3)`, [U.goo, email('goo'), `g-${tag}`]);
@@ -117,6 +118,7 @@ try {
   await run('B32: un menor con email (14+) no restablece por email: create_password_reset no crea nada', async () => {
     U.teen = crypto.randomUUID();
     await q(`INSERT INTO profiles (id, display_name, birth_date) VALUES ($1, 'Teen', CURRENT_DATE - interval '15 years')`, [U.teen]);
+    await q(`INSERT INTO user_roles (user_id, role) VALUES ($1, 'alumno')`, [U.teen]);
     await q(`INSERT INTO auth_credentials (profile_id, email, username, password_hash) VALUES ($1, $2, $3, 'x')`,
       [U.teen, email('teen'), `${tag}-teen`]);
     const { rows: [r] } = await q(`SELECT create_password_reset($1, 'x') AS ok`, [email('teen')]);

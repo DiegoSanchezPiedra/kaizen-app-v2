@@ -2,6 +2,7 @@ import { CalendarCheckIcon, CalendarIcon, ChartColumnIcon, HouseIcon, LogOutIcon
 import { NavLink, Outlet, useLocation, useSearchParams } from 'react-router'
 import logo from '@/assets/logo.png'
 import { CommuniqueDialog } from '@/components/communique-dialog'
+import { RoleSwitcher } from '@/components/role-switcher'
 import { SubjectPicker } from '@/components/subject-picker'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
@@ -97,6 +98,8 @@ export function AppShell() {
             {label}
           </NavLink>
         ))}
+        {/* En móvil, el rol activo se cambia desde Cuenta (la barra inferior no tiene sitio). */}
+        <RoleSwitcher side="top" className="max-lg:hidden lg:mt-auto" />
       </nav>
     </div>
   )

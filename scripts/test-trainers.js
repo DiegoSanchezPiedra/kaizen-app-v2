@@ -269,15 +269,15 @@ try {
     assert.equal((await q(`SELECT disabled_at FROM auth_credentials WHERE profile_id = $1`, [ada.id])).rows[0].disabled_at, null);
   });
 
-  await run('rol: profesor no es destino (400) y un profesor no cambia de rol (409 trainer_role_locked)', async () => {
-    const put = (id, role) => http('PUT', `/admin/profiles/${id}/role`, 'admin', { role });
-    const toTrainer = await put(U.ana, 'profesor');
-    assert.deepEqual([toTrainer.status, code(toTrainer)], [400, 'invalid_field']);
-    for (const role of ['alumno', 'tutor']) {
-      const r = await put(ada.id, role);
-      assert.deepEqual([r.status, code(r)], [409, 'trainer_role_locked']);
-    }
-    assert.equal((await q(`SELECT role FROM user_roles WHERE user_id = $1`, [ada.id])).rows[0].role, 'profesor');
+  await run('roles: profesor no se da ni se quita por /roles (409 trainer_role_locked); sí se le suman otros (ADR 0033)', async () => {
+    const toTrainer = await http('POST', `/admin/profiles/${U.ana}/roles`, 'admin', { role: 'profesor' });
+    assert.deepEqual([toTrainer.status, code(toTrainer)], [409, 'trainer_role_locked']);
+    const off = await http('DELETE', `/admin/profiles/${ada.id}/roles/profesor`, 'admin');
+    assert.deepEqual([off.status, code(off)], [409, 'trainer_role_locked']);
+    const plus = await http('POST', `/admin/profiles/${ada.id}/roles`, 'admin', { role: 'alumno' });
+    assert.deepEqual([plus.status, plus.body.profile.roles], [200, ['profesor', 'alumno']]);
+    assert.equal((await http('DELETE', `/admin/profiles/${ada.id}/roles/alumno`, 'admin')).status, 200);
+    assert.deepEqual((await q(`SELECT role FROM user_roles WHERE user_id = $1`, [ada.id])).rows.map((r) => r.role), ['profesor']);
   });
 
   await run('registro público: el dominio corporativo está reservado (409 email_domain_reserved), sea cual sea la caja', async () => {

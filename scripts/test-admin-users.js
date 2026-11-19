@@ -55,7 +55,7 @@ try {
       assert.equal(r.status, 201, JSON.stringify(r.body));
       made[role] = r.body;
       const p = r.body.profile;
-      assert.deepEqual([p.role, p.email, p.display_name, p.has_password, p.can_create_children], [role, mail(role), `Nuevo ${role}`, false, role === 'tutor']);
+      assert.deepEqual([p.roles, p.email, p.display_name, p.has_password, p.can_create_children], [[role], mail(role), `Nuevo ${role}`, false, role === 'tutor']);
       assert.match(r.body.invite_url, /\/reset-password\?token=[\w-]{43}&invite=1$/);
       const [inv] = await q(`SELECT token_hash, kind, extract(epoch FROM expires_at - now()) / 3600 AS hours FROM password_resets WHERE profile_id = $1`, [p.id]);
       assert.deepEqual([inv.token_hash, inv.kind], [crypto.createHash('sha256').update(tokenOf(r.body.invite_url)).digest('hex'), 'invite']);
@@ -208,9 +208,9 @@ try {
   });
 
   await run('dar el rol admin no pide doble factor ni código', async () => {
-    const r = await http('PUT', `/admin/profiles/${U.tutor}/role`, 'admin', { role: 'admin' });
-    assert.deepEqual([r.status, r.body.profile.role], [200, 'admin']);
-    assert.deepEqual((await audit('profile.role_change', U.tutor)).changes, { from: 'tutor', to: 'admin' });
+    const r = await http('POST', `/admin/profiles/${U.tutor}/roles`, 'admin', { role: 'admin' });
+    assert.deepEqual([r.status, r.body.profile.roles], [200, ['admin', 'tutor']]);
+    assert.deepEqual((await audit('profile.role_add', U.tutor)).changes, { role: 'admin' });
   });
 
   await run('profesores: crear, reinvitar y cambiar el correo devuelven invite_url', async () => {

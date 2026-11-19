@@ -21,7 +21,7 @@ const CHANNELS = Object.fromEntries([
 ].map((a) => [`notice.${a}`, ['email']]));
 // notice.clock_correction_requested no está: solo va a admins (el panel), que nunca reciben entregas.
 
-/** Aviso + una entrega por destinatario no admin y canal, en una sentencia (también en autocommit). */
+/** Aviso + una entrega por destinatario (no admin, salvo que también sea alumno o tutor) y canal, en una sentencia (también en autocommit). */
 export async function notice(db, { action, actorId, type, resourceId, recipients, ...extra }) {
   await db.query(
     `WITH a AS (
@@ -29,7 +29,8 @@ export async function notice(db, { action, actorId, type, resourceId, recipients
        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5) RETURNING id)
      INSERT INTO notice_deliveries (audit_id, recipient_id, channel)
      SELECT a.id, r, ch FROM a, unnest($6::uuid[]) r, unnest($7::text[]) ch
-      WHERE NOT EXISTS (SELECT 1 FROM user_roles WHERE user_id = r AND role = 'admin')
+      WHERE (NOT EXISTS (SELECT 1 FROM user_roles WHERE user_id = r AND role = 'admin')
+             OR EXISTS (SELECT 1 FROM user_roles WHERE user_id = r AND role IN ('alumno', 'tutor'))) -- ADR 0033: un admin que también entrena o es tutor recibe lo suyo
      ON CONFLICT DO NOTHING`,
     [actorId, action, type, resourceId, { ...extra, recipients }, recipients, CHANNELS[action] ?? []]);
 }
