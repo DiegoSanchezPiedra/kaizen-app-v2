@@ -30,6 +30,8 @@ async function abrir(page: Page, url: string, o: Opts) {
     if (u === '/me') return r.fulfill({ json: { ...ME, role: state.role } })
     if (u === '/me/children') return state.role === 'alumno' ? r.fulfill({ json: { children: [] } }) : r.fulfill({ status: 403, json: { code: 'insufficient_role' } })
     if (u === '/me/clock') return r.fulfill({ json: { profile: { id: 'u-1', display_name: 'Ana Pérez', employment: 'employee' }, month: '2026-11', state: 'out', total_seconds: 0, days: [], events: [], corrections: [] } })
+    // Como lo devuelve la API (037): con {} el inicio revienta en p.streak, y en WebKit da tiempo a verlo.
+    if (u === '/me/progress') return r.fulfill({ json: { streak: { current: 0, best: 0 }, disciplines: [], hours: { month: '2026-11', disciplines: [] }, medals_seen: null } })
     if (u === '/admin/profiles') return r.fulfill({ json: { profiles: [], total: 0 } })
     if (u === '/admin/profiles/stats') return r.fulfill({ json: { activos: 0, impago: 0, inactivos: 0 } })
     if (u === '/professor/sessions' || u === '/professor/events') return r.fulfill({ json: { sessions: [], events: [] } })
