@@ -5,13 +5,15 @@ import { servicePool, closePools } from '../src/config/database.js';
 import { withRls } from '../src/db/rls.js';
 import { createClass, updateClass, retireClass, listClasses } from '../src/services/classes.js';
 import {
-  generateSessions, listTrainerSessions, getTrainerSession, adjustSession, createSession,
+  generateSessions, listTrainerSessions, getTrainerSession, adjustSession, createSession, getSessionDetail,
 } from '../src/services/sessions.js';
 
 const rejects = (p, status, code) => assert.rejects(p, (e) => e.status === status && e.code === code);
-const sp = async (c, fn) => { // savepoint: un error SQL no aborta el resto de la transacción
-  await c.query('SAVEPOINT t');
-  try { await fn(); } finally { await c.query('ROLLBACK TO t'); }
+let spN = 0;
+const sp = async (c, fn) => { // savepoint: un error SQL no aborta el resto de la transacción; nombre único para anidarlos
+  const name = `t${++spN}`;
+  await c.query(`SAVEPOINT ${name}`);
+  try { await fn(); } finally { await c.query(`ROLLBACK TO ${name}`); }
 };
 const as = (c, uid, role) =>
   c.query(`SELECT set_config('app.current_user_id',$1,true), set_config('app.current_role',$2,true)`, [uid, role]);
@@ -137,6 +139,50 @@ try {
           body: { discipline_id: String(disc.id), trainer_id: prof2, starts_at: sa.starts_at.toISOString(),
             duration_min: 60, capacity: 5, location: 'TATAMI 1' }, actorId: admin });
         assert.equal(loose.trainer_id, prof2);
+      });
+    });
+    const localHm = (d) => d.toLocaleTimeString('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' });
+    await run('pareja: cada clase lista a su simultánea; with_twins mueve la hora de las dos y el aforo solo el de una', async () => {
+      await sp(c, async () => {
+        const a = await createClass(c, { body: sim, actorId: admin });
+        const b = await createClass(c, { body: muay, actorId: admin });
+        const mine = (await listClasses(c)).filter((x) => [a.id, b.id].includes(x.id));
+        const twinsOf = (k) => mine.find((x) => x.id === k.id).twins;
+        assert.deepEqual([twinsOf(a), twinsOf(b)], [[{ id: b.id, discipline_name: 'T-Classes-2' }], [{ id: a.id, discipline_name: 'T-Classes' }]]);
+        await sp(c, () => rejects(updateClass(c, { id: a.id, body: { start_time: '18:30', with_twins: 'sí' } }), 400, 'invalid_field'));
+        const r = await updateClass(c, { id: a.id, body: { start_time: '18:30', capacity: 9, with_twins: true } });
+        assert.ok(r.sessions_changed >= 104, `cambiadas: ${r.sessions_changed}`);
+        assert.deepEqual(r.twins, [b.id]);
+        for (const k of [a, b]) {
+          const [s0] = await sessionsOf(k.id);
+          assert.equal(localHm(s0.starts_at), '18:30');
+        }
+        const caps = (await listClasses(c)).filter((x) => [a.id, b.id].includes(x.id)).map((x) => [x.id === a.id, x.capacity]);
+        assert.deepEqual(Object.fromEntries(caps), { true: 9, false: 20 });
+      });
+    });
+    await run('pareja: with_twins solo con el aforo o el profesor no toca la otra; clase retirada no es pareja', async () => {
+      await sp(c, async () => {
+        const a = await createClass(c, { body: sim, actorId: admin });
+        const b = await createClass(c, { body: { ...muay, ends_on: '2000-01-01', starts_on: '2000-01-01' }, actorId: admin });
+        assert.deepEqual((await listClasses(c)).find((x) => x.id === a.id).twins, []);
+        const r = await updateClass(c, { id: a.id, body: { capacity: 9, with_twins: true } });
+        assert.deepEqual(r.twins, []);
+        assert.equal((await listClasses(c)).find((x) => x.id === b.id).capacity, 20);
+      });
+    });
+    await run('pareja: ajustar una sesión con with_twins mueve también la simultánea de ese día; el detalle la lista', async () => {
+      await sp(c, async () => {
+        const a = await createClass(c, { body: sim, actorId: admin });
+        const b = await createClass(c, { body: muay, actorId: admin });
+        const [sa] = await sessionsOf(a.id);
+        const [sb] = await sessionsOf(b.id);
+        assert.deepEqual((await getSessionDetail(c, sa.id)).session.twins.map((t) => t.id), [sb.id]);
+        const later = new Date(sa.starts_at.getTime() + 30 * 60_000);
+        const r = await adjustSession(c, { id: sa.id, body: { starts_at: later.toISOString(), location: 'Tatami 3', with_twins: true } });
+        assert.deepEqual(r.twins, [sb.id]);
+        const moved = (await c.query(`SELECT starts_at, location FROM class_sessions WHERE id = ANY($1) ORDER BY id`, [[sa.id, sb.id]])).rows;
+        for (const m of moved) assert.deepEqual([m.starts_at.getTime(), m.location], [later.getTime(), 'Tatami 3']);
       });
     });
     await as(c, prof1, 'profesor');

@@ -27,12 +27,18 @@ const CAL = [
   ses('twin-a', '2026-11-18', '21:30', '22:30', 'Judo', { taken: 3 }),
   ses('twin-b', '2026-11-18', '21:30', '22:30', 'Muay Thai', { taken: 7 }),
 ]
-const detail = (s: (typeof CAL)[number], extra: object = {}) => ({ ...s, duration_min: 60, adjusted_fields: [], class_values: { trainer_id: 't1', starts_at: s.starts_at, duration_min: 60, capacity: 20, location: 'Tatami 1' }, cancel_note: null, ...extra })
+const detail = (s: (typeof CAL)[number], extra: object = {}) => ({ ...s, duration_min: 60, adjusted_fields: [], class_values: { trainer_id: 't1', starts_at: s.starts_at, duration_min: 60, capacity: 20, location: 'Tatami 1' }, cancel_note: null, twins: [], ...extra })
 const bk = (id: string, name: string, status = 'confirmed') => ({ id, student: { id: `u-${id}`, display_name: name }, status, created_at: at('09:10', '2026-11-10') })
 const SESSIONS: Record<string, object> = {
   next: { session: detail(CAL[4]), bookings: [bk('b1', 'Lucía Pérez'), bk('b2', 'Hugo Sánchez'), bk('w1', 'Irene Gómez', 'waitlisted')] },
   live: { session: detail(CAL[1]), bookings: [bk('b3', 'Martina López')] },
+  'twin-a': { session: detail(CAL[5], { twins: [{ id: 'twin-b', discipline_name: 'Muay Thai' }] }), bookings: [] },
 }
+// Dos clases simultáneas (ADR 0034): Kenji, miércoles 21:30, Tatami 1.
+const cls = (id: string, discipline_id: number, discipline_name: string, twin: object) => ({
+  id, discipline_id, discipline_name, trainer_id: 't1', trainer_name: 'Kenji Sato', weekday: 3, start_time: '21:30', duration_min: 60, capacity: 20, location: 'Tatami 1', starts_on: '2026-09-01', ends_on: null, twins: [twin],
+})
+const CLASSES = [cls('k-judo', 1, 'Judo', { id: 'k-muay', discipline_name: 'Muay Thai' }), cls('k-muay', 2, 'Muay Thai', { id: 'k-judo', discipline_name: 'Judo' })]
 const ATT = { closed_at: null, students: [{ booking_id: 'b3', student_id: 'u-b3', display_name: 'Martina López', status: null, method: null, corrected_at: null, correction_reason: null }] }
 const reg = (id: string, name: string, extra: object = {}) => ({
   id, student: { id: `u-${id}`, display_name: name }, status: 'confirmed', amount_cents: 3500, guest: false, payer: null, refund_status: null, refunded_cents: 0, attended: null, cancel_reason: null, created_at: at('12:00', '2026-11-10'), ...extra,
@@ -52,6 +58,7 @@ async function open(page: Page, url: string) {
   await page.clock.setFixedTime(NOW)
   await page.addInitScript((t) => localStorage.setItem('kz.token', t), TOKEN)
   const writes: string[] = []
+  const sent: Record<string, unknown>[] = []
   await page.route('**/api/**', (r) => {
     const u = new URL(r.request().url())
     const p = u.pathname.replace(/^\/api/, '')
@@ -60,13 +67,17 @@ async function open(page: Page, url: string) {
     if (p === '/auth/me') return r.fulfill({ json: { user: { id: 'a-1', role: 'admin' }, mfa_enabled: true } })
     if (m !== 'GET') {
       writes.push(`${m} ${p}`)
-      return r.fulfill({ json: { ok: true, notified: 0, promoted: 0 } })
+      sent.push({ [`${m} ${p}`]: r.request().postDataJSON() })
+      return r.fulfill({ json: { ok: true, notified: 0, promoted: 0, sessions_changed: 0, twins: [] } })
     }
     if (p === '/admin/disciplines') return r.fulfill({ json: { disciplines: DISC } })
     if (p === '/admin/profiles') return r.fulfill({ json: { profiles: [{ id: 't1', display_name: 'Kenji Sato', role: 'profesor', disabled: false }], total: 1 } })
     if (p === '/sessions/calendar') return r.fulfill({ json: { sessions: CAL } })
     if (p === '/admin/events') return r.fulfill({ json: { events: [], total: 0 } })
-    if (p === '/admin/classes') return r.fulfill({ json: { classes: [] } })
+    if (p === '/admin/classes') {
+      const d = u.searchParams.get('discipline_id')
+      return r.fulfill({ json: { classes: CLASSES.filter((c) => !d || String(c.discipline_id) === d) } })
+    }
     let f = p.match(/^\/admin\/sessions\/([^/]+)$/)
     if (f) return SESSIONS[f[1]] ? r.fulfill({ json: SESSIONS[f[1]] }) : r.fulfill({ status: 404, json: { code: 'session_not_found' } })
     if (/^\/sessions\/[^/]+\/attendance$/.test(p)) return r.fulfill({ json: ATT })
@@ -75,7 +86,7 @@ async function open(page: Page, url: string) {
     return r.fulfill({ json: {} })
   })
   await page.goto(url)
-  return { writes }
+  return { writes, sent }
 }
 
 const today = (page: Page) => page.getByRole('region', { name: /miércoles, 18 de noviembre/i })
@@ -121,7 +132,9 @@ test('Semana | Clases semanales: cambia ?vista y conserva la disciplina', async 
   await page.getByRole('tab', { name: 'Clases semanales', exact: true }).click()
   await expect(page).toHaveURL(/vista=clases/)
   await expect(page).toHaveURL(/disciplina=1/)
-  await expect(page.getByText('No hay clases', { exact: true })).toBeVisible()
+  // Solo la de judo: la de muay thai es de otra disciplina.
+  await expect(page.getByRole('button', { name: 'Acciones de la clase de miércoles a las 21:30' }).first()).toBeVisible()
+  await expect(page.getByText('Muay Thai', { exact: true })).toHaveCount(0)
   await page.getByRole('tab', { name: 'Semana', exact: true }).click()
   await expect(page).not.toHaveURL(/vista=clases/)
   await expect(page).toHaveURL(/disciplina=1/)
@@ -142,6 +155,34 @@ test('sesión futura: reservas y espera antes que los datos; cancelar la sesión
   await expect(dialog).toContainText('3 reservas')
   await dialog.getByRole('button', { name: 'Cancelar la sesión', exact: true }).click()
   await expect.poll(() => writes).toEqual(['POST /admin/sessions/next/cancel'])
+})
+
+test('ajustar una sesión con otra simultánea: «Cambiar también» marcado mueve la pareja; solo el aforo, no', async ({ page }) => {
+  const { sent } = await open(page, '/admin/sessions/twin-a')
+  await page.getByRole('button', { name: 'Ajustar', exact: true }).click()
+  const sheet = page.getByRole('dialog', { name: 'Ajustar la sesión' })
+  const twins = sheet.getByRole('checkbox', { name: /Cambiar también Muay Thai/ })
+  await expect(twins).toBeChecked()
+  await sheet.getByLabel('Aforo', { exact: true }).fill('25')
+  await sheet.getByLabel('Hora', { exact: true }).fill('21:45')
+  await sheet.getByRole('button', { name: 'Guardar el ajuste', exact: true }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Guardar el ajuste', exact: true }).click()
+  await expect.poll(() => sent).toEqual([{ 'PATCH /admin/sessions/twin-a': { starts_at: at('21:45'), capacity: 25, with_twins: true } }])
+})
+
+test('cambiar una clase con otra simultánea: desmarcar «Cambiar también» la deja donde está; sin mover nada no se pregunta', async ({ page }) => {
+  const { sent } = await open(page, '/admin/sessions?vista=clases')
+  await page.getByRole('button', { name: 'Acciones de la clase de miércoles a las 21:30' }).first().click()
+  await page.getByRole('menuitem', { name: /^Cambiar/ }).click()
+  const sheet = page.getByRole('dialog', { name: 'Cambiar la clase' })
+  await sheet.getByLabel('Aforo', { exact: true }).fill('25')
+  await sheet.getByLabel('Lugar', { exact: true }).fill('Tatami 2')
+  const twins = sheet.getByRole('checkbox', { name: /Cambiar también Muay Thai/ })
+  await expect(twins).toBeChecked()
+  await twins.click()
+  await sheet.getByRole('button', { name: 'Guardar el cambio', exact: true }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Guardar el cambio', exact: true }).click()
+  await expect.poll(() => sent).toEqual([{ 'PATCH /admin/classes/k-judo': { from: '2026-11-18', capacity: 25, location: 'Tatami 2', with_twins: false } }])
 })
 
 test('sesión en curso: la lista de asistencia y sin el bloque de reservas', async ({ page }) => {

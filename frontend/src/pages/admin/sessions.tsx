@@ -12,6 +12,7 @@ import { StateBadge } from '@/components/session-card'
 import { SessionRow, SessionRows } from '@/components/session-row'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { TwinsField, twinNames } from '@/components/twins-field'
 import { Button } from '@/components/ui/button'
 import { AuditLink } from '@/pages/admin/shell'
 import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxPopup } from '@/components/ui/combobox'
@@ -618,6 +619,7 @@ function AdjustSheet({ s, open, onClose }: { s: AdminSession; open: boolean; onC
   const trainers = useTrainers()
   const initial = { trainer: s.trainer?.id ?? 'none', day: madridDay(s.starts_at), time: formatTime(s.starts_at), duration: String(s.duration_min), capacity: String(s.capacity), location: s.location ?? '' }
   const [f, setF] = useState(initial)
+  const [withTwins, setWithTwins] = useState(true)
   const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }))
   // Solo se manda lo que cambia.
   const startsAt = madridToIso(f.day, f.time)
@@ -629,9 +631,15 @@ function AdjustSheet({ s, open, onClose }: { s: AdminSession; open: boolean; onC
     ...(f.location.trim() !== initial.location && { location: f.location.trim() }),
   }
   const valid = !!startsAt && intOf(f.duration) >= 1 && intOf(f.capacity) >= 1 && (!('starts_at' in body) || Date.parse(startsAt) > now)
+  const moves = s.twins.length > 0 && ('starts_at' in body || 'duration_min' in body || 'location' in body)
   const adjust = useMutation({
-    mutationFn: () => api<{ notified: number; promoted: number }>(`/admin/sessions/${s.id}`, { method: 'PATCH', body }),
-    onSuccess: (r) => toastOk('Sesión ajustada', `${plural(r.notified, 'aviso', 'avisos')} · ${plural(r.promoted, 'pasa', 'pasan')} de la espera`),
+    mutationFn: () =>
+      api<{ notified: number; promoted: number; twins: string[] }>(`/admin/sessions/${s.id}`, { method: 'PATCH', body: { ...body, ...(moves && { with_twins: withTwins }) } }),
+    onSuccess: (r) =>
+      toastOk(
+        r.twins.length ? `Sesión ajustada, y también ${twinNames(s.twins.filter((t) => r.twins.includes(t.id)))}` : 'Sesión ajustada',
+        `${plural(r.notified, 'aviso', 'avisos')} · ${plural(r.promoted, 'pasa', 'pasan')} de la espera`,
+      ),
     onError: (err) => toastError(err),
     onSettled: () => void refreshSchedule(s.id),
   })
@@ -665,6 +673,7 @@ function AdjustSheet({ s, open, onClose }: { s: AdminSession; open: boolean; onC
         <TextField label="Aforo" type="number" min={1} value={f.capacity} onChange={set('capacity')} />
       </div>
       <TextField label="Lugar" value={f.location} maxLength={100} onChange={set('location')} />
+      <TwinsField twins={s.twins} checked={withTwins} onChange={setWithTwins} />
     </FormSheet>
   )
 }

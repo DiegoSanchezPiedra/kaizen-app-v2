@@ -3,6 +3,7 @@ import { httpError } from '../lib/errors.js';
 import { validate, invalid, insertSql, audit, parseId } from './catalog.js';
 import {
   generateSessions, getHorizonDays, assertTrainer, callChange, CLASS_SPEC, isDate, today, addDays,
+  CLASS_TWIN, overlapError, parseWithTwins, twinPatch, changeWithTwins,
 } from './sessions.js';
 
 // Lo que admite un cambio de clase; la disciplina y el día, no (se retira y se crea otra).
@@ -13,7 +14,11 @@ const CHANGE_SPEC = Object.fromEntries(
 const CLASS_SELECT = `
   SELECT c.id, c.discipline_id, d.name AS discipline_name, c.trainer_id, p.display_name AS trainer_name,
          c.weekday, to_char(c.start_time, 'HH24:MI') AS start_time, c.duration_min, c.capacity,
-         c.location, c.starts_on::text AS starts_on, c.ends_on::text AS ends_on
+         c.location, c.starts_on::text AS starts_on, c.ends_on::text AS ends_on,
+         -- Simultáneas no retiradas (ADR 0034): la hoja de cambio ofrece moverlas a la vez.
+         (SELECT coalesce(jsonb_agg(jsonb_build_object('id', t.id, 'discipline_name', td.name) ORDER BY td.name, t.id), '[]')
+            FROM classes t JOIN disciplines td ON td.id = t.discipline_id
+           WHERE ${CLASS_TWIN('c', 't')} AND (t.ends_on IS NULL OR t.ends_on >= (now() AT TIME ZONE 'Europe/Madrid')::date)) AS twins
     FROM classes c JOIN disciplines d ON d.id = c.discipline_id JOIN profiles p ON p.id = c.trainer_id`;
 
 export async function listClasses(client, { discipline_id } = {}) {
@@ -30,8 +35,7 @@ async function getClass(client, id) {
   return c;
 }
 
-const overlap = (err) =>
-  err.code === '23P01' ? httpError(409, 'trainer_overlap', 'El profesor ya imparte otra sesión a esa hora; solo puede coincidir con la misma hora, duración y lugar') : err;
+const overlap = (err) => (err.code === '23P01' ? overlapError() : err);
 
 export async function createClass(client, { body, actorId }) {
   const data = validate(body, CLASS_SPEC, false);
@@ -55,8 +59,10 @@ export async function createClass(client, { body, actorId }) {
 }
 
 // Cambio de clase (CONTEXT, B7.1) desde `from` (día de Madrid; por defecto hoy, nunca pasado ni más allá del
-// horizonte). Las reglas sobre las sesiones y las reservas viven en change_class (021).
+// horizonte). Las reglas sobre las sesiones y las reservas viven en change_class (021). with_twins (ADR 0034): la hora, la
+// duración y el lugar también a sus simultáneas no retiradas en `from`.
 export async function updateClass(client, { id, body }) {
+  const withTwins = parseWithTwins(body.with_twins);
   const fixed = ['discipline_id', 'weekday'].filter((k) => body[k] !== undefined);
   if (fixed.length) {
     throw httpError(409, 'not_supported', 'La disciplina y el día no se cambian: retira la clase y crea otra', { fields: fixed });
@@ -69,8 +75,14 @@ export async function updateClass(client, { id, body }) {
     throw invalid('from', 'from debe ser YYYY-MM-DD, desde hoy y como mucho hoy + horizonte');
   }
   if (data.trainer_id) await assertTrainer(client, data.trainer_id);
-  const counts = await callChange(client, `SELECT change_class($1, $2, $3) AS r`, [id, from, data]);
-  return { class: await getClass(client, id), ...counts };
+  const shared = twinPatch(data, ['start_time', 'duration_min', 'location']);
+  const twins = withTwins && Object.keys(shared).length
+    ? (await client.query(`SELECT t.id FROM classes c JOIN classes t ON ${CLASS_TWIN('c', 't')}
+                            WHERE c.id = $1 AND (t.ends_on IS NULL OR t.ends_on >= $2) ORDER BY t.id`, [id, from])).rows.map((r) => r.id)
+    : [];
+  const counts = await changeWithTwins(client, id, data, twins, shared,
+    (cid, patch) => callChange(client, `SELECT change_class($1, $2, $3) AS r`, [cid, from, patch]));
+  return { class: await getClass(client, id), ...counts, twins };
 }
 
 // Retirar (CONTEXT): la clase acaba el día anterior a `date` (por defecto hoy, nunca pasado ni más allá del horizonte)
