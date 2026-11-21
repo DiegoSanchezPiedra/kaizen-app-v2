@@ -10,8 +10,9 @@ import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Form } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { OTPField, OTPFieldInput, OTPFieldSeparator } from '@/components/ui/otp-field'
-import { ApiError, api } from '@/lib/api'
+import { api } from '@/lib/api'
 import { errorText } from '@/lib/errors'
+import { errorCode } from '@/lib/notify'
 import { isUsername } from '@/lib/minor'
 import { setToken } from '@/lib/session'
 
@@ -78,7 +79,7 @@ export function LoginPage() {
     try {
       finish(await api<AuthResponse>(path, { method: 'POST', body, auth: false }))
     } catch (err) {
-      const code = err instanceof ApiError ? err.code : 'unknown'
+      const code = errorCode(err)
       setBadCreds(code === 'invalid_credentials')
       setNotice(loginNotice(code))
     } finally {
@@ -214,7 +215,7 @@ function MfaStep({
     try {
       onDone(await api<AuthResponse>('/auth/mfa/verify', { method: 'POST', body: { mfa_token: mfaToken, code: value }, auth: false }))
     } catch (err) {
-      const c = err instanceof ApiError ? err.code : 'unknown'
+      const c = errorCode(err)
       if (c === 'invalid_mfa_token') return onExpired()
       // El texto del mapa habla de la app; con un código de recuperación, lo propio de ese modo.
       if (c === 'invalid_mfa_code') setError(recovery ? 'El código no es correcto o ya se ha usado.' : errorText(c))

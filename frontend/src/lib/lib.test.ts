@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { errorText } from '@/lib/errors'
 import { formatDate, formatEuros, formatTime, maskSpanishDate, parseSpanishDate } from '@/lib/format'
@@ -72,8 +73,26 @@ describe('sesión', () => {
 describe('errores', () => {
   it('texto por code, nunca el message de la API', () => {
     expect(errorText('link_required')).toBe('Ya hay una cuenta con ese email: entra con tu contraseña.')
-    expect(errorText('algo_nuevo')).toBe('Algo ha fallado; inténtalo de nuevo.')
     expect(errorText('push_disabled')).toBe('')
+  })
+  it('el fallback distingue el caso y no esconde el código (captura del móvil)', () => {
+    expect(errorText(undefined)).toBe('Algo ha fallado; inténtalo de nuevo.')
+    expect(errorText('algo_nuevo')).toBe('Algo ha fallado; inténtalo de nuevo. (algo_nuevo)')
+    expect(errorText('internal_error')).toBe('El servidor ha fallado; inténtalo de nuevo en un momento.')
+    expect(errorText('bad_response')).toBe('No hemos podido hablar con el servidor; inténtalo de nuevo en un momento.')
+    expect(errorText('unknown')).toBe('La app ha fallado. Ciérrala y vuelve a abrirla; si sigue, actualízala.')
+  })
+  it('todo code que manda el backend tiene texto: nunca sale «(code)» en crudo', () => {
+    // Fuera de la UI: webhooks (Stripe y Brevo), la imagen del avatar y push_disabled (texto vacío a propósito).
+    const outside = new Set(['invalid_event', 'invalid_secret', 'invalid_signature', 'webhook_failed', 'webhook_not_configured', 'avatar_not_found', 'push_disabled'])
+    const root = new URL('../../../src/', import.meta.url)
+    const codes = new Set<string>()
+    for (const f of readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.js'))) {
+      const src = readFileSync(new URL(f, root), 'utf8')
+      for (const m of src.matchAll(/httpError\(\s*\d{3}\s*,\s*'([a-z_]+)'|code: '([a-z_]+)'/g)) codes.add(m[1] ?? m[2])
+    }
+    expect(codes.size).toBeGreaterThan(100)
+    expect([...codes].filter((c) => !outside.has(c) && errorText(c).endsWith(`(${c})`))).toEqual([])
   })
   it('rellena {clave} con los datos del error (pause_year_limit trae per_year)', () => {
     expect(errorText('pause_year_limit', { per_year: 2 })).toBe('Ya se ha usado el máximo de pausas de este año (2).')

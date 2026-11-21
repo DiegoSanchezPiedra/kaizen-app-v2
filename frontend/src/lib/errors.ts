@@ -100,6 +100,13 @@ Object.assign(TEXTS, {
 })
 
 const FALLBACK = 'Algo ha fallado; inténtalo de nuevo.'
+// El fallback dice de dónde viene el fallo (servidor, red intermedia o la app) y, si es un código sin texto, lo enseña:
+// en el móvil no hay consola y la captura es lo único que llega (el detalle va a POST /client-errors, lib/report.ts).
+Object.assign(TEXTS, {
+  internal_error: 'El servidor ha fallado; inténtalo de nuevo en un momento.',
+  bad_response: 'No hemos podido hablar con el servidor; inténtalo de nuevo en un momento.',
+  unknown: 'La app ha fallado. Ciérrala y vuelve a abrirla; si sigue, actualízala.',
+})
 
 // `{clave}` del texto se rellena con `details[clave]`; sin el dato, se quita (« ({per_year})» → «»).
 // Permiso de crear hijos (migración 062).
@@ -107,7 +114,7 @@ Object.assign(TEXTS, { child_creation_not_allowed: 'Para añadir hijos, contacta
 
 export function errorText(code: string | undefined, details: Record<string, unknown> = {}): string {
   if (code === 'push_disabled') return ''
-  const text = (code && TEXTS[code]) || FALLBACK
+  const text = (code && TEXTS[code]) || (code ? `${FALLBACK} (${code})` : FALLBACK)
   return text.replace(/ ?\(\{(\w+)\}\)/g, (_, k: string) => (details[k] === undefined ? '' : ` (${String(details[k])})`))
 }
 
@@ -258,4 +265,27 @@ Object.assign(TEXTS, {
   email_already_set: 'Ya tienes un email en tu cuenta.', // propuesto
   minor_restricted: 'Esto lo hace tu tutor.', // propuesto
   session_revoked: 'Tu acceso ha cambiado; vuelve a entrar.', // propuesto
+})
+
+// Codes del backend que no tenían texto (los vigila lib.test.ts): sin texto, la pantalla enseñaba el código en crudo.
+Object.assign(TEXTS, {
+  invalid_request: 'Revisa los datos.',
+  profile_id_required: 'Revisa los datos.',
+  invalid_profile_id: 'No lo encontramos.',
+  ranking_not_found: 'No lo encontramos.',
+  unknown_agreement_type: 'No lo encontramos.',
+  communique_not_found: 'No lo encontramos.',
+  communique_withdrawn: 'Este comunicado ya está retirado.', // propuesto
+  minor_cannot_create_child: 'Solo un adulto puede dar de alta a sus hijos.', // propuesto
+  not_supported: 'La disciplina y el día no se cambian: retira la clase y crea otra.', // propuesto
+  mfa_already_enabled: 'El doble factor ya está activado.', // propuesto
+  mfa_not_enabled: 'El doble factor no está activado.', // propuesto
+  mfa_not_setup: 'Primero configura el doble factor.', // propuesto
+  missing_mfa_token: 'El código ha caducado, vuelve a entrar.',
+  missing_token: 'Tu sesión ha caducado; vuelve a entrar.', // propuesto
+  invalid_token: 'Tu sesión ha caducado; vuelve a entrar.', // propuesto
+  reauth_required: 'Tu sesión ha caducado; vuelve a entrar.', // propuesto
+  role_revoked: 'Tu acceso ha cambiado; vuelve a entrar.', // propuesto
+  agreement_corrupted: 'No podemos enseñar este documento ahora. Avisa a la academia.', // propuesto
+  rls_context_missing: 'El servidor ha fallado; inténtalo de nuevo en un momento.',
 })

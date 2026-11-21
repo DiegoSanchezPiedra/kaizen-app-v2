@@ -9,6 +9,8 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Skeleton } from '@/components/ui/skeleton'
 import { ApiError } from '@/lib/api'
 import { errorText } from '@/lib/errors'
+import { errorCode } from '@/lib/notify'
+import { BUILD, reportError } from '@/lib/report'
 import { updateAndReload } from '@/lib/sw-update'
 
 // Estados comunes de docs/pantallas-b18.md: error, sin conexión y sin permiso. Cargando y vacío los pone cada pantalla.
@@ -28,7 +30,7 @@ export function ErrorState({ error, onRetry, plainTitle }: { error: unknown; onR
       ? 'Vuelve al inicio para seguir.'
       : missing
         ? error.code === 'profile_not_found' ? errorText('profile_not_found') : 'Puede que ya no exista.'
-        : 'Inténtalo de nuevo en un momento.'
+        : errorText(errorCode(error), error instanceof ApiError ? error.details : {})
   return (
     <Empty role={offline ? 'status' : 'alert'} className="rounded-2xl border bg-card">
       <EmptyHeader>
@@ -121,7 +123,7 @@ export function QueryView<T>({
 export function AppCrash() {
   const error = useRouteError()
   const [busy, setBusy] = useState(false)
-  useEffect(() => console.error(error), [error])
+  useEffect(() => reportError(error, { where: 'crash' }), [error])
   return (
     <div className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center px-4">
       <Empty role="alert" className="rounded-2xl border bg-card">
@@ -132,7 +134,9 @@ export function AppCrash() {
           <EmptyTitle>Algo ha fallado</EmptyTitle>
           <EmptyDescription>Puede que tengas una versión antigua de la app. Actualízala y vuelve a intentarlo.</EmptyDescription>
           {/* El error real, para poder mandarlo en una captura: en el móvil no hay consola. */}
-          <p className="break-all font-mono text-xs text-muted-foreground">{error instanceof Error ? error.message : String(error)}</p>
+          <p className="break-all font-mono text-xs text-muted-foreground">
+            {error instanceof Error ? error.message : String(error)} · v{BUILD}
+          </p>
         </EmptyHeader>
         <EmptyContent>
           <Button

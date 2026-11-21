@@ -34,6 +34,7 @@ import adminClockRouter from './routes/admin/clock.js';
 import billingRouter from './routes/billing.js';
 import webhooksRouter from './routes/webhooks.js';
 import pushRouter from './routes/push.js';
+import clientErrorsRouter from './routes/client-errors.js';
 
 const app = express();
 
@@ -83,6 +84,7 @@ app.use('/profiles', profilesRouter);
 app.use('/avatars', avatarsRouter); // sin token (ADR 0019)
 app.use('/rankings', rankingsRouter);
 app.use('/push', pushRouter);
+app.use('/client-errors', clientErrorsRouter); // sin token: lo que el móvil enseña como «Algo ha fallado»
 app.use('/', catalogRouter);
 app.use(notFound);
 app.use(errorHandler);

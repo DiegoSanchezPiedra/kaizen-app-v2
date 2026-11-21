@@ -77,7 +77,7 @@ test('en directo con 5 sesiones: título visible, «y N sesiones más» y sin sc
   await expect(page.getByText('En 12 min', { exact: true })).toBeVisible()
   await expect(page.getByText(/^y \d sesiones más$/)).toBeVisible()
   const items = page.getByRole('region', { name: 'Check-in abierto' }).getByRole('listitem')
-  for (const li of await items.all()) await expect(li).toBeInViewport({ ratio: 1 })
+  for (const li of await items.all()) await expect(li).toBeInViewport({ ratio: 0.99 }) // WebKit redondea el borde: 0,9998
   expect(await page.locator('main').evaluate((m) => m.scrollHeight <= m.clientHeight)).toBe(true)
 })
 

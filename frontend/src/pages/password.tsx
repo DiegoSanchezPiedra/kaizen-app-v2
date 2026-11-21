@@ -8,8 +8,9 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Form } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { ApiError, api } from '@/lib/api'
+import { api } from '@/lib/api'
 import { errorText } from '@/lib/errors'
+import { errorCode } from '@/lib/notify'
 
 const linkClass = 'inline-flex min-h-11 items-center self-center text-sm font-semibold text-link underline underline-offset-3'
 
@@ -21,7 +22,7 @@ const hasFinePointer = () => window.matchMedia('(pointer: fine)').matches
 const headingClass = 'font-heading text-[34px] font-bold leading-tight outline-none'
 
 function failure(err: unknown): Notice {
-  const code = err instanceof ApiError ? err.code : 'unknown'
+  const code = errorCode(err)
   return code === 'network'
     ? { kind: 'warning', icon: 'wifi', title: 'Sin conexión', text: 'Conéctate y vuelve a intentarlo.' }
     : { kind: 'error', title: errorText(code) }
@@ -135,7 +136,7 @@ export function ResetPasswordPage() {
       await api('/auth/password/reset', { method: 'POST', auth: false, body: { token, password: v.password } })
       navigate('/login?cambiada=1', { replace: true })
     } catch (err) {
-      const code = err instanceof ApiError ? err.code : 'unknown'
+      const code = errorCode(err)
       if (code === 'invalid_reset_token') {
         setLate(true)
         setInvalid(true)

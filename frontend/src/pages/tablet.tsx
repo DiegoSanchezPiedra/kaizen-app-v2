@@ -99,7 +99,7 @@ function LinkForm({ revoked, onLinked }: { revoked: boolean; onLinked: (token: s
     } catch (err) {
       const apiCode = err instanceof ApiError ? err.code : 'unknown'
       if (apiCode === 'network') setOffline(true)
-      else setError(errorText(apiCode === 'invalid_link_code' ? apiCode : 'unknown'))
+      else setError(errorText(apiCode === 'invalid_link_code' ? apiCode : undefined))
     } finally {
       setSending(false)
     }
