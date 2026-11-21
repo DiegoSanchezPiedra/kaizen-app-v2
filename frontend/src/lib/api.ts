@@ -1,4 +1,5 @@
 import type { EndReason } from '@/lib/paths'
+import { reportError } from '@/lib/report'
 import { getSession } from '@/lib/session'
 
 // ADR 0013: la API vive bajo /api (Nginx y el proxy de Vite quitan el prefijo).
@@ -9,9 +10,10 @@ export class ApiError extends Error {
   details: Record<string, unknown>
 
   constructor(status: number, body: Record<string, unknown>) {
-    super(String(body.code ?? 'unknown'))
+    // Sin `code` no es un error de la API (un proxy, otro servicio): `unknown` queda para los fallos de la propia app.
+    super(String(body.code ?? 'bad_response'))
     this.status = status
-    this.code = String(body.code ?? 'unknown')
+    this.code = String(body.code ?? 'bad_response')
     this.field = typeof body.field === 'string' ? body.field : undefined
     this.details = body
   }
@@ -24,6 +26,11 @@ let onUnauthorized: (reason?: EndReason) => void = () => {}
 // La sesión caducada y el rol que ya no vale los resuelve quien monta el router (cierra sesión y va a /login).
 export const setUnauthorizedHandler = (fn: (reason?: EndReason) => void) => {
   onUnauthorized = fn
+}
+
+function reported(err: ApiError, path: string): ApiError {
+  reportError(err, { where: `api ${path.split('?')[0]}`, code: err.code, status: err.status })
+  return err
 }
 
 async function once<T>(path: string, { method = 'GET', body, auth = true, blob }: Options): Promise<T> {
@@ -45,11 +52,13 @@ async function once<T>(path: string, { method = 'GET', body, auth = true, blob }
   const data = await res.json().catch(() => null)
   // Un 200 que no es JSON (una página de un proxy) no es una respuesta de la API: nunca se da por buena.
   if (res.ok) {
-    if (data === null) throw new ApiError(res.status, { code: 'bad_response' })
+    if (data === null) throw reported(new ApiError(res.status, { code: 'bad_response' }), path)
     return data as T
   }
 
-  const err = new ApiError(res.status, data ?? {})
+  // Un 5xx o un error que no es JSON (la página de un proxy) acaba en «Algo ha fallado»: queda en el log de la API.
+  const err = data === null ? reported(new ApiError(res.status, { code: 'bad_response' }), path) : new ApiError(res.status, data)
+  if (res.status >= 500 && data !== null) reported(err, path)
   // session_revoked: el token es anterior a un cambio de contraseña (ADR 0020). role_revoked: ya no tiene el rol activo.
   // reauth_required (solo de POST /auth/role): su sesión es demasiado vieja para el rol nuevo (ADR 0033).
   if (res.status === 401 && auth && session) {

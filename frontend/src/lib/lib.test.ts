@@ -72,8 +72,14 @@ describe('sesión', () => {
 describe('errores', () => {
   it('texto por code, nunca el message de la API', () => {
     expect(errorText('link_required')).toBe('Ya hay una cuenta con ese email: entra con tu contraseña.')
-    expect(errorText('algo_nuevo')).toBe('Algo ha fallado; inténtalo de nuevo.')
     expect(errorText('push_disabled')).toBe('')
+  })
+  it('el fallback distingue el caso y no esconde el código (captura del móvil)', () => {
+    expect(errorText(undefined)).toBe('Algo ha fallado; inténtalo de nuevo.')
+    expect(errorText('algo_nuevo')).toBe('Algo ha fallado; inténtalo de nuevo. (algo_nuevo)')
+    expect(errorText('internal_error')).toBe('El servidor ha fallado; inténtalo de nuevo en un momento.')
+    expect(errorText('bad_response')).toBe('No hemos podido hablar con el servidor; inténtalo de nuevo en un momento.')
+    expect(errorText('unknown')).toBe('La app ha fallado. Ciérrala y vuelve a abrirla; si sigue, actualízala.')
   })
   it('rellena {clave} con los datos del error (pause_year_limit trae per_year)', () => {
     expect(errorText('pause_year_limit', { per_year: 2 })).toBe('Ya se ha usado el máximo de pausas de este año (2).')

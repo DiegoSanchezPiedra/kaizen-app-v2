@@ -13,3 +13,5 @@ Un móvil puede ser de varias personas (un tutor y su hijo, una familia) y la AP
 ## Consequences
 
 Sin red, la app no enseña nada propio, ni siquiera la próxima reserva. Cachear datos más adelante obliga a decidir antes cómo se borran por usuario y a sacar de ahí todo lo de salud.
+
+**Cuándo sale el aviso** (2026-11-21, iPhone con la app en la pantalla de inicio): el navegador solo busca `sw.js` al navegar, y la app instalada vuelve del segundo plano sin navegar. Por eso `watchForUpdates` (`frontend/src/lib/sw-update.ts`) lo busca al abrir, al volver a la app (`visibilitychange` y `pageshow`) y cada 15 minutos. El aviso sale en cuanto se detecta la versión («Descargando una versión nueva…»), no al acabar de bajarla. Si se cierra y la versión sigue esperando, vuelve a salir al volver a la app. «Actualizar» usa `updateAndReload`, que recarga igualmente a los 5 s si Safari no avisa del cambio de controlador. Sigue sin activarse sola.

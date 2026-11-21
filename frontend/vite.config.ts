@@ -6,6 +6,8 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // La API va bajo /api quitando el prefijo, igual que Nginx en producción (ADR 0013).
 export default defineConfig({
+  // La versión de la build (hora UTC) va en los errores que manda el móvil (lib/report.ts) y en la pantalla de error.
+  define: { 'import.meta.env.VITE_BUILD': JSON.stringify(new Date().toISOString().slice(0, 19)) },
   plugins: [
     react(),
     tailwindcss(),

@@ -100,6 +100,13 @@ Object.assign(TEXTS, {
 })
 
 const FALLBACK = 'Algo ha fallado; inténtalo de nuevo.'
+// El fallback dice de dónde viene el fallo (servidor, red intermedia o la app) y, si es un código sin texto, lo enseña:
+// en el móvil no hay consola y la captura es lo único que llega (el detalle va a POST /client-errors, lib/report.ts).
+Object.assign(TEXTS, {
+  internal_error: 'El servidor ha fallado; inténtalo de nuevo en un momento.',
+  bad_response: 'No hemos podido hablar con el servidor; inténtalo de nuevo en un momento.',
+  unknown: 'La app ha fallado. Ciérrala y vuelve a abrirla; si sigue, actualízala.',
+})
 
 // `{clave}` del texto se rellena con `details[clave]`; sin el dato, se quita (« ({per_year})» → «»).
 // Permiso de crear hijos (migración 062).
@@ -107,7 +114,7 @@ Object.assign(TEXTS, { child_creation_not_allowed: 'Para añadir hijos, contacta
 
 export function errorText(code: string | undefined, details: Record<string, unknown> = {}): string {
   if (code === 'push_disabled') return ''
-  const text = (code && TEXTS[code]) || FALLBACK
+  const text = (code && TEXTS[code]) || (code ? `${FALLBACK} (${code})` : FALLBACK)
   return text.replace(/ ?\(\{(\w+)\}\)/g, (_, k: string) => (details[k] === undefined ? '' : ` (${String(details[k])})`))
 }
 

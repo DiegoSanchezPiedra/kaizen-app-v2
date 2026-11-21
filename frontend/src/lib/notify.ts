@@ -1,9 +1,15 @@
 import { toastManager } from '@/components/ui/toast'
 import { ApiError } from '@/lib/api'
 import { errorText } from '@/lib/errors'
+import { reportError } from '@/lib/report'
 import { formatShortDate } from '@/lib/format'
 
-export const errorCode = (err: unknown): string => (err instanceof ApiError ? err.code : 'unknown')
+// Lo que no es de la API es un fallo de la app (una excepción de JS, a menudo una versión vieja): se reporta y es `unknown`.
+export function errorCode(err: unknown): string {
+  if (err instanceof ApiError) return err.code
+  reportError(err, { where: 'js', code: 'unknown' })
+  return 'unknown'
+}
 
 // Toast de error por `code`; `action` es la salida cuando la hay («Ver opciones», «Completar»).
 export function toastError(err: unknown, action?: { label: string; onClick: () => void }): void {
