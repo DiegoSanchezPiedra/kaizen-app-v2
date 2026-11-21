@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router'
 import { Tag } from '@/components/billing-bits'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/screen-state'
+import { TwinsField, twinNames } from '@/components/twins-field'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -297,6 +298,7 @@ function ChangeClass({ c, onClose }: { c: AdminClass; onClose: () => void }) {
   const today = madridDay()
   const initial = { trainer: c.trainer_id, time: c.start_time, duration: String(c.duration_min), capacity: String(c.capacity), location: c.location ?? '' }
   const [f, setF] = useState({ ...initial, from: today })
+  const [withTwins, setWithTwins] = useState(true)
   const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }))
   const patch = {
     ...(f.trainer !== initial.trainer && { trainer_id: f.trainer }),
@@ -306,10 +308,18 @@ function ChangeClass({ c, onClose }: { c: AdminClass; onClose: () => void }) {
     ...(f.location.trim() !== initial.location && { location: f.location.trim() }),
   }
   const valid = DAY_RE.test(f.from) && f.from >= today && TIME_RE.test(f.time) && intOf(f.duration) >= 1 && intOf(f.capacity) >= 1
+  const moves = c.twins.length > 0 && ('start_time' in patch || 'duration_min' in patch || 'location' in patch)
   const change = useMutation({
-    mutationFn: () => api<{ sessions_changed: number; notified: number; promoted: number }>(`/admin/classes/${c.id}`, { method: 'PATCH', body: { from: f.from, ...patch } }),
+    mutationFn: () =>
+      api<{ sessions_changed: number; notified: number; promoted: number; twins: string[] }>(`/admin/classes/${c.id}`, {
+        method: 'PATCH',
+        body: { from: f.from, ...patch, ...(moves && { with_twins: withTwins }) },
+      }),
     onSuccess: (r) =>
-      toastOk('Clase cambiada', `${plural(r.sessions_changed, 'sesión cambiada', 'sesiones cambiadas')} · ${plural(r.notified, 'aviso', 'avisos')} · ${plural(r.promoted, 'pasa', 'pasan')} de la espera`),
+      toastOk(
+        r.twins.length ? `Clase cambiada, y también ${twinNames(c.twins.filter((t) => r.twins.includes(t.id)))}` : 'Clase cambiada',
+        `${plural(r.sessions_changed, 'sesión cambiada', 'sesiones cambiadas')} · ${plural(r.notified, 'aviso', 'avisos')} · ${plural(r.promoted, 'pasa', 'pasan')} de la espera`,
+      ),
     onError: (err) => toastError(err),
     onSettled: () => void refreshClasses(),
   })
@@ -338,6 +348,7 @@ function ChangeClass({ c, onClose }: { c: AdminClass; onClose: () => void }) {
         <TextField label="Aforo" type="number" min={1} value={f.capacity} onChange={set('capacity')} />
       </div>
       <TextField label="Lugar" value={f.location} maxLength={100} onChange={set('location')} />
+      <TwinsField twins={c.twins} checked={withTwins} onChange={setWithTwins} />
     </FormSheet>
   )
 }

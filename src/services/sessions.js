@@ -102,6 +102,40 @@ export async function assertNoTrainerDuties(client, id) {
   if (busy.busy) throw httpError(409, 'trainer_has_sessions', 'Es profesor de clases o sesiones futuras: reasígnalas antes');
 }
 
+// ── Parejas simultáneas (ADR 0034) ─────────────────────────────────────────────
+// Mismo profesor, misma franja y mismo lugar (normalizado como session_slot_key, 074). Una pareja solo se mueve de una
+// vez: cambiar la hora, la duración o el lugar de una sola la rompe y choca.
+const sameLocation = (a, b) => `lower(btrim(coalesce(${a}.location, ''))) = lower(btrim(coalesce(${b}.location, '')))`;
+export const CLASS_TWIN = (c, t) => `${t}.id <> ${c}.id AND ${t}.trainer_id = ${c}.trainer_id AND ${t}.weekday = ${c}.weekday
+  AND ${t}.start_time = ${c}.start_time AND ${t}.duration_min = ${c}.duration_min AND ${sameLocation(c, t)}`;
+const SESSION_TWIN = (s, t) => `${t}.id <> ${s}.id AND ${s}.status = 'scheduled' AND ${t}.status = 'scheduled'
+  AND ${t}.trainer_id = ${s}.trainer_id AND ${t}.starts_at = ${s}.starts_at AND ${t}.ends_at = ${s}.ends_at
+  AND ${t}.starts_at > now() AND ${sameLocation(s, t)}`;
+export const overlapError = () => httpError(409, 'trainer_overlap',
+  'El profesor ya imparte otra sesión a esa hora; solo puede coincidir con la misma hora, duración y lugar');
+
+export function parseWithTwins(v) {
+  if (v !== undefined && typeof v !== 'boolean') throw invalid('with_twins', 'with_twins debe ser booleano');
+  return v === true;
+}
+// Lo que arrastra la pareja: el profesor y el aforo son de cada una.
+export const twinPatch = (data, fields) => Object.fromEntries(Object.entries(data).filter(([k]) => fields.includes(k)));
+const addCounts = (a, b) => Object.fromEntries(Object.entries(a).map(([k, v]) => [k, typeof v === 'number' ? v + (b[k] ?? 0) : v]));
+
+// Aplica `call(id, patch)` a la principal y a cada pareja con el solape aplazado: se comprueba una vez, con todas movidas.
+export async function changeWithTwins(client, id, data, twins, shared, call) {
+  if (!twins.length) return call(id, data);
+  await client.query(`SET CONSTRAINTS class_sessions_trainer_no_overlap DEFERRED`);
+  let counts = await call(id, data);
+  for (const t of twins) counts = addCounts(counts, await call(t, shared));
+  try {
+    await client.query(`SET CONSTRAINTS class_sessions_trainer_no_overlap IMMEDIATE`);
+  } catch (err) {
+    throw err.code === '23P01' ? overlapError() : err;
+  }
+  return counts;
+}
+
 // [status, mensaje, código HTTP si no es el de SQL, details]
 const CHANGE_ERRORS = {
   not_allowed: [403, 'Solo el admin cambia clases y sesiones'],
@@ -135,7 +169,7 @@ export async function callChange(client, sql, params) {
     if (known) {
       throw httpError(known[0], known[2] ?? err.message, known[1], known[3] ?? (err.detail ? JSON.parse(err.detail) : undefined));
     }
-    if (err.code === '23P01') throw httpError(409, 'trainer_overlap', 'El profesor ya imparte otra sesión a esa hora; solo puede coincidir con la misma hora, duración y lugar');
+    if (err.code === '23P01') throw overlapError();
     // Promociones cruzadas entre sesiones pueden bloquearse mutuamente (como en services/bookings.js).
     if (err.code === '40P01') throw httpError(409, 'booking_conflict_retry', 'Operación concurrente, vuelve a intentarlo');
     throw err;
@@ -149,12 +183,20 @@ const SESSION_SELECT = `
 const getSession = async (client, id) => (await client.query(`${SESSION_SELECT} WHERE id = $1`, [id])).rows[0];
 
 // Ajuste de sesión (CONTEXT, B7.1): sustituto, inicio (también otro día), duración, aforo y lugar.
+// with_twins (ADR 0034): el inicio, la duración y el lugar también a la sesión simultánea de ese día.
 export async function adjustSession(client, { id, body }) {
+  const withTwins = parseWithTwins(body.with_twins);
   if (!Object.keys(SESSION_SPEC).some((k) => body[k] !== undefined)) throw invalid('body', 'Nada que ajustar');
   const data = validate(body, SESSION_SPEC, true);
   if (data.trainer_id) await assertTrainer(client, data.trainer_id);
-  const counts = await callChange(client, `SELECT adjust_session($1, $2) AS r`, [id, data]);
-  return { session: await getSession(client, id), ...counts };
+  const shared = twinPatch(data, ['starts_at', 'duration_min', 'location']);
+  const twins = withTwins && Object.keys(shared).length
+    ? (await client.query(`SELECT t.id FROM class_sessions s JOIN class_sessions t ON ${SESSION_TWIN('s', 't')}
+                            WHERE s.id = $1 ORDER BY t.id`, [id])).rows.map((r) => r.id)
+    : [];
+  const counts = await changeWithTwins(client, id, data, twins, shared,
+    (sid, patch) => callChange(client, `SELECT adjust_session($1, $2) AS r`, [sid, patch]));
+  return { session: await getSession(client, id), ...counts, twins };
 }
 
 // Sesión suelta (CONTEXT, B6.1): sin clase ni slot. La disciplina, FOR SHARE: espera a una desactivación en curso.
@@ -253,7 +295,9 @@ export async function getSessionDetail(client, id) {
             CASE WHEN s.class_id IS NOT NULL THEN jsonb_build_object('trainer_id', s.class_trainer_id,
               'starts_at', s.slot, 'duration_min', s.class_duration_min, 'capacity', s.class_capacity,
               'location', s.class_location) END AS class_values,
-            s.cancel_note
+            s.cancel_note,
+            (SELECT coalesce(jsonb_agg(jsonb_build_object('id', t.id, 'discipline_name', td.name) ORDER BY td.name, t.id), '[]')
+               FROM class_sessions t JOIN disciplines td ON td.id = t.discipline_id WHERE ${SESSION_TWIN('s', 't')}) AS twins
        FROM class_sessions s JOIN disciplines d ON d.id = s.discipline_id LEFT JOIN trainer_names tn ON tn.id = s.trainer_id
       WHERE s.id = $1`, [id]);
   if (!session) throw httpError(404, 'session_not_found', 'Sesión no encontrada');

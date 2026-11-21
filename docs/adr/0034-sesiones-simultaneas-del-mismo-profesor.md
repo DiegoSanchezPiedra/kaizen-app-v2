@@ -13,6 +13,12 @@ Hasta ahora la restricción `class_sessions_trainer_no_overlap` lo impedía siem
   de solo una de las dos se rechaza.
 - **Lo que no cambia**: cada clase tiene su aforo; un alumno no puede reservar las dos (`booking_overlap`); no se controla el lugar
   entre profesores distintos; no hay configuración por disciplina ni confirmación en la interfaz: se crean como dos clases.
+- **Cambiar la pareja** (migración 075): cambiar la hora, la duración o el lugar de una sola rompe la pareja y choca, así que
+  `PATCH /admin/classes/:id` y `PATCH /admin/sessions/:id` aceptan `with_twins: true`, que lleva esos tres campos a las
+  simultáneas (las clases no retiradas en `from`; las sesiones de ese día que no han empezado). El profesor y el aforo nunca se
+  arrastran. Todo va en una transacción con la restricción aplazada (`DEFERRABLE INITIALLY IMMEDIATE` y `SET CONSTRAINTS …
+  DEFERRED`), que se comprueba al final, con todas ya movidas. En la interfaz es la casilla «Cambiar también …», marcada por
+  defecto. Se descartó moverlas siempre, porque entonces no se podrían separar.
 
 Se descartó un formulario de «varias disciplinas a la vez» porque crear dos clases separadas ya funciona.
 También se descartó comprobar el solape en JS, porque la base de datos ya lo hacía sin carreras.

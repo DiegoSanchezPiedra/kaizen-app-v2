@@ -664,11 +664,11 @@ try {
 
     const rs = await http('PATCH', `/admin/sessions/${s.id}`, admin, { capacity: 9 });
     assert.equal(rs.status, 200);
-    assert.deepEqual(Object.keys(rs.body).sort(), ['notified', 'promoted', 'session', 'sessions_changed']);
+    assert.deepEqual(Object.keys(rs.body).sort(), ['notified', 'promoted', 'session', 'sessions_changed', 'twins']);
     assert.equal(rs.body.session.capacity, 9);
     const rc = await http('PATCH', `/admin/classes/${k.id}`, admin, { location: 'tatami 5' });
     assert.equal(rc.status, 200);
-    assert.deepEqual(Object.keys(rc.body).sort(), ['class', 'notified', 'promoted', 'sessions_changed']);
+    assert.deepEqual(Object.keys(rc.body).sort(), ['class', 'notified', 'promoted', 'sessions_changed', 'twins']);
     assert.equal(rc.body.class.location, 'tatami 5');
     assert.equal((await http('PATCH', `/admin/sessions/${s.id}`, admin, {})).body.code, 'invalid_field');
     assert.equal((await http('PATCH', `/admin/classes/${k.id}`, admin, {})).body.code, 'invalid_field');

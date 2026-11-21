@@ -36,6 +36,8 @@ export type AdminSession = {
   // null en una sesión suelta; `starts_at` es el slot (la hora que le toca según su clase).
   class_values: { trainer_id: string; starts_at: string; duration_min: number; capacity: number; location: string | null } | null
   cancel_note: string | null
+  // Simultáneas de ese día (ADR 0034).
+  twins: { id: string; discipline_name: string }[]
 }
 export type SessionBooking = { id: string; student: { id: string; display_name: string | null }; status: 'confirmed' | 'waitlisted'; created_at: string }
 
@@ -134,6 +136,8 @@ export type AdminClass = {
   location: string | null
   starts_on: string
   ends_on: string | null
+  // Simultáneas no retiradas (ADR 0034).
+  twins: { id: string; discipline_name: string }[]
 }
 // starts_on y ends_on son días de Madrid (YYYY-MM-DD, la API los manda como texto): se comparan tal cual.
 export const classState = (c: Pick<AdminClass, 'ends_on'>, today: string = madridDay()): 'active' | 'ending' | 'retired' =>
