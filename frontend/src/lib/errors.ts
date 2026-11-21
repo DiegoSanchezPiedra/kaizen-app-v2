@@ -266,3 +266,26 @@ Object.assign(TEXTS, {
   minor_restricted: 'Esto lo hace tu tutor.', // propuesto
   session_revoked: 'Tu acceso ha cambiado; vuelve a entrar.', // propuesto
 })
+
+// Codes del backend que no tenían texto (los vigila lib.test.ts): sin texto, la pantalla enseñaba el código en crudo.
+Object.assign(TEXTS, {
+  invalid_request: 'Revisa los datos.',
+  profile_id_required: 'Revisa los datos.',
+  invalid_profile_id: 'No lo encontramos.',
+  ranking_not_found: 'No lo encontramos.',
+  unknown_agreement_type: 'No lo encontramos.',
+  communique_not_found: 'No lo encontramos.',
+  communique_withdrawn: 'Este comunicado ya está retirado.', // propuesto
+  minor_cannot_create_child: 'Solo un adulto puede dar de alta a sus hijos.', // propuesto
+  not_supported: 'La disciplina y el día no se cambian: retira la clase y crea otra.', // propuesto
+  mfa_already_enabled: 'El doble factor ya está activado.', // propuesto
+  mfa_not_enabled: 'El doble factor no está activado.', // propuesto
+  mfa_not_setup: 'Primero configura el doble factor.', // propuesto
+  missing_mfa_token: 'El código ha caducado, vuelve a entrar.',
+  missing_token: 'Tu sesión ha caducado; vuelve a entrar.', // propuesto
+  invalid_token: 'Tu sesión ha caducado; vuelve a entrar.', // propuesto
+  reauth_required: 'Tu sesión ha caducado; vuelve a entrar.', // propuesto
+  role_revoked: 'Tu acceso ha cambiado; vuelve a entrar.', // propuesto
+  agreement_corrupted: 'No podemos enseñar este documento ahora. Avisa a la academia.', // propuesto
+  rls_context_missing: 'El servidor ha fallado; inténtalo de nuevo en un momento.',
+})
