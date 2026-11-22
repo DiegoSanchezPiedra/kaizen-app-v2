@@ -59,6 +59,14 @@ try {
       await rejects(createClass(c, { body: { ...base, discipline_id: '999999999' }, actorId: admin }), 400, 'invalid_field');
       await rejects(createClass(c, { body: { ...base, starts_on: '2030-01-10', ends_on: '2030-01-01' }, actorId: admin }), 400, 'invalid_field');
     });
+    await run('un admin que también es profesor se pone a sí mismo de profesor (antes: 400 trainer_id)', async () => {
+      await servicePool.query(`INSERT INTO user_roles (user_id, role) VALUES ($1,'profesor')`, [admin]);
+      await sp(c, async () => {
+        const own = await createClass(c, { body: { ...base, discipline_id: String(disc2.id), trainer_id: admin, weekday: 3 }, actorId: admin });
+        assert.equal(own.trainer_id, admin);
+      });
+      await servicePool.query(`DELETE FROM user_roles WHERE user_id = $1 AND role = 'profesor'`, [admin]);
+    });
     await run('solape del mismo profesor → 409 y no deja clase a medias', async () => {
       await sp(c, () => rejects(createClass(c, { body: { ...base, start_time: '19:30' }, actorId: admin }), 409, 'trainer_overlap'));
       assert.equal((await listClasses(c, { discipline_id: String(disc.id) })).length, 1);

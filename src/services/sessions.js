@@ -87,9 +87,12 @@ export async function extendHorizon(client) {
 }
 
 export async function assertTrainer(client, id) {
+  // FOR SHARE aplica la política UPDATE de user_roles, que excluye la fila propia: un admin que es profesor no se veía a sí
+  // mismo y le salía «no es profesor». shortcut: para sí mismo va sin bloqueo (otro admin podría quitarle el rol a la vez).
+  const { rows: [{ self }] } = await client.query(`SELECT $1 = current_setting('app.current_user_id', true) AS self`, [id]);
   const { rowCount } = await client.query(
     `SELECT 1 FROM user_roles r LEFT JOIN auth_credentials c ON c.profile_id = r.user_id
-      WHERE r.user_id = $1 AND r.role = 'profesor' AND c.disabled_at IS NULL FOR SHARE OF r`, [id]);
+      WHERE r.user_id = $1 AND r.role = 'profesor' AND c.disabled_at IS NULL${self ? '' : ' FOR SHARE OF r'}`, [id]);
   if (!rowCount) throw invalid('trainer_id', 'El perfil no es profesor o está desactivado');
 }
 
