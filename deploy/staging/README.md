@@ -214,6 +214,18 @@ npm run staging:build                         # 6. compila el frontend, si hace 
 `--cancel-stripe` (junto a `--yes`) cancela antes en Stripe las suscripciones reales del dry-run; solo con clave `sk_test_`/`rk_test_`.
 Repetirlo sobre una base recién migrada funciona igual.
 
+### Borrar un usuario de prueba
+
+Para repetir la prueba de «usuario nuevo que paga» sin vaciar todo: borra un alumno o tutor (y los hijos que solo tutela él)
+de la base, su foto y su cliente de Stripe de prueba (con él, sus suscripciones). Se niega con admin o profesor.
+
+```bash
+npm run staging:delete-user -- prueba@email.com          # dry-run: qué filas, fotos y clientes de Stripe borraría
+npm run staging:delete-user -- prueba@email.com --yes    # lo borra en una transacción (pide escribir el email)
+```
+
+No hace falta parar la API. Las facturas y pagos siguen en el panel de Stripe (modo prueba) como historial del cliente borrado.
+
 ### Reiniciar de cero
 
 Borra **solo** el staging (la BD de desarrollo no se toca):
