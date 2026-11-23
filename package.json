@@ -67,6 +67,7 @@
     "staging:medals": "DOTENV_CONFIG_PATH=.env.staging node --env-file=.env.staging deploy/staging/medals.mjs",
     "staging:wipe": "DOTENV_CONFIG_PATH=.env.staging node --env-file=.env.staging deploy/staging/wipe.mjs",
     "staging:admin": "DOTENV_CONFIG_PATH=.env.staging node --env-file=.env.staging deploy/staging/admin.mjs",
+    "staging:delete-user": "DOTENV_CONFIG_PATH=.env.staging node --env-file=.env.staging deploy/staging/delete-user.mjs",
     "staging:reset": "npm run staging:migrate && npm run staging:seed && npm run staging:demo && npm run staging:medals",
     "local:seed": "SEED_API=http://127.0.0.1:3001 SEED_PASSWORD=${SEED_PASSWORD:-kaizen-local-1} node --env-file=.env deploy/staging/seed.mjs",
     "local:demo": "SEED_API=http://127.0.0.1:3001 SEED_PASSWORD=${SEED_PASSWORD:-kaizen-local-1} node --env-file=.env deploy/staging/demo.mjs",
